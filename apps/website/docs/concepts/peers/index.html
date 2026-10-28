@@ -270,8 +270,8 @@
         <li>
           <strong>Funds first.</strong> When the hub holds less than that,
           and one packet more to take a newcomer, your node deposits the
-          rest from your own account, even past the hub's ceiling, and never
-          withdraws it. While your own account can pay, nothing below
+          rest and a tenth of its target more from your own account, even
+          past the hub's ceiling, and never withdraws that. While your own account can pay, nothing below
           happens.
         </li>
         <li>
@@ -290,7 +290,7 @@
         <li>
           <strong>Ending last.</strong> Only if the funds stay short of a
           packet for every peer while no deposit can come (your own account
-          is empty, or the node's own moves are off, paused or backing off)
+          is empty, or the node's own moves are off or paused)
           for about ten minutes, long enough for a deposit of yours to land,
           does your node end as many
           peerings as bring it back to a packet each. Nodes that use yours

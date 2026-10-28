@@ -289,10 +289,15 @@ pub struct Standing {
     /// its peers there ([`Held::pool`]): a largest packet for each peering
     /// over the hub and one more, and a request's funding as the margin,
     /// so that the node takes newcomers while its own account can pay
-    /// (spec/decisions/slots-by-liquidity.md). A deposit brings the pool
-    /// back to it, past the ceiling if need be, and a withdrawal never
-    /// takes it below.
+    /// (spec/decisions/slots-by-liquidity.md). Below it, a deposit brings
+    /// the pool a [`pool_step`](Self::pool_step) past it, past the ceiling
+    /// if need be, and a withdrawal never takes it below that.
     pub least_pool: u64,
+    /// How far past [`least_pool`](Self::least_pool) a deposit the pool
+    /// calls for fills it, and a withdrawal leaves it: a step of the hub's
+    /// target, the gap between its floor and the target, so that the pool's
+    /// moves carry a step each, as the target's do.
+    pub pool_step: u64,
     /// What opening the account takes before anything is kept in it: its
     /// reserve and the fees of its first operations.
     pub opening: u64,
@@ -580,6 +585,22 @@ impl Funding {
     /// operations ahead of it executed ([`Standing::spendable`]), less what
     /// the payments need (spec/decisions/generous-hub-target.md).
     pub fn due(&self, now_ms: u64, standing: &Standing) -> Option<Planned> {
+        self.planned(now_ms, standing, true)
+    }
+
+    /// Whether a deposit of the node's own can come, now or once a backoff
+    /// after failed deposits ends: one would be [`due`](Self::due) but for
+    /// the backoff. A failing deposit is tried again, and no peer is ended
+    /// for it (spec/decisions/slots-by-liquidity.md); what keeps any from
+    /// coming is the owner's book that cannot pay the least deposit, moves
+    /// turned off, paused or given up, or a hub that is unavailable.
+    pub fn deposit_can_come(&self, now_ms: u64, standing: &Standing) -> bool {
+        self.planned(now_ms, standing, false)
+            .is_some_and(|planned| planned.direction == Direction::Deposit)
+    }
+
+    /// [`due`](Self::due), with the backoffs after failures if `backoffs`.
+    fn planned(&self, now_ms: u64, standing: &Standing, backoffs: bool) -> Option<Planned> {
         let promised = standing.promised;
         // What the payments need beyond the owner's funds in the hub.
         let deficit = promised.saturating_sub(standing.hub_posted);
@@ -592,7 +613,7 @@ impl Funding {
         if waiting {
             return None;
         }
-        let backing_off = |direction| self.backing_off(direction, now_ms).is_some();
+        let backing_off = |direction| backoffs && self.backing_off(direction, now_ms).is_some();
         let Some(held) = standing.held else {
             return opening(standing).filter(|_| !backing_off(Direction::Deposit));
         };
@@ -607,28 +628,40 @@ impl Funding {
             .saturating_sub(held.balance);
         // What the pool lacks of a packet for each peering and one more:
         // the reserves count toward the target, so a node may keep its
-        // target with too little to hold toward its peers.
+        // target with too little to hold toward its peers. A deposit it
+        // calls for fills the pool a step past it, which a withdrawal
+        // leaves, so the claims of a while draw one deposit, not one each.
         let lacking = standing.least_pool.saturating_sub(held.pool());
+        let filling = if lacking > 0 {
+            standing
+                .least_pool
+                .saturating_add(standing.pool_step)
+                .saturating_sub(held.pool())
+        } else {
+            0
+        };
         let low = held.kept < standing.floor.saturating_add(promised);
         if low || deficit > 0 || short > 0 || lacking > 0 {
             if backing_off(Direction::Deposit) {
                 return None;
             }
-            let needed = deficit.max(short).max(lacking);
+            let needed = deficit.max(short);
+            let wanted = needed.max(filling);
             let target = if paused { standing.floor } else { middle };
             let room = standing
                 .ceiling
                 .saturating_add(promised)
                 .saturating_sub(held.kept)
-                .max(needed);
+                .max(wanted);
             let drops = target
                 .saturating_add(promised)
                 .saturating_sub(held.kept)
-                .max(needed)
+                .max(wanted)
                 .min(room)
                 .min(standing.xrpl?.saturating_sub(standing.gas_kept));
             // A deposit is worth its fees from a largest packet on, but
-            // one a payment or a request waits for goes however small.
+            // one a payment or a request waits for goes however small;
+            // the pool's waits for a largest packet, as the floor's does.
             let least = if needed > 0 {
                 needed.min(standing.least_deposit)
             } else {
@@ -819,7 +852,7 @@ impl Funding {
 /// never more than that state's balance), less what the requests to settle
 /// may ask of it, what the owner's payments need and its fees; nor than the
 /// owner's funds in the hub, less what the payments need and its fees; nor
-/// more than takes the pool below what the peerings need.
+/// more than takes the pool below what the peerings need and a step.
 fn withdrawal(held: &Held, standing: &Standing, middle: u64) -> Option<Planned> {
     let promised = standing.promised;
     let fees = standing.withdrawal_fees;
@@ -839,7 +872,11 @@ fn withdrawal(held: &Held, standing: &Standing, middle: u64) -> Option<Planned> 
         .saturating_sub(promised)
         .saturating_sub(middle)
         .min(spare)
-        .min(held.pool().saturating_sub(standing.least_pool));
+        .min(
+            held.pool()
+                .saturating_sub(standing.least_pool)
+                .saturating_sub(standing.pool_step),
+        );
     if drops == 0 || drops < standing.least_payout {
         return None;
     }
@@ -856,8 +893,8 @@ fn withdrawal(held: &Held, standing: &Standing, middle: u64) -> Option<Planned> 
         "a withdrawal leaves the target and what the payments need"
     );
     assert!(
-        held.pool().saturating_sub(drops) >= standing.least_pool,
-        "a withdrawal leaves a packet for each peering"
+        held.pool().saturating_sub(drops) >= standing.least_pool.saturating_add(standing.pool_step),
+        "a withdrawal leaves a packet for each peering, and a step"
     );
     Some(Planned::withdraw(
         drops,
@@ -904,6 +941,7 @@ mod tests {
             ceiling: 10_000_000,
             least_spendable: 0,
             least_pool: 0,
+            pool_step: 0,
             opening: 2_001_000,
             least_payout: 1_000_000,
             ledger_fee: 100,
@@ -1063,16 +1101,18 @@ mod tests {
 
     // spec/decisions/slots-by-liquidity.md: the reserves count toward the
     // target, so a hub at its target may hold too little for a packet per
-    // peering. The node deposits what the pool lacks, past the ceiling, as
-    // much as its own account can pay, and a withdrawal leaves it.
+    // peering. The node deposits what the pool lacks and a step more, past
+    // the ceiling, as much as its own account can pay from the least
+    // deposit on, and a withdrawal leaves the pool a step past its least.
     #[test]
     fn the_pool_keeps_a_packet_per_peering() {
         let funding = Funding::new(0, 4_000);
         // Kept past the ceiling by reserves and holds, with a pool of
-        // 1 000 000 against 1 600 000 needed.
+        // 1 000 000 against 1 600 000 needed, and a step of 500 000.
         let pooled = |balance, ours, kept| {
             let mut standing = Standing {
                 least_pool: 1_600_000,
+                pool_step: 500_000,
                 ..standing(balance, kept)
             };
             if let Some(held) = &mut standing.held {
@@ -1085,8 +1125,8 @@ mod tests {
             .unwrap();
         assert_eq!(lacking.direction, Direction::Deposit);
         assert_eq!(
-            lacking.drops, 600_000,
-            "past the ceiling, what the pool lacks"
+            lacking.drops, 1_100_000,
+            "past the ceiling, what the pool lacks and a step"
         );
         let poor = Standing {
             xrpl: Some(250_000),
@@ -1097,26 +1137,93 @@ mod tests {
             250_000,
             "what the book has"
         );
-        let empty = Standing {
-            xrpl: Some(0),
-            ..pooled(400_000, 600_000, 30_000_000)
-        };
-        assert_eq!(funding.due(1, &empty), None, "nothing comes");
+        for drops in [0, 50_000] {
+            let empty = Standing {
+                xrpl: Some(drops),
+                ..pooled(400_000, 600_000, 30_000_000)
+            };
+            assert_eq!(funding.due(1, &empty), None, "less than a least deposit");
+            assert!(!funding.deposit_can_come(1, &empty));
+        }
         // Past the ceiling with more than the pool needs: a withdrawal of
-        // what is beyond it, no more.
+        // what is beyond its least and a step, no more.
         let high = funding
             .due(1, &pooled(3_000_000, 600_000, 30_000_000))
             .unwrap();
         assert_eq!(high.direction, Direction::Withdraw);
-        assert_eq!(high.drops, 3_600_000 - 1_600_000, "the pool needs the rest");
         assert_eq!(
-            funding.due(1, &pooled(1_000_000, 600_000, 30_000_000)),
+            high.drops,
+            3_600_000 - 1_600_000 - 500_000,
+            "the pool keeps a step past its least"
+        );
+        assert_eq!(
+            funding.due(1, &pooled(1_800_000, 600_000, 30_000_000)),
             None,
-            "the pool is at its least"
+            "a step past its least, less than the hub pays out"
         );
     }
 
-    // The first deposit opens the account once the hub says it has none,    // The first deposit opens the account once the hub says it has none,
+    // Found in review: with the target counting 80 packets of reserves, a
+    // hub at a 100-packet target with 30 holding peerings holds a pool of
+    // 20 packets against 35.75 needed. A run of claims on the node's holds
+    // draws one deposit of more than a step, not one per claim, and
+    // nothing is withdrawn back.
+    #[test]
+    fn claims_draw_a_deposit_a_step_at_a_time() {
+        let funding = Funding::new(0, 4_000);
+        let p = 100_000;
+        let reserves = 80 * p;
+        let at = |balance: u64, ours: u64| {
+            let mut standing = Standing {
+                floor: 90 * p,
+                ceiling: 110 * p,
+                least_pool: 3_575_000,
+                pool_step: 10 * p,
+                ..standing(balance, balance + ours + reserves)
+            };
+            if let Some(held) = &mut standing.held {
+                held.ours = ours;
+            }
+            standing
+        };
+        let (mut balance, mut ours) = (1_575_000, 30 * p);
+        let mut deposits = Vec::new();
+        for claim in 1..=15 {
+            // A peer redeems two packets of our hold toward it.
+            ours -= 2 * p;
+            if let Some(planned) = funding.due(1, &at(balance, ours)) {
+                assert_eq!(planned.direction, Direction::Deposit, "claim {claim}");
+                balance += planned.drops;
+                deposits.push((claim, planned.drops));
+            }
+        }
+        assert_eq!(deposits, [(6, 1_200_000), (12, 1_200_000)]);
+    }
+
+    // spec/decisions/slots-by-liquidity.md: a deposit that failed, and
+    // backs off, still comes while the book can pay and moves are on, so
+    // no peer is ended for it, however often it fails; moves turned off
+    // keep any from coming.
+    #[test]
+    fn a_failing_deposit_is_still_coming() {
+        let mut funding = Funding::new(0, 4_000);
+        let lacking = Standing {
+            least_pool: 1_600_000,
+            pool_step: 500_000,
+            ..standing(400_000, 30_000_000)
+        };
+        let mut now = 1;
+        for _ in 0..6 {
+            funding.failed(now, Direction::Deposit);
+            now += 1;
+            assert_eq!(funding.due(now, &lacking), None, "backing off");
+            assert!(funding.deposit_can_come(now, &lacking));
+        }
+        funding.automatic = false;
+        assert!(!funding.deposit_can_come(now, &lacking));
+    }
+
+    // The first deposit opens the account once the hub says it has none,
     // with the target, as much of it as the XRPL account holds, and is
     // done once the account it opened counts it.
     #[test]

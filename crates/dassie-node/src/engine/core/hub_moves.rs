@@ -744,6 +744,7 @@ impl Core {
             ceiling,
             least_spendable,
             least_pool: drops_up(self.least_pool(scheme)),
+            pool_step: policy::hub_step(target) / UNITS_PER_DROP,
             opening: fees
                 .account_reserve
                 .saturating_add(fees.starting_balance)
@@ -1525,18 +1526,23 @@ impl Core {
             frozen_since_ms: account.frozen(),
             escrow_held: account.escrow_held(),
             settling: self.hub_settling(scheme, funding, account),
-            liquidity: self
-                .shortfall(scheme)
-                .map(|(shortfall, ends_from_ms)| HubLiquidity {
-                    pool: shortfall.pool,
-                    peerings: shortfall.peerings,
-                    covered: shortfall.covered,
-                    short_since_ms: shortfall.since_ms,
-                    ends_from_ms,
-                    refusing_downlinks: shortfall.refusing_downlinks,
-                    refusing_core: shortfall.refusing_core,
-                }),
+            liquidity: self.hub_liquidity(scheme),
         })
+    }
+
+    /// The pool of the hub of `scheme` against its peerings, as the last
+    /// check judged it (spec/decisions/slots-by-liquidity.md).
+    fn hub_liquidity(&self, scheme: Name) -> Option<HubLiquidity> {
+        self.shortfall(scheme)
+            .map(|(shortfall, ends_from_ms)| HubLiquidity {
+                pool: shortfall.pool,
+                peerings: shortfall.peerings,
+                covered: shortfall.covered,
+                short_since_ms: shortfall.since_ms,
+                ends_from_ms,
+                refusing_downlinks: shortfall.refusing_downlinks,
+                refusing_core: shortfall.refusing_core,
+            })
     }
 
     /// Whether settling over the hub of `scheme` is under way: a move

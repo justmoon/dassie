@@ -6,9 +6,10 @@
 //!
 //! - **Funds first.** The node's funding keeps the pool at a packet for
 //!   each peering and one more, with the margin
-//!   (`Core::least_pool`, `Standing::least_pool`): it deposits what the
-//!   pool lacks from the owner's own account, past the hub's ceiling if
-//!   need be, and never withdraws it. So a node whose account can pay
+//!   (`Core::least_pool`, `Standing::least_pool`): below it, it deposits
+//!   what the pool lacks and a step of the target more from the owner's own
+//!   account, past the hub's ceiling if need be, and a withdrawal leaves
+//!   the pool that step past its least, so its moves carry a step each. So a node whose account can pay
 //!   neither refuses nor ends a peer for want of pool.
 //! - **Newcomers next.** A newcomer over the hub is taken only while the
 //!   pool covers it too: a downlink once it covers every peering and one
@@ -20,7 +21,8 @@
 //!   request to settle's funding, so that one settlement either way does
 //!   not flip it.
 //! - **Ends last.** Only once the pool has stayed short of its peerings
-//!   with no funds of the node's own coming, no deposit on its way or due,
+//!   with no funds of the node's own coming, no deposit on its way or able
+//!   to come (one backing off after failures still can),
 //!   for a grace, does the node end as many as bring it back to a packet
 //!   each: downlinks first, those that never paid us before those that
 //!   did, the newest first; core peers only once no downlink is left over
@@ -54,13 +56,13 @@ use super::Core;
 use super::hub_funding::{CREDIT_WAIT_MS, Direction};
 
 /// How long a hub's pool may stay short of its peerings, once the node
-/// can no longer fund it itself (its own account cannot pay, its moves are
-/// off, paused or given up, its deposits back off, or the hub is
+/// can no longer fund it itself (its own account cannot pay the least
+/// deposit, its moves are off, paused or given up, or the hub is
 /// unavailable), before the node ends any of them: a funding check,
 /// `check_ms` apart, and the time a deposit may take to be credited before
-/// it is late ([`CREDIT_WAIT_MS`]), so that one the owner makes, or the
-/// node makes once its backoff ends, lands first. While a deposit of its
-/// own is on its way and not late, or due, no grace runs.
+/// it is late ([`CREDIT_WAIT_MS`]), so that one the owner makes lands
+/// first. While a deposit of its own is on its way and not late, or can
+/// come, a failing one backing off included, no grace runs.
 #[must_use]
 pub const fn grace_ms(check_ms: u64) -> u64 {
     check_ms.saturating_add(CREDIT_WAIT_MS)
@@ -322,11 +324,13 @@ impl Core {
         }
         let held = Self::held(account)?;
         let now = self.now_ms;
-        // A deposit of the node's own on its way and not late, or one due
-        // now: its funding check deposits what the pool lacks
+        // A deposit of the node's own on its way and not late, or one that
+        // can come, now or once a backoff after failures ends: its funding
+        // deposits what the pool lacks
         // ([`Standing::least_pool`](super::hub_funding::Standing::least_pool)),
-        // as much as the owner's book can pay, unless its moves are off,
-        // paused or given up, backing off, or the hub is unavailable.
+        // as much as the owner's book can pay from the least deposit on,
+        // unless its moves are off, paused or given up, or the hub is
+        // unavailable. Ending peers would not mend a failing deposit.
         let funds_coming = self.funding.get(&scheme).is_some_and(|funding| {
             let on_its_way = funding
                 .moving
@@ -335,8 +339,7 @@ impl Core {
             on_its_way
                 || self
                     .standing(scheme)
-                    .and_then(|standing| funding.due(now, &standing))
-                    .is_some_and(|planned| planned.direction == Direction::Deposit)
+                    .is_some_and(|standing| funding.deposit_can_come(now, &standing))
         });
         Some(Reading {
             pool: held.pool().saturating_mul(UNITS_PER_DROP),
