@@ -580,6 +580,8 @@ pub struct NetworkView {
     pub local_routes: Vec<(String, EndpointId, dassie_ledger::LedgerId)>,
     /// Whether we are on a majority of the bootstrap nodes' lists.
     pub member: bool,
+    /// Whether we are in the core, as the signed data defines it.
+    pub core: bool,
 }
 
 impl Core {
@@ -702,6 +704,7 @@ impl Core {
                 .map(|(id, address, ledger)| (address.to_string(), id, ledger))
                 .collect(),
             member: self.peer.majority().contains(self.peer.own()),
+            core: self.peer.core().contains(self.peer.own()),
         }
     }
 

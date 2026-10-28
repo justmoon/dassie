@@ -274,8 +274,13 @@ fn membership(
         .filter(|bootstrap| bootstrap.listed)
         .count();
     let total = registration.bootstrap.len();
+    // spec/decisions/promotion-to-core.md: a member is in the core once
+    // the signed data says so.
+    let core = if registration.core { "in" } else { "not in" };
     let membership = if registration.member {
-        format!("a member of the network, listed by {listed} of {total} bootstrap nodes")
+        format!(
+            "a member of the network, {core} its core, listed by {listed} of {total} bootstrap nodes"
+        )
     } else {
         format!("not a member yet, listed by {listed} of {total} bootstrap nodes")
     };
@@ -979,7 +984,15 @@ mod tests {
         };
         assert_eq!(
             membership(&member, None, false),
-            "a member of the network, listed by 2 of 3 bootstrap nodes; peers: unknown"
+            "a member of the network, not in its core, listed by 2 of 3 bootstrap nodes; peers: unknown"
+        );
+        let core = proto::GetRegistrationStatusResponse {
+            core: true,
+            ..member
+        };
+        assert_eq!(
+            membership(&core, None, false),
+            "a member of the network, in its core, listed by 2 of 3 bootstrap nodes; peers: unknown"
         );
     }
 

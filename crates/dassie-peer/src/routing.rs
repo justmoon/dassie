@@ -173,7 +173,7 @@ pub fn through<'a>(
 }
 
 /// Whether `a` and `b` list each other.
-fn is_edge<'a>(
+pub(crate) fn is_edge<'a>(
     neighbors: &impl Fn(&NodeId) -> Option<&'a [NodeId]>,
     a: &NodeId,
     b: &NodeId,

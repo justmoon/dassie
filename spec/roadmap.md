@@ -109,7 +109,7 @@ Nodes without a public IP join as periphery nodes: they connect only to core nod
   - free receivers (their half of an uplink's downlinks is built), paid into their uplink's hub without a deposit ([Settlement hubs](areas/hubs.md#the-members-side));
   - browser nodes;
   - **becoming core** ([promotion-to-core](decisions/promotion-to-core.md)). On `main` a node with a hostname is core and one without is periphery; under [promotion-to-core](decisions/promotion-to-core.md) every node starts in the periphery and is core only when the signed data says so: registered, in the 2-core of the graph of edges both ends advertise, in its component with the most bootstrap nodes. The parts:
-    - computing the core from the majority list and fresh link states, the same in every node, and routing to a node's own address only once it is core;
+    - routing to a node's own address only once it is core. Every node computes the core already ([Network](areas/network.md#the-core));
     - promotion: an uplink advertises its downlink as a neighbor once the downlink is registered, answers at its URL with a publicly issued certificate, has an hour of good standing and its heartbeats, twenty of the largest packets of room in the uplink's books and a completed settlement, a clock within bounds, and no ban; a link-state entry for a core node's free core relationships, so a node chooses uplinks that can promote it;
     - a peering's kind following the peer's status in place, both ways, with its accounts and channel, and the uplink routing the child address for as long as they are peered;
     - a node using its own address after a set wait, and its child addresses again at once when it stops being core;

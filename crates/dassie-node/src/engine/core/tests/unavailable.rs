@@ -193,6 +193,7 @@ fn started(sim: &Sim, index: usize) -> crate::engine::Core {
         },
         bootstrap: Vec::new(),
         uplinks: Vec::new(),
+        dev_core: Vec::new(),
     };
     crate::engine::Core::start(parts, sim.now).unwrap()
 }

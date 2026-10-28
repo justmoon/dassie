@@ -2,6 +2,7 @@
 //! their changes, expiring registrations, removing nodes nobody needs, the
 //! routes, and the invariants.
 
+use alloc::collections::BTreeSet;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -13,11 +14,11 @@ use crate::channel::Retry;
 use crate::io::Event;
 use crate::names::Registrar;
 use crate::persist::{PeerBatch, Stored, StoredChannel, StoredClosed, StoredNode};
-use crate::routing;
 use crate::table::{
     Advertise, Depeering, Entry, LinkState, PeerState, Peering, Room, Sources, Termination,
 };
 use crate::wire::{Endpoint, SchemeId, SignedNodeInfo};
+use crate::{core_nodes, routing};
 
 /// How far our peering with a node has come.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,6 +56,9 @@ pub struct NodeView {
     pub peering: Option<Peering>,
     /// The peering's termination, if it is being ended.
     pub termination: Option<Termination>,
+    /// Whether it is in the core, as the signed data defines it
+    /// (spec/decisions/promotion-to-core.md).
+    pub core: bool,
     /// Whether it is listed as our neighbor.
     pub advertised: bool,
     /// Whether our peer was heard from within the confirm window: unless
@@ -433,6 +437,7 @@ impl PeerNode {
                 sources: entry.sources,
                 peering: entry.peering().cloned(),
                 termination: entry.termination().copied(),
+                core: self.core.contains(id),
                 advertised: !entry.is_downlink()
                     && entry.active_peering().is_some()
                     && entry.advertise.on,
@@ -549,6 +554,12 @@ impl PeerNode {
             self.routes = routes;
             self.event(Event::RoutesChanged);
         }
+        self.core = self.compute_core();
+        if !self.core.contains(&self.own) {
+            self.own_core_since_ms = None;
+        } else if self.own_core_since_ms.is_none() {
+            self.own_core_since_ms = Some(now);
+        }
         for (id, entry) in &mut self.table {
             let wanted = entry.sources.contains(Sources::MAJORITY)
                 && *id != self.own
@@ -577,6 +588,26 @@ impl PeerNode {
                 );
             }
         }
+    }
+
+    /// The core, from the majority list and fresh link states
+    /// (spec/decisions/promotion-to-core.md). A node with no bootstrap
+    /// nodes runs alone, as its own bootstrap node, registered with
+    /// itself: a core alone.
+    fn compute_core(&self) -> BTreeSet<NodeId> {
+        let (now, stale, future) = (self.now_ms, self.config.stale_ms, self.config.max_future_ms);
+        let table = &self.table;
+        let neighbors = |node: &NodeId| {
+            let link = table.get(node)?.link.as_ref()?;
+            link.is_fresh(now, stale, future)
+                .then_some(link.neighbors.as_slice())
+        };
+        if self.bootstrap.is_empty() {
+            let alone = BTreeSet::from([self.own]);
+            return core_nodes::compute(&alone, &alone, &self.dev_core, neighbors);
+        }
+        let bootstrap: BTreeSet<NodeId> = self.bootstrap.iter().map(|node| node.id).collect();
+        core_nodes::compute(self.majority(), &bootstrap, &self.dev_core, neighbors)
     }
 
     /// Checks the node's invariants (spec/decisions/tigerstyle.md): bounds,
@@ -646,6 +677,7 @@ impl PeerNode {
             !self.routes.contains_key(&self.own),
             "no route to ourselves"
         );
+        self.check_core();
         for route in self.routes.values() {
             assert!(
                 !route.first_hops.is_empty() && route.first_hops.len() <= routing::MAX_FIRST_HOPS,
@@ -739,6 +771,20 @@ impl PeerNode {
                 "a link state without a URL is a periphery node's"
             );
         }
+    }
+
+    /// The core's invariants: of nodes once in the table, or the dev core,
+    /// and our own place in it known.
+    fn check_core(&self) {
+        assert!(
+            self.core.len() <= self.config.max_nodes + core_nodes::MAX_DEV_CORE,
+            "the core within bounds"
+        );
+        assert_eq!(
+            self.own_core_since_ms.is_some(),
+            self.core.contains(&self.own),
+            "we know since when we are core"
+        );
     }
 
     /// The channels' and bans' invariants.

@@ -314,6 +314,8 @@ pub struct CoreParts {
     pub bootstrap: Vec<dassie_peer::Bootstrap>,
     /// The uplinks a periphery node asks only; empty for any.
     pub uplinks: Vec<dassie_identity::NodeId>,
+    /// The nodes a dev network makes core outright; empty outside one.
+    pub dev_core: Vec<dassie_identity::NodeId>,
 }
 
 /// The engine's state.
@@ -508,7 +510,12 @@ impl Core {
             &parts.store,
             &parts.key,
             peer_config(&parts.policies, parts.realm),
-            (parts.own_info, parts.bootstrap, parts.uplinks),
+            (
+                parts.own_info,
+                parts.bootstrap,
+                parts.uplinks,
+                parts.dev_core,
+            ),
             parts.peer_rng,
             now_ms,
         )?;
@@ -1137,14 +1144,16 @@ fn check_name_bounds(policies: &Policies) {
 pub const MAX_LOCAL_ENDPOINTS: usize = 3 * MAX_PRICED_LEDGERS;
 
 /// The peer protocol's state machine, from what the store kept of it,
-/// pinned to `uplinks` while it runs as a periphery node.
+/// pinned to `uplinks` while it runs as a periphery node, with the dev
+/// network's `dev_core`.
 fn new_peer(
     store: &Store,
     key: &Arc<IdentityKey>,
     config: dassie_peer::Config,
-    (own_info, bootstrap, uplinks): (
+    (own_info, bootstrap, uplinks, dev_core): (
         dassie_peer::OwnInfo,
         Vec<dassie_peer::Bootstrap>,
+        Vec<dassie_identity::NodeId>,
         Vec<dassie_identity::NodeId>,
     ),
     peer_rng: Box<dyn SharedRng>,
@@ -1160,6 +1169,7 @@ fn new_peer(
         now_ms,
     );
     peer.pin_uplinks(uplinks);
+    peer.set_dev_core(dev_core);
     Ok(peer)
 }
 

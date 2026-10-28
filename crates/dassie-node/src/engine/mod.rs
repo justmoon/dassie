@@ -743,6 +743,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         own_info: own_info(&node),
         bootstrap: node.bootstrap(),
         uplinks: node.pinned_uplinks(),
+        dev_core: node.dev_core(),
     };
     let mut core = match Core::start(parts, node.now_ms()) {
         Ok(core) => core,

@@ -35,6 +35,9 @@ message NetworkNode {
   bool banned = 16;
   // The peering, while there is one.
   NetworkPeer peering = 17;
+  // In the core, as the signed data defines it
+  // (spec/decisions/promotion-to-core.md).
+  bool core = 18;
 }
 
 enum PeerState {
@@ -177,6 +180,9 @@ message GetRegistrationStatusResponse {
   // Whether this node is on a majority of their lists: a member of the
   // network others peer with.
   bool member = 3;
+  // Whether this node is in the core, as the signed data defines it
+  // (spec/decisions/promotion-to-core.md).
+  bool core = 4;
 }
 
 // Streams the registration status, whole, each time it changes.

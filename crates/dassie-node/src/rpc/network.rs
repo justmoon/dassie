@@ -337,6 +337,7 @@ fn registration(view: &NetworkView) -> proto::GetRegistrationStatusResponse {
         node: view.own.to_string(),
         bootstrap: view.registration.iter().map(bootstrap).collect(),
         member: view.member,
+        core: view.core,
     }
 }
 
@@ -367,6 +368,7 @@ fn node(view: &NodeView) -> proto::NetworkNode {
         peer_state: peer_state.into(),
         banned: view.banned,
         peering: None,
+        core: view.core,
     }
 }
 

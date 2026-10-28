@@ -86,6 +86,18 @@ Every probe spends a token of the node's probe bucket, whatever its outcome: fai
 3. They learn its link state from refreshes, sweeps or flooding.
 4. Nodes that peer with it advertise it as a neighbor, which makes it routable.
 
+### The core
+
+Every node computes the core from what it holds, as [promotion-to-core](../decisions/promotion-to-core.md) defines it (`crates/dassie-peer/src/core_nodes.rs`): of the nodes in the majority, the 2-core of the edges both ends advertise in fresh link states, in its component with the most bootstrap nodes, ties going to the component with the lowest bootstrap node ID.
+
+- **Edges needed.** Two, or, with fewer than three bootstrap nodes, as many as there are less one: one bootstrap node is a core alone, and two are one once they are joined.
+- **No bootstrap node in a component, no core.** A node that sees only components without a configured bootstrap node counts none of them as the core.
+- **A node alone,** with no bootstrap nodes, counts as its own bootstrap node and as registered with itself, so it is a core alone.
+- **The dev core** (`DASSIE_DEV_CORE_NODES`, node IDs, in a build with debug assertions only) is core outright, whatever its edges: dev and test networks have core nodes without the time promotion takes. Every node of such a network is given the same list.
+- It is computed with the routes, on their debounce, and the node notes since when it is in it itself. The owner sees it in the node table and the registration status ([RPC](rpc.md)).
+
+Nothing acts on it yet: a node with a URL is still a core node, and one without a periphery node ([Periphery nodes](#periphery-nodes), [roadmap](../roadmap.md#periphery)).
+
 ## Names
 
 A node's owner can register a name for the node's ID, held by the bootstrap nodes as its registrars ([the design](../designs/names.md), [names-by-earliest-commitment](../decisions/names-by-earliest-commitment.md)); the messages are in [Peer protocol](peer-protocol.md#names). The registrar's side is built, releasing a split included: the rule in `crates/dassie-peer/src/names/registrar.rs`, who may ask what in `crates/dassie-peer/src/node/names.rs`. So is every node's view of who holds a name, in `crates/dassie-peer/src/names/holders.rs`, which needs nothing of the peer node, so that a front door keeps one too and serves a name for its holder ([HTTP](http.md#front-doors)); and the registrant, which registers names for its node and renews them, in `crates/dassie-peer/src/names/registrant.rs`. A node answers Open Payments under the names it holds, and its client takes an answer under a name only from the name's holder ([Payments](payments.md#the-nodes-names)). Fees are not built ([roadmap](../roadmap.md#names)). Names work only once every bootstrap node runs a release that has them: an older one refuses their messages with 400 ([Peer protocol](peer-protocol.md#versions)), and a registration is abandoned while any registrar refuses, so the bootstrap nodes are upgraded first.

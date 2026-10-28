@@ -1280,6 +1280,7 @@ impl Sim {
             },
             bootstrap: self.bootstrap.clone(),
             uplinks: Vec::new(),
+            dev_core: Vec::new(),
         };
         let mut core = Core::start(parts, now).unwrap();
         core.check_validations_with(VALIDATION_SECRET);

@@ -1,6 +1,6 @@
 # A node becomes core by registering and being promoted
 
-**Areas:** [Network](../areas/network.md), [Peer protocol](../areas/peer-protocol.md), [Periphery](../designs/periphery.md). Not built yet ([roadmap](../roadmap.md#periphery)): on `main`, a node with a hostname is core and one without is periphery ([Network](../areas/network.md#periphery-nodes)).
+**Areas:** [Network](../areas/network.md), [Peer protocol](../areas/peer-protocol.md), [Periphery](../designs/periphery.md). Partly built ([roadmap](../roadmap.md#periphery)): every node computes the core ([Network](../areas/network.md#the-core)), but nothing acts on it yet; on `main`, a node with a hostname is core and one without is periphery ([Network](../areas/network.md#periphery-nodes)).
 
 ## Facts
 
@@ -20,6 +20,8 @@
   4. of its connected components, the one with the most bootstrap nodes. Among components with equally many, the one whose lowest bootstrap node ID is lowest.
 
   The nodes of that component are the core. Bootstrap nodes meet the same rule as everyone: they are core because they peer, not because they are configured. A network with fewer than three bootstrap nodes, as small dev and test networks have, asks for fewer edges: as many as it has bootstrap nodes less one, so one bootstrap node is a core alone and two are one together.
+- **A node alone.** A node with no bootstrap nodes counts as its own bootstrap node, registered with itself, and so is a core alone. Refusing to start without bootstrap nodes would be cleaner, but a node has no ID until it is set up, so it cannot name itself in its configuration beforehand, and running alone is what tests and single-node dev setups do.
+- **The dev core.** Dev and test networks name nodes that are core outright (`DASSIE_DEV_CORE_NODES`), whatever their edges, which only a build with debug assertions takes. So a dev network has core nodes from the start without the time promotion takes, and without making them bootstrap nodes, which would also make them registrars and list servers. Promotion keeps tests of its own.
 - **The first core.** Bootstrap nodes peer with each other as core peers and advertise each other at once, without the checks below: the configured list is already the root every node trusts, for the node lists. So a fresh network's bootstrap nodes form its first core, and form it again if it ever empties. Every other node becomes core only through promotion.
 - **What a node publishes, and how it is told apart.** Nothing in a link state says core or periphery: a peering's kind follows the peer's status as the definition computes it.
   - A node without a URL publishes an empty URL with the periphery extension, which now means only that: it has no URL. It cannot register, and its link state does not flood, as on `main`.
@@ -62,4 +64,5 @@
 - *A link-state entry that says core or periphery,* or a "candidate" state for a node with a URL that is not core yet: what a node says about itself is what the definition must not rest on, and a new verification rule would split the network while nodes disagree on it.
 - *The lowest median node ID as the tiebreaker:* anyone can register nodes with chosen IDs into a component and move its median; nobody but the configuration chooses the bootstrap nodes.
 - *Proving a second uplink with a zero-amount packet* sent through it: the routing graph already shows both peerings, signed by both ends.
+- *Making a dev network's core nodes bootstrap nodes* rather than naming them in a dev core list: a bootstrap node also takes registrations, serves a list and keeps names, so it would change more of the network under test than who is core.
 - *Promoting before registering:* a promoted node that is not yet registered would be an equal peer whom nobody else can route to, at its own address, with special cases everywhere.

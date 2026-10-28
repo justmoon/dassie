@@ -244,6 +244,9 @@ pub struct PeerOptions {
     /// The only nodes the node asks to be its uplinks while it runs as a
     /// periphery node; empty for any (spec/areas/network.md#pinned-uplinks).
     pub uplinks: Vec<dassie_identity::NodeId>,
+    /// The nodes a dev network makes core outright; empty outside one
+    /// (spec/decisions/promotion-to-core.md).
+    pub dev_core: Vec<dassie_identity::NodeId>,
 }
 
 /// Most inbound peer requests waiting on the engine at once.
@@ -292,6 +295,7 @@ const PEER_ANONYMOUS: RateLimitPolicy = RateLimitPolicy {
 struct PeerSide {
     bootstrap: Vec<dassie_peer::Bootstrap>,
     uplinks: Vec<dassie_identity::NodeId>,
+    dev_core: Vec<dassie_identity::NodeId>,
     /// Made on first use, as the ACME client is: a machine without the
     /// system's roots still serves, and says why its peer requests fail.
     client: std::sync::OnceLock<Result<OutboundClient, String>>,
@@ -321,6 +325,7 @@ impl PeerSide {
         Ok(Self {
             bootstrap: options.bootstrap,
             uplinks: options.uplinks,
+            dev_core: options.dev_core,
             client,
             allow_private: options.allow_private,
             permits: Arc::new(Semaphore::new(MAX_PEER_REQUESTS)),
@@ -636,6 +641,12 @@ impl Node {
     #[must_use]
     pub fn pinned_uplinks(&self) -> Vec<dassie_identity::NodeId> {
         self.peer.uplinks.clone()
+    }
+
+    /// The nodes a dev network makes core outright; empty outside one.
+    #[must_use]
+    pub fn dev_core(&self) -> Vec<dassie_identity::NodeId> {
+        self.peer.dev_core.clone()
     }
 
     /// The client for servers that are not nodes (Open Payments, rate

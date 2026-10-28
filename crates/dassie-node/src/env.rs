@@ -194,6 +194,11 @@ pub struct Settings {
     /// it then looks for (`DASSIE_UPLINKS`, node IDs, comma-separated;
     /// spec/areas/network.md#pinned-uplinks). Empty for any.
     pub uplinks: Vec<NodeId>,
+    /// The nodes a dev network makes core outright, without the time
+    /// promotion takes (`DASSIE_DEV_CORE_NODES`, node IDs, comma-separated;
+    /// spec/decisions/promotion-to-core.md): only a build with debug
+    /// assertions takes it. Empty outside a dev network.
+    pub dev_core: Vec<NodeId>,
     /// The settlement hubs the node validates, and the sponsors it
     /// validates for (`DASSIE_VALIDATOR_CONFIG`, a file;
     /// spec/areas/hubs.md#the-validator-in-the-node). None when unset:
@@ -228,7 +233,8 @@ impl Settings {
             dev_timings: flag(env, "DASSIE_DEV_TIMINGS")?,
             live_realm,
             public_names: public_names(env)?,
-            uplinks: uplinks(env)?,
+            uplinks: node_ids(env, "DASSIE_UPLINKS", dassie_peer::MAX_UPLINKS)?,
+            dev_core: dev_core(env, cfg!(debug_assertions))?,
             validator: validator(env, live_realm)?,
             tunnel_proxy,
             tunnel_proxy_problems,
@@ -445,36 +451,45 @@ fn public_names(env: &Env) -> Result<Vec<Hostname>, EnvError> {
     Ok(names)
 }
 
-/// Node IDs, comma-separated, each once, at most
-/// [`dassie_peer::MAX_UPLINKS`] of them.
-fn uplinks(env: &Env) -> Result<Vec<NodeId>, EnvError> {
-    let error = |problem: String| EnvError {
-        variable: "DASSIE_UPLINKS",
-        problem,
-    };
-    let Some(text) = env.get("DASSIE_UPLINKS")? else {
+/// `DASSIE_DEV_CORE_NODES`, in a build with debug assertions or without:
+/// a build without them refuses to start with it set, so no release binary
+/// takes a node as core that the network did not promote.
+fn dev_core(env: &Env, debug_assertions: bool) -> Result<Vec<NodeId>, EnvError> {
+    const VARIABLE: &str = "DASSIE_DEV_CORE_NODES";
+    let nodes = node_ids(env, VARIABLE, dassie_peer::core_nodes::MAX_DEV_CORE)?;
+    if !nodes.is_empty() && !debug_assertions {
+        return Err(EnvError {
+            variable: VARIABLE,
+            problem: "is a development switch, which a release build refuses".into(),
+        });
+    }
+    Ok(nodes)
+}
+
+/// `variable`'s node IDs, comma-separated, each once, at most `max` of
+/// them.
+fn node_ids(env: &Env, variable: &'static str, max: usize) -> Result<Vec<NodeId>, EnvError> {
+    let error = |problem: String| EnvError { variable, problem };
+    let Some(text) = env.get(variable)? else {
         return Ok(Vec::new());
     };
-    let mut uplinks: Vec<NodeId> = Vec::new();
+    let mut ids: Vec<NodeId> = Vec::new();
     for entry in text
         .split(',')
         .map(str::trim)
         .filter(|entry| !entry.is_empty())
     {
-        if uplinks.len() == dassie_peer::MAX_UPLINKS {
-            return Err(error(format!(
-                "lists more than {} nodes",
-                dassie_peer::MAX_UPLINKS
-            )));
+        if ids.len() == max {
+            return Err(error(format!("lists more than {max} nodes")));
         }
         let id =
             NodeId::parse(entry).map_err(|_| error(format!("has an invalid node ID {entry:?}")))?;
-        if uplinks.contains(&id) {
+        if ids.contains(&id) {
             return Err(error(format!("lists {id} more than once")));
         }
-        uplinks.push(id);
+        ids.push(id);
     }
-    Ok(uplinks)
+    Ok(ids)
 }
 
 #[derive(Deserialize)]
@@ -799,6 +814,29 @@ mod tests {
         assert!(uplinks(&twice).is_err());
         let unset = settings(&[("HOME", "/h")]).map(|s| s.uplinks.len());
         assert_eq!(unset, Ok(0));
+    }
+
+    // spec/decisions/promotion-to-core.md: the dev core list is node IDs,
+    // which only a build with debug assertions takes.
+    #[test]
+    fn the_dev_core_is_a_dev_switch() {
+        let boot1 = "br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza";
+        let set = Env::from_pairs([("DASSIE_DEV_CORE_NODES", boot1)]);
+        assert_eq!(
+            dev_core(&set, true).map(|ids| ids.len()),
+            Ok(1),
+            "a dev build takes it"
+        );
+        assert_eq!(
+            dev_core(&set, false).map_err(|error| error.variable),
+            Err("DASSIE_DEV_CORE_NODES"),
+            "a release build refuses it"
+        );
+        for debug_assertions in [true, false] {
+            assert_eq!(dev_core(&Env::default(), debug_assertions), Ok(vec![]));
+        }
+        let bad = Env::from_pairs([("DASSIE_DEV_CORE_NODES", "nope")]);
+        assert!(dev_core(&bad, true).is_err());
     }
 
     // A bootstrap entry whose ID does not match its keys is refused: the ID
