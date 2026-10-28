@@ -251,6 +251,9 @@ struct World {
     tamper_lookup: Option<fn(&mut serde_json::Value)>,
     /// Whether the books may lag the ledger, as while a server lies.
     lagging: bool,
+    /// How many reads at a ledger the server still refuses, as one that
+    /// does not hold that ledger yet.
+    refuse_reads: u32,
 }
 
 fn name(text: &str) -> Name {
@@ -293,6 +296,7 @@ impl World {
             refuse_own: None,
             tamper_lookup: None,
             lagging: false,
+            refuse_reads: 0,
         };
         for (index, with_xrp) in xrp.iter().enumerate() {
             let seed = u8::try_from(index).unwrap() + 1;
@@ -477,6 +481,32 @@ impl World {
         let request: serde_json::Value = serde_json::from_slice(message).unwrap();
         let proof = request["command"] == "tx_proof";
         if self.drop_lookups && proof && request.get("ledger_index").is_none() {
+            return;
+        }
+        // A read of the issuer's account at a ledger, refused as by a
+        // server that does not hold that ledger yet.
+        let issuer = dassie_xrpl::records::account_key(dsusd::ISSUER);
+        let issuer = serde_json::Value::from(
+            issuer
+                .iter()
+                .map(|b| format!("{b:02X}"))
+                .collect::<String>(),
+        );
+        let reads_issuer = request["command"] == "state_proof"
+            && request.get("ledger_hash").is_some()
+            && request["keys"]
+                .as_array()
+                .is_some_and(|keys| keys.contains(&issuer));
+        if reads_issuer && self.refuse_reads > 0 {
+            self.refuse_reads -= 1;
+            let refused = serde_json::json!({
+                "id": request["id"],
+                "type": "response",
+                "status": "error",
+                "error": "lgrNotFound",
+            });
+            let reply = serde_json::to_vec(&refused).unwrap();
+            self.input(index, LedgerInput::Message(&reply));
             return;
         }
         // A lookup is its proof and the transaction's bytes, from `tx`.
@@ -793,6 +823,7 @@ fn no_line_without_xrp_for_it() {
         refuse_own: None,
         tamper_lookup: None,
         lagging: false,
+        refuse_reads: 0,
     };
     let seed = 9;
     let address = Wallet::from_entropy(&entropy(seed)).account();
@@ -878,6 +909,7 @@ fn a_line_made_outside_the_node_is_corrected() {
         refuse_own: None,
         tamper_lookup: None,
         lagging: false,
+        refuse_reads: 0,
     };
     let node = name("outside");
     world.nodes.push(Node {
@@ -1173,6 +1205,7 @@ fn gas_on_a_shared_account_is_the_owners_to_spend() {
         refuse_own: None,
         tamper_lookup: None,
         lagging: false,
+        refuse_reads: 0,
     };
     world.add_with(1, true, Some(0));
     world.closes(3);
@@ -2211,4 +2244,60 @@ fn a_frozen_line_pays_the_owner_nothing() {
     assert_eq!(books.owner, i128::from(usd(10_000_000)));
     assert!(books.owner_holds.is_empty());
     assert_eq!(books.suspense, 0);
+}
+
+// Seen on the testnet, and not reproduced here: a token scheme added while
+// its account does not exist yet, before the faucet funds it, sets its line
+// once the account is funded, and syncs, without a restart, beside the XRP
+// scheme or alone; and so it does when the server refuses its reads of the
+// issuer at first, as one that does not hold the anchor's ledger yet: each
+// refusal stalls the account, which connects anew and reads again.
+#[test]
+fn a_scheme_added_before_its_account_is_funded_syncs_once_it_is() {
+    for (with_xrp, refused) in [(true, 0), (false, 0), (true, 1), (true, 4), (false, 4)] {
+        let mut world = World::new(&[]);
+        world.refuse_reads = refused;
+        // A refused read stalls the account, which tells nothing new until
+        // it connects anew: its books lag the ledger meanwhile.
+        world.lagging = refused > 0;
+        let seed = 1;
+        let account = new_account(seed, &[]);
+        let address = account.account();
+        let xrp = with_xrp.then(|| XrplScheme::new(&account, None, &[]).unwrap());
+        let dsusd = Some(DsusdScheme::new(&account, None, &[]).unwrap());
+        world.nodes.push(Node {
+            name: name("late"),
+            seed,
+            account,
+            xrp,
+            dsusd,
+            books: [Books::default(), Books::default()],
+            connection: 0,
+            online: false,
+            xrp_funds: None,
+            away: [false; 2],
+        });
+        world.tell(0);
+        world.connect(0);
+        for _ in 0..6 {
+            world.closes(3);
+            world.wait(account::STALL_MS);
+        }
+        assert_eq!(world.refuse_reads, 0, "{with_xrp} {refused}: never read");
+        // Its books match the ledger again.
+        world.lagging = false;
+        world.closes(2);
+        assert_eq!(
+            world.ledger.balance(address),
+            Some(FAUCET_DROPS - FEE_BASE),
+            "{with_xrp} {refused}"
+        );
+        let line = world.ledger.line(address, dsusd::ISSUER, dsusd::CURRENCY);
+        assert!(line.is_some(), "{with_xrp} {refused}: no line");
+        assert_eq!(
+            world.nodes[0].status(USD),
+            LedgerStatus::Synced,
+            "{with_xrp} {refused}"
+        );
+    }
 }
