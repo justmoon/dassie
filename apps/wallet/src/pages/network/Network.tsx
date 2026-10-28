@@ -153,7 +153,7 @@ function OwnNode(
   );
   return (
     <Card title="Details for Your Node" testid="own-node" class="node-card">
-      <h3>Tier 1 Registration</h3>
+      <h3>Tier 1 registration</h3>
       <LiveNote status={registration.status()} />
       <Show when={registration.value()}>
         {(status) => (
@@ -228,7 +228,7 @@ function PeripheryNode(props: {
   const relay = () => props.status?.relay ?? null;
   return (
     <Card title="Details for Your Node" testid="own-node" class="node-card">
-      <h3>Periphery Node</h3>
+      <h3>Periphery node</h3>
       <p class="muted">
         Your node has no public address, so it registers with no bootstrap node.
         It reaches the network through its uplinks, core nodes it peers with,

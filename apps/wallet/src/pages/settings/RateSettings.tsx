@@ -70,7 +70,7 @@ export function RateSettings(): JSX.Element {
   };
 
   return (
-    <Card title="Exchange Rates" testid="rate-settings">
+    <Card title="Exchange rates" testid="rate-settings">
       <Field label="Show totals in" for={`${id}-currency`}>
         <select
           id={`${id}-currency`}

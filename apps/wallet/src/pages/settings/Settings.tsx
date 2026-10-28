@@ -69,7 +69,7 @@ function Wallet(): JSX.Element {
         <dd>
           <code data-testid="settings-node-id">{data.selfId}</code>
         </dd>
-        <dt>Payment Pointer</dt>
+        <dt>Payment pointer</dt>
         <dd>{data.hostname ? `$${data.hostname}` : "???"}</dd>
         <dt>Dassie version</dt>
         <dd>

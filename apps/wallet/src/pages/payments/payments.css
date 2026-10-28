@@ -2,7 +2,7 @@
  * Home, Activity, Send, Receive, a payment's page and External Assets, as
  * the brand page's wallet draws them (apps/website/brand/index.html, "Node
  * wallet"): the balance on Terracotta, payments in rows with a pebble each,
- * and amounts in DM Mono. Connected Apps lists its grants as activity.
+ * and amounts in DM Mono.
  */
 
 /* A small label above what it names. */
@@ -284,36 +284,6 @@
 
 .tx-more > * {
   margin-top: 8px;
-}
-
-/* Connected Apps' grants. */
-.activity {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.activity li {
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--line);
-}
-
-.activity li:last-child {
-  border-bottom: 0;
-}
-
-.activity-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.activity-head strong {
-  flex: 1;
 }
 
 /* Balances outside the balance card. */

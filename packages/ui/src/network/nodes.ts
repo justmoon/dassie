@@ -35,12 +35,12 @@ export function sortNodes(nodes: readonly NetworkNode[]): NetworkNode[] {
 /** The nodes in the listing's groups, in order; empty groups left out. */
 export function groupNodes(nodes: readonly NetworkNode[]): NodeGroup[] {
   const groups: NodeGroup[] = [
-    { mark: "0", heading: "This Node", nodes: [] },
-    { mark: "1", heading: "Direct Peers", nodes: [] },
-    { mark: "–", heading: "Peers Not Routed", nodes: [] },
-    { mark: "–", heading: "Offline Peers", nodes: [] },
-    { mark: "2+", heading: "Other Nodes", nodes: [] },
-    { mark: "∞", heading: "No Connection", nodes: [] },
+    { mark: "0", heading: "This node", nodes: [] },
+    { mark: "1", heading: "Direct peers", nodes: [] },
+    { mark: "–", heading: "Peers not routed", nodes: [] },
+    { mark: "–", heading: "Offline peers", nodes: [] },
+    { mark: "2+", heading: "Other nodes", nodes: [] },
+    { mark: "∞", heading: "No connection", nodes: [] },
   ];
   for (const node of sortNodes(nodes)) {
     const r = rank(node);

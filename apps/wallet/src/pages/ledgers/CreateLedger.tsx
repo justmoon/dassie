@@ -18,7 +18,7 @@ import { schemeDescription, schemeName } from "../schemes.ts";
 export function CreateLedger(): JSX.Element {
   return (
     <div class="page-narrow">
-      <PageTitle>Choose a Ledger Type</PageTitle>
+      <PageTitle>Choose a ledger type</PageTitle>
       <Choices />
     </div>
   );
@@ -32,7 +32,7 @@ export function Onboarding(): JSX.Element {
       <p class="brand">
         <Lockup suffix="Wallet" />
       </p>
-      <PageTitle>Choose a Ledger Type</PageTitle>
+      <PageTitle>Choose a ledger type</PageTitle>
       <p class="muted">
         Signed in to node <code data-testid="node-id">{data.selfId}</code>
       </p>

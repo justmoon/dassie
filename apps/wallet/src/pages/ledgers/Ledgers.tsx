@@ -22,7 +22,7 @@ export function Ledgers(): JSX.Element {
   const data = useNodeData();
   return (
     <div class="page-wide stack">
-      <PageTitle>Active Ledgers</PageTitle>
+      <PageTitle>Active ledgers</PageTitle>
       <LiveNote status={data.ledgersStatus()} />
       <For each={data.ledgers() ?? []} keyed={(ledger) => ledger.id}>
         {(ledger) => (
@@ -133,11 +133,11 @@ export function Ledgers(): JSX.Element {
           class="button primary"
           testid="add-ledger"
         >
-          + Add Ledger
+          + Add ledger
         </Link>
       </div>
       <Show when={data.rates().some((rate) => rate.assetCode !== "USD")}>
-        <Card title="Exchange Rates" testid="rates">
+        <Card title="Exchange rates" testid="rates">
           <ul class="rate-list">
             <For
               each={data.rates().filter((rate) => rate.assetCode !== "USD")}

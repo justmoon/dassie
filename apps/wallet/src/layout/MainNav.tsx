@@ -50,7 +50,7 @@ export function MainNav(): JSX.Element {
       <div id="nav-links" class={`nav-links ${open() ? "open" : ""}`}>
         <Link href="/dashboard" testid="nav-dashboard">Dashboard</Link>
         <Link href="/payments" testid="nav-activity">Activity</Link>
-        <Link href="/grants" testid="nav-grants">Connected Apps</Link>
+        <Link href="/grants" testid="nav-grants">Connected apps</Link>
         <Link href="/network" testid="nav-network">Network</Link>
         <Link href="/names" testid="nav-names">Names</Link>
         <Link href="/ledgers" testid="nav-ledgers">Ledgers</Link>

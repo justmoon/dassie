@@ -97,7 +97,7 @@ export function Consent(props: RouteProps): JSX.Element {
               <Show when={approved()} fallback="The app gets nothing.">
                 The app may now do what it asked. To revoke it, go to{" "}
                 <Link href="/grants" testid="consent-revoke">
-                  Connected Apps
+                  Connected apps
                 </Link>.
               </Show>{" "}
               You can close this page.
@@ -195,7 +195,7 @@ function Request(props: {
       </ul>
       <p class="muted">
         Only approve apps you trust. You can revoke access at any time under
-        Connected Apps in the top menu.
+        Connected apps in the top menu.
       </p>
       <div class="actions">
         <button

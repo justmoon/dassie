@@ -27,7 +27,7 @@ export function Grants(): JSX.Element {
   );
   return (
     <div class="page-wide stack">
-      <PageTitle>Connected Apps</PageTitle>
+      <PageTitle>Connected apps</PageTitle>
       <Card testid="page-grants">
         <LiveNote status={live.status()} />
         <Show

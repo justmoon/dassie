@@ -127,7 +127,7 @@ function RegisterName(): JSX.Element {
 /** The names the node registers or holds. */
 function NameList(props: { names: NamesStatus }): JSX.Element {
   return (
-    <Card title="Your Names" testid="names">
+    <Card title="Your names" testid="names">
       <Show when={props.names.frozen}>
         <Alert title="The registrars' lists are not current" tone="warning">
           Too few of the registrars' lists are fresh: your node keeps the

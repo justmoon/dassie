@@ -55,12 +55,12 @@ test("nodes sort by distance, then ID, and group under headings", () => {
   assertEquals(
     groupNodes(nodes).map((g) => [g.heading, g.nodes.map((n) => n.id)]),
     [
-      ["This Node", ["dself"]],
-      ["Direct Peers", ["da", "db"]],
-      ["Peers Not Routed", ["dp"]],
-      ["Offline Peers", ["do"]],
-      ["Other Nodes", ["dc"]],
-      ["No Connection", ["dz"]],
+      ["This node", ["dself"]],
+      ["Direct peers", ["da", "db"]],
+      ["Peers not routed", ["dp"]],
+      ["Offline peers", ["do"]],
+      ["Other nodes", ["dc"]],
+      ["No connection", ["dz"]],
     ],
   );
 });

@@ -450,7 +450,7 @@ button:disabled {
 .facts dt {
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
 }
@@ -650,7 +650,6 @@ th {
 .cells,
 .sessions,
 .tokens,
-.bootstrap-list,
 .node-group ul {
   margin: 0;
   padding: 0;
@@ -658,8 +657,7 @@ th {
 }
 
 .sessions li,
-.tokens li,
-.bootstrap-list li {
+.tokens li {
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
 }

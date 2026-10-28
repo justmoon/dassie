@@ -158,7 +158,7 @@ export function Hubs(): JSX.Element {
   const polled = pollHubs();
   return (
     <div class="page-wide stack" data-testid="page-hubs">
-      <PageTitle>Settlement Hubs</PageTitle>
+      <PageTitle>Settlement hubs</PageTitle>
       <p class="muted hub-intro">
         Your node settles with its peers through settlement hubs: ledgers that a
         few validators keep together, backed by an escrow on the XRP Ledger.
