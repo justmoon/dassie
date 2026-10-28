@@ -74,7 +74,8 @@
         is a small ledger that a few validators keep together, backed by an
         escrow on an underlying ledger. Today that ledger is the XRP Ledger's
         test network, and the hubs hold test XRP or DSUSD, Dassie's test
-        dollar.
+        dollar. The testnet's XRP hub and DSUSD hub are built into every
+        node, and the four bootstrap nodes keep them.
       </p>
       <p>
         In a hub, your node sets money aside for each peer it pays. That
@@ -92,8 +93,9 @@
       <p>
         Dassie speaks <a href="https://interledger.org">Interledger</a>, so a
         payment can start in one currency and arrive in another. Nodes
-        convert along the way at rates they fetch themselves. You hold what
-        you like, and still pay people who hold something else.
+        convert along the way at rates they fetch themselves, and swap
+        assets with their peers to keep what they hold in balance. You hold
+        what you like, and still pay people who hold something else.
         <a href="/docs/concepts/payments/">How a payment travels</a> follows
         one from start to finish.
       </p>

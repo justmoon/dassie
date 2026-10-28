@@ -44,6 +44,13 @@
         A node with its own domain answers only under that domain, so a name
         adds nothing to it.
       </p>
+      <p class="not-yet">
+        No default relay is built in yet, so a node without a domain name
+        keeps no connection to Dassie's front door, and its names there reach
+        no one for now. You can register one all the same, and keep it for
+        when they do.
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      </p>
       <p>
         The network's bootstrap nodes keep the names, as its registrars. A
         name is yours when enough of them list it for your node, and nobody
@@ -56,7 +63,13 @@
       <p class="not-yet">
         Registration fees are not there yet, and names come to the live
         network only with them.
-        <a href="/docs/project/roadmap/">What's next</a>
+        <a href="/docs/project/roadmap/#names">What's next</a>
+      </p>
+      <p class="not-yet">
+        Later, testnet names move to
+        <code>&lt;name&gt;.test.dassiepay.net</code>, so that
+        <code>dassiepay.net</code> is left for the live network.
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
 
       <h2 id="register-a-name">Register a name</h2>
@@ -174,10 +187,10 @@
         registrar that goes down does not take your name away.
       </p>
       <p>
-        A node with no bootstrap nodes has no registrars, and registers names
-        only once
+        Your node takes the testnet's four bootstrap nodes as its registrars,
+        as it is built to. One whose
         <a href="/docs/reference/environment/#DASSIE_BOOTSTRAP_NODES"><code>DASSIE_BOOTSTRAP_NODES</code></a>
-        names some.
+        names none has no registrars, and registers no names.
       </p>
 
       <h2 id="keeping-it">Keeping your name</h2>

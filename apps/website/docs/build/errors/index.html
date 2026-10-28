@@ -329,7 +329,7 @@
           <tbody>
             <tr>
               <td><code>no route found</code></td>
-              <td>The node knows no route to the destination. A node without a domain name (a periphery node) also answers this to anything not meant for it, since it forwards nothing.</td>
+              <td>The node knows no route to the destination. A node without a domain name (a periphery node) also answers this to a peer's packet that is not meant for it, since it forwards nothing.</td>
             </tr>
             <tr>
               <td><code>amount too small</code></td>
@@ -342,6 +342,10 @@
             <tr>
               <td><code>a payer takes no packets</code></td>
               <td>The address is one of the node's payers, which only send.</td>
+            </tr>
+            <tr>
+              <td><code>no such address</code></td>
+              <td>The address starts with <code>peer.</code>, which belongs to the link and is never routed. A node answers only <code>peer.config</code>, for ILDCP, and its peers' swaps.</td>
             </tr>
           </tbody>
         </table>
@@ -435,6 +439,60 @@
       <p class="why">
         <a
           href="https://github.com/justmoon/dassie/blob/main/spec/areas/stream.md#money-limit">How a receiver's money limit works</a>
+      </p>
+
+      <h2 id="swaps">Swaps between peers</h2>
+      <p>
+        Peers swap assets with each other: a node sends a packet to
+        <code>peer.swap.&lt;scheme ID&gt;</code>, and its peer converts it
+        and sends it back on the method that scheme names. Only peers send
+        swaps, so a client never sees these codes. The wallet's network page
+        counts a node's swaps rejected and refused.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Code and message</th>
+              <th>What happened</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>F02 <code>no swaps offered</code></td>
+              <td>The peer's owner does not offer swaps, or the peer has no domain name.</td>
+            </tr>
+            <tr>
+              <td>F02 <code>not a settlement method of the peering</code></td>
+              <td>The scheme the address names is not a method the two peers share.</td>
+            </tr>
+            <tr>
+              <td>F02 <code>no swaps on this method</code></td>
+              <td>A swap came back on the method it names, to a node that has no swaps on that ledger.</td>
+            </tr>
+            <tr>
+              <td>T04 <code>no settlement method available</code></td>
+              <td>The method the swap names is not available right now.</td>
+            </tr>
+            <tr>
+              <td>F04 <code>not a swap of ours</code></td>
+              <td>The swap came back bringing less than the minimum its sender set, so the sender refused it. The message is the same as for F05.</td>
+            </tr>
+            <tr>
+              <td>F05 <code>not a swap of ours</code></td>
+              <td>A swap came back to a node that did not send it, or with its data changed on the way. The message is the same as for F04.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A swap otherwise meets the same checks as any packet a node passes
+        on, with the same codes: F08 above the largest packet, T04 and T05
+        for room, T00 without a fresh rate.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peer-swaps.md">How peers swap, and why</a>
       </p>
 
       <p>

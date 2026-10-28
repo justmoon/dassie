@@ -87,8 +87,12 @@
   The node's data stays in /var/lib/private/dassie, and the group dassie-users stays too.</span></code></pre>
       <p>
         The same command removes an install made with
-        <code>--no-service</code>; it then has no units to stop.
+        <code>--no-service</code>, which has no units to stop. It still asks
+        systemd to reload its units, though, so on a machine without
+        systemd, such as a container, it stops with an error before it
+        removes anything. There, remove the files yourself:
       </p>
+      <pre><code><span class="prompt">$</span>sudo rm -rf /opt/dassie /usr/local/bin/dassie</code></pre>
 
       <h2 id="what-stays">What stays</h2>
       <div class="table-wrap">
@@ -163,14 +167,14 @@
       </p>
       <p>
         A node that was down for a while may have missed releases. The
-        installer installs the newest, which reads a database from any
-        earlier release but the 0.2 ones;
+        installer installs the newest, which reads a database from 0.3.0 or
+        any later release;
         <a href="/docs/node/updates/#keeping-up">Keeping up with the
         network</a> says what a node that was away misses.
       </p>
       <p>
-        Data left by a 0.2 release doesn't carry over. Those releases ran the
-        early test network, and the node refuses their database and doesn't
+        Data left by a release before 0.3.0 (0.1 or 0.2) doesn't carry over.
+        Those releases ran the early test network, and the node refuses their database and doesn't
         start. Move that data aside and set the node up again with a new
         phrase; it starts with empty books
         (<a href="/docs/node/updates/#from-0-2">A node from the 0.2

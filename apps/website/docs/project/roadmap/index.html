@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="What Dassie does not do yet, in plain words: real money, the public testnet, hubs, names, nodes without a public IP, setup in the wallet, and more."
+      content="What Dassie does not do yet, in plain words: real money, a default relay, mainnet hubs, names, nodes without a public IP, setup in the wallet, and more."
     />
     <title>What's next · Dassie</title>
     <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
@@ -53,31 +53,42 @@
 
       <h2 id="public-testnet">The public testnet</h2>
       <p>
-        Each node ID commits to a second, post-quantum key as well, so the
-        testnet's four bootstrap nodes, <code>boot1</code> to
-        <code>boot4</code>, and its front door need new identities. Until
-        they have them, a new node has no bootstrap nodes and no relay by
-        default, and no default testnet hub is built in: it runs alone.
-        Once the testnet is set up again, its bootstrap nodes, its relay and
-        its XRP and DSUSD hubs become a node's defaults, and a new node finds
-        the network on its own.
+        The testnet was set up again for 0.3.0. Its four bootstrap nodes,
+        <code>boot1</code> to <code>boot4</code>, are built in, and so are
+        its XRP hub and its DSUSD hub, which those four keep. A new node finds
+        the network on its own, and <code>dassie setup</code> joins the XRP
+        hub. Still missing:
       </p>
-      <p>
-        Later, testnet names move to <code>test.dassiepay.net</code>, so that
-        <code>dassiepay.net</code> is left for the live realm.
-      </p>
+      <ul>
+        <li>
+          <strong>A default relay.</strong> A node ID also commits to a
+          post-quantum key, so the testnet's front door gets a new node ID
+          once it runs a release that makes it, and no release builds that in
+          yet. Until one does, a node
+          without a hostname, the desktop app's node included, keeps no relay
+          unless its owner names one in <code>DASSIE_RELAY</code>. It still
+          connects to its uplinks and pays through them, but nobody reaches
+          it at <code>&lt;node ID&gt;.dassiepay.net</code>, so no Open
+          Payments client can pay it there.
+        </li>
+        <li>
+          <strong>A domain of its own.</strong> Later, testnet names move to
+          <code>test.dassiepay.net</code>, so that <code>dassiepay.net</code>
+          is left for the live realm.
+        </li>
+      </ul>
 
       <h2 id="hubs">Settlement hubs</h2>
       <p>
         Peers settle over <a href="/docs/concepts/hubs/">settlement hubs</a>,
         and the node runs as a hub's member and as one of its validators
-        today. Still to come:
+        today. On the testnet, an XRP hub and a DSUSD hub run, kept by the
+        four bootstrap nodes. Still to come:
       </p>
       <ul>
         <li>
-          the testnet's default hubs, for XRP and for DSUSD, founded again
-          under the current rules (see
-          <a href="#public-testnet">the public testnet</a>);
+          hubs on mainnet, for XRP and for RLUSD: their schemes are built,
+          but no hub runs there yet, so none is built in;
         </li>
         <li>
           for owners: closing your account in a hub, setting the floor and
@@ -104,10 +115,11 @@
       <p>
         <a href="/docs/concepts/names/">Names</a> are built, and on the
         testnet they are free, held for your node by a quorum of the
-        bootstrap nodes. Until the testnet is set up again
-        (<a href="#public-testnet">above</a>), a node has no bootstrap nodes
-        to register with. Testnet names may be reset at any time. A live node
-        has no names. Next:
+        bootstrap nodes. A name reaches your node through a front door, so
+        until a default relay is built in
+        (<a href="#public-testnet">above</a>), it reaches only a node whose
+        owner names a front door as its relay. Testnet names may be reset at
+        any time. A live node has no names. Next:
       </p>
       <ul>
         <li>
@@ -127,9 +139,14 @@
         <a href="/docs/concepts/core-and-periphery/">periphery node</a>: it
         connects to core nodes as its uplinks, gets addresses beneath them,
         and is reached through a relay. That works today, over UDP or, where
-        UDP is blocked, a WebSocket. Not there yet:
+        UDP is blocked, a WebSocket, through an HTTP proxy where the network
+        sets one. Not there yet:
       </p>
       <ul>
+        <li>
+          a default relay, so that a node without a hostname is reached with
+          no setup (<a href="#public-testnet">above</a>);
+        </li>
         <li>dialing a lost uplink again with a backoff;</li>
         <li>
           <strong>becoming core.</strong> Today a node with a hostname is a
@@ -161,30 +178,26 @@
         Today you set a node up with your recovery phrase and a first ledger, and
         every other choice is a default. A guided setup in the wallet is to
         walk you through each choice that matters, and what it costs. One
-        of them is your relay. Once the testnet's front door is set up again
+        of them is your relay. Once a default relay is built in
         (<a href="#public-testnet">above</a>), a node without a hostname
-        keeps a connection to it by default. The front door then learns when
-        your node is online, and sees the Open Payments requests it passes
-        on.
+        keeps a connection to the project's front door unless its owner says
+        otherwise. The front door then learns when your node is online, and
+        sees the Open Payments requests it passes on. The guided setup is to
+        say so, and let you keep it, name another relay, or keep none.
       </p>
 
-      <h2 id="rates-and-swaps">Exchange rates and swaps</h2>
-      <ul>
-        <li>
-          <strong>Open rate sources.</strong> A node takes its
-          <a href="/docs/concepts/rates/">exchange rates</a> today from
-          exchanges and the European Central Bank, whose terms allow personal
-          or internal use. Next, it takes XRP's rate from mainnet's XRP/RLUSD
-          pool, proven against validated ledgers, and the other currencies'
-          from four central banks.
-        </li>
-        <li>
-          <strong>Peer swaps.</strong> A node's holdings drift as it
-          forwards payments, and today only market makers bring them back.
-          Next, nodes swap assets directly with their peers, at prices their
-          peers publish.
-        </li>
-      </ul>
+      <h2 id="rates-and-swaps">Exchange rates</h2>
+      <p>
+        A node's holdings drift as it forwards payments. Today, peers swap
+        assets with each other at the prices in each other's signed
+        snapshots, which brings them back toward balance. What is left is
+        where the rates come from. A node takes its
+        <a href="/docs/concepts/rates/">exchange rates</a> today from
+        exchanges and the European Central Bank, whose terms allow personal
+        or internal use. Next, it takes XRP's rate from mainnet's XRP/RLUSD
+        pool, proven against validated ledgers, and the other currencies'
+        from four central banks.
+      </p>
 
       <h2 id="xrp-ledger">Checking the XRP Ledger</h2>
       <p>

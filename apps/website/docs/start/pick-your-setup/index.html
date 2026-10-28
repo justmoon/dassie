@@ -43,8 +43,8 @@
                 points to it, and open ports
               </td>
               <td>
-                A core node: it forwards payments for others, updates itself
-                every day and can publish a rate feed
+                A core node: it forwards payments for others, swaps assets
+                with its peers, and updates itself every day
               </td>
               <td>
                 At your domain name, for example <code>$pay.example.com</code>,
@@ -73,7 +73,8 @@
                 tray icon
               </td>
               <td>
-                Through a relay you name, while the app runs
+                Through a relay you name, while the app runs. None is built
+                in yet.
               </td>
             </tr>
             <tr>
@@ -88,7 +89,7 @@
                 A periphery node that runs all the time, at home or behind a
                 firewall
               </td>
-              <td>Through a relay you name</td>
+              <td>Through a relay you name. None is built in yet.</td>
             </tr>
           </tbody>
         </table>
@@ -117,10 +118,14 @@
       <ul>
         <li>TCP 80, for the certificate from Let's Encrypt;</li>
         <li>TCP 443, for the wallet and Open Payments;</li>
-        <li>UDP 443, where nodes talk to each other over QUIC;</li>
         <li>
-          UDP 7768 if you want to publish a rate feed for market makers.
-          Without it the node still runs.
+          UDP 443, where nodes talk to each other over QUIC. The node does
+          not start while another program holds it;
+        </li>
+        <li>
+          UDP 7768, where anyone may ask for the node's snapshot: the quotes
+          it swaps at, signed. Without it the node still runs, and its peers
+          still get its snapshot.
         </li>
       </ul>
       <p>
@@ -130,7 +135,9 @@
         gets paid through them. It forwards nothing for others. Apps and
         other wallets reach it through a relay that it keeps a connection
         to, so it is reachable only while it runs. Where UDP is blocked, it
-        reaches core nodes over a WebSocket on their HTTPS port instead.
+        reaches core nodes over QUIC inside a WebSocket on their HTTPS port
+        instead, through the network's HTTP proxy if it sets one. Only a
+        node without a domain name does that: a core node needs UDP.
       </p>
       <p>
         <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>
@@ -140,11 +147,18 @@
         <a
           href="https://github.com/justmoon/dassie/blob/main/spec/decisions/core-and-periphery.md">Why it works this way</a>
       </p>
+      <p>
+        Every node knows the testnet's four bootstrap nodes from the start,
+        so a new periphery node finds core nodes to connect to on its own.
+      </p>
       <p class="not-yet">
-        Dassie names no default bootstrap nodes and no default relay yet. So
-        a new periphery node finds no core nodes to connect to, and keeps no
-        relay, until you configure them. Nodes that start in the periphery
-        and become core once they earn it are not there yet either.
+        No default relay is built in yet. Until one is, a node without a
+        domain name keeps no relay unless you name one in
+        <code>DASSIE_RELAY</code>, so apps and other wallets can't reach it
+        at its default name, <code>&lt;node ID&gt;.dassiepay.net</code>.
+        It still peers, pays, and serves you its wallet. Nodes that start in
+        the periphery and become core once they earn it are not there yet
+        either.
         <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
 
@@ -176,23 +190,19 @@
         node only its key. The phrase never leaves your browser.
       </p>
       <p>
-        Some nodes have nobody to open a browser for them, such as the two
-        nodes of a market maker, or a node you set up from a script. For
-        those, <code>dassie setup</code> reads the phrase from a file on the
-        node's own server, sets the node up and adds the settlement schemes
-        you name. It is safe to run again at every start. The trade-off is that your
+        Some nodes have nobody to open a browser for them, such as a market
+        maker's node, or a node you set up from a script. For those,
+        <code>dassie setup</code> reads the phrase from a file on the node's
+        own server, sets the node up and adds the settlement schemes you
+        name. On the testnet it also joins the testnet's XRP hub, unless
+        <code>--hub</code> names other hubs, or <code>none</code>. It is
+        safe to run again at every start. The trade-off is that your
         phrase now lives on the server, so whoever can read that file
         controls the node and its money.
       </p>
       <p>
         Headless setup works with any of the server setups above.
         <a href="/docs/node/headless/">Headless setup</a> shows the steps.
-      </p>
-      <p class="not-yet">
-        Joining the test network's default settlement hub by itself is not
-        there yet: no default hub is built in, so <code>dassie setup</code>
-        joins none.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
       <p class="why">
         <a

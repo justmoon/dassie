@@ -59,17 +59,26 @@
       <h2 id="uplinks">Uplinks</h2>
       <p>
         Your node looks up core nodes in the network's node list, which it
-        gets from the bootstrap nodes, and asks a few of them to peer. Those
-        that agree are its <em>uplinks</em>. Your node gets an address
-        beneath each of them, sends its payments through them, and receives
-        through them. It never forwards anyone else's payments.
+        gets from the testnet's bootstrap nodes, built into Dassie, and asks
+        a few of them to peer. Those that agree are its <em>uplinks</em>.
+        Your node gets an address beneath each of them, sends its payments
+        through them, and receives through them. It never forwards anyone
+        else's payments.
+      </p>
+      <p>
+        Peers settle only through settlement hubs, so your node asks only
+        core nodes that are in a hub it is in. Until you join one, such as
+        the testnet's XRP hub, it has no uplinks.
+        <a href="/docs/wallet/hubs/#joining-a-hub">Joining a hub</a> shows
+        how.
       </p>
       <ul>
         <li>
           <strong>It connects over QUIC, on UDP.</strong> Where your network
           blocks UDP, as some office and hotel networks do, it carries the
-          same connection over a WebSocket on TCP port 443 instead. It tries
-          UDP first each time.
+          same connection over a WebSocket on TCP instead, to the core node's
+          HTTPS port. It tries UDP first each time, and the WebSocket a
+          moment later, if UDP has not connected by then.
         </li>
         <li>
           <strong>Behind a proxy,</strong> it sends those WebSocket
@@ -139,12 +148,13 @@
       <p class="not-yet">
         A relay built into Dassie, the <code>dassiepay.net</code> front door
         with its key, so that a new node is reached there with nothing to
-        set, is not there yet. Neither are the built-in bootstrap nodes: the
-        public testnet is moving to new node IDs, and until it has, a new
-        node runs alone unless you name them in
-        <code>DASSIE_BOOTSTRAP_NODES</code>. Front doors also reach only the
-        nodes that chose them; finding a node through any relay is not there
-        yet either.
+        set, is not there yet. Until it is, nobody can pay a node on a
+        laptop at an address, unless you
+        <a href="#another-relay-or-none">choose a front door</a> yourself.
+        Front doors also reach only the nodes that chose them; finding a node
+        through any relay is not there yet either. Later, testnet addresses
+        move to <code>&lt;node ID&gt;.test.dassiepay.net</code>, so that
+        <code>dassiepay.net</code> is left for the live realm.
         <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
 

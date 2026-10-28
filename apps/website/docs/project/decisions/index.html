@@ -75,6 +75,11 @@
           <p>CI builds the Rust workspace crate by crate.</p>
         </dd>
         <dt
+          id="docs-section"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/docs-section.md"><code>docs-section</code></a></dt>
+        <dd>
+          <p>The docs are hand-written pages under <code>/docs/</code>, searched with Pagefind, and link the spec on GitHub.</p>
+        </dd>
+        <dt
           id="named-decisions"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/named-decisions.md"><code>named-decisions</code></a></dt>
         <dd>
           <p>Decisions are named, not numbered.</p>
@@ -141,7 +146,7 @@
         <dt
           id="default-relay"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md"><code>default-relay</code></a></dt>
         <dd>
-          <p>A node without a hostname keeps the default front door as its relay.</p>
+          <p>A node without a hostname keeps the default front door as its relay (no default front door built in yet).</p>
         </dd>
         <dt
           id="desktop-app"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/desktop-app.md"><code>desktop-app</code></a></dt>
@@ -190,7 +195,7 @@
         <dt
           id="bootstrap-network"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/bootstrap-network.md"><code>bootstrap-network</code></a></dt>
         <dd>
-          <p>The project runs four bootstrap nodes in one region, which also validate the testnet's settlement hub.</p>
+          <p>The project runs four bootstrap nodes in one region, which also validate the testnet's settlement hubs.</p>
         </dd>
         <dt
           id="core-and-periphery"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/core-and-periphery.md"><code>core-and-periphery</code></a></dt>
@@ -255,7 +260,7 @@
         <dt
           id="protocol-upgrades"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/protocol-upgrades.md"><code>protocol-upgrades</code></a></dt>
         <dd>
-          <p>A peer-protocol version is an ALPN name, and a release speaks the one before too.</p>
+          <p>A peer-protocol version is an ALPN name, and a release speaks the one before too; version 2 is spoken alone.</p>
         </dd>
         <dt
           id="quic-only"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/quic-only.md"><code>quic-only</code></a></dt>
@@ -279,7 +284,7 @@
         </dd>
       </dl>
       <h2 id="connector">Routing, rates and fees</h2>
-      <p>How a node passes packets on, and what it charges and converts at. The rules themselves are in <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/connector.md">Connector</a>, <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rate-feed.md">Rate feed</a>.</p>
+      <p>How a node passes packets on, what it charges and converts at, and how it swaps assets with its peers. The rules themselves are in <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/connector.md">Connector</a>, <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rate-feed.md">Rate feed</a>.</p>
       <dl class="ref">
         <dt
           id="connector-timing"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/connector-timing.md"><code>connector-timing</code></a></dt>
@@ -290,11 +295,6 @@
           id="exchange-rates"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/exchange-rates.md"><code>exchange-rates</code></a></dt>
         <dd>
           <p>Exchange rates, fees and spread: a rate is the median of three independent sources.</p>
-        </dd>
-        <dt
-          id="feed-by-method"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/feed-by-method.md"><code>feed-by-method</code></a></dt>
-        <dd>
-          <p>A rate feed names the settlement methods a node's peers pay it on.</p>
         </dd>
         <dt
           id="open-rate-sources"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/open-rate-sources.md"><code>open-rate-sources</code></a></dt>
@@ -309,12 +309,12 @@
         <dt
           id="passive-rebalancing"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/passive-rebalancing.md"><code>passive-rebalancing</code></a></dt>
         <dd>
-          <p>Nodes rebalance passively: inventory pricing, a rate feed and market makers.</p>
+          <p>Nodes rebalance passively: inventory pricing, published prices and market makers.</p>
         </dd>
         <dt
           id="peer-swaps"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peer-swaps.md"><code>peer-swaps</code></a></dt>
         <dd>
-          <p>Nodes swap assets with their peers, priced by snapshots of ladders per asset (not built).</p>
+          <p>Nodes swap assets with their peers, priced by snapshots of ladders per asset.</p>
         </dd>
         <dt
           id="route-back-is-temporary"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/route-back-is-temporary.md"><code>route-back-is-temporary</code></a></dt>
@@ -472,7 +472,7 @@
         <dt
           id="verified-ledgers"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/verified-ledgers.md"><code>verified-ledgers</code></a></dt>
         <dd>
-          <p>The node books only what ledgers its own UNL validated prove (design, not built).</p>
+          <p>The node books only what ledgers its own UNL validated prove (partly built).</p>
         </dd>
       </dl>
       <h2 id="hubs">Settlement hubs</h2>

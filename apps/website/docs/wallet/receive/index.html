@@ -73,6 +73,8 @@
       <p>
         Payments from other nodes reach yours through its peers, and your node
         has peers only in a <a href="/docs/wallet/hubs/">settlement hub</a>.
+        <a href="/docs/wallet/setup/#join-the-hub">Join the testnet's hub</a>
+        if you haven't yet.
       </p>
 
       <h2 id="without-a-domain">Your name without a domain</h2>
@@ -80,32 +82,37 @@
         A node without a domain name of its own, such as the
         <a href="/docs/desktop/">desktop app</a>, is named at Dassie's front
         door: <code>$&lt;node ID&gt;.dassiepay.net</code>, where the node ID is
-        your node's 39 characters. The front door passes payments on to your
-        node over the connection your node keeps to it. A name you
-        <a href="/docs/wallet/names/">register</a> reaches your node the same
-        way, at <code>$&lt;name&gt;.dassiepay.net</code>.
+        your node's 39 characters. A name you
+        <a href="/docs/wallet/names/">register</a> points there too, at
+        <code>$&lt;name&gt;.dassiepay.net</code>. The front door passes
+        payments on to your node only over a connection your node keeps to it,
+        as its relay.
+      </p>
+      <p class="not-yet">
+        No default relay is built in yet, so a node without a domain name
+        keeps no connection to the front door, and nobody reaches it at those
+        names. A payment request's link is under the same name, so it reaches
+        no one either. Once a release builds the front door in as the
+        default relay, such a node connects to it by itself.
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
       <p>
-        Above your addresses, and under your payment pointer on the Dashboard,
-        the wallet says whether your node is connected to the front door now. When it says "This address may reach no one",
-        payments to that address fail until it is fixed:
+        Until then, the wallet says so above your addresses, and under your
+        payment pointer on the Dashboard: "This address may reach no one",
+        because your node keeps no relay. Don't hand those addresses, or a
+        request's link, out. Your
+        node still sends payments. To be paid meanwhile, have the sender pay
+        a payment request's STREAM credentials, below, from an
+        <a href="/docs/build/owner-apps/">owner app</a> or another STREAM
+        sender: they travel through your node's peers rather than the front
+        door.
       </p>
-      <ul>
-        <li>
-          <strong>It is not connected now.</strong> Check that your node can
-          reach <code>relay.dassiepay.net</code> on port 443, over UDP or,
-          where UDP is blocked, over TCP. Right after a start
-          it says "It is connecting now" for a moment, which is fine.
-        </li>
-        <li>
-          <strong>Your node keeps another relay,</strong> or none, because
-          <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
-          names another or is empty. Then the front door cannot reach your
-          node: don't hand this address out.
-        </li>
-      </ul>
       <p>
-        Either way, a domain name of your own avoids the front door:
+        If you set
+        <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
+        to a relay of your own, the dassiepay.net front door still cannot reach
+        your node, and the wallet says your node keeps another relay. A domain
+        name of your own avoids the front door:
         <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>
         explains the difference.
       </p>
@@ -128,7 +135,9 @@
         <li>
           Choose <strong>Create Request</strong>, and share the link it shows
           with whoever pays you. Any Open Payments wallet can pay it, Dassie's
-          <a href="/docs/wallet/send/">Send</a> among them.
+          <a href="/docs/wallet/send/">Send</a> among them, once the link
+          reaches your node: for a node without a domain name, not
+          <a href="#without-a-domain">until a relay is built in</a>.
         </li>
       </ol>
       <p>

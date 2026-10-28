@@ -63,8 +63,9 @@
       <pre><code><span class="prompt">$</span>sudo nixos-rebuild switch</code></pre>
       <p>
         The node listens on TCP ports 80 and 443, UDP port 443 for QUIC, and
-        UDP port 7768 for its rate feed, which market makers read.
-        <code>openFirewall</code> opens all four. Members of the group
+        UDP port 7768 for requests for its snapshot, the signed quotes it
+        swaps assets at. <code>openFirewall</code> opens all four. The node
+        doesn't start while another program holds UDP port 443. Members of the group
         <code>dassie-users</code> may talk to the node, and the
         <code>dassie</code> command is on everyone's path.
       </p>
@@ -151,6 +152,12 @@ services.dassie.environment = {
         <code>dassie status</code> says that this binary was not installed
         by the installer, so it is not updated. That is about Dassie's own
         updater: Nix updates it instead.
+      </p>
+      <p>
+        Coming from a 0.2 release? Its database and phrase don't work with
+        0.3.0, and a 0.2 node can't peer with a newer one. Set the node up
+        again, with a new phrase, from a fresh database:
+        <a href="/docs/node/updates/#from-0-2">A node from the 0.2 releases</a>.
       </p>
 
       <h2 id="rolling-back">Going back to an older version</h2>

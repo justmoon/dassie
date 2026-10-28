@@ -209,9 +209,10 @@ Environment=DASSIE_ACME_CA_FILE=/etc/dassie/acme-root.pem</code></pre>
       </p>
       <pre><code><span class="prompt">$</span>sudo chmod 0644 /etc/dassie/acme-root.pem</code></pre>
       <p>
-        The node reads the file the first time it orders a certificate. If it
-        can't, every order fails until the node restarts, so restart it after
-        you fix or change the file. A certificate from a private CA is
+        The node reads the file when it starts, so restart it after you
+        change the file. If it can't read the file, or a certificate in it,
+        the node doesn't start, and says why in its log
+        (<code>journalctl -u dassie</code>). A certificate from a private CA is
         trusted only by browsers and wallets that trust that CA, so it suits
         a private network, not a node others on the internet pay.
       </p>
@@ -220,8 +221,9 @@ Environment=DASSIE_ACME_CA_FILE=/etc/dassie/acme-root.pem</code></pre>
       <p>
         A node without a domain name runs as a periphery node, and needs no
         certificate from a CA: it keeps the one it made. Open Payments clients
-        reach it through the front door you name as its relay in
-        <code>DASSIE_RELAY</code>, which has its own certificate. <a
+        reach it only through a front door it keeps as its relay, which has
+        its own certificate. Dassie names no default relay yet, so you name
+        one in <code>DASSIE_RELAY</code>. <a
         href="/docs/node/periphery/">A server without a public IP</a> shows
         how to run one.
       </p>

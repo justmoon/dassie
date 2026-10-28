@@ -20,8 +20,9 @@
         A front door lets ordinary Open Payments clients pay nodes that
         have no public address, such as a desktop app on a laptop. Each
         node that picks it is reached at <code>&lt;node ID&gt;.&lt;your
-        domain&gt;</code>. Dassie runs one for <code>dassiepay.net</code>;
-        this page is for running another.
+        domain&gt;</code>. Dassie keeps one for <code>dassiepay.net</code>,
+        which nodes of 0.3.0 cannot use until it is upgraded; this page is
+        for running your own.
       </p>
 
       <aside class="early">
@@ -68,9 +69,10 @@
         <li>
           <strong>A Linux server with a public address,</strong> with TCP
           and UDP port 443 open. Nodes connect over QUIC on UDP, clients
-          over HTTPS on TCP, and nodes whose UDP is blocked carry QUIC over a
-          WebSocket on TCP. A front door takes port 443 for itself, so give
-          it a host of its own, apart from your node.
+          over HTTPS on TCP, and nodes without a hostname whose UDP is
+          blocked carry QUIC over a WebSocket on TCP. A front door takes
+          port 443 for itself, so give it a host of its own, apart from your
+          node.
         </li>
         <li>
           <strong>A domain,</strong> with a wildcard record,
@@ -155,8 +157,9 @@
 
       <h2 id="settings">Settings</h2>
       <p>
-        Each setting is an environment variable, and each has a flag of
-        <code>dassie front-door</code> that overrides it.
+        Each setting is an environment variable. Most have a flag of
+        <code>dassie front-door</code> that overrides it; the last two have
+        none.
       </p>
       <div class="table-wrap">
         <table>
@@ -292,6 +295,13 @@ Environment=DASSIE_PUBLIC_NAMES=&lt;node ID&gt;.example.com</code></pre>
         limit, so do not skip the unit. Without <code>daemon-reload</code>,
         systemd keeps the unit it read before.
       </p>
+      <p>
+        Nodes of 0.3.0 and later speak only version 2 of the peer
+        protocol, <code>dassie/2</code>, so they reach no front door of
+        0.2.x. A front door's ID changed in 0.3.0 too, since an ID now
+        commits to a second key derived from the key file. The key file
+        stays, but after that update, hand nodes the new line it logs.
+      </p>
 
       <h2 id="not-there-yet">Not there yet</h2>
       <p class="not-yet">
@@ -300,9 +310,10 @@ Environment=DASSIE_PUBLIC_NAMES=&lt;node ID&gt;.example.com</code></pre>
         yet. Neither is the consent page for owner apps (a front door answers
         that route with an error that says so), a node telling clients apart
         behind its front door, or a front door finding nodes that chose
-        another relay. Names under a front door resolve only once the
-        bootstrap nodes are known, and the testnet's are being set up anew
-        with new node IDs. <a href="/docs/project/roadmap/">What's next</a>
+        another relay. Neither is a front door built into Dassie as the
+        default relay, so every node that uses one names it in
+        <code>DASSIE_RELAY</code> today.
+        <a href="/docs/project/roadmap/">What's next</a>
       </p>
       <p class="why">
         <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/http.md#front-doors">How front doors work</a>,

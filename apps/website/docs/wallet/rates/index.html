@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="Set the fee, spread and rebalancing your node charges on what it converts for peers, choose where its rates come from, and pick the currency of your total."
+      content="Set the fee, spread and rebalancing your node charges its peers, choose whether it swaps with them, pick where its rates come from, and the currency of your total."
     />
     <title>Exchange-rate settings · Dassie</title>
     <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
@@ -33,9 +33,9 @@
       <h2 id="spread">Fee, spread and rebalancing</h2>
       <p>
         Open <strong>Settings</strong>, and find the <strong>Peers</strong>
-        card. Its three numbers apply only to what passes through your node
-        from one peer to another. Your own payments, and payments to you, are
-        never charged.
+        card. Its first three numbers apply only to what your node converts
+        or passes on for its peers. Your own payments, and payments to you,
+        are never charged.
       </p>
       <div class="table-wrap">
         <table>
@@ -91,10 +91,12 @@
         </li>
       </ol>
       <p>
-        Rebalancing is how your node keeps its holdings in balance without
-        trading. When it holds less XRP than it would like, it gives a
-        slightly better rate to payments that bring XRP in, and a worse one to
-        payments that take XRP out. Over time, what flows through brings your
+        Rebalancing is how your prices pull your holdings back into balance.
+        When your node holds less XRP than it would like, it gives a slightly
+        better rate to payments that bring XRP in, and a worse one to
+        payments that take XRP out. It counts each asset whole: the XRP in
+        your XRP hub together with the XRP on your own account. Over time,
+        what flows through, your peers' swaps and market makers bring your
         holdings back toward an even share of each asset.
       </p>
       <p>
@@ -104,7 +106,65 @@
       </p>
       <p class="why">
         <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/passive-rebalancing.md">Why it works this way</a>:
-        pricing by inventory instead of trading.
+        pricing by inventory.
+      </p>
+
+      <h2 id="swaps">Swaps with peers</h2>
+      <p>
+        Two peers in hubs of two currencies can trade one for the other
+        between themselves: a swap. Your node pays a peer in one hub, the
+        peer converts it at its own rates, and pays it back in the other.
+        The <strong>Peers</strong> card has two settings for swaps, and both
+        are on for a new node:
+      </p>
+      <dl>
+        <dt><strong>Swaps for peers</strong></dt>
+        <dd>
+          <p>
+            <em>Offered</em> or <em>Not offered</em>: whether peers may swap
+            with your node, at the rates above. While they may, your node
+            signs a snapshot of its quotes for each hub, and sends it to the
+            peers that read it. Anyone may also ask for it over UDP; see
+            <a href="/docs/wallet/network/#snapshot">Network and peers</a>.
+            Only a core node shows this setting: a node without a hostname
+            passes nothing on for others, so it never offers swaps.
+          </p>
+        </dd>
+        <dt><strong>Swapping with peers</strong></dt>
+        <dd>
+          <p>
+            <em>On</em> or <em>Off</em>. On a core node, whether it swaps
+            with its peers by itself, toward an even split of what it holds,
+            when a peer's quotes beat its own costs: the hub's fees, and the
+            XRP Ledger's fees for moving funds between your account and the
+            hub. On a node without a hostname, whether it reads its uplinks'
+            quotes at all, which it needs for any swap.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        A node without a hostname also lists a target for each currency you
+        hold, by its ledger, such as <code>xrpl-testnet-xrp+xrp</code>. A
+        target is the share of your holdings you want in that currency, more
+        than 0 and at most 100%, with up to four decimals. Your node swaps by
+        itself only toward the targets you set. A hub has no target of its
+        own: what you hold there counts with your account that funds it.
+        Leave every target empty, as a new node does, and your node swaps
+        only when you ask.
+      </p>
+      <p>
+        You ask through the node's owner interface, as
+        <a href="/docs/services/market-maker/">a market maker</a> does. The
+        wallet has no button for a swap of your own.
+      </p>
+      <p>
+        <strong>Save</strong> keeps these with the fee, the spread and the
+        rebalancing. What your node swapped shows under Swaps on the
+        <a href="/docs/wallet/network/#swaps">Network</a> page.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peer-swaps.md">Why it works this way</a>:
+        swaps between peers, priced by snapshots.
       </p>
 
       <h2 id="where-rates-come-from">Where rates come from</h2>
@@ -169,9 +229,8 @@
         rates across restarts, so it converts again right after one.
       </p>
       <p>
-        A core node also publishes the rates it converts at for peers in its
-        rate feed. See
-        <a href="/docs/wallet/network/">Network and peers</a>.
+        A core node that offers swaps puts the rates it converts at for its
+        peers in its snapshot (<a href="#swaps">above</a>).
       </p>
       <p class="not-yet">
         The exchanges license their data for personal or internal use only.

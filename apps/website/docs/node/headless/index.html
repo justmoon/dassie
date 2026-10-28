@@ -19,8 +19,8 @@
       <p class="lede">
         <code>dassie setup</code> sets a node up from your recovery phrase,
         kept in a file on the node's server, with no browser. It does what the
-        wallet's setup does, then adds the ledgers and settlement hubs you
-        name, and it is safe to run at every start.
+        wallet's setup does, then joins the testnet's XRP hub, or the
+        settlement hubs you name, and it is safe to run at every start.
       </p>
 
       <aside class="early">
@@ -31,9 +31,10 @@
       <p>
         Most owners set their node up in the browser, at the link
         <code>sudo dassie init</code> prints. Use <code>dassie setup</code>
-        when nobody will open that link: a server a script sets up, the two
-        nodes of a <a href="/docs/services/market-maker/">market maker</a>, or
-        a node you want set up the same way every time it starts.
+        when nobody will open that link: a server a script sets up, the node
+        a <a href="/docs/services/market-maker/">market maker</a> trades
+        through, or a node you want set up the same way every time it
+        starts.
       </p>
       <p>
         It means keeping your phrase on the server. The phrase is your node,
@@ -77,7 +78,10 @@
       </ul>
       <p>
         Phrases come from the wallet or the desktop app: there is no command
-        that makes one on the server.
+        that makes one on the server. A phrase from a 0.2 release doesn't
+        work any more, since the testnet was reset: make a new one, and set
+        the node up from a fresh database
+        (<a href="/docs/node/updates/#from-0-2">A node from the 0.2 releases</a>).
       </p>
 
       <h2 id="the-phrase-file">The phrase file</h2>
@@ -97,6 +101,7 @@
       <ul>
         <li>a phrase that reads only once some of its words are corrected, naming their positions: fix those words in the file;</li>
         <li>a phrase that says it was made more than a day after the server's clock, naming its date: check the clock;</li>
+        <li>a BIP-39 phrase of 12 to 24 words, such as one a 0.2 release made, which Dassie no longer reads;</li>
         <li>a phrase of the live realm, which a node refuses.</li>
       </ul>
 
@@ -105,7 +110,8 @@
 <span class="output">The passphrase in /etc/dassie/phrase is node 454ml6lg4tjfcz4kaedcmpb5u4mos7af5r2fqui, of the test realm.
 Set the node up as 454ml6lg4tjfcz4kaedcmpb5u4mos7af5r2fqui, in the test realm.
 The node's engine is running.
-This build has no default settlement hub for the test realm yet: joining none.</span></code></pre>
+Added the settlement scheme xrpl-testnet-xrp.
+Added the settlement scheme hub-xrpl-testnet-xrp.</span></code></pre>
       <p>Each step prints a line:</p>
       <ol class="steps">
         <li>It reads the phrase and works out the node key, as the wallet does.</li>
@@ -116,40 +122,49 @@ This build has no default settlement hub for the test realm yet: joining none.</
         </li>
         <li>It waits, at most a minute, until the node's engine runs.</li>
         <li>
-          It joins the realm's default settlement hub. This release has none
-          built in, so it says so and leaves the node in no hub.
+          It joins the testnet's XRP hub, which the four bootstrap nodes
+          keep: first the node's XRP Ledger testnet book,
+          <code>xrpl-testnet-xrp</code>, which the hub is funded from, then
+          the hub's scheme, <code>hub-xrpl-testnet-xrp</code>.
         </li>
       </ol>
       <p>
-        Nodes settle with each other only through a hub they share, so a node
-        in no hub gets no peers. To join one, add its scheme with the hub's
-        rules, as in <a href="#joining-a-hub">Joining a hub</a>. Then
-        <a href="/docs/wallet/hubs/">deposit into the hub</a>, in the wallet
-        or with <code>dassie hub deposit</code>.
+        Nodes settle with each other only through a hub they share, so this
+        is what gets your node its peers. From here the node looks after the
+        money itself: it gets test XRP from the testnet's faucet, and moves
+        about 2.5 of it into the hub to open its account there.
+        <code>dassie hub</code> shows how far it is, and
+        <a href="/docs/wallet/hubs/">Your hubs</a> covers the wallet's side.
       </p>
-      <p
-        class="not-yet">The testnet's default hubs are not built in yet, so neither <code>dassie setup</code> nor the wallet joins one by itself. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
 
-      <h2 id="joining-a-hub">Joining a hub</h2>
+      <h2 id="joining-a-hub">Joining another hub</h2>
       <p>
-        A hub is named by its rules, a long hex string that whoever founded
-        it gives you. Add the XRP book the hub is funded from, which settles
-        with nobody, and then the hub's scheme, with the rules as its
-        config:
+        A node is in one hub per asset. To join a hub other than the one
+        built in, name it by its rules, a long hex string that whoever
+        founded it gives you. Add the XRP book the hub is funded from, which
+        settles with nobody, and then the hub's scheme, with the rules as
+        its config:
       </p>
       <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file /etc/dassie/phrase \
     --scheme xrpl-testnet-xrp \
     --scheme 'hub-xrpl-testnet-xrp={"rules":"…"}'
 <span class="output">…
 Added the settlement scheme xrpl-testnet-xrp.
-Added the settlement scheme hub-xrpl-testnet-xrp.</span></code></pre>
+Added the settlement scheme hub-xrpl-testnet-xrp.
+The settlement scheme hub-xrpl-testnet-xrp is active already.</span></code></pre>
       <p>
         A DSUSD hub, <code>hub-xrpl-testnet-dsusd</code>, takes both
         <code>xrpl-testnet-xrp</code>, which pays the hub's fees, and
-        <code>xrpl-testnet-dsusd</code> first. The node keeps the rules you
-        gave it, so it stays in that hub whatever a later release builds
-        in. Run the same command again and each scheme the node runs
-        already is left as it is.
+        <code>xrpl-testnet-dsusd</code> first. Setup adds these before it
+        joins any hub, so a new node is in your hub of that asset, not the
+        built-in one. Without <code>--hub</code>, setup still joins the
+        built-in XRP hub as well; add <code>--hub none</code> to stay out
+        of it.
+        A node that is in the built-in hub already stays there: its scheme
+        is active, and setup leaves it as it is. The node keeps the rules you
+        gave it, so it stays in your hub whatever a later release builds in.
+        Run the same command again and each scheme the node runs already is
+        left as it is.
       </p>
 
       <h2 id="choosing-hubs">Choosing hubs</h2>
@@ -157,8 +172,8 @@ Added the settlement scheme hub-xrpl-testnet-xrp.</span></code></pre>
         <code>--hub</code> says which hubs to join, by the settlement scheme
         over each, the name <code>dassie hub</code> and
         <code>dassie status</code> show. Give it once for each hub. It joins
-        the default hub of that scheme built into the release, after the
-        books the table names:
+        the hub of that scheme built into the release, after the books the
+        table names:
       </p>
       <div class="table-wrap">
         <table>
@@ -172,12 +187,12 @@ Added the settlement scheme hub-xrpl-testnet-xrp.</span></code></pre>
           <tbody>
             <tr>
               <td><code>hub-xrpl-testnet-xrp</code></td>
-              <td>The XRP hub on the XRP Ledger testnet</td>
+              <td>The testnet's XRP hub, which the four bootstrap nodes keep</td>
               <td><code>xrpl-testnet-xrp</code></td>
             </tr>
             <tr>
               <td><code>hub-xrpl-testnet-dsusd</code></td>
-              <td>The DSUSD hub on the XRP Ledger testnet</td>
+              <td>The testnet's DSUSD hub, which the four bootstrap nodes keep</td>
               <td><code>xrpl-testnet-xrp</code>, which pays the hub's fees, and <code>xrpl-testnet-dsusd</code></td>
             </tr>
             <tr>
@@ -190,9 +205,13 @@ Added the settlement scheme hub-xrpl-testnet-xrp.</span></code></pre>
       </div>
       <ul>
         <li>
-          Without <code>--hub</code>, a test phrase joins the default
-          <code>hub-xrpl-testnet-xrp</code> where the release has one built
-          in. This release has none, so setup joins none and says so.
+          Without <code>--hub</code>, a test phrase joins
+          <code>hub-xrpl-testnet-xrp</code>.
+        </li>
+        <li>
+          To be in both of the testnet's hubs, as a market maker's node is,
+          name both:
+          <code>--hub hub-xrpl-testnet-xrp --hub hub-xrpl-testnet-dsusd</code>.
         </li>
         <li>
           A hub the node is in already is left as it is, so
@@ -200,16 +219,9 @@ Added the settlement scheme hub-xrpl-testnet-xrp.</span></code></pre>
           <code>--scheme</code>.
         </li>
         <li>
-          Any other hub you name, one this release has no default for, fails
-          setup before it joins any hub, and says which. For now that is
-          every hub the node is not in. The node is set up all the same, and
-          running setup again without that <code>--hub</code> finishes the
-          job.
-        </li>
-        <li>
           The live realm's hubs, <code>hub-xrpl-xrp</code> and
           <code>hub-xrpl-rlusd</code>, are refused with a test phrase, before
-          anything changes.
+          anything changes. No mainnet hub is built in yet.
         </li>
       </ul>
       <p>

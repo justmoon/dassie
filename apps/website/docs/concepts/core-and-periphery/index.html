@@ -65,7 +65,10 @@
             </tr>
             <tr>
               <td>Needs open ports</td>
-              <td>Yes: TCP 80 and 443, UDP 443</td>
+              <td>
+                Yes: TCP 80 and 443, and UDP 443. UDP 7768 too if it is to
+                answer requests for its snapshot.
+              </td>
               <td>No</td>
             </tr>
           </tbody>
@@ -74,8 +77,9 @@
       <p>
         A periphery node always dials out, so it works behind a home router
         or a firewall, with no port forwarding. It never connects to another
-        periphery node. Setting a hostname makes a node core; clearing it
-        makes it periphery again.
+        periphery node. On a server, setting a hostname makes a node core,
+        and clearing it makes it periphery again. The desktop app's node
+        always stays periphery.
       </p>
       <p class="why">
         <a
@@ -85,18 +89,17 @@
       <h2 id="uplinks">Uplinks and child addresses</h2>
       <p>
         A periphery node finds core nodes in the node list and peers with a
-        few of them. These are its <strong>uplinks</strong>. Each one gives it
+        few of them that share a settlement hub with it. These are its
+        <strong>uplinks</strong>. Each one gives it
         an address beneath its own: if an uplink is
         <code>test.das.</code> followed by the uplink's node ID, your node is
         reached at that address followed by a dot and your node ID. The
         uplink passes on whatever arrives for that address.
       </p>
-      <p class="not-yet">
-        The list of bootstrap nodes built into Dassie is empty for now, so a
-        node has no node list and finds no uplinks unless
-        <code>DASSIE_BOOTSTRAP_NODES</code> names the bootstrap nodes. See
-        <a href="/docs/concepts/network/">Joining the network</a> and
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>.
+      <p>
+        Dassie has the testnet's four bootstrap nodes built in, so a new node
+        gets the node list from them and finds its uplinks on its own.
+        <a href="/docs/concepts/network/">Joining the network</a> says more.
       </p>
       <ul>
         <li>
@@ -116,8 +119,8 @@
       <p>
         You can pin a periphery node to particular uplinks with
         <code>DASSIE_UPLINKS</code>, a comma-separated list of node IDs. A
-        market maker's nodes do that, so they trade through the core node
-        whose rates they watch. See
+        market maker's node does that: the core nodes it pins are the ones
+        it swaps with. See
         <a href="/docs/reference/environment/">Environment variables</a>.
       </p>
       <p>
@@ -135,14 +138,23 @@
         proves its node key in the handshake, and the other checks it
         against the node ID. Either side can open streams on a connection,
         so your uplink sends to your node over the connection your node
-        opened.
+        opened. There is no other way to peer, so a node on a server does
+        not start without its UDP port: <code>dassie.service</code> does not
+        start while something else holds UDP 443.
+      </p>
+      <p>
+        Nodes speak version 2 of the peer protocol, <code>dassie/2</code>, so
+        a node of the 0.2 releases cannot peer with one of 0.3.0 or later.
+        <a href="/docs/concepts/versions/">Protocol versions</a> says how
+        versions change.
       </p>
       <p>
         Some networks block UDP. There, a periphery node carries the same
         QUIC packets over a WebSocket to the core node's HTTPS port, at
         <code>/quic</code>. It tries UDP first and the WebSocket a moment
         later, and keeps whichever connects first. It goes through an HTTP
-        proxy if <code>HTTPS_PROXY</code> names one. The QUIC inside still
+        proxy if <code>HTTPS_PROXY</code> names one, except to the hosts
+        <code>NO_PROXY</code> lists. The QUIC inside still
         proves each node's key, so whatever sits between sees only
         ciphertext. A core node always uses UDP.
       </p>
@@ -170,32 +182,40 @@
         <li>
           <strong>A front door</strong> is a relay that also answers on the
           web. It takes Open Payments requests at a name under its domain
-          and passes them through to the node. The project runs one for
-          <code>dassiepay.net</code>, where a node is reached at its node ID,
-          such as <code>https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code>.
-          Anyone can run another:
+          and passes them through to the node. The project's front door
+          answers for <code>dassiepay.net</code>, where a node is to be
+          reached at its node ID, such as
+          <code>https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code>, though
+          not yet for 0.3.0 nodes (below). Anyone can run another:
           <a href="/docs/services/front-door/">Run a front door</a>.
         </li>
       </ul>
       <p>
-        Dassie is built so that a node without a hostname keeps a connection
-        to the <code>dassiepay.net</code> front door by default, and is
-        reached at its default name with no setup. To use another front door instead,
-        set <code>DASSIE_RELAY</code> to its entry. To keep no relay at all, set
-        <code>DASSIE_RELAY</code> empty: your node then still pays and is
-        paid through its uplinks, but no other wallet can reach it at a
-        name.
-        <code>dassie status</code> and the wallet show which relay your node
-        keeps and whether it is connected.
+        A node keeps a relay only when <code>DASSIE_RELAY</code> holds the
+        relay's entry. Dassie names no relay by default, so a node without a
+        hostname, the desktop app among them, keeps none until you set it.
+        Without a relay, your node still pays through its uplinks, but no
+        Open Payments client can reach it, so other wallets and apps can't
+        pay it. The wallet and <code>dassie status</code> warn you about
+        that, and show which relay your node keeps and whether it is
+        connected.
       </p>
       <p class="not-yet">
-        Dassie names no default relay yet, so a node keeps one only
-        when <code>DASSIE_RELAY</code> holds its entry.
+        The <code>dassiepay.net</code> front door has no entry a 0.3.0 node
+        can name yet. A node ID now also commits to a post-quantum key, so
+        the front door gets a new ID once it runs a release that makes one,
+        and no release builds that entry in yet. Until then, Dassie names no
+        default relay, and nobody reaches your node at
+        <code>dassiepay.net</code>. A node is reached at a name only through
+        a front door that runs 0.3.0 or later, named by the entry it logs.
+        Later, a node without a hostname keeps the
+        <code>dassiepay.net</code> front door unless you choose another relay
+        or none.
         <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
       <p class="why">
         <a
-          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why there is a default relay</a>
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why a node is to have a default relay</a>
       </p>
 
       <h2 id="what-a-front-door-sees">What dassiepay.net can see</h2>
@@ -236,8 +256,9 @@
         </li>
       </ul>
       <p>
-        If you would rather not use it, give your node a hostname, name
-        another front door, or keep no relay.
+        Your node uses a front door only while it keeps it as its relay: today
+        only while <code>DASSIE_RELAY</code> names it. To stop, name another
+        front door, or none.
       </p>
 
       <h2 id="not-yet">What is not there yet</h2>

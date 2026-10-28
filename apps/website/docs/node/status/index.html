@@ -43,9 +43,8 @@
 
       <h2 id="reading-the-output">Reading the output</h2>
       <p>
-        Here is a node with a domain name, a few days after it was set up,
-        with bootstrap nodes named in <code>DASSIE_BOOTSTRAP_NODES</code> and
-        a settlement hub joined:
+        Here is a node with a domain name on the testnet, a few days after it
+        was set up, in the testnet's XRP hub:
       </p>
       <pre><code><span class="prompt">$</span>dassie status
 <span class="output">Dassie 0.3.0 is running, for 3 days (since 2026-10-25 03:41 UTC).
@@ -58,10 +57,8 @@
   Ledgers      hub-xrpl-testnet-xrp+xrp: 20 XRP, in sync
                xrpl-testnet-xrp+xrp: 79.5 XRP, in sync
   Hub          hub-xrpl-testnet-xrp: account 17, 20 XRP, in sync; 4 of 4 validators answering
-  Rate feed    served at [::]:7768, to 1 subscriber
-               published 4310 feeds; sent 4302 datagrams, 0 failed, 0 out of time
-               took 1460 datagrams: 1 challenged, 1 subscribed, 1458 renewed, 0 ignored; 0 lapsed
-               refused 0 for a full table, 0 for a client's share
+  Rate feed    answering at [::]:7768
+               took 1460 datagrams: answered 1458, 0 over the budget, 2 ignored; 0 sends failed
   Packets      took 212 Prepares: 140 forwarded, 72 answered at once
                196 fulfilled, 14 rejected, 2 expired
                0 wrong fulfillments, 0 unexpected responses, 0 duplicate request IDs
@@ -114,7 +111,7 @@
             </tr>
             <tr>
               <td>Rate feed</td>
-              <td>Whether the node publishes its exchange rates, where, to how many subscribers, and what it counted since it started.</td>
+              <td>Whether the node answers requests for its snapshot, the signed quotes it swaps assets at, on which UDP address, and what it counted since it started.</td>
             </tr>
             <tr>
               <td>Packets, Protocol, Names</td>
@@ -150,8 +147,8 @@
   Uplinks      topmkmy6f2dggcqpzq27sleio6ernnber24pdci at https://node.example.org, connected
   Relay        i2yhz2nartbnlzgcjn4qavsyeefnpaxx5i6iyli at https://relay.example.net, connected</span></code></pre>
       <p>
-        A periphery node publishes no rate feed, so it has no Rate feed
-        line. The rest reads as above.
+        A periphery node answers no requests for a snapshot, so it has no
+        Rate feed line. The rest reads as above.
       </p>
 
       <h2 id="hints">Hints</h2>
@@ -217,12 +214,10 @@
         <li>
           <samp>no bootstrap nodes are set (DASSIE_BOOTSTRAP_NODES), so the
           node runs alone</samp>: the node knows no bootstrap node, so it
-          finds no other node. This release has no bootstrap nodes built in,
-          so every node shows this until <code>DASSIE_BOOTSTRAP_NODES</code>
-          names the nodes of the network it joins. Set it in a
+          finds no other node. The testnet's four are built in, so this
+          shows only where <code>DASSIE_BOOTSTRAP_NODES</code> is set to
+          <code>[]</code>. To join the testnet, remove it from your
           <a href="/docs/node/configure/#other-settings">drop-in</a>.
-          The testnet's list is not built in yet:
-          <a href="/docs/project/roadmap/">What's next</a>.
         </li>
         <li>
           <samp>not a member yet, listed by 0 of 4 bootstrap nodes</samp>:
@@ -254,12 +249,11 @@
         </li>
         <li>
           <samp>none (DASSIE_RELAY names none), so Open Payments clients cannot
-          reach the node</samp>: the node keeps no relay. This release has
-          no default relay built in, so a periphery node shows this until
+          reach the node</samp>: the node keeps no relay. No default relay
+          is built in yet, so a periphery node shows this until
           <code>DASSIE_RELAY</code> names a relay's entry:
           <a href="/docs/node/configure/#a-relay">Configure your node</a>.
-          A default relay is not there yet:
-          <a href="/docs/project/roadmap/">What's next</a>.
+          The node still peers and sends payments through its uplinks.
         </li>
         <li>
           <samp>connecting</samp>, on Relay: normal right after a start or a
@@ -326,9 +320,12 @@
       <ul>
         <li>
           <samp>no account yet</samp> with <samp>waiting for the first
-          deposit to open it</samp>: deposit into the hub to open your
-          account there, with <code>dassie hub deposit</code> or on the
-          wallet's Hubs page: <a href="/docs/wallet/hubs/">Your hubs</a>.
+          deposit to open it</samp>: the node opens its account there by
+          itself, with a deposit from its XRP Ledger account, once that
+          account has the funds. Right after setup, give it a few minutes.
+          If you turned the node's own moves off, deposit yourself, with
+          <code>dassie hub deposit</code> or on the wallet's Hubs page:
+          <a href="/docs/wallet/hubs/">Your hubs</a>.
         </li>
         <li>
           <samp>frozen by its token's issuer</samp>: the issuer of the hub's
@@ -351,17 +348,26 @@
       </p>
 
       <h3 id="hint-rate-feed">Rate feed</h3>
+      <p>
+        Without the UDP socket, your node's peers still get its snapshot
+        over QUIC. A node that offers no swaps, or whose engine is down,
+        has no snapshot for anyone.
+      </p>
       <ul>
         <li>
           <samp>none: the node has no UDP socket for it (under systemd,
           `dassie-feed.socket`)</samp>: UDP port 7768 is taken, or its socket
-          unit did not start. The node runs fine without it. To publish a
-          feed, free the port and run <code>sudo systemctl restart dassie</code>,
-          which starts the socket with the node.
+          unit did not start. The node runs fine without it. To answer
+          requests, free the port and run
+          <code>sudo systemctl restart dassie</code>, which starts the socket
+          with the node.
         </li>
         <li>
-          <samp>not served yet: the node publishes it at … once it has a
-          domain name</samp>: run <code>sudo dassie init</code>.
+          <samp>not answering: the node answers at … once it has a domain
+          name and offers swaps</samp>: if you turned swaps off,
+          <strong>Swaps for peers</strong>, in the wallet's settings, turns
+          them on again. The node also has no snapshot while its engine is
+          not running, such as right after a start.
         </li>
       </ul>
 

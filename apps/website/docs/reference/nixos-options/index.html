@@ -74,11 +74,19 @@
         <code>dassie.service</code> and its sockets
         <code>dassie-http</code> (TCP 80), <code>dassie-https</code>
         (TCP 443), <code>dassie-quic</code> (UDP 443),
-        <code>dassie-feed</code> (UDP 7768) and <code>dassie-ipc</code>
+        <code>dassie-feed</code> (UDP 7768, for requests for the node's
+        snapshot) and <code>dassie-ipc</code>
         (<code>/run/dassie.sock</code>). It also creates the group
         <code>dassie-users</code>, whose members may use the IPC socket and
         so administer the node, and puts <code>dassie</code> on the system
         path.
+      </p>
+      <p>
+        QUIC is the peer protocol's only transport, so
+        <code>dassie.service</code> doesn't start without its QUIC socket:
+        while something else holds UDP 443, the node doesn't start. The
+        snapshot socket is optional: if UDP 7768 is taken, the
+        node warns and runs without it.
       </p>
       <p>
         The units keep their sandbox, so the node runs as it does on any
@@ -157,8 +165,8 @@
         <code>DASSIE_RELAY</code> means no relay.
       </p>
       <p class="not-yet">
-        Today the example changes nothing: the front door's relay entry is
-        not built into the release yet, so a node keeps no relay unless
+        Today the example changes nothing: the release names no default
+        relay yet, so a node keeps no relay unless
         <code>DASSIE_RELAY</code> names one.
         <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
@@ -178,7 +186,8 @@
       </dl>
       <p>
         Opens the node's ports in the NixOS firewall: TCP 80 and 443, UDP
-        443 for QUIC, and UDP 7768 for the rate feed.
+        443 for QUIC, and UDP 7768, where anyone may ask the node for its
+        snapshot.
         <a href="/docs/reference/files-and-ports/">Files, ports and sockets</a>
         says what each one is for.
       </p>

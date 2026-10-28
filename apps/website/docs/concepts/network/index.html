@@ -56,6 +56,8 @@
         the network through the core nodes it peers with. See
         <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>.
       </p>
+      <p
+        class="not-yet">A default relay is not built in yet. A node without a hostname still finds the network, peers and pays, but nobody reaches it at its default name, <code>&lt;node ID&gt;.dassiepay.net</code>: the <code>dassiepay.net</code> front door has no entry a 0.3.0 node can name yet. A front door you name in <code>DASSIE_RELAY</code> reaches it under that front door's own domain. That goes for the desktop app too. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
 
       <h2 id="bootstrap-nodes">Bootstrap nodes and the majority</h2>
       <p>
@@ -99,14 +101,13 @@
         class="not-yet">Registration fees, which would let bootstrap nodes take registrations without throttling them, are not there yet. <a href="/docs/project/roadmap/">What's next</a></p>
       <p>
         The project runs the public testnet's four bootstrap nodes,
-        <code>boot1</code> to <code>boot4.dassie.xyz</code>, spread over the
-        zones of one cloud region, so that one of them down leaves three of
-        four, still a majority. The testnet's default settlement hubs are
-        meant to be founded by <code>boot1</code>, with all four as their
-        validators.
+        <code>boot1</code> to <code>boot4.dassie.xyz</code>, in one cloud
+        region and spread over its zones, so that one of them down leaves
+        three of four, still a majority. Their entries are built into
+        <code>dassie</code>, so a new node finds the network by itself. The four also keep the
+        testnet's two settlement hubs, one for XRP and one for DSUSD, as
+        their validators.
       </p>
-      <p
-        class="not-yet">The testnet's bootstrap nodes are moving to new node IDs, and the list built into the release stays empty until they have. Until then a node runs alone unless <code>DASSIE_BOOTSTRAP_NODES</code> names them. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
       <p>
         You can replace the list with <code>DASSIE_BOOTSTRAP_NODES</code>,
         or set it to <code>[]</code> to run a node on its own. Its format is
@@ -128,7 +129,11 @@
           its settlement offers: each hub it takes peers over, with its
           account there if it has one yet;
         </li>
-        <li>the port of its <a href="/docs/concepts/rates/">rate feed</a>, if it publishes one.</li>
+        <li>
+          the UDP port where it answers requests for its
+          <a href="/docs/concepts/rates/#snapshots">snapshot</a>, if it
+          offers swaps.
+        </li>
       </ul>
       <p>
         A node issues a new link state when it starts, when any of this
@@ -184,13 +189,17 @@
         </li>
       </ul>
       <p>
-        <code>dassie setup</code> and the wallet join an asset's default hub
-        only while the release has one built in. Otherwise your node joins a
-        hub when you add the hub's settlement scheme with the hub's rules,
-        and <a href="/docs/wallet/hubs/">Your hubs</a> shows where it stands.
+        On the testnet, <code>dassie setup</code> joins the XRP hub unless
+        <code>--hub</code> names other hubs, or <code>none</code>. In the
+        wallet, your node joins a hub when you add it on
+        <strong>Ledgers</strong>: <strong>XRP in a settlement hub on the XRP
+        Ledger Testnet</strong> or <strong>DSUSD in a settlement hub on the
+        XRP Ledger Testnet</strong>. Either way, it then looks for
+        peers among the hub's other members, and
+        <a href="/docs/wallet/hubs/">Your hubs</a> shows where it stands.
       </p>
       <p
-        class="not-yet">This release has no default testnet hub built in yet, so <code>dassie setup</code> joins none and says so, and a node joins a hub only when you add its scheme with the hub's rules. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
+        class="not-yet">Mainnet hubs are not built in, and a node refuses the live realm anyway. <a href="/docs/project/roadmap/#hubs">What's next</a></p>
       <p
         class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/settlement-methods.md">Why every shared hub is part of one peering</a></p>
 
@@ -238,8 +247,9 @@
       <h2 id="watching-it-happen">Watching it happen</h2>
       <p>
         <code>dassie status</code> shows how many bootstrap nodes list your
-        node and who its peers are, or says that no bootstrap nodes are set
-        and the node runs alone. The wallet's
+        node and who its peers are. Only if you set
+        <code>DASSIE_BOOTSTRAP_NODES</code> to <code>[]</code> does it say
+        that the node runs alone. The wallet's
         <a href="/docs/wallet/network/">Network and peers</a> page shows each
         node your node knows, how far away it is and which hubs it settles
         over. If your node stays alone, start with

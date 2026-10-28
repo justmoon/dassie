@@ -140,13 +140,9 @@ Environment=DASSIE_LOG=info,dassie::peer=debug</code></pre>
             reads it too, for the registrars whose name lists it reads.
           </p>
           <p>
-            Default: none in this release, so a node runs alone and says so
-            in its log. Set this to join a network.
-          </p>
-          <p class="not-yet">
-            The public testnet's bootstrap nodes are not built in yet: they
-            come with the testnet's reset, which gives them new node IDs.
-            <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+            Default: the public testnet's four bootstrap nodes,
+            <code>boot1.dassie.xyz</code> to <code>boot4.dassie.xyz</code>,
+            built into the binary. Leave it unset to join the testnet.
           </p>
         </dd>
 
@@ -163,13 +159,17 @@ Environment=DASSIE_LOG=info,dassie::peer=debug</code></pre>
             and says so in the log.
           </p>
           <p>
-            Unset: no relay in this release.
+            Default: none. This release has no default relay built in, so a
+            node without a hostname, the desktop app's among them, keeps no
+            relay unless you set one here. It still dials its uplinks and
+            pays, but no payment reaches it at its default name,
+            <code>&lt;node ID&gt;.dassiepay.net</code>, and the wallet warns
+            of that.
           </p>
           <p class="not-yet">
-            A default front door is not built in yet: it comes with the
-            testnet's reset. Once it is, an unset <code>DASSIE_RELAY</code>
-            keeps it, reaching the node at
-            <code>&lt;node ID&gt;.dassiepay.net</code>, while the node has no
+            The <code>dassiepay.net</code> front door is not built in as the
+            default relay yet. Once it is, an unset
+            <code>DASSIE_RELAY</code> keeps it while the node has no
             hostname. <a href="/docs/project/roadmap/#public-testnet">What's next</a>
           </p>
         </dd>
@@ -193,7 +193,8 @@ Environment=DASSIE_LOG=info,dassie::peer=debug</code></pre>
             its uplinks, by node ID, separated by commas, each once, at most
             128. The node looks for as many uplinks as you name, and asks no
             other node. A core node ignores the list and warns that it does.
-            Default: none, so the node picks its uplinks itself. See
+            A market maker's node names the core nodes it trades through
+            here. Default: none, so the node picks its uplinks itself. See
             <a href="/docs/node/periphery/">A server without a public IP</a>.
           </p>
         </dd>

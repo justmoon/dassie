@@ -64,10 +64,12 @@
         Before the node is set up, every route answers <code>404</code>.
       </p>
       <p class="not-yet">
-        The front door's relay entry is not built into the release yet, so
-        a node without a hostname keeps no relay, and nothing reaches it at
-        its <code>dassiepay.net</code> names, unless you set
-        <code>DASSIE_RELAY</code>.
+        A default relay is not there yet: the release names none, so a node
+        without a hostname keeps no relay unless you set
+        <code>DASSIE_RELAY</code>. The <code>dassiepay.net</code> front
+        door has no entry a 0.3.0 node can name yet, so for now nothing
+        reaches a node at its <code>dassiepay.net</code> names, and the
+        front door answers requests for it with <code>503</code>.
         <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
 
@@ -309,9 +311,11 @@
           outgoing payments) have a tighter limit on top: a burst of 20,
           then one every 3 seconds. Past a limit, the node answers
           <code>429</code>. Through a front door, the front door limits
-          each client the same way, but the node counts the front door as
+          each client as the node does for all requests, and to a quarter of
+          that for each node: a burst of 30, then one a second. It sets no
+          limit of its own on creating. The node counts the front door as
           one client, so every client that comes through it shares the
-          node's budget.
+          node's budget, its limit on creating included.
         </li>
       </ul>
 
@@ -361,6 +365,15 @@
               <td><code>403</code></td>
               <td><code>forbidden</code></td>
               <td>The grant doesn't allow this</td>
+            </tr>
+            <tr>
+              <td><code>403</code></td>
+              <td><code>invalid_request</code></td>
+              <td>
+                An outgoing payment the grant's limits don't leave room for,
+                such as one to another receiver than the grant names, or in
+                another asset than its debit limit
+              </td>
             </tr>
             <tr>
               <td><code>404</code></td>
@@ -425,6 +438,14 @@
               <td>No node has that name, or the path isn't an Open Payments route</td>
             </tr>
             <tr>
+              <td><code>421</code></td>
+              <td><code>misdirected_request</code></td>
+              <td>
+                The name isn't under the front door's domain, or names a
+                port other than 443
+              </td>
+            </tr>
+            <tr>
               <td><code>429</code></td>
               <td><code>too_many_requests</code></td>
               <td>The front door's own rate limit</td>
@@ -454,6 +475,11 @@
           </tbody>
         </table>
       </div>
+      <p>
+        A browser that opens a name at <code>/</code> gets a short page
+        from the front door instead: the name, the node's ID, whether the
+        node is connected to the front door now, and its wallet address.
+      </p>
       <p>
         The authorization server also answers with GNAP's other codes where
         they fit, such as <code>request_denied</code>,

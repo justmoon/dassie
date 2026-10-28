@@ -58,19 +58,29 @@
               <td><code>dassie-quic.socket</code></td>
               <td>
                 The peer protocol, over QUIC: how nodes talk to each other.
+                Peers speak <code>dassie/2</code>, so a node peers only with
+                nodes on 0.3.0 or later.
               </td>
-              <td>Yes. The node does not run without it.</td>
+              <td>
+                Yes. The node does not run without it: while another program
+                holds UDP 443, <code>dassie-quic.socket</code> cannot start,
+                and <code>dassie.service</code> doesn't start without it.
+              </td>
             </tr>
             <tr>
               <td>UDP 7768</td>
               <td><code>dassie-feed.socket</code></td>
               <td>
-                The <a href="/docs/build/snapshots/">rate feed</a>, which
-                market makers subscribe to.
+                Requests for the node's signed
+                <a href="/docs/build/snapshots/">snapshot</a> of the quotes it
+                swaps at. Anyone may ask; a core node that offers swaps
+                answers. Its peers get the snapshot over the peer protocol
+                instead. <code>dassie status</code> shows it on the line
+                labeled <em>Rate feed</em>.
               </td>
               <td>
-                No. Without it the node runs, publishes no feed, and says so
-                in its log.
+                No. Without it the node runs, answers no request for its
+                snapshot, and says so in its log.
               </td>
             </tr>
           </tbody>
@@ -88,8 +98,8 @@
         a node binds the same ports itself, or those
         <a href="/docs/reference/cli/#dassie-daemon"><code>--http-port</code>,
         <code>--https-port</code> and <code>--feed-listen</code></a> give.
-        QUIC then follows the HTTPS port, and the feed listens on the HTTPS
-        listener's address at port 7768.
+        QUIC then follows the HTTPS port, and the snapshot's socket listens
+        on the HTTPS listener's address at port 7768.
       </p>
 
       <h3 id="outbound">Going out</h3>
@@ -116,9 +126,12 @@
       </ul>
       <p>
         A node without a public IP needs no inbound port at all: it dials out
-        to its uplinks and its relay. Where UDP does not get through, it
-        carries QUIC over a WebSocket on TCP 443 instead, through an HTTP
-        proxy if <code>https_proxy</code> names one. See
+        to its uplinks, and to its relay if
+        <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
+        names one. Where UDP does not get through, it carries QUIC over a
+        WebSocket on TCP 443 instead, through an HTTP proxy if
+        <code>https_proxy</code> names one. Only a node without a hostname
+        falls back this way; a node with one needs UDP. See
         <a href="/docs/node/periphery/">A server without a public IP</a>.
       </p>
 
@@ -127,7 +140,8 @@
         The desktop app's node listens for HTTPS on <code>localhost</code>
         only, at a port it picks once and keeps, so that the wallet's address
         stays the same. If another program took that port, it picks a new
-        one. It has no HTTP listener and no rate feed. QUIC listens on every
+        one. It has no HTTP listener and no socket for snapshot requests.
+        QUIC listens on every
         address, at a port the system picks, and only dials out. See
         <a href="/docs/desktop/reach/">How others reach you</a>.
       </p>
@@ -306,7 +320,11 @@
             <code>dassie-update.service</code> with
             <code>dassie-update.timer</code>, which looks for an update once a
             day, at a random time in the hour after 03:20. Your own changes go
-            in drop-ins, which updates leave alone.
+            in drop-ins, which updates leave alone. With
+            <code>install.sh --no-service</code>, the installer puts no units
+            here, for a host that runs the node under units of its own; then
+            <a href="/docs/reference/cli/#dassie-update"><code>dassie update --unit</code></a>
+            restarts those.
           </p>
         </dd>
         <dt>The group <code>dassie-users</code></dt>

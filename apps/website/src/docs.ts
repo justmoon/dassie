@@ -210,7 +210,10 @@ export const SECTIONS: readonly Section[] = [
         path: "/docs/reference/open-payments/",
         title: "Open Payments endpoints",
       },
-      { path: "/docs/reference/snapshot-format/", title: "Snapshot wire format" },
+      {
+        path: "/docs/reference/snapshot-format/",
+        title: "Snapshot wire format",
+      },
     ],
   },
   {

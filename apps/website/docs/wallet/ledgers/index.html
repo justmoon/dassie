@@ -17,9 +17,10 @@
     <main class="docs">
       <h1>Add and fund a ledger</h1>
       <p class="lede">
-        A ledger is where your node keeps your money in one asset, on its
-        account on the XRP Ledger testnet. You add it in the wallet,
-        put test money on it, and remove it when you are done with it.
+        A ledger is where your node keeps your money in one asset: on its
+        account on the XRP Ledger testnet, or in a settlement hub. You add it
+        in the wallet, put test money on it, and remove it when you are done
+        with it.
       </p>
 
       <aside class="early">
@@ -64,13 +65,29 @@
                 account pays its fees in XRP.
               </td>
             </tr>
+            <tr>
+              <td>XRP in a settlement hub on the XRP Ledger Testnet</td>
+              <td>
+                Your account in the testnet's XRP hub, funded from XRP Ledger
+                Testnet.
+              </td>
+            </tr>
+            <tr>
+              <td>DSUSD in a settlement hub on the XRP Ledger Testnet</td>
+              <td>
+                Your account in the testnet's DSUSD hub, funded from DSUSD on
+                the XRP Ledger Testnet. It needs XRP Ledger Testnet too, which
+                pays the escrow's fees.
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
       <p>
-        Each ledger funds the settlement hub of its asset, and peers with no
-        one itself: your node settles with peers only through
-        <a href="/docs/wallet/hubs/">hubs</a>. The
+        The first two are your own ledgers. Each funds the settlement hub of
+        its asset, and peers with no one itself: your node settles with peers
+        only through <a href="/docs/wallet/hubs/">hubs</a>. Add the ledgers a
+        hub needs first, then the hub's. The
         <a href="/docs/reference/schemes/">settlement schemes</a> reference
         lists every ledger a node can run.
       </p>
@@ -100,17 +117,16 @@
       <p>To ask for more, or to send test XRP from another wallet:</p>
       <ol class="steps">
         <li>
-          On the ledger's card, choose <strong>Receive</strong>. The page opens
-          on the ledger's tab.
+          Open <strong>Assets</strong>, and on your testnet account's card
+          choose <strong>Get test XRP</strong> to ask the faucet, once a
+          minute at most. The XRP shows up once the ledger validates it.
         </li>
         <li>
-          Choose <strong>Get test XRP</strong> to ask the faucet, once a minute
-          at most. The XRP shows up once the ledger validates it.
-        </li>
-        <li>
-          Or send test XRP from another testnet wallet to the deposit address,
-          shown as text and as a QR code. It needs no destination tag: the
-          address is your node's alone.
+          Or send test XRP from another testnet wallet to your account's
+          address, shown as text and as a QR code on its card on
+          <strong>Assets</strong>, and on the ledger's card on
+          <strong>Ledgers</strong>. It needs no destination tag: the address
+          is your node's alone.
         </li>
       </ol>
       <aside class="warning">
@@ -120,6 +136,21 @@
           follow the live XRP Ledger.
         </p>
       </aside>
+      <p>
+        <strong>Receive</strong> on the ledger's card opens Receive's tab for
+        the asset. While you are not in the asset's hub, it shows the same
+        address and the faucet. Once your node's account in a hub has its
+        number, and you keep what you receive in the hub, the default, the tab
+        shows the hub's escrow and a destination tag instead, with no faucet:
+        a deposit there goes into the hub, as
+        <a href="/docs/wallet/receive/#deposits">Deposits on the XRP Ledger</a>
+        explains. To have the tab show your own account again, keep what you
+        receive there, under <strong>Received Funds</strong> in
+        <strong>Settings</strong>; then your node also moves what is beyond a
+        float in the hub to your account
+        (<a href="/docs/wallet/receive/#where-it-is-kept">Where the money
+        stays</a>).
+      </p>
 
       <h2 id="fund-with-dsusd">Fund it with DSUSD</h2>
       <p>
@@ -148,6 +179,13 @@
         The tab shows the issuer's address, what the trust line holds, and how
         much XRP the account has for fees. Send only DSUSD of that issuer, and
         test XRP: other tokens may be lost.
+      </p>
+      <p>
+        That tab is your own account's while you are not in the DSUSD hub.
+        Once you are, it shows the hub's escrow and a destination tag, as
+        <a href="#fund-with-test-xrp">for XRP</a>, and your own account's
+        address is on its cards on <strong>Ledgers</strong> and
+        <strong>Assets</strong>.
       </p>
       <p>
         Your node watches DSUSD's price on its pool, and stops converting it

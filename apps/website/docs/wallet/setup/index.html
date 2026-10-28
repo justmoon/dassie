@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="Open the setup link, make a recovery phrase or bring yours, and choose your first ledger."
+      content="Open the setup link, make a recovery phrase or bring yours, choose your first ledger, and join the testnet's hub."
     />
     <title>Set up your wallet · Dassie</title>
     <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
@@ -19,7 +19,8 @@
       <p class="lede">
         A new node waits for its owner. You claim it once, in your browser,
         with a recovery phrase: a new one the wallet makes for you, or one you
-        already have. Then you choose the first ledger it keeps your money on.
+        already have. Then you choose the first ledger it keeps your money on,
+        and join the testnet's settlement hub so that your node has peers.
       </p>
 
       <aside class="early">
@@ -117,6 +118,11 @@
         <a href="/docs/wallet/backup/#bring-your-node-back">Bring your node back</a>
         says what comes back with a phrase, and what you set up again.
       </p>
+      <p>
+        A phrase from Dassie 0.2 or earlier doesn't work. The testnet was
+        reset for 0.3.0, and those phrases were of an older kind, 12 or 24
+        words, that a node no longer reads. Make a new phrase instead.
+      </p>
 
       <h2 id="first-ledger">Choose your first ledger</h2>
       <p>
@@ -144,15 +150,28 @@
         <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> shows how to
         follow that, and how to add more.
       </p>
+
+      <h2 id="join-the-hub">Join the testnet's hub</h2>
       <p>
-        Peers settle with each other through settlement hubs, and a hub is a
-        ledger you choose the same way. The list offers a hub only while your
-        release has a default hub of its asset built in.
+        Your own ledger peers with no one. Peers settle with each other
+        through settlement hubs, and the testnet's two hubs, one of XRP and
+        one of DSUSD, are built into your release. The testnet's four
+        bootstrap nodes keep them. The wallet joins none for you, so add the
+        XRP hub yourself:
       </p>
-      <p class="not-yet">
-        The testnet's default hub is not there yet, so the list offers no hub
-        today, and your node peers with no one until it joins one.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      <ol class="steps">
+        <li>Open <strong>Ledgers</strong> and choose <strong>+ Add Ledger</strong>.</li>
+        <li>
+          Choose <strong>Select →</strong> next to
+          <strong>XRP in a settlement hub on the XRP Ledger Testnet
+          Settlement</strong>.
+        </li>
+      </ol>
+      <p>
+        The hub is funded from your <strong>XRP Ledger Testnet</strong>
+        ledger, so pick that one first, as above. Your node then looks for
+        peers in the hub by itself.
+        <a href="/docs/wallet/hubs/">Your hubs</a> shows your account there.
       </p>
 
       <h2 id="without-a-browser">Without a browser</h2>
@@ -160,7 +179,8 @@
         A node that nobody sets up in a browser, such as a market maker's, can
         be set up on its own host with <code>dassie setup</code>, from a phrase
         in a file. It does what the wallet does and sends the node only the
-        key.
+        key. On the testnet it also joins the XRP hub, unless
+        <code>--hub</code> names others, or <code>none</code>.
         <a href="/docs/node/headless/">Headless setup</a> walks through it, and
         the <a href="/docs/reference/cli/#dassie-setup">command reference</a>
         lists its options.
@@ -187,9 +207,9 @@
             <tr>
               <td>That is a 12-word phrase (or 24).</td>
               <td>
-                That is another wallet's phrase, or one from an earlier version
-                of Dassie. A Dassie phrase has 20 words, and older ones can no
-                longer be read.
+                That is another wallet's phrase, or one from Dassie 0.2 or
+                earlier. A Dassie phrase has 20 words, and older ones can no
+                longer be read. Make a new phrase.
               </td>
             </tr>
             <tr>

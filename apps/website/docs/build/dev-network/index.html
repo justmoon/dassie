@@ -234,11 +234,15 @@ building the wallet and the dashboard…
             </tr>
             <tr>
               <td><code>market-maker</code></td>
-              <td>An XRP hub and a DSUSD hub, a core node in both, and a market maker's two nodes without a domain name, pinned to it, one in each hub.</td>
+              <td>An XRP hub and a DSUSD hub beside an XRP/DSUSD pool, a core node in both, and a market maker's node without a domain name, pinned to it and in both hubs too, for <code>dassie market-maker</code> to trade from.</td>
             </tr>
             <tr>
               <td><code>market-maker-two-targets</code></td>
-              <td>The same with two core nodes, for a market maker that trades through several.</td>
+              <td>The same with two core nodes, which peer with each other, and the market maker's node pinned to both, for a market maker that trades through several.</td>
+            </tr>
+            <tr>
+              <td><code>peer-swaps</code></td>
+              <td>The two core nodes in both hubs, alone, which swap with each other once their holdings are skewed apart.</td>
             </tr>
             <tr>
               <td><code>live-owner-books</code>, <code>live-hub</code></td>
@@ -247,6 +251,14 @@ building the wallet and the dashboard…
           </tbody>
         </table>
       </div>
+      <p>
+        The dev network does not start <code>dassie market-maker</code>
+        itself. To watch it trade, run it with a config for the market
+        maker's node. <a href="/docs/services/market-maker/">Run a market maker</a>
+        describes the config, and
+        <a href="https://github.com/justmoon/dassie/blob/main/tests/e2e/market_maker.ts"><code>tests/e2e/market_maker.ts</code></a>
+        writes one for these scenarios.
+      </p>
       <p>
         The live scenarios hold no real money. Their nodes enter the live
         realm through a dev switch that only a debug build honors, and settle
@@ -274,7 +286,10 @@ building the wallet and the dashboard…
       <p>
         Each node is the real <code>dassie</code> binary, with its own data,
         IPC socket and ports, at <code>https://dN.localhost</code> through the
-        proxy. Run the <code>dassie</code> command against one with:
+        proxy. A node without a domain name, such as a market maker's, answers
+        its owner only at <code>localhost</code>, so the dashboard opens its
+        wallet at <code>https://localhost:</code> and its own HTTPS port. Run
+        the <code>dassie</code> command against any node with:
       </p>
       <pre><code><span class="prompt">$</span>node --run cli -- d1 status</code></pre>
       <p>
@@ -308,7 +323,7 @@ building the wallet and the dashboard…
             </tr>
             <tr>
               <td>6000 + N</td>
-              <td>Node <code>dN</code>'s rate feed, on UDP</td>
+              <td>Node <code>dN</code>'s answers to requests for its snapshot, on UDP</td>
             </tr>
           </tbody>
         </table>

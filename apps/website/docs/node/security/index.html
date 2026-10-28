@@ -179,16 +179,26 @@
               <td>TCP 443</td>
               <td>
                 The wallet, Open Payments, BTP for ILP clients, and a
-                WebSocket that carries QUIC for nodes whose UDP is blocked.
+                WebSocket that carries QUIC for nodes without a domain name
+                whose UDP is blocked.
               </td>
             </tr>
             <tr>
               <td>UDP 443</td>
-              <td>Other nodes, over QUIC.</td>
+              <td>
+                Other nodes, over QUIC. The node doesn't start without this
+                port.
+              </td>
             </tr>
             <tr>
               <td>UDP 7768</td>
-              <td>The node's rate feed, for market makers that subscribe.</td>
+              <td>
+                Requests for the node's snapshot: the quotes it swaps at,
+                signed with its key. Only a core node that offers swaps
+                answers, with one datagram no larger than the request, and
+                only as many per second as its budget allows (<a href="/docs/build/snapshots/">Read a node's
+                snapshot</a>).
+              </td>
             </tr>
           </tbody>
         </table>
@@ -261,7 +271,9 @@
         </li>
       </ul>
       <p>
-        A peer that claims what it rejected loses its peering. If you want a
+        A swap with a peer is a payment through it like any other, within the
+        same bounds. A peer that claims what it rejected loses its peering.
+        If you want a
         node kept away for good, ban it in the wallet's
         <a href="/docs/wallet/network/">Network</a> page: only you ban, the
         node never does it by itself.

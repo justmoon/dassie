@@ -40,9 +40,9 @@
         <li>
           <strong><samp>listening</samp></strong>, at every start, names the
           version, the HTTP and HTTPS ports, the QUIC endpoint
-          (<code>quic=</code>) and the rate feed's socket (<code>feed=</code>,
-          or <code>none</code>). It is the quickest way to see what the node
-          listens on:
+          (<code>quic=</code>) and the UDP socket that answers requests for
+          the node's snapshot (<code>feed=</code>, or <code>none</code>). It
+          is the quickest way to see what the node listens on:
           <code>journalctl -u dassie | grep listening</code>.
         </li>
         <li>
@@ -52,12 +52,11 @@
         </li>
         <li>
           <strong><samp>no bootstrap nodes: the node runs alone</samp></strong>
-          means no bootstrap nodes are configured. This release has none
-          built in, so the node logs this at every start until
-          <code>DASSIE_BOOTSTRAP_NODES</code> names the nodes of the network
-          it joins (<a href="/docs/node/configure/#other-settings">Configure
-          your node</a>). The testnet's list is not built in yet:
-          <a href="/docs/project/roadmap/">What's next</a>.
+          means <code>DASSIE_BOOTSTRAP_NODES</code> is set to
+          <code>[]</code>. The testnet's bootstrap nodes are built in, so
+          remove the variable to join the testnet
+          (<a href="/docs/node/configure/#other-settings">Configure your
+          node</a>).
         </li>
         <li>
           <strong><samp>It is for development; unset it on a public
@@ -108,9 +107,12 @@
           <strong>A socket unit failed</strong>, as
           <code>systemctl status dassie</code> shows: another program holds
           one of the node's ports. Nodes need TCP 80 and 443 and UDP 443 for
-          themselves. A web server on the same machine is the usual cause,
-          and some web servers take UDP 443 for HTTP/3 by default. Run
-          <code>sudo ss -tulpn</code> to see who holds which port.
+          themselves, and <code>dassie.service</code> doesn't start while
+          UDP 443 is taken, since QUIC is the only way nodes talk. A web
+          server on the same machine is the usual cause, and some web
+          servers take UDP 443 for HTTP/3 by default. Run
+          <code>sudo ss -tulpn</code> to see who holds which port. UDP 7768
+          is different: without it the node starts all the same.
         </li>
         <li>
           <samp>another Dassie node runs on this data directory</samp>: a
@@ -133,10 +135,10 @@
         </li>
         <li>
           <samp>this database was made by a release of Dassie for the early
-          testnet</samp>: the node's data is from before the testnet was
-          reset, and this version cannot read it, nor the phrase that made
-          it. Move the data aside, then configure and set up the node again,
-          with a new phrase:
+          testnet</samp>: the node's data is from a 0.2 release, before the
+          testnet was reset, and this version cannot read it, nor the phrase
+          that made it. Move the data aside, then configure and set up the
+          node again, with a new phrase:
           <pre><code><span class="prompt">$</span>sudo systemctl stop dassie
 <span class="prompt">$</span>sudo mv /var/lib/private/dassie /var/lib/private/dassie-0.2
 <span class="prompt">$</span>sudo systemctl start dassie
@@ -227,8 +229,10 @@
       <p>
         If you cannot open UDP on this server, run it as a periphery node
         instead, without a domain name: it reaches the network through
-        connections it opens itself, and over a WebSocket where UDP is
-        blocked. See <a href="/docs/node/periphery/">A server without a public IP</a>.
+        connections it opens itself, and where UDP is blocked, through QUIC
+        over a WebSocket on its uplinks' HTTPS port, through an HTTP proxy
+        where the network sets one. Only a node without a domain name falls
+        back this way. See <a href="/docs/node/periphery/">A server without a public IP</a>.
       </p>
       <p
         class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/quic-only.md">Why it works this way</a>: QUIC is the only transport between nodes.</p>
@@ -236,8 +240,8 @@
       <h2 id="not-listed">Not listed</h2>
       <p>
         <code>dassie status</code> says <samp>not a member yet, listed by 0
-        of 4 bootstrap nodes</samp>, counting the bootstrap nodes you named
-        in <code>DASSIE_BOOTSTRAP_NODES</code>. A node becomes a member of the network
+        of 4 bootstrap nodes</samp>, counting the testnet's four, or those
+        you named in <code>DASSIE_BOOTSTRAP_NODES</code>. A node becomes a member of the network
         once more than half of the bootstrap nodes list it. It registers with
         each of them when it starts, and each one first checks that it can
         reach your node at its domain name, over QUIC.
@@ -278,21 +282,22 @@
         <li>
           <p>
             <strong>Is your node in a hub?</strong> <code>dassie status</code>
-            has a <samp>Hub</samp> line for each. With none, join one: add
-            its scheme with the hub's rules, which whoever founded it gives
-            you, with <code>dassie setup --scheme</code>
-            (<a href="/docs/node/headless/#joining-a-hub">Joining a hub</a>).
-            Your peers must be in the same hub.
+            has a <samp>Hub</samp> line for each. With none, join the
+            testnet's XRP hub, which the four bootstrap nodes keep: in the
+            wallet, add <strong>XRP in a settlement hub on the XRP Ledger
+            Testnet</strong> (<a href="/docs/wallet/hubs/">Your hubs</a>),
+            or run <code>dassie setup</code>, which joins it unless you tell
+            it otherwise (<a href="/docs/node/headless/#choosing-hubs">Choosing
+            hubs</a>). Your peers must be in the same hub.
           </p>
-          <p
-            class="not-yet">The testnet's default hubs are not built in yet, so the wallet offers no hub to join and <code>dassie setup --hub</code> joins none. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
         </li>
         <li>
           <p>
-            <strong>Is the hub's ledger in sync?</strong> A node offers to
-            peer on a hub only once it has caught up with the hub's ledger at
-            least once. The hub's ledger on the <samp>Ledgers</samp> line
-            should say <samp>in sync</samp>.
+            <strong>Does the node follow the hub?</strong> A node offers to
+            peer over a hub only once it knows where its account there
+            stands. The <samp>Hub</samp> line should say <samp>in sync</samp>,
+            or <samp>waiting for the first deposit to open it</samp>, and not
+            <samp>connecting</samp> or <samp>failed</samp>.
           </p>
         </li>
         <li>
@@ -336,6 +341,10 @@
         <li>
           A <code>DASSIE_RELAY</code> that names your own node keeps no
           relay, and the log says so.
+        </li>
+        <li>
+          Check that the relay runs 0.3.0 or later. Nodes speak peer
+          protocol <code>dassie/2</code>, which 0.2 releases don't.
         </li>
       </ul>
       <p>

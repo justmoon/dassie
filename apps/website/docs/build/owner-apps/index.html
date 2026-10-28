@@ -90,9 +90,13 @@ Enter this code in the app within five minutes. It works once, and `dassie pair`
         <dt id="code-relay"><code>relay</code></dt>
         <dd>
           <p>
-            For a node without a domain name: <code>&lt;node ID&gt;@&lt;URL&gt;</code>
-            of a node it keeps a connection to, which relays to it. A code
-            names a few at most.
+            For a node without a domain name, once for each of its peers that
+            is online and has a URL, a few at most: the peer's
+            <code>&lt;node ID&gt;@&lt;URL&gt;</code>, percent-encoded, so the
+            <code>@</code> is <code>%40</code>. Each peer relays to the node
+            over the connection between them. A node without a domain name
+            and with no peer online gives a code with neither
+            <code>direct</code> nor <code>relay</code>, which no app can use.
           </p>
         </dd>
       </dl>

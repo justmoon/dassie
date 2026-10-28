@@ -134,7 +134,7 @@
       <pre><code><span class="prompt">$</span>cargo fmt --check
 <span class="prompt">$</span>cargo clippy --all-targets -- -D warnings
 <span class="prompt">$</span>cargo test
-<span class="prompt">$</span>node --run check      <span class="comment"># formatting (dprint), lint (oxlint), types (tsc)</span>
+<span class="prompt">$</span>node --run check      <span class="comment"># formatting (dprint), lint (oxlint), types (tsc), the RPC contract (buf)</span>
 <span class="prompt">$</span>node --run test       <span class="comment"># the apps', packages' and scripts' tests</span>
 <span class="prompt">$</span>node --run test:e2e   <span class="comment"># WebAssembly vectors, STREAM interop, browser, end to end</span></code></pre>
       <p>
@@ -170,8 +170,9 @@
           <strong>End-to-end tests</strong> in
           <a href="https://github.com/justmoon/dassie/tree/main/tests/e2e"><code>tests/e2e</code></a>
           run the real binaries: an install, the wallet in a browser,
-          payments over BTP and Open Payments, settlement over a hub on a fake
-          XRP Ledger. None of them touches the public testnet.
+          payments over BTP and Open Payments, settlement over hubs on a fake
+          XRP Ledger, swaps between peers and the market maker. None of them
+          touches the public testnet.
         </li>
         <li>
           <strong>The install tests</strong> run the installer and the

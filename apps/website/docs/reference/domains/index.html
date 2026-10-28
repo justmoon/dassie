@@ -73,8 +73,8 @@
               <td><code>relay.dassiepay.net</code></td>
               <td>
                 Where a node connects to the project's front door as its
-                relay, so that it can be reached at its payment names. Not
-                built into the release yet
+                relay, so that it can be reached at its payment names. The
+                release doesn't name it yet
               </td>
               <td>With a release</td>
             </tr>
@@ -84,8 +84,8 @@
                 <code>boot4.dassie.xyz</code>
               </td>
               <td>
-                The testnet's bootstrap nodes. Not built into the release
-                yet
+                The testnet's bootstrap nodes, built into the release. They
+                also keep the testnet's XRP and DSUSD hubs
               </td>
               <td>With a release</td>
             </tr>
@@ -135,8 +135,12 @@
         for the node with <code>503</code>.
       </p>
       <p class="not-yet">
-        The front door's entry is not built into the release yet, so a node
-        keeps no relay unless you set <code>DASSIE_RELAY</code>.
+        A default relay is not there yet: the release names none, so a node
+        without a hostname, the desktop app's too, keeps no relay unless
+        you set <code>DASSIE_RELAY</code>. The <code>dassiepay.net</code>
+        front door has no entry a 0.3.0 node can name yet, so for now
+        nothing reaches a node at its <code>dassiepay.net</code> names. It
+        still peers, and pays others, through its uplinks.
         <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
       <ul>
@@ -246,16 +250,16 @@
 
       <h2 id="the-projects-machines">The project's own machines</h2>
       <p>
-        The proof servers are named in the release, and nothing outside a
-        release stores them. So a release can move them, and nodes follow
-        when they update. The bootstrap nodes and the front door's relay
-        address run too, but a node doesn't use them unless you name them.
+        The bootstrap nodes and the proof servers are named in the release,
+        the bootstrap nodes with their keys, and nothing outside a release
+        stores them. So a release can move them, and nodes follow when they
+        update. A new testnet node finds the network through the four
+        bootstrap nodes, and <code>dassie setup</code> joins the testnet's
+        XRP hub, which they keep, unless you name other hubs or none.
       </p>
       <p class="not-yet">
-        The bootstrap nodes and the front door's relay entry are not built
-        into the release yet: they come with the testnet's reset, which
-        gives them new node IDs. Until then a node runs alone and keeps no
-        relay unless you set the variables below.
+        The front door's relay entry is not built into the release yet, so
+        a node keeps no relay unless you set <code>DASSIE_RELAY</code>.
         <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
       <p>You can name machines of your own, or the project's:</p>

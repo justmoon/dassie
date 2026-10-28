@@ -232,7 +232,7 @@
         The new server may run a newer release than the old one: it reads an
         older node's database and brings it up to date. The other way round
         doesn't work, since a release refuses a database newer than it knows.
-        Data from the 0.2 releases, which ran the early test network, doesn't
+        Data from the releases before 0.3.0, which ran the early test network, doesn't
         carry over at all: a node from those releases is set up again with a
         new phrase, and starts with empty books
         (<a href="/docs/node/updates/#from-0-2">A node from the 0.2
@@ -257,10 +257,11 @@
         setup</a>).
       </p>
       <p>
-        This works with a phrase of 20 words. A 24-word phrase is from the
-        0.2 releases, before the test network was reset, and the node
-        refuses it, as it refuses any phrase of 12 to 24 words but 20. That
-        node can't be brought back: set one up with a new phrase instead.
+        This works with a phrase of 20 words. A phrase of 12 or 24 words is
+        from a release before 0.3.0, which reset the test network. The wallet
+        and <code>dassie setup</code> refuse it, as they refuse every phrase
+        in the BIP-39 format other wallets use. That node can't be brought
+        back: set one up with a new phrase instead.
       </p>
       <p>The new node has:</p>
       <ul>
@@ -278,7 +279,9 @@
         it or it owed them, no payment history, and none of your settings,
         grants, API keys or paired devices. Add your ledgers and hubs
         again, and give the node your domain name again with
-        <code>dassie init</code>.
+        <code>dassie init</code>. On the test network,
+        <code>dassie setup</code> joins the XRP hub for you, unless you name
+        other hubs with <code>--hub</code>.
       </p>
       <p>
         Make sure the old node is gone for good first: a node set up from

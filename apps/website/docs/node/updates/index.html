@@ -115,7 +115,7 @@
       </p>
       <pre><code><span class="prompt">$</span>sudo dassie update --target-version &lt;version&gt;</code></pre>
       <p>
-        A version is three numbers, such as <code>0.2.9</code>. The release
+        A version is three numbers, such as <code>0.3.0</code>. The release
         must be on the mirror, and its signature is checked as for any
         update. The installer takes the same option under the same name, so a
         new server can start on the version your others run:
@@ -280,6 +280,13 @@ RandomizedDelaySec=30min</code></pre>
         the network updates. The release after that drops the old version.
       </p>
       <p>
+        0.3.0 is the one exception. It speaks version 2,
+        <code>dassie/2</code>, and nothing else, so a node on 0.3.0 doesn't
+        talk to a node on a 0.2 release at all. The test network moved to
+        version 2 all at once, when it was reset
+        (<a href="#from-0-2">below</a>).
+      </p>
+      <p>
         So a node that misses a whole release cycle, because it was down or
         its updates were off or kept failing, can't reach updated nodes any
         more. Its peerings end, and it peers again only once it updates. The
@@ -298,11 +305,19 @@ RandomizedDelaySec=30min</code></pre>
 
       <h3 id="from-0-2">A node from the 0.2 releases</h3>
       <p>
-        A node still on a 0.2 release can't update to this one in place. The
-        0.2 releases ran the early test network, and this release reads
-        neither their database nor their recovery phrases. If the old updater
+        A node still on a release before 0.3.0, a 0.2 one or a 0.1 one, can't
+        update to 0.3.0 in place. Those releases ran the early test network, and 0.3.0 reads neither
+        their database nor their recovery phrases. If the old updater
         installs it, the new version refuses the database and doesn't start,
-        and the update goes back to 0.2.
+        and the update goes back to the old release.
+      </p>
+      <p>
+        Staying on the old release doesn't work either. The test network was reset for
+        0.3.0: its bootstrap nodes have new IDs, and nodes on 0.3.0 don't
+        speak the protocol of the earlier releases, so the old node finds no one
+        to peer with.
+        <a href="/docs/reference/releases/#v0-3-0">The notes for 0.3.0</a>
+        say what else changed.
       </p>
       <p>
         Set the node up again instead, with a new phrase. It starts with a new
@@ -311,12 +326,15 @@ RandomizedDelaySec=30min</code></pre>
       </p>
       <ol class="steps">
         <li>
-          <p>Stop the node and move its data aside:</p>
-          <pre><code><span class="prompt">$</span>sudo systemctl stop dassie.service
+          <p>
+            Stop the node, its sockets and the updater, and move the node's
+            data aside:
+          </p>
+          <pre><code><span class="prompt">$</span>sudo systemctl stop dassie-update.timer dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie-feed.socket
 <span class="prompt">$</span>sudo mv /var/lib/private/dassie /var/lib/private/dassie-0.2</code></pre>
         </li>
         <li>
-          <p>Install this release:</p>
+          <p>Install the newest release, which starts the node on an empty data directory:</p>
           <pre><code><span class="prompt">$</span>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh</code></pre>
         </li>
         <li>

@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="Where a node's exchange rates come from, how it prices a conversion by what it holds, and how its rate feed lets market makers bring it back into balance."
+      content="Where a node's exchange rates come from, how it prices a conversion by what it holds, and how swaps with its peers and market makers bring it back into balance."
     />
     <title>Exchange rates · Dassie</title>
     <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
@@ -20,7 +20,7 @@
         A payment can come in as XRP and leave as dollars, or the other way.
         This page explains where your node's rates come from, how it prices a
         conversion, and how it keeps its holdings in balance without ever
-        trading on its own.
+        trading on an exchange.
       </p>
 
       <aside class="early">
@@ -142,8 +142,8 @@
           <strong>Better for what it lacks, worse for what it has.</strong>
           Bringing in an asset your node is short of gets a better rate than
           the market; taking it out gets a worse one. So whoever profits from
-          the gap, a market maker or an ordinary payment, moves your node back
-          toward balance.
+          the gap, a peer's swap, a market maker or an ordinary payment,
+          moves your node back toward balance.
         </li>
         <li>
           <strong>A cap on the bonus, none on the penalty.</strong> Your node
@@ -206,55 +206,134 @@
       <p
         class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/passive-rebalancing.md">Why it works this way</a>, and what it costs a node that runs short.</p>
 
-      <h2 id="the-rate-feed">The rate feed</h2>
+      <h2 id="snapshots">Snapshots of a node's prices</h2>
       <p>
-        A market maker needs to know every node's rates, often and cheaply.
-        So each core node publishes them as a rate feed: one small signed
-        message, sent over UDP to everyone who subscribed. It says, for each
-        pair of hubs your peers can pay you over, the most a packet gets,
-        with your fee and the largest packet you take.
+        Peers and market makers need to know what a node converts at, often
+        and cheaply. So each core node that offers swaps signs a
+        <em>snapshot</em> of its prices with its node key: one small
+        message, made again at most once a second while its prices move, and
+        every thirty seconds anyway, so readers know it is alive.
       </p>
       <ul>
         <li>
-          Your node publishes at most once a second while its rates change,
-          and every thirty seconds anyway, so subscribers know it is alive.
+          <strong>A bid and an ask per hub.</strong> For each settlement
+          method its peers can pay it on, the snapshot says what the node
+          gives for money coming in and asks for money going out, with its
+          fee and spread folded in. A reader prices a swap from one method to
+          another by the one's bid over the other's ask.
         </li>
         <li>
-          A subscriber first proves it receives at its address, so nobody
-          can aim the feed at someone else.
+          <strong>A ladder for each.</strong> It also says how much can come
+          in or go out before the price falls by more than each step of a
+          grid, from 0.01% to 30%. So a reader knows how far a swap can go,
+          not only what the first unit gets.
         </li>
         <li>
-          The feed listens on UDP port 7768. If the node cannot bind that
-          port, it runs as usual without a feed. Open UDP 7768 in your
-          firewall so subscribers can reach it. A periphery node publishes
-          none.
-        </li>
-        <li>
-          <code>dassie status</code> and the wallet's network page show
-          whether the feed is served and how many subscribe.
+          <strong>A promise, never more.</strong> A snapshot never says more
+          than the node gives. A method the node offers but cannot convert
+          on now, for want of a fresh rate or a dollar token off its peg, is
+          listed closed.
         </li>
       </ul>
       <p>
-        To read a feed yourself, see <a href="/docs/build/snapshots/">Read a
-        rate feed</a> and the <a href="/docs/reference/snapshot-format/">wire
-        format</a>.
+        Peers subscribe to each other's snapshots over the peer protocol,
+        and get each new one as it is made. Anyone else can ask a core node
+        once, over UDP port 7768. A request is as large as the largest
+        snapshot, so the answer is never larger than the request, and the
+        node answers only so many each second. Open UDP 7768 in your
+        firewall so readers can reach it. If the node cannot bind that port,
+        it runs as usual and answers no requests, and its peers still get
+        its snapshots.
       </p>
+      <p>
+        A periphery node offers no swaps, so it makes no snapshot and
+        answers no request. <code>dassie status</code> and the wallet's
+        network page show whether your node answers, and how many requests
+        it has answered.
+      </p>
+      <p>
+        To read a snapshot yourself, see
+        <a href="/docs/build/snapshots/">Read a node's snapshot</a> and the
+        <a href="/docs/reference/snapshot-format/">snapshot wire format</a>.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rate-feed.md">What a snapshot says, and how a node makes it</a></p>
+
+      <h2 id="swaps">Swaps with peers</h2>
+      <p>
+        Two peers that share an XRP hub and a dollar hub can pay each other
+        in either asset within one peering. So a node can swap one asset for
+        the other with a peer directly: it sends a packet to the peer on one
+        hub, and the peer converts it at its own prices and sends it
+        straight back on the other. A swap is never routed anywhere else.
+      </p>
+      <ul>
+        <li>
+          <strong>A core node swaps by itself.</strong> It reads its peers'
+          snapshots and swaps with a peer while what the peer's snapshot
+          promises, valued by its own curve, beats its costs: the fees of
+          settling over the hub and of moving money in and out of it. A
+          peer's prices pay most for what it lacks, so a swap tends to move
+          both nodes toward balance.
+        </li>
+        <li>
+          <strong>A periphery node swaps by itself only toward your
+          targets.</strong> Its holdings are its owner's choice, so it has
+          none by default and swaps only when you ask. You set targets in the
+          wallet's Peers settings; see
+          <a href="/docs/wallet/rates/#swaps">Swaps with peers</a>.
+        </li>
+        <li>
+          <strong>Any node swaps when you ask,</strong> through its owner
+          API (<code>SwapWithPeer</code>), as a market maker does.
+        </li>
+      </ul>
+      <p>
+        Two settings in the wallet, both on by default, control this:
+        <strong>Swaps for peers</strong>, whether peers may swap with your
+        node, shown only on a core node, and <strong>Swapping with
+        peers</strong>, whether your node swaps with them. See
+        <a href="/docs/wallet/rates/">Exchange-rate settings</a>.
+      </p>
+      <p>
+        Swaps spread drift around; they do not remove it. Where payments
+        flow one way through the whole network, every node drifts alike, and
+        only market makers and owners bring in new money.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peer-swaps.md">Why peers swap this way</a>, and what it accepts in return.</p>
 
       <h2 id="market-makers">Market makers</h2>
       <p>
-        A market maker watches the feeds of the core nodes it trades
-        through and an AMM pool on the XRP Ledger. When a node's feed and
-        the pool disagree by more than a margin, it pays through that node
-        in the asset the node lacks, takes the other asset out, and evens out
-        its own side on the pool. Each such trade moves the node back toward
-        balance, and the market maker keeps the difference.
+        A market maker brings in what nodes lack from outside, from an AMM
+        pool on the XRP Ledger. It runs as <code>dassie market-maker</code>,
+        beside one periphery node of its own. That node is a member of the
+        testnet's XRP hub and its DSUSD hub, and is pinned with
+        <code>DASSIE_UPLINKS</code> to the core nodes it trades through, so
+        it gets their snapshots over its peerings with them.
       </p>
+      <ul>
+        <li>
+          <strong>It trades by swapping.</strong> When what a core node's
+          snapshot promises for a swap and the pool's price differ by more
+          than a margin, the market maker asks its node to swap with that
+          core node, at a rate no worse than the pool makes worth it. Each
+          such swap brings the core node what it lacks.
+        </li>
+        <li>
+          <strong>It rebalances on the pool.</strong> When it holds more of
+          one asset than its band allows, it trades the extra for the other
+          on the pool, with one payment from its XRP Ledger account to
+          itself, which never spends more than a set limit.
+        </li>
+        <li>
+          <strong>It holds no books.</strong> Every amount is moved by its
+          node or by the ledger.
+        </li>
+      </ul>
       <p>
-        It runs as <code>dassie market-maker</code>, with two periphery
-        nodes of its own, one in each asset's hub, both pinned to the core
-        nodes it trades through. It holds no books: every amount is moved by
-        a node or by the ledger. See
-        <a href="/docs/services/market-maker/">Run a market maker</a>.
+        See <a href="/docs/services/market-maker/">Run a market maker</a>
+        for its config.
       </p>
       <p
         class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rate-feed.md#market-maker">How the market maker decides</a></p>

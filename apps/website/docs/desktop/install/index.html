@@ -160,6 +160,13 @@
         what the phrase holds.
       </p>
       <p>
+        Then add your first ledger, and join the testnet's XRP hub. Peers
+        settle only through settlement hubs, so your node finds its first
+        peers once it is in one. The wallet joins no hub by itself:
+        <a href="/docs/wallet/hubs/#joining-a-hub">Joining a hub</a> shows
+        how.
+      </p>
+      <p>
         From then on, closing the window leaves your node running, with an
         icon in the tray. <a href="/docs/desktop/lifecycle/">Tray, login and
         quitting</a> says how to open it again and how to stop it, and
@@ -228,7 +235,6 @@
         The app does not bring the command along; Nix runs it for you:
       </p>
       <pre><code><span class="prompt">$</span>nix run github:justmoon/dassie -- status</code></pre>
-      <p></p>
       <aside class="note">
         <p>
           Back up your phrase, not the folders. The phrase recovers your node
@@ -256,6 +262,13 @@
           <strong>The wallet's port was taken</strong> between the app
           choosing it and the node opening it. Start the app again: it
           chooses another.
+        </li>
+        <li>
+          <strong>The database was made for the early testnet.</strong>
+          Dassie 0.3.0 reset the testnet, and reads no database or phrase
+          from before. Quit the app, move <code>~/.local/share/dassie</code>
+          aside, start the app again, and set your node up with a new
+          phrase.
         </li>
       </ul>
       <p>

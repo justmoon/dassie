@@ -79,9 +79,12 @@
               <td><a href="/docs/build/stream/">STREAM on Dassie</a></td>
             </tr>
             <tr>
-              <td>Watch what a node converts at</td>
-              <td>The rate feed: signed datagrams over UDP</td>
-              <td><a href="/docs/build/snapshots/">Read a rate feed</a></td>
+              <td>See what a node swaps assets at</td>
+              <td>Its signed snapshot, asked for over UDP</td>
+              <td>
+                <a href="/docs/build/snapshots/">Read a node's snapshot</a>,
+                <a href="/docs/reference/snapshot-format/">Snapshot wire format</a>
+              </td>
             </tr>
             <tr>
               <td>Try all of this without the testnet</td>
@@ -111,8 +114,14 @@
         <code>https://&lt;name&gt;/.well-known/pay</code>, the asset the owner
         picked as the default. The name is the node's hostname, such as
         <code>node.example.com</code>. A node without one, such as the desktop
-        app, is reached at <code>&lt;node ID&gt;.dassiepay.net</code> through
-        a front door.
+        app, is named <code>&lt;node ID&gt;.dassiepay.net</code>, and is
+        reached there through a front door it keeps as its relay.
+      </p>
+      <p class="not-yet">
+        No relay is built in yet, and the <code>dassiepay.net</code> front
+        door has no entry for 0.3.0 nodes, so today nobody reaches a node
+        without a hostname at <code>&lt;node ID&gt;.dassiepay.net</code>.
+        Build against a node with a hostname. <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
       <p>
         A node does not speak SPSP: Open Payments replaced it, so a wallet
@@ -143,14 +152,21 @@
         your browser.
       </p>
 
-      <h3>The rate feed</h3>
+      <h3>Snapshots</h3>
       <p>
-        A node with a hostname publishes what it converts at, between the
-        settlement methods its peers pay it on, as signed datagrams over UDP.
-        Market makers read them. The node's discovery document,
+        Peers swap assets with each other. A node with a hostname that offers
+        swaps signs a snapshot of the prices it swaps at: a bid and an ask,
+        each with a ladder, for each settlement method its peers pay it on.
+        Peers that swap with it subscribe, and get each new snapshot over
+        their peering. Anyone else asks for it once
+        over UDP, on port 7768 by default, and gets the same signed bytes.
+        The node's discovery document,
         <code>/.well-known/dassie/node</code>, names its ID, its two public
-        keys and the feed's port, so a tool that knows only the node's URL can
-        find and check the feed.
+        keys and, while it answers, that port, so a tool that knows only the
+        node's URL can find the snapshot and check it.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peer-swaps.md">Why it works this way</a>
       </p>
 
       <h2 id="what-stays-stable">What stays stable</h2>
@@ -165,7 +181,7 @@
           BTP 2.0, STREAM and Open Payments. Build on these freely.
         </li>
         <li>
-          <strong>The rate feed's wire format,</strong> within its version. A
+          <strong>The snapshot's wire format,</strong> within its version. A
           new layout comes as a new version.
         </li>
         <li>
@@ -195,7 +211,7 @@
       <p class="not-yet">
         ILP over HTTP (RFC 35) is not there yet: a node serves no
         <code>/ilp</code> route.
-        <a href="/docs/project/roadmap/">What's next</a>
+        <a href="/docs/project/roadmap/#smaller-gaps">What's next</a>
       </p>
       <p class="why">
         <a href="https://github.com/justmoon/dassie/blob/main/spec/overview.md#frozen-surfaces">Why it works this way</a>:
@@ -214,9 +230,12 @@
           <code>&lt;node ID&gt;.dassiepay.net</code>, and a node that holds a
           name at <code>&lt;name&gt;.dassiepay.net</code>. Wallets and apps
           store these as wallet addresses, so once the live realm opens, its
-          names here are kept for good. <code>relay</code>
-          and <code>test</code> are reserved there; every other name belongs
-          to someone's node, and its answers are that node's.
+          names here are kept for good. A
+          <a
+            href="https://github.com/justmoon/dassie/blob/main/crates/dassie-peer/src/names/name.rs">short
+          list of names</a>, such as <code>relay</code> and <code>test</code>,
+          is reserved there; every other name belongs to someone's node, and
+          its answers are that node's.
         </li>
         <li>
           <strong><code>dassie.land</code></strong> is the project's site. Its
@@ -236,7 +255,7 @@
         <code>dassiepay.net</code> today. Those names move once, to
         <code>test.dassiepay.net</code>, when the testnet gets its own
         domain, and they may be reset with the testnet, so don't store them
-        for good. <a href="/docs/project/roadmap/">What's next</a>
+        for good. <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
       <p>
         <a href="/docs/reference/domains/">Public domains</a> lists every
@@ -260,21 +279,31 @@
           door above, and its wallet addresses carry its own name.
         </li>
         <li>
-          The <a href="/docs/desktop/install/">desktop app</a>. It is reached
-          through the <code>dassiepay.net</code> front door, which carries
-          Open Payments and nothing else.
-        </li>
-        <li>
           The <a href="/docs/build/dev-network/">local dev network</a>, which
           runs several nodes on your machine, with play money or a stand-in
           for the XRP Ledger.
         </li>
+        <li>
+          The <a href="/docs/desktop/install/">desktop app</a>, through BTP
+          on <code>localhost</code> from a client on the same computer. Others
+          can't reach it at <code>&lt;node ID&gt;.dassiepay.net</code> yet,
+          since no relay is built in.
+        </li>
       </ul>
       <p>
-        On the testnet, your node holds test money in a settlement hub once
-        you fund it. <a href="/docs/wallet/ledgers/">Add and fund a ledger</a>
-        shows how.
+        On the testnet, a node keeps its test money in a settlement hub.
+        <code>dassie setup</code> joins the testnet's XRP hub unless you tell
+        it otherwise, and <a href="/docs/wallet/ledgers/">Add and fund a
+        ledger</a> shows how to put money in.
       </p>
+      <aside class="note">
+        <p>
+          The testnet was reset for 0.3.0. A node on 0.2.x doesn't peer with
+          it, and phrases and databases from 0.2.x don't carry over: set your
+          node up again with a new phrase, from a fresh database.
+          <a href="/docs/reference/releases/#v0-3-0">Release notes</a>
+        </p>
+      </aside>
     </main>
     <!-- footer -->
   </body>

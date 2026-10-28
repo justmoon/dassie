@@ -266,9 +266,29 @@
         <code>{"rules": "&lt;hex&gt;"}</code> as its config.
       </p>
       <p>
-        The wallet offers only the default hubs built into Dassie, so today
-        a member adds another hub's scheme with
-        <a href="/docs/reference/cli/#dassie-setup"><code>dassie setup --scheme</code></a>.
+        The wallet offers only the testnet's default hubs, which are built
+        into Dassie, so today a member adds another hub's scheme with
+        <a href="/docs/reference/cli/#dassie-setup"><code>dassie setup --scheme</code></a>,
+        after the owner book the hub is funded from:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file &lt;file&gt; \
+    --scheme xrpl-testnet-xrp \
+    --scheme 'hub-xrpl-testnet-xrp={"rules": "&lt;hex&gt;"}'</code></pre>
+      <p>
+        A DSUSD hub's member adds <code>xrpl-testnet-xrp</code> and then
+        <code>xrpl-testnet-dsusd</code> before
+        <code>hub-xrpl-testnet-dsusd</code>. Without <code>--hub none</code>,
+        setup on the testnet also joins the default XRP hub, so a member that
+        wants only your hub passes it:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file &lt;file&gt; --hub none \
+    --scheme xrpl-testnet-xrp \
+    --scheme xrpl-testnet-dsusd \
+    --scheme 'hub-xrpl-testnet-dsusd={"rules": "&lt;hex&gt;"}'</code></pre>
+      <p>
+        A node is in one hub per asset, so a node already in the testnet's
+        default XRP hub is not in yours as well. A new member needs no money
+        in your hub to start: a member with an account there pays it in.
         <a href="/docs/reference/schemes/">Schemes and hubs</a> lists the
         schemes.
       </p>

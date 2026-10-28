@@ -289,10 +289,8 @@
           <p>
             XRP in a hub on the XRP Ledger testnet, on ledger
             <code>hub-xrpl-testnet-xrp+xrp</code>, funded from
-            <code>xrpl-testnet-xrp</code>. Once the testnet's default hub is
-            built in, this is the hub <code>dassie setup</code> joins by
-            default in the test realm. That default is
-            <a href="/docs/project/roadmap/">not there yet</a>.
+            <code>xrpl-testnet-xrp</code>. This is the hub
+            <code>dassie setup</code> joins by default in the test realm.
           </p>
         </dd>
         <dt id="hub-xrpl-testnet-dsusd"><code>hub-xrpl-testnet-dsusd</code></dt>
@@ -331,12 +329,12 @@
       <h2 id="default-hubs">Default hubs</h2>
       <p>
         A release can build in a default hub for each hub scheme, with that
-        hub's rules. This release builds in none yet. While a scheme has no
-        default, the wallet does not offer it, and you add it only with the
-        rules of a hub as its config. <code>dassie setup</code> joins no hub
-        by default, and says that this build has no default hub yet. Once a
-        scheme has a default built in, the wallet offers it, and adding it
-        without a config joins that hub.
+        hub's rules. Where a scheme has one, the wallet offers it, and adding
+        it without a config joins that hub. Where it has none, the wallet
+        does not offer it, and you add it only with the rules of a hub as its
+        config. <code>dassie setup</code> joins the testnet's XRP hub unless
+        <a href="/docs/reference/cli/#dassie-setup"><code>--hub</code></a>
+        says otherwise.
       </p>
       <div class="table-wrap">
         <table>
@@ -349,11 +347,18 @@
           <tbody>
             <tr>
               <td><code>hub-xrpl-testnet-xrp</code></td>
-              <td>None built in yet.</td>
+              <td>
+                The testnet's XRP hub, founded by <code>boot1</code> with the
+                four bootstrap nodes, <code>boot1</code> to
+                <code>boot4</code>, as its validators.
+              </td>
             </tr>
             <tr>
               <td><code>hub-xrpl-testnet-dsusd</code></td>
-              <td>None built in yet.</td>
+              <td>
+                The testnet's DSUSD hub, founded the same way, with the same
+                four validators.
+              </td>
             </tr>
             <tr>
               <td><code>hub-xrpl-xrp</code></td>
@@ -366,12 +371,23 @@
           </tbody>
         </table>
       </div>
+      <p>
+        <code>dassie hub status</code> shows a hub's ID on its
+        <em>ID</em> line. The testnet's two default hubs have these IDs, and
+        their escrows these addresses on the XRP Ledger testnet:
+      </p>
+      <pre><code>hub-xrpl-testnet-xrp
+  ID      5b4e3d7b99aa06f03642f872efd905f32a6183a09d2faf02327f49d6f3d2c308
+  Escrow  rwLtDoCscTc6YWo82BefD27BPmQZVYprV
+
+hub-xrpl-testnet-dsusd
+  ID      8a33d0f5759f5411e1118b98adb1ab9f2831323ca01ab1287c372ccb72a11f3d
+  Escrow  rDkVZmGMF5PEWnADsnqfTNr8WQDdrXpzS5</code></pre>
       <p class="not-yet">
-        The default hubs are not there yet: the testnet's two come once the
-        bootstrap nodes found them again under the current rules, and
-        mainnet's once the project's validators found them. Until then, join a
-        hub with its rules, as its founder gives them out.
-        <a href="/docs/project/roadmap/">What's next</a>
+        Mainnet's default hubs are not there yet: they come once the
+        project's validators on mainnet found them. Until then, a mainnet hub
+        scheme runs only with the rules of a hub as its config.
+        <a href="/docs/project/roadmap/#hubs">What's next</a>
       </p>
       <p>
         To found a hub of your own, see

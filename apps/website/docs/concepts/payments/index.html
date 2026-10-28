@@ -175,6 +175,15 @@
         <a href="/docs/concepts/rates/">Exchange rates</a> says how a node
         prices that.
       </p>
+      <p>
+        Peers also trade with each other this way. In a swap, a node sends
+        its peer a packet over one hub, and the peer converts it at its own
+        rates and sends it straight back over another, so the node gets one
+        asset for the other. A core node swaps by itself when a peer's
+        prices bring it back toward balance and pay for the swap. A node
+        without a hostname swaps by itself only toward the targets you
+        set, none by default, and any node swaps when you ask it to.
+      </p>
 
       <h2 id="limits">Limits along the way</h2>
       <p>
@@ -199,8 +208,8 @@
             <tr>
               <td>Money in flight</td>
               <td>
-                What packets in flight with one peer carry, each way: two and a
-                half of the largest packets
+                What packets in flight with one peer carry, on each hub the two
+                share and each way: two and a half of the largest packets
               </td>
               <td>T05, and the sender backs off</td>
             </tr>
@@ -228,7 +237,7 @@
         Packets move money in the nodes' books, not on a ledger. After a
         while one peer owes another. Before what it owes reaches the credit
         it was given, the peer it owes asks it to settle, and it pays through
-        the settlement hub the two share. How that works is on
+        the settlement hub of that asset that the two share. How that works is on
         <a href="/docs/concepts/hubs/">Settlement hubs</a>, and how peers
         find each other and how much they let each other owe is on
         <a href="/docs/concepts/peers/">Peers and holds</a>.

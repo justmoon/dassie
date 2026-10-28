@@ -35,7 +35,10 @@
         <li>
           <strong>systemd, running.</strong> The installer sets up systemd
           units that start the node, hand it its ports and update it every
-          night. It stops if systemd is not running.
+          night. It stops if systemd is not running. With
+          <code>--no-service</code>, it installs Dassie without the units
+          and doesn't need systemd: you run the node under units of your
+          own.
         </li>
         <li>
           <strong>root, or sudo.</strong> The installer writes to
@@ -121,19 +124,18 @@
         <code>https://</code> that name, and you open your wallet there.
       </p>
       <ul>
-        <li>It must be a DNS name, not an IP address, and at most 253 characters long.</li>
+        <li>It must be a DNS name, not an IP address, and at most 242 characters long, so that <code>https://</code>, the name and a port fit in the URL other nodes take.</li>
         <li>Point an <code>A</code> record, an <code>AAAA</code> record or both at the server before you run <code>sudo dassie init</code>.</li>
       </ul>
       <p>
         You can use any domain you control. If you have none, your node can
-        still run as a periphery node, reached through a relay you name with
-        <code>DASSIE_RELAY</code> (<a href="/docs/node/configure/#a-relay">A
-        relay</a>).
+        still run as a periphery node: it peers and pays through the core
+        nodes it connects to.
         <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>
         explains the difference.
       </p>
       <p
-        class="not-yet">A default relay is not built in yet, so a periphery node keeps none until you name one. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
+        class="not-yet">No default relay is built in yet. Until you name one with <code>DASSIE_RELAY</code> (<a href="/docs/node/configure/#a-relay">A relay</a>), a periphery node keeps none, so Open Payments clients can't reach it at its name under <code>dassiepay.net</code>. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
 
       <h2 id="ports">Ports</h2>
       <p>
@@ -158,8 +160,9 @@
             <tr>
               <td>TCP 443</td>
               <td>
-                Your wallet, Open Payments, and nodes behind networks that
-                block UDP, which reach yours over a WebSocket
+                Your wallet, Open Payments, and nodes without a domain name
+                on networks that block UDP, which reach yours over a
+                WebSocket
               </td>
               <td>Yes</td>
             </tr>
@@ -170,8 +173,14 @@
             </tr>
             <tr>
               <td>UDP 7768</td>
-              <td>The node's rate feed, which market makers read</td>
-              <td>No: without it the node runs and publishes no feed</td>
+              <td>
+                Requests for the node's snapshot: the signed quotes it swaps
+                assets at
+              </td>
+              <td>
+                No: without it the node runs, and its peers still get the
+                snapshot over QUIC
+              </td>
             </tr>
           </tbody>
         </table>
@@ -179,7 +188,9 @@
       <p>
         UDP 443 is the one people miss most often. Nodes talk to each other
         over QUIC only, so a node whose UDP port 443 is closed cannot be
-        listed by the bootstrap nodes and gets no peers.
+        listed by the bootstrap nodes and gets no peers. If another program
+        holds UDP 443 on the server, <code>dassie.service</code> doesn't
+        start at all.
         <a href="/docs/node/troubleshooting/#udp-and-quic">Troubleshooting</a>
         says how to tell.
       </p>

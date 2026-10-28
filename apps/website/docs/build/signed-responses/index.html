@@ -25,8 +25,8 @@
       <h2 id="why-check">Why check</h2>
       <p>
         A node without a hostname, such as the desktop app, is reached at
-        <code>&lt;node ID&gt;.dassiepay.net</code> through a front door. The
-        front door ends the TLS connection, so it reads every request and
+        <code>&lt;node ID&gt;.dassiepay.net</code> through a front door, which
+        the node keeps as its relay. The front door ends the TLS connection, so it reads every request and
         answer, and a client that takes answers as they come trusts it as
         much as the node. The node's signature takes that trust away: a front
         door, or anyone else in the middle, cannot make up an answer the node
@@ -36,6 +36,12 @@
       <p>
         Checking is up to your client. Other Open Payments clients ignore the
         signature, and work as before.
+      </p>
+      <p class="not-yet">
+        No relay is built in yet, and the <code>dassiepay.net</code> front
+        door has no entry for 0.3.0 nodes, so today no answer comes through
+        it. A node with a hostname signs its answers all the same.
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
       <p class="why">
         <a
@@ -284,7 +290,7 @@ export async function fetchFromNode(url, nodeId = new URL(url).hostname.split(".
       <p class="not-yet">
         A DNS record that names the node behind an owner's own domain is not
         there yet, nor is an owner's domain pointed at a front door.
-        <a href="/docs/project/roadmap/">What's next</a>
+        <a href="/docs/project/roadmap/#periphery">What's next</a>
       </p>
     </main>
     <!-- footer -->

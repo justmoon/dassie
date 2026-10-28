@@ -45,20 +45,32 @@
         (<code>hub-xrpl-testnet-xrp</code>), and stays in that hub for as long
         as you keep the ledger. A hub needs the ledger it is funded from: for
         the XRP hub, <strong>XRP Ledger Testnet</strong>, so add and
-        <a href="/docs/wallet/ledgers/">fund that one</a> first.
+        <a href="/docs/wallet/ledgers/">fund that one</a> first. The DSUSD hub
+        (<code>hub-xrpl-testnet-dsusd</code>) needs both
+        <strong>DSUSD on the XRP Ledger Testnet</strong>, which funds it, and
+        <strong>XRP Ledger Testnet</strong>, which pays its escrow's fees.
       </p>
       <p>
-        You need no money in the hub to start. A peer that already has an
-        account there pays your node in, once it owes your node enough to open
-        an account. Or deposit yourself, as below: your first deposit opens the
-        account.
+        Once you add the hub's ledger, your node opens its account there by
+        itself: it moves money in from your own ledger of the hub's asset,
+        enough for the account's reserve and some to spend. It does so once
+        that ledger holds enough, unless you
+        <a href="#automatic-moves">stopped your node's own moves</a>. A peer
+        that already has an
+        account in the hub can also pay your node in, once it owes your node
+        enough to open one. Or deposit yourself, as below: your first deposit
+        opens the account.
       </p>
       <p>
-        The wallet offers a hub's ledger only while your release has a default
-        hub of its asset built in. <code>dassie setup --hub</code> likewise
-        joins only default hubs: the XRP hub unless you name others, or none
-        with <code>--hub none</code>. To join another hub, give its scheme
-        that hub's rules as its config, after the ledger it is funded from:
+        The testnet's XRP hub and DSUSD hub are built into your release as its
+        default hubs. The testnet's four bootstrap nodes keep them, and the
+        wallet offers both. A hub's ledger joins the default hub of its asset
+        when you add it, and stays in that hub even if a later release builds
+        in another. The wallet joins no hub by itself.
+        <code>dassie setup</code> joins the XRP hub unless
+        <code>--hub</code> names others, or none with <code>--hub none</code>.
+        To join a hub that is not a default, give its scheme that hub's rules
+        as its config, after the ledger it is funded from:
       </p>
       <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file &lt;file&gt; --scheme xrpl-testnet-xrp --scheme 'hub-xrpl-testnet-xrp={"rules": "&lt;hex&gt;"}'</code></pre>
       <p>
@@ -70,10 +82,14 @@
         <a href="/docs/reference/cli/#dassie-setup">command reference</a>
         lists every option of <code>dassie setup</code>.
       </p>
+      <p>
+        While your node is in no hub, the Hubs page says so, and links to
+        <strong>Ledgers</strong>, where you add one.
+      </p>
       <p class="not-yet">
-        The testnet's default hubs are not there yet, so the wallet offers no
-        hub today and the Hubs page says your node is in none.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+        No hub of real XRP or RLUSD is built in yet. Those come with the
+        live network.
+        <a href="/docs/project/roadmap/#real-money">What's next</a>
       </p>
 
       <h2 id="what-the-page-shows">What the page shows</h2>
@@ -110,6 +126,13 @@
             <tr>
               <td>Deposited, all told; Withdrawn, with ledger fees</td>
               <td>Everything that went in and came out of the account.</td>
+            </tr>
+            <tr>
+              <td>Returned by withdrawals the escrow could not pay</td>
+              <td>
+                Shown only when it happened: what came back to the account
+                because the escrow could not pay a withdrawal out.
+              </td>
             </tr>
             <tr>
               <td>Kept above, or Kept between</td>
@@ -154,7 +177,7 @@
       <p class="not-yet">
         Setting the floor and the ceiling yourself is not there yet: the node
         works them out.
-        <a href="/docs/project/roadmap/">What's next</a>
+        <a href="/docs/project/roadmap/#hubs">What's next</a>
       </p>
 
       <h2 id="deposit-and-withdraw">Deposit and withdraw</h2>

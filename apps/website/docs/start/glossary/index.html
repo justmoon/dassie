@@ -147,7 +147,8 @@
           <p>
             A small ledger that a few validators keep together, backed by an
             escrow on the XRP Ledger. Peers settle what they owe each other
-            through a hub they share, and only there.
+            through a hub they share, and only there. The testnet's XRP hub
+            and DSUSD hub are built into every node.
             <a href="/docs/concepts/hubs/">Settlement hubs</a>
           </p>
         </dd>
@@ -269,8 +270,9 @@
         <dd>
           <p>
             A node or a front door that your node keeps a connection to, so
-            that apps and wallets
-            reach it even without a public address.
+            that apps and wallets reach it even without a public address.
+            No relay is built in yet: a node keeps one only if its owner
+            names it.
             <a href="/docs/concepts/core-and-periphery/#relays-and-front-doors">Core and periphery</a>
           </p>
         </dd>
@@ -278,8 +280,10 @@
         <dd>
           <p>
             A relay that answers Open Payments under a domain for the nodes
-            that keep it as their relay, as <code>dassiepay.net</code> does at
-            <code>&lt;node ID&gt;.dassiepay.net</code>.
+            that keep it as their relay, at
+            <code>&lt;node ID&gt;.example.com</code>. The one at
+            <code>dassiepay.net</code> is to be the default, once a release
+            builds it in.
             <a href="/docs/services/front-door/">Run a front door</a>
           </p>
         </dd>
@@ -295,7 +299,8 @@
         <dd>
           <p>
             One of the few nodes that keep the list of who is on the network.
-            A new node asks them first, and a core node registers with them.
+            The testnet's four are built into every node. A new node asks
+            them first, and a core node registers with them.
             <a href="/docs/concepts/network/">Joining the network</a>
           </p>
         </dd>
@@ -310,8 +315,8 @@
         <dt id="link-state">Link state</dt>
         <dd>
           <p>
-            A node's signed description of itself: its address, its key, its
-            neighbors and the hubs it settles in. Nodes pass link states on,
+            A node's signed description of itself: its address, its two
+            keys, its neighbors and the hubs it settles in. Nodes pass link states on,
             and route payments by them.
             <a href="/docs/concepts/network/">Joining the network</a>
           </p>
@@ -325,20 +330,33 @@
             <a href="/docs/concepts/payments/">How a payment travels</a>
           </p>
         </dd>
-        <dt id="rate-feed">Rate feed</dt>
+        <dt id="swap">Swap</dt>
         <dd>
           <p>
-            The rates a core node converts at, published as signed messages
-            on UDP port 7768 for market makers to read.
-            <a href="/docs/build/snapshots/">Read a rate feed</a>
+            A packet your node sends a peer that comes back to it in another
+            asset, over another hub the two share, converted at the peer's
+            rate. Nodes swap with their peers to keep what they hold in
+            balance.
+            <a href="/docs/concepts/rates/">Exchange rates</a>
+          </p>
+        </dd>
+        <dt id="snapshot">Snapshot</dt>
+        <dd>
+          <p>
+            A core node's signed statement of the quotes it swaps at, each
+            with a ladder: how much a swap can take before its price falls by
+            more than each of a few set steps. Its peers get it over the
+            peer protocol, and anyone may ask for it on UDP port 7768.
+            <a href="/docs/build/snapshots/">Read a node's snapshot</a>
           </p>
         </dd>
         <dt id="market-maker">Market maker</dt>
         <dd>
           <p>
-            Someone who trades through a core node with two nodes of their
-            own, when its rate feed and a pool on the XRP Ledger leave a
-            margin, and so brings its holdings back into balance.
+            Someone who runs <code>dassie market-maker</code> on a node of
+            their own in two hubs. It swaps with its peers when their
+            snapshots and a pool on the XRP Ledger leave a margin, and so
+            brings their holdings back toward balance.
             <a href="/docs/services/market-maker/">Run a market maker</a>
           </p>
         </dd>

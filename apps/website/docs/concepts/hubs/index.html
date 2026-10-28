@@ -60,21 +60,20 @@
         </li>
       </ul>
       <p>
-        On the test network there are two kinds of hub, one per asset:
-        <code>hub-xrpl-testnet-xrp</code> holds XRP, and
-        <code>hub-xrpl-testnet-dsusd</code> holds DSUSD, Dassie's test
-        dollar. Each name is the settlement scheme your node runs to be a
-        member. Your node is in at most one hub per asset, and can be in a
-        hub of each.
+        Dassie has the test network's two hubs built in, one per asset: an
+        XRP hub and a DSUSD hub, DSUSD being Dassie's test dollar. Both
+        were founded by boot1, and the four bootstrap nodes are their
+        validators.
+        Your node joins one by running its settlement scheme:
+        <code>hub-xrpl-testnet-xrp</code> for the XRP hub, and
+        <code>hub-xrpl-testnet-dsusd</code> for the DSUSD hub. It is in at
+        most one hub per asset, and can be in both.
         <a href="/docs/reference/schemes/">Schemes and hubs</a> lists them
         all.
       </p>
       <p class="not-yet">
-        Dassie is built to carry a default hub for each asset, founded by
-        boot1 with the four bootstrap nodes as its validators, and to join it
-        unless you choose another. Dassie has no default hub built in yet, so a node joins a hub only when you add its scheme with the
-        hub's rules.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+        Mainnet's hubs are not built in yet.
+        <a href="/docs/project/roadmap/#hubs">What's next</a>
       </p>
 
       <h2 id="why-only-hubs">Why only hubs</h2>
@@ -144,11 +143,26 @@
       </p>
 
       <h2 id="joining">Joining a hub</h2>
+      <p>
+        On the testnet, <code>dassie setup</code> joins the XRP hub unless
+        you say otherwise. Each <code>--hub</code> names a hub to join
+        instead, by its scheme, and <code>--hub none</code> joins none.
+        This joins both:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file phrase.txt \
+    --hub hub-xrpl-testnet-xrp --hub hub-xrpl-testnet-dsusd</code></pre>
+      <p>
+        In the wallet, your node joins a hub when you add the hub's scheme,
+        on the Ledgers page. Unless you give it another hub's rules, the
+        scheme takes the hub built in for its asset, and stays in that hub
+        whatever a later release builds in.
+      </p>
       <p>A node gets its account in a hub in one of two ways.</p>
       <ul>
         <li>
-          <strong>By a deposit.</strong> Your node pays the escrow from its
-          own account on the XRP Ledger, with destination tag 0 and a memo
+          <strong>By a deposit.</strong> Your node pays the escrow by itself
+          from its own account on the XRP Ledger, once that has funds, with
+          destination tag 0 and a memo
           that names the new account's key. The hub opens the account, locks
           its reserve, and keeps the rest as its balance. Later deposits name
           the account by its number, as the destination tag, and can come
@@ -234,10 +248,21 @@
         better than one that can lose money.
       </p>
       <p>
-        A hub of a dollar token has one more case. The token's issuer can
-        freeze the escrow's balance. While it does, the hub is frozen: your
-        node sends nothing over it until the thaw, and keeps what is waiting.
+        A hub of a dollar token has two more cases, since the token's issuer
+        can act on the escrow's balance.
       </p>
+      <ul>
+        <li>
+          <strong>Freeze.</strong> While the issuer freezes the balance, the
+          hub is frozen: your node sends nothing over it until the thaw, and
+          keeps what is waiting.
+        </li>
+        <li>
+          <strong>Clawback.</strong> If the issuer claws back from the
+          escrow, the hub shuts down. Withdrawals already on their way are
+          paid in full, and every account gets its share of what is left.
+        </li>
+      </ul>
 
       <h2 id="what-it-costs">What it costs</h2>
       <ul>

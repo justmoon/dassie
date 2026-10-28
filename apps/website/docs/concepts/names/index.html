@@ -104,9 +104,11 @@ https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code></pre>
         door, saying whose node it is.
       </p>
       <p class="not-yet">
-        Dassie names no default relay yet, so this name reaches your node
-        only when <code>DASSIE_RELAY</code> holds the entry of the
-        <code>dassiepay.net</code> front door.
+        The <code>dassiepay.net</code> front door has no identity a 0.3.0
+        node can name yet, and Dassie names no default relay, so for now
+        neither <code>&lt;node ID&gt;.dassiepay.net</code> nor a short name
+        there reaches your node. Another front door that runs 0.3.0 or later
+        works today (below).
         <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
       <p>
@@ -119,9 +121,9 @@ https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code></pre>
         <code>DASSIE_RELAY</code> to that front door's entry (its node ID,
         URL and keys, which its operator finds in its log) and add your
         node's name there to <code>DASSIE_PUBLIC_NAMES</code>, a
-        comma-separated list. A node keeps one relay, so your
-        <code>dassiepay.net</code> name then no longer reaches your node, and
-        the wallet warns you about it. The formats are on
+        comma-separated list. A node keeps one relay, so while it keeps
+        another, your <code>dassiepay.net</code> name does not reach your
+        node, and the wallet warns you about it. The formats are on
         <a href="/docs/reference/environment/">Environment variables</a>. Your node
         answers only to the names it knows are its own, and refuses any
         other, so no one passing requests on can make it answer under a name
@@ -138,7 +140,8 @@ https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code></pre>
       <p>
         A node ID is hard to say out loud. So your node can hold a
         <strong>name</strong>, such as <code>kai</code>, and be reached at
-        <code>$kai.dassiepay.net</code> too. You register it on the wallet's
+        <code>$kai.dassiepay.net</code> too, once that front door is back and
+        while your node keeps its connection to it. You register it on the wallet's
         Names page, and your node does the rest:
         <a href="/docs/wallet/names/">Choose a name</a>.
       </p>
@@ -165,15 +168,10 @@ https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code></pre>
       <h2 id="registrars">Who keeps the list</h2>
       <p>
         Names are kept by <strong>registrars</strong>: the bootstrap nodes
-        your node is configured with. Each keeps its own list of names and
-        who holds them, and serves it to anyone who asks.
-      </p>
-      <p class="not-yet">
-        The list of bootstrap nodes built into Dassie is empty for now, so a
-        node has no registrars and can hold no names unless
-        <code>DASSIE_BOOTSTRAP_NODES</code> names them. See
-        <a href="/docs/concepts/network/">Joining the network</a> and
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>.
+        your node is configured with, which are the testnet's four, built
+        into Dassie, unless <code>DASSIE_BOOTSTRAP_NODES</code> names
+        others. Each keeps its own list of names and who holds them, and
+        serves it to anyone who asks.
       </p>
       <p>
         A name's holder is the node that enough of the registrars list for it:

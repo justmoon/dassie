@@ -26,7 +26,8 @@
       <h2 id="the-release-key">One key signs every release</h2>
       <p>
         Each release on the mirror at <code>get.dassie.land</code> comes as
-        one bundle per platform, and a file of their checksums,
+        one bundle per platform and a Nix flake, and a file of their
+        checksums,
         <code>SHA256SUMS</code>. That file is signed with
         <a href="https://jedisct1.github.io/minisign/">minisign</a>, using the
         release key. The signature's trusted comment reads
@@ -157,6 +158,17 @@
           <code>--force</code> or <code>--target-version</code>.
         </li>
       </ul>
+      <p>
+        If you installed with <code>--no-service</code>, there is no timer,
+        and you run the update yourself:
+        <code>dassie update --unit &lt;name&gt;.service=&lt;data
+        directory&gt;</code>, once for each unit that runs a node. It checks
+        every release the same way. It then installs none of the release's
+        units and restarts yours, and on a rollback it stops them, puts back
+        each node's database and starts them again. A plain
+        <code>dassie update</code> installs the release's units and restarts
+        <code>dassie.service</code>, as on a normal install.
+      </p>
       <p>
         Every run is recorded, and <code>dassie status</code> shows how the
         last one went. See <a href="/docs/node/updates/">Updates and

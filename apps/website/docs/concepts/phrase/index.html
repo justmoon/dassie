@@ -34,8 +34,16 @@
       <h2 id="twenty-words">Twenty words</h2>
       <p>
         The words come from the BIP-39 English list that many wallets use,
-        but the phrase is Dassie's own, and only Dassie reads it. A phrase of
-        12 or 24 words from another wallet is refused as one.
+        but the phrase is Dassie's own, and only Dassie reads it. A BIP-39
+        phrase of 12 to 24 words, from another wallet or an older Dassie, is
+        refused.
+      </p>
+      <p>
+        Dassie's 0.2 releases used BIP-39 phrases, and those don't work from
+        0.3.0 on. A node from those releases is set up again,
+        from a fresh database, with a new phrase.
+        <a href="/docs/node/updates/#from-0-2">A node from the 0.2 releases</a>
+        has the steps.
       </p>
       <p>Its twenty words hold four things:</p>
       <ul>
@@ -183,9 +191,11 @@
       <h2 id="headless">A node nobody logs in to</h2>
       <p>
         Some nodes have no browser in their setup: a server you set up by
-        script, or a market maker's nodes. For those, and only those, the
+        script, or a market maker's node. For those, and only those, the
         phrase lives in a file on the node's own host, and
-        <code>dassie setup</code> does what the browser would.
+        <code>dassie setup</code> does what the browser would. A market
+        maker reads the same file, for the keys of its node's account on the
+        XRP Ledger.
       </p>
       <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file phrase.txt</code></pre>
       <ul>

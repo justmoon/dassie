@@ -42,9 +42,7 @@
           someone to pay: the payment pointer of another node, such as
           <code>$pay.example.com</code>, or a wallet address, such as
           <code>https://pay.example.com/pay/xrp</code>. A friend who runs a
-          node is ideal, since they can tell you it arrived. A friend with a
-          name works too, as the pointer <code>$&lt;name&gt;.dassiepay.net</code>
-          (<a href="/docs/concepts/names/">Names and addresses</a>).
+          node is ideal, since they can tell you it arrived.
         </li>
       </ul>
       <p>
@@ -53,10 +51,14 @@
         Swap pointers with your friend, and you can pay each other.
       </p>
       <p class="not-yet">
-        Dassie names no default bootstrap nodes and no default testnet hub
-        yet. Until you name bootstrap nodes and join a hub by its rules, your
-        node has no one to peer with, and the steps from
-        <a href="/docs/start/first-payment/#hub">step 2</a> on wait.
+        No default relay is built in yet. A node without a domain name,
+        such as the desktop app, can send, but other wallets can't reach its
+        pointer, <code>$&lt;node ID&gt;.dassiepay.net</code>, or its name
+        under <code>dassiepay.net</code>. Nobody can reach it there until a
+        release builds in the front door at <code>dassiepay.net</code> as
+        the default relay. For now, pay a friend whose node has a domain
+        name.
+        <a href="/docs/concepts/names/">Names and addresses</a> ·
         <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
 
@@ -93,13 +95,18 @@
         <a href="/docs/start/first-payment/#peers">step 3</a>.
       </p>
       <p>
-        Your node joins a hub when you add the hub's scheme. The wallet
-        offers no hub to add today, so you add it with the hub's rules on
-        the server, as
+        Your node joins a hub when you add the hub's ledger. The testnet's
+        XRP hub is built in: open <strong>Ledgers</strong>, choose
+        <strong>+ Add Ledger</strong>, and next to <strong>XRP in a
+        settlement hub on the XRP Ledger Testnet Settlement</strong> choose
+        <strong>Select →</strong>, as
         <a href="/docs/start/quick-start/#hub">Join a settlement hub</a>
-        in the Quick Start shows. Once your node is in the hub, it moves some
-        test XRP into it at once: the hub account's reserve, and some to
-        spend. Open <strong>Hubs</strong> to see your account there.
+        in the Quick Start shows. A node set up with
+        <code>dassie setup</code> joined it already, unless
+        <code>--hub</code> said otherwise. Once your node is in the
+        hub, it moves about 2.5 test XRP into it at once: the hub account's
+        reserve, and some to spend. Open <strong>Hubs</strong> to see your
+        account there.
       </p>
       <p>
         From then on your node keeps your balance in the hub above a floor

@@ -172,6 +172,13 @@ await plugin.connect();</code></pre>
         when it goes away, the packets on their way to it fail.
       </p>
       <p>
+        A node without a hostname, such as the desktop app, is a periphery
+        node: it has no route of its own, and other nodes reach it beneath
+        one of its uplinks. So they reach your client at
+        <code>&lt;uplink's address&gt;.&lt;node ID&gt;.&lt;segment&gt;</code>,
+        not at the address ILDCP gives. Sending works the same either way.
+      </p>
+      <p>
         The asset is the key's ledger's: its code, and a scale of 9. XRP and
         the testnet's dollar both count in billionths.
       </p>

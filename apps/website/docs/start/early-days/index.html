@@ -70,7 +70,8 @@
         <li>
           <strong>Settlement hubs.</strong> Peers settle through hubs that a
           few validators keep together. A node can be a member of a hub, a
-          validator of one, or found a new one.
+          validator of one, or found a new one. The testnet's XRP hub and
+          DSUSD hub are built in.
         </li>
         <li>
           <strong>Payments.</strong> Nodes route payments across the network
@@ -79,36 +80,63 @@
         </li>
         <li>
           <strong>Nodes without a public address.</strong> A node without a
-          domain name connects out to core nodes and is reached through
-          them. The desktop app runs such a node on Linux.
+          domain name finds core nodes on its own, connects out to them and
+          pays through them. Apps and other wallets reach it through a relay
+          its owner names in <code>DASSIE_RELAY</code>; none is built in
+          yet. The desktop app runs such a node on Linux.
         </li>
         <li>
           <strong>Names.</strong> A node can register a name that people can
-          say, on the test network only.
+          say, on the test network only. A name reaches its node through a
+          front door, and none does yet, as the note below says.
         </li>
         <li>
-          <strong>Rates and market makers.</strong> A core node publishes the
-          rates it converts at, and <code>dassie market-maker</code> trades
-          against them to keep holdings in balance.
+          <strong>Swaps and market makers.</strong> A core node signs a
+          snapshot of the quotes it swaps at, and peers swap assets with each
+          other to keep their holdings in balance.
+          <code>dassie market-maker</code> runs on one node, in the hubs of
+          both assets it trades, and trades by swapping with its peers.
         </li>
       </ul>
 
       <h2 id="test-network">The test network today</h2>
       <p>
-        The project runs the test network's shared pieces: four bootstrap
-        nodes, <code>boot1</code> to <code>boot4.dassie.xyz</code>; a front door at
-        <code>dassiepay.net</code>, which reaches nodes without a domain
-        name; and a proof server for each XRP Ledger network.
+        The project runs the test network's shared pieces, and every node
+        has them built in:
       </p>
+      <ul>
+        <li>
+          four bootstrap nodes, <code>boot1</code> to
+          <code>boot4.dassie.xyz</code>, which a new node asks who is on the
+          network;
+        </li>
+        <li>
+          the testnet's XRP hub and DSUSD hub, which the four bootstrap nodes
+          keep as their validators;
+        </li>
+        <li>a proof server for each XRP Ledger network.</li>
+      </ul>
       <p>
-        A node ID commits to two keys, one of them post-quantum. The test
-        network starts again under new keys for the bootstrap nodes and the
-        front door.
+        The test network was reset for Dassie 0.3.0. Its bootstrap nodes
+        have new IDs, which commit to two keys, one of them post-quantum.
+        Nodes speak version 2 of the peer protocol, <code>dassie/2</code>,
+        so a node on 0.3.0 doesn't peer with a node on a 0.2 release.
+        Phrases and databases from 0.2 don't work: set a node up again with
+        a new phrase, from a fresh database.
+        <a href="/docs/node/updates/#from-0-2">A node from the 0.2
+        releases</a> shows how, and
+        <a href="/docs/reference/releases/#v0-3-0">the notes for 0.3.0</a>
+        say what else changed.
       </p>
       <p class="not-yet">
-        Dassie names no default bootstrap nodes, relay or testnet hub yet. So
-        a new node runs alone, a node without a domain name keeps no relay
-        unless you name one, and the wallet offers no hub to join.
+        The front door at <code>dassiepay.net</code> isn't upgraded for
+        0.3.0 yet, so it reaches no node until a release builds it in as the
+        default relay. Until then, a node without a domain name keeps no
+        relay unless you name one, and names and
+        <code>&lt;node ID&gt;.dassiepay.net</code> reach nobody.
+        Testnet names are still under <code>dassiepay.net</code>, which is
+        to be left for the live realm once they move to
+        <code>test.dassiepay.net</code>.
         <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
       <p>Some things on the test network can change under you:</p>
@@ -121,9 +149,9 @@
           Names on the test network may be reset at any time.
         </li>
         <li>
-          A node does not read databases from the early test network, and
-          the test network may start again. Your recovery phrase brings back
-          the same node and the same XRP Ledger accounts.
+          The test network may start again, as it did for 0.3.0. Between
+          resets, your recovery phrase brings back the same node and the
+          same XRP Ledger accounts.
         </li>
       </ul>
 
@@ -133,7 +161,11 @@
         it:
       </p>
       <ul>
-        <li>real money, on the XRP Ledger's mainnet;</li>
+        <li>real money, on the XRP Ledger's mainnet, with its own hubs;</li>
+        <li>
+          a default relay, so that a node without a domain name is reached
+          with no setup;
+        </li>
         <li>
           the desktop app on macOS and Windows, packages for other Linux
           distributions, and apps that reach your node from your phone;

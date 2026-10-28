@@ -148,12 +148,14 @@ Environment=DASSIE_LOG=dassie::peer=debug,dassie::settlement=debug</code></pre>
       <h3 id="a-relay">A relay</h3>
       <p>
         A relay lets clients reach your node through another node, even
-        when yours has no public address: a front door is one. This release
-        has no default relay built in, so a node keeps none until you name
-        one.
+        when yours has no public address: a front door is one. A node
+        without a domain name answers Open Payments at
+        <code>&lt;node ID&gt;.dassiepay.net</code>, and the front door there
+        reaches it only through the connection the node keeps to it as its
+        relay.
       </p>
       <p
-        class="not-yet">A default relay is not built in yet. Once it is, a node without a domain name keeps a connection to the front door of its default name under <code>dassiepay.net</code> by itself. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
+        class="not-yet">No default relay is built in yet, so a node keeps none until you name one. Until then, a node without a domain name can't be reached at its name under <code>dassiepay.net</code>: Open Payments clients get an error there. Peering and sending work without a relay. Once a default is built in, a node without a domain name keeps a connection to that front door by itself. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
       <p>
         <code>DASSIE_RELAY</code> names a relay, by an entry of four
         fields: its node ID, its URL and its two public keys. A front door
@@ -194,8 +196,10 @@ Environment=DASSIE_UPLINKS=sbegzgsyebannd6yz2emrvftva2hipgad57lm4i,i2yhz2nartbnl
 
       <h3 id="extra-cas">Extra certificate authorities</h3>
       <p>
-        The node checks the certificates of the servers it connects to, peers
-        and relays among them, against the system's trusted roots.
+        The node checks the certificate of every HTTPS and WebSocket server
+        it connects to, such as XRP Ledger servers and Open Payments
+        servers, against the system's trusted roots. Peers and relays need
+        no roots: QUIC checks their node keys instead.
         <code>DASSIE_EXTRA_CA_FILE</code> names a PEM file of further roots
         to trust beside those, for a network that uses a certificate
         authority of its own.
@@ -214,8 +218,9 @@ Environment=DASSIE_EXTRA_CA_FILE=/etc/dassie-roots.pem</code></pre>
       <h3 id="a-proxy">A proxy</h3>
       <p>
         On a network that blocks UDP, a periphery node reaches its uplinks
-        over a WebSocket on their HTTPS port. If it must go through an HTTP
-        proxy for that, it reads <code>https_proxy</code> or
+        over a WebSocket on their HTTPS port. Only a node without a domain
+        name does this: a core node needs UDP port 443. If it must go
+        through an HTTP proxy for that, it reads <code>https_proxy</code> or
         <code>HTTPS_PROXY</code>, and <code>no_proxy</code> or
         <code>NO_PROXY</code>, as other programs do. Only an
         <code>http://</code> proxy is used; anything the node cannot use, it
@@ -230,10 +235,9 @@ Environment=DASSIE_EXTRA_CA_FILE=/etc/dassie-roots.pem</code></pre>
         </li>
         <li>
           <code>DASSIE_BOOTSTRAP_NODES</code>: the bootstrap nodes, as a JSON
-          list of entries like a relay's. This release has none built in,
-          so a node runs alone until this names the nodes of the network it
-          joins. The testnet's list is not built in yet:
-          <a href="/docs/project/roadmap/">What's next</a>.
+          list of entries like a relay's. The testnet's four are built in,
+          so leave it unset to join the testnet. Set it to replace the list,
+          for a network of your own, or to <code>[]</code> to run alone.
         </li>
         <li>
           <code>DASSIE_VALIDATOR_CONFIG</code>: the file that turns on

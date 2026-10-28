@@ -53,12 +53,19 @@
       </ul>
       <p>
         A periphery node learns which core nodes there are from the
-        bootstrap nodes, and keeps the relay you name. Dassie names no
-        default bootstrap nodes and no default relay yet, so for now you set
-        both yourself (<a href="#bootstrap-nodes">below</a>).
+        bootstrap nodes. The test network's four bootstrap nodes are built
+        into Dassie, so the node finds the network with nothing to set.
       </p>
       <p>
-        This is how the desktop app runs its node too. <a
+        There is no default relay yet, though. Until you name one, wallets
+        and apps can't reach the node over Open Payments
+        (<a href="#the-relay">below</a>). Payments over Interledger still
+        reach it through its uplinks, and it can send.
+      </p>
+      <p>
+        This is how the desktop app runs its node too, with the same
+        defaults, so the same holds there
+        (<a href="/docs/desktop/reach/">How others reach you</a>). <a
         href="/docs/concepts/core-and-periphery/">Core and periphery</a>
         explains the two kinds of node.
       </p>
@@ -68,18 +75,22 @@
         <li>Linux with systemd, on x86-64 or arm64, as for any server node.</li>
         <li>
           A way out to the internet on UDP port 443. Where UDP is blocked,
-          the node reaches core nodes over HTTPS on TCP port 443 instead, by
-          itself.
+          the node reaches core nodes over a WebSocket on TCP port 443
+          instead, by itself.
         </li>
         <li>
           TCP ports 80 and 443 and UDP port 443 free on the machine itself.
           The node listens on them as any node does, even though nothing from
-          outside needs to reach them.
+          outside needs to reach them. It doesn't start while UDP port 443
+          is taken.
         </li>
         <li>
-          For now, the entries of the bootstrap nodes of the network you
-          join, and of a front door to be your relay
-          (<a href="#bootstrap-nodes">below</a>).
+          A settlement hub that core nodes are in too. On the test network,
+          that's the XRP hub (<a href="#uplinks">below</a>).
+        </li>
+        <li>
+          For Open Payments, a front door to be your relay
+          (<a href="#the-relay">below</a>).
         </li>
       </ul>
       <p>
@@ -119,7 +130,11 @@
           <p>
             For a node nobody logs in to, set it up from a phrase file on the
             server instead, with <code>dassie setup</code>
-            (<a href="/docs/node/headless/">Headless setup</a>).
+            (<a href="/docs/node/headless/">Headless setup</a>). On the test
+            network, <code>dassie setup</code> joins the XRP hub too, unless
+            you name other hubs with <code>--hub</code>. Set up in the
+            wallet, it joins no hub until you add one
+            (<a href="/docs/wallet/hubs/#joining-a-hub">Joining a hub</a>).
           </p>
         </li>
         <li>
@@ -128,7 +143,13 @@
           <p>
             A periphery node's status names its uplinks and its relay, and
             whether each is connected, and gives as its address its name for
-            Open Payments.
+            Open Payments:
+          </p>
+          <pre><code><span class="output">  Address      https://&lt;node ID&gt;.dassiepay.net/ (Open Payments only)
+  Network      a periphery node: it registers with no bootstrap node, and reaches the network through its uplinks</span></code></pre>
+          <p>
+            For now, that name reaches no one
+            (<a href="#the-relay">below</a>), so don't hand it out.
           </p>
         </li>
       </ol>
@@ -139,17 +160,13 @@
 
       <h2 id="bootstrap-nodes">Bootstrap nodes</h2>
       <p>
-        A new node has no bootstrap nodes. Until it has some, it finds no
-        core nodes, and its status says so:
-      </p>
-      <pre><code><span class="prompt">$</span>dassie status
-<span class="comment"># …</span>
-<span class="output">  Network      no bootstrap nodes are set (DASSIE_BOOTSTRAP_NODES), so the node runs alone</span></code></pre>
-      <p>
-        Name them in <code>DASSIE_BOOTSTRAP_NODES</code>, as a JSON list of
-        entries, each with a node's ID, URL and two keys, the same form as a
-        relay's entry (<a href="#choosing-a-relay">below</a>). Whoever runs
-        the network you join gives you the entries. Set it in a drop-in:
+        The test network's four bootstrap nodes are built in, and a node
+        uses them unless you name others. You only set them to join another
+        network, such as one you run yourself. Name its bootstrap nodes in
+        <code>DASSIE_BOOTSTRAP_NODES</code>, as a JSON list of entries, each
+        with a node's ID, URL and two keys, the same form as a relay's entry
+        (<a href="#choosing-a-relay">below</a>). Whoever runs the network
+        gives you the entries. Set it in a drop-in:
       </p>
       <pre><code><span class="prompt">$</span>sudo systemctl edit dassie.service</code></pre>
       <figure class="file">
@@ -158,12 +175,11 @@
 Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"&lt;node ID&gt;","url":"https://boot.example.com","publicKey":"…","slhDsaPublicKey":"…"}]'</code></pre>
       </figure>
       <pre><code><span class="prompt">$</span>sudo systemctl restart dassie.service</code></pre>
-      <p class="not-yet">
-        The test network's bootstrap nodes and front door are being set up
-        again under new keys. Once they are, a new node has them built in,
-        and finds the network and its relay with nothing to set.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      <p>
+        An empty list, <code>[]</code>, makes the node run alone, and its
+        status says so:
       </p>
+      <pre><code><span class="output">  Network      no bootstrap nodes are set (DASSIE_BOOTSTRAP_NODES), so the node runs alone</span></code></pre>
 
       <h2 id="uplinks">Uplinks</h2>
       <p>
@@ -177,9 +193,10 @@ Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"&lt;node ID&gt;","url":"https://boot
 <span class="output">  Uplinks      &lt;node ID&gt; at https://&lt;core node&gt;, connected</span></code></pre>
       <p>
         If it says <code>none yet</code>, no payment reaches the node. Check
-        that bootstrap nodes are set, that the node is in a hub the core
-        nodes are in too (<a href="/docs/wallet/hubs/">Your hubs</a>), and that
-        it can reach the internet on UDP or TCP port 443.
+        that the node is in a hub the core nodes are in too, such as the
+        test network's XRP hub (<a href="/docs/wallet/hubs/#joining-a-hub">Joining
+        a hub</a>), and that it can reach the internet on UDP or TCP port
+        443.
       </p>
 
       <h3 id="pinning-uplinks">Pinning uplinks</h3>
@@ -205,7 +222,10 @@ Environment=DASSIE_UPLINKS=&lt;node ID&gt;,&lt;node ID&gt;</code></pre>
       </p>
       <p>
         A pinned node must share a hub with yours, as any uplink must. A node
-        with a domain name ignores the list, and says so in its log.
+        with a domain name ignores the list, and says so in its log. A
+        market maker's node pins its uplinks so, to trade with the core nodes
+        it names (<a href="/docs/services/market-maker/">Run a market
+        maker</a>).
       </p>
 
       <h2 id="the-relay">The relay</h2>
@@ -220,8 +240,17 @@ Environment=DASSIE_UPLINKS=&lt;node ID&gt;,&lt;node ID&gt;</code></pre>
 <span class="comment"># …</span>
 <span class="output">  Relay        none (DASSIE_RELAY names none), so Open Payments clients cannot reach the node</span></code></pre>
       <p>
-        Payments over Interledger still reach the node through its uplinks.
-        For Open Payments, name a front door as its relay.
+        Payments over Interledger still reach the node through its uplinks,
+        and it can send. But its name at <code>dassiepay.net</code>, which its
+        status gives as its address, reaches no one: the front door there
+        reaches a node only over a connection the node keeps to it. For Open
+        Payments, name a front door as its relay.
+      </p>
+      <p class="not-yet">
+        The <code>dassiepay.net</code> front door is to be the default relay
+        of every node without a domain name, so that it is reached at its
+        name with nothing to set. It isn't built in yet.
+        <a href="/docs/project/roadmap/#periphery">What's next</a>
       </p>
 
       <h3 id="choosing-a-relay">Choosing a relay</h3>
@@ -278,12 +307,29 @@ Environment=DASSIE_PUBLIC_NAMES=&lt;node ID&gt;.example.com</code></pre>
         <code>http://</code> proxy. A setting it can't use doesn't stop it:
         it warns in its log at start and goes on without the proxy.
       </p>
+      <p>
+        Set the proxy for the node in a drop-in, as above:
+      </p>
+      <figure class="file">
+        <figcaption>/etc/systemd/system/dassie.service.d/override.conf</figcaption>
+        <pre><code>[Service]
+Environment=https_proxy=http://proxy.example.internal:3128</code></pre>
+      </figure>
+      <p>
+        Only a node without a domain name does this. A core node talks to
+        other nodes over UDP alone.
+      </p>
 
       <h2 id="what-a-periphery-node-doesnt-do">What a periphery node doesn't do</h2>
       <ul>
         <li>It forwards no payments for others, and earns no fees for that.</li>
         <li>It registers with no bootstrap node, and isn't in the node list.</li>
-        <li>It publishes no rate feed.</li>
+        <li>
+          It offers its peers no swaps, and answers no request for its
+          snapshot. It swaps with its uplinks only when you ask, or toward
+          targets you set (<a href="/docs/wallet/rates/#swaps">Exchange-rate
+          settings</a>).
+        </li>
         <li>It takes no peers of its own: no node can use it as an uplink.</li>
       </ul>
       <p>

@@ -17,8 +17,8 @@
     <main class="docs">
       <h1>Release notes</h1>
       <p class="lede">
-        What each release brings, newest first. A node that installed with
-        the installer picks up a new release on its own within a day; on
+        What each release brings, newest first. A node installed with the
+        installer's systemd units looks for a new release once a day; on
         NixOS, your flake decides.
       </p>
       <p>
@@ -28,6 +28,17 @@
         come from, and how each is signed, in
         <a href="/docs/reference/mirror/">Release mirror and key</a>. The same
         notes are on the <a href="/architecture/">architecture page</a>.
+      </p>
+      <p>
+        <a href="#v0-3-0">0.3.0</a> starts the testnet afresh: a node from
+        0.2.x peers with no 0.3.0 node, and its phrase and database don't
+        work with 0.3.0. Its daily update installs 0.3.0, which refuses the
+        old database and doesn't start, so the update goes back to 0.2 and
+        <code>dassie status</code> says so. Move the node's data aside,
+        install the newest release, and set the node up again with a new
+        phrase, from a fresh database:
+        <a href="/docs/node/updates/#from-0-2">A node from the 0.2 releases</a>
+        has the steps.
       </p>
       <!-- releases -->
     </main>

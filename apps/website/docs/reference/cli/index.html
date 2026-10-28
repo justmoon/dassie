@@ -134,10 +134,11 @@
         <dt><code>--feed-listen &lt;address:port&gt;</code></dt>
         <dd>
           <p>
-            Standalone only: the UDP socket for the
-            <a href="/docs/build/snapshots/">rate feed</a>. By default it is
-            the HTTPS listener's address on port 7768. If the node cannot bind
-            it, it runs without a feed and says so in its log.
+            Standalone only: the UDP socket that answers requests for the
+            node's <a href="/docs/build/snapshots/">snapshot</a>. By default
+            it is the HTTPS listener's address on port 7768. If the node
+            cannot bind it, it runs, answers no request for its snapshot, and
+            says so in its log.
           </p>
         </dd>
       </dl>
@@ -272,19 +273,19 @@
             and goes with no other <code>--hub</code>.
           </p>
           <p>
-            This build has no default hub built in yet. Without
-            <code>--hub</code>, setup joins no hub and says that this build
-            has no default hub for the realm yet. <code>--hub
-            &lt;scheme&gt;</code> fails, before it joins any hub, unless the
-            node already runs that scheme. To join a hub, add the owner books
-            it is funded from, then its scheme with the hub's rules as the
-            config:
-            <code>--scheme &lt;hub scheme&gt;='{"rules":"&lt;hex&gt;"}'</code>.
+            Without <code>--hub</code>, setup joins the testnet's XRP hub,
+            <code>hub-xrpl-testnet-xrp</code>. This release has two
+            <a href="/docs/reference/schemes/#default-hubs">default hubs</a>
+            built in, the testnet's XRP hub and its DSUSD hub, both kept by
+            the four bootstrap nodes. A <code>--hub</code> of another realm than
+            the phrase's is refused before anything changes.
           </p>
-          <p class="not-yet">
-            The testnet's default hubs are not there yet. Once they are, setup
-            joins <code>hub-xrpl-testnet-xrp</code> by default in the test
-            realm. <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+          <p>
+            To join a hub other than the default, add the owner books it is
+            funded from, then its scheme with the hub's rules as the config:
+            <code>--scheme &lt;hub scheme&gt;='{"rules":"&lt;hex&gt;"}'</code>.
+            Schemes are added before hubs are joined, so setup then leaves
+            that hub's scheme as it is.
           </p>
         </dd>
         <dt><code>--keep-funds hub|account</code></dt>
@@ -318,10 +319,11 @@
       <p>
         Shows how the node is doing, in a few lines: its version, address and
         certificate, whether it is set up, the network (or, for a node without
-        a public IP, its uplinks and relay), its settlement hubs, its rate
-        feed, the hubs it validates or founds, the last update, what its
-        engine counted since it started, its peers and its ledgers. It gives a
-        hint only where something is wrong.
+        a public IP, its uplinks and relay), its settlement hubs, whether it
+        answers requests for its snapshot (the line labeled
+        <em>Rate feed</em>), the hubs it validates or founds,
+        the last update, what its engine counted since it started, its peers
+        and its ledgers. It gives a hint only where something is wrong.
       </p>
       <p>
         It names no secret, so you can paste its output where you ask for
@@ -413,10 +415,11 @@
       <h3 id="dassie-hub-found"><code>dassie hub found &lt;node ID&gt;@&lt;host:port&gt;…</code></h3>
       <p>
         Founds a new settlement hub with these nodes as its validators, with
-        your node as its sponsor, on the XRP Ledger testnet. Name 4 to 16
+        your node as its sponsor, on the XRP Ledger network of your node's
+        realm: the testnet, since nodes refuse the live realm. Name 4 to 16
         validators, each once, as <code>&lt;node ID&gt;@&lt;host:port&gt;</code>.
-        Every validator must accept. The node pays the hub's escrow from its testnet XRP
-        account. It prints the founding's nonce;
+        Every validator must accept. The node pays the hub's escrow from its
+        XRP account on that network. It prints the founding's nonce;
         <code>dassie hub foundings</code> shows how far it is. The full steps
         are in <a href="/docs/services/found-a-hub/">Found a hub</a>.
       </p>
@@ -618,17 +621,39 @@ Success! Dassie appears to be installed correctly.</span></code></pre>
 
       <h2 id="dassie-market-maker"><code>dassie market-maker</code></h2>
       <p>
-        Trades through a core node with two nodes of your own, when the core
-        node's rate feed and an AMM pool on the XRP Ledger leave a margin, and
-        moves your funds back on the ledger. It is not a node: it talks to
-        your two nodes over their IPC sockets and reads the core node's feed.
-        It runs until SIGTERM or SIGINT. See
-        <a href="/docs/services/market-maker/">Run a market maker</a>.
+        Trades through core nodes when what their
+        <a href="/docs/build/snapshots/">snapshots</a> quote and an AMM pool
+        on the XRP Ledger leave a margin, and moves your funds back on the
+        ledger. It is not a node: it drives one node of your own, a node
+        without a public IP in the settlement hubs of both of the pool's
+        assets, over that node's IPC socket. The core nodes it trades
+        through are that node's uplinks, which
+        <a href="/docs/reference/environment/#DASSIE_UPLINKS"><code>DASSIE_UPLINKS</code></a>
+        pins. It reads their snapshots from its node, and swaps with the one
+        that pays best, over their peering. Its node must swap with its
+        peers, as a new node does: the market maker doesn't start while the
+        node's owner has turned
+        <a href="/docs/wallet/rates/#swaps">Swapping with peers</a> off. It
+        runs until SIGTERM or SIGINT.
+        See <a href="/docs/services/market-maker/">Run a market maker</a>.
       </p>
       <dl class="ref">
         <dt><code>--config &lt;file&gt;</code></dt>
         <dd>
-          <p>Required. Its JSON config.</p>
+          <p>
+            Required. Its JSON config, at most 64 KiB, checked whole before
+            anything connects: <code>socket</code>, its node's IPC socket;
+            <code>passphraseFile</code>, the file with that node's recovery
+            phrase; <code>xrpl</code>, the XRP Ledger server and the token
+            the pool pairs with XRP; for <code>xrp</code> and
+            <code>token</code> each, the hub's <code>ledger</code> it swaps
+            on, the <code>ownerBook</code> that funds the hub, a
+            <code>tradeSize</code> and a <code>band</code>;
+            <code>marginPpm</code> and <code>slippagePpm</code>; and, if the
+            host needs them, <code>caFile</code>, roots to trust the XRP
+            Ledger server by. A config in the format before 0.3.0 is
+            refused.
+          </p>
         </dd>
       </dl>
       <aside class="early">

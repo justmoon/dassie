@@ -44,13 +44,14 @@
         </li>
         <li>a public IP address, and a domain name that points to it;</li>
         <li>
-          TCP ports 80 and 443 and UDP port 443 open to the world. Nodes talk
-          to each other over QUIC, on UDP.
+          TCP ports 80 and 443 and UDP port 443 open to the world, and no
+          other program on UDP port 443. Nodes talk to each other over QUIC,
+          on UDP, and the node does not start without it.
         </li>
         <li>
-          UDP port 7768 open too, if you want your node to publish its rate
-          feed, the rates it converts at, for market makers to read. Without
-          it the node runs, and publishes no feed.
+          UDP port 7768 open too, if you want anyone to be able to ask your
+          node for its snapshot, the quotes it swaps at. Without it the node
+          runs, and its peers still get its snapshot.
         </li>
       </ul>
       <p>
@@ -80,11 +81,23 @@
         Dockerfile or a cloud-init script for example, name it:
       </p>
       <pre><code><span class="prompt">$</span>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh -s -- --target-version &lt;version&gt;</code></pre>
+      <p>
+        On a host that runs the node under systemd units of its own, or with
+        no systemd at all, such as a container, add
+        <code>--no-service</code>. The installer then puts the files in place
+        and sets up no units.
+      </p>
       <p>Then check that the installed binary works on this server:</p>
       <pre><code><span class="prompt">$</span>dassie verify-install</code></pre>
       <p>
         If the installer stops, it says why. A common cause is UDP port 443
-        taken by another program: the node does not run without it.
+        taken by another program: the node does not start without it.
+      </p>
+      <p>
+        If this server ran a 0.2 release of Dassie, the new node can't read
+        its old database.
+        <a href="/docs/node/updates/#from-0-2">A node from the 0.2
+        releases</a> shows how to start afresh.
       </p>
 
       <h2 id="configure">Configure the node</h2>
@@ -117,7 +130,8 @@
         <li>
           Choose <strong>Generate a new wallet</strong>. If you already have
           a Dassie phrase, choose <strong>Recover an existing wallet</strong>
-          and type it in instead.
+          and type it in instead. A phrase made for a 0.2 release doesn't
+          work any more, since the test network was reset: make a new one.
         </li>
         <li>
           Write the 20 words down, in order, on paper or a metal plate, and
@@ -147,7 +161,8 @@
       <p>
         Next the wallet asks you to <strong>Choose a Ledger Type</strong>.
         It lists the ledgers your node can hold money on, all of them on the
-        XRP Ledger's test network.
+        XRP Ledger's test network: your own account there, and the
+        testnet's settlement hubs. Start with your account.
       </p>
       <ol class="steps">
         <li>
@@ -164,9 +179,9 @@
         </li>
       </ol>
       <p>
-        The other choice, <strong>DSUSD on the XRP Ledger Testnet
-        Settlement</strong>,
-        holds Dassie's test dollar in the same account.
+        The list also offers <strong>DSUSD on the XRP Ledger Testnet
+        Settlement</strong>, which holds Dassie's test dollar in the same
+        account, and the testnet's two hubs, which you join next.
         <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> covers it.
       </p>
 
@@ -176,41 +191,46 @@
         its peers from it directly. Peers settle through a settlement hub
         they share, so your node needs to join one.
       </p>
-      <p class="not-yet">
-        A default testnet hub is not there yet. The wallet lists a hub under
-        <strong>+ Add Ledger</strong> only once your release has one built
-        in, so today it offers none.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
-      </p>
       <p>
-        Until then, you join a hub by its rules, a long hex string that
-        whoever founded it gives you. You add the hub's scheme with those
-        rules on the server, with <code>dassie setup</code>, which reads your
-        recovery phrase from a file there: keep that file to root, and
-        delete it once the command is done.
-        <a href="/docs/node/headless/#joining-a-hub">Joining a hub</a> shows
-        the command.
+        The testnet's XRP hub is built into your node, and the four
+        bootstrap nodes keep it. To join it:
       </p>
+      <ol class="steps">
+        <li>
+          In the wallet, open <strong>Ledgers</strong> and choose
+          <strong>+ Add Ledger</strong>.
+        </li>
+        <li>
+          Next to <strong>XRP in a settlement hub on the XRP Ledger Testnet
+          Settlement</strong>, choose <strong>Select →</strong>.
+        </li>
+      </ol>
       <p>
-        Once your node is in the hub, it moves some test XRP from your
-        account into it: the hub account's reserve, and some to spend. From
+        Your node then moves about 2.5 test XRP from your account into the
+        hub: the hub account's reserve of 2 XRP, and some to spend. From
         then on it keeps its balance in the hub above a floor by itself. The
         <strong>Hubs</strong> page shows your account there.
         <a href="/docs/wallet/hubs/">Your hubs</a> says more.
+      </p>
+      <p>
+        The testnet's DSUSD hub is built in too, for when you hold DSUSD.
+        <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> covers it.
       </p>
 
       <h2 id="network">Join the network</h2>
       <p>
         Your node now looks for the rest of the network on its own. It asks
         the bootstrap nodes who is on the network, registers with them, and
-        peers with a few nodes that share a hub with it. You do not have to
-        do anything. The <strong>Network</strong> page shows the nodes it
-        knows and the peers it has.
+        peers with a few nodes that share a hub with it. The testnet's four
+        bootstrap nodes are built in, so you do not have to do anything.
+        The <strong>Network</strong> page shows the nodes it knows and the
+        peers it has.
       </p>
-      <p class="not-yet">
-        Dassie names no default bootstrap nodes yet, so a new node runs
-        alone. <a href="/docs/project/roadmap/#public-testnet">What's next</a> ·
-        <a href="/docs/start/early-days/">Early days</a>
+      <p>
+        Nodes talk to each other with the peer protocol
+        <code>dassie/2</code>, so yours peers only with nodes on Dassie
+        0.3.0 or later.
+        <a href="/docs/concepts/versions/">Protocol versions</a> says more.
       </p>
 
       <h2 id="check">Check on your node</h2>

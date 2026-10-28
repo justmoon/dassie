@@ -6,20 +6,21 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="Subscribe to a core node's signed rate feed over UDP, check each datagram, and read what the node converts at."
+      content="Ask a core node for its signed snapshot over UDP, check it, and read what the node swaps at: a bid, an ask and two ladders per settlement method."
     />
-    <title>Read a rate feed · Dassie</title>
+    <title>Read a node's snapshot · Dassie</title>
     <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/src/site.css" />
   </head>
   <body>
     <!-- header -->
     <main class="docs">
-      <h1>Read a rate feed</h1>
+      <h1>Read a node's snapshot</h1>
       <p class="lede">
-        A core node tells anyone who asks what it converts at, in a small
-        signed UDP datagram. This page shows how to subscribe to one, check
-        every datagram before you believe it, and read the rates.
+        A core node says what it swaps at in a snapshot: one small datagram,
+        signed with its node key. Its peers get each new one over their
+        peering. Anyone else can ask for it over UDP. This page shows how to
+        ask, how to check what comes back, and how to read the prices in it.
       </p>
       <aside class="early">
         <p>
@@ -29,186 +30,280 @@
         </p>
       </aside>
 
-      <h2 id="what-a-feed-says">What a feed says</h2>
+      <h2 id="what-a-snapshot-says">What a snapshot says</h2>
       <p>
-        A feed lists the settlement methods the node's peers pay it on, each
-        by its scheme's ID, such as <code>hub-xrpl-testnet-xrp</code>, with
-        the largest packet the node takes on it. For each pair of methods it
-        converts between, it gives a rate, and it gives the fee it takes on
-        everything it passes on. The node signs the feed with its node key and
-        sends it to every subscriber: at most once a second while its rates
-        move, and every thirty seconds otherwise, so you know it is still
-        there. Each feed says until when it counts.
+        A snapshot lists the settlement methods the node's peers can pay it
+        on, such as XRP in the testnet's XRP hub. For each one it gives:
+      </p>
+      <ul>
+        <li>
+          <strong>A tag:</strong> four bytes of a hash of the method's scheme
+          ID, such as <code>hub-xrpl-testnet-xrp</code>. You know the schemes
+          you run, so you compute their tags and look them up.
+        </li>
+        <li>
+          <strong>A bid:</strong> the least the node gives, in its own
+          accounting unit, for one unit of the method's ledger that comes in.
+        </li>
+        <li>
+          <strong>An ask:</strong> the most the node asks, in that same unit,
+          for one unit that goes out.
+        </li>
+        <li>
+          <strong>A ladder for each:</strong> how much can come in, or go
+          out, before the price falls by each drop of a grid. The grid, eight
+          drops in basis points, is in the snapshot.
+        </li>
+      </ul>
+      <p>
+        A swap from one method to another is priced as the first one's bid
+        over the second one's ask, walked down both ladders as it grows. The
+        node promises that much from the state it was in when it made the
+        snapshot: at that moment, a swap would get at least what the
+        snapshot says. The fee and the spread are already in the quotes: a
+        node folds them into its bid. A quote of zero
+        means the node does not convert that side right now, for want of a
+        fresh exchange rate, say, or because it holds none of that asset.
       </p>
       <p>
-        Market makers read feeds to find nodes whose rates make a trade
-        worth it, which nudges those nodes' holdings back toward balance.
-        <code>dassie market-maker</code> is one such reader; see
-        <a href="/docs/services/market-maker/">Run a market maker</a>. How
-        a node sets its rates is on
+        The node makes a new snapshot at most once a second while its prices
+        move, and at least every 30 seconds otherwise. Each one counts for at
+        most 90 seconds, less when an exchange rate it uses gets old sooner;
+        its <code>validUntil</code> says when it ends. Each carries a
+        sequence, so you can tell a newer one from an older one.
+      </p>
+      <p>
+        Only a core node, one with a domain name, has a snapshot, and only
+        while its owner offers swaps to its peers. That is on by default, in
+        the wallet's settings under Peers, as <strong>Swaps for
+        peers</strong>. How a node sets its prices is on
         <a href="/docs/concepts/rates/">Exchange rates</a>, and every byte of
         the format is on
-        <a href="/docs/reference/snapshot-format/">Rate feed wire format</a>.
-      </p>
-      <p>
-        Only a core node, one with a domain name, publishes a feed. A node
-        without one has nowhere to be found at, so it publishes nothing.
+        <a href="/docs/reference/snapshot-format/">Snapshot wire format</a>.
       </p>
       <p class="why">
-        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/passive-rebalancing.md">Why a signed UDP feed</a>:
-        cheap for the node, and checkable by anyone.
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peer-swaps.md">Why snapshots of quotes and ladders</a>:
+        a few bytes per method, whatever the number of pairs, and they say
+        how far a price holds, not only where it starts.
       </p>
 
-      <h2 id="subscribing-and-the-cookie">Subscribing and the cookie</h2>
+      <h2 id="who-reads-them">Who reads them</h2>
       <p>
-        UDP lets anyone write any sender address, so a node sends its feed
-        only to an address that has shown it receives there. That proof is a
-        cookie: a short value the node hands you, made from your address, that
-        you send back.
+        Peers read each other's snapshots to swap assets with each other.
+        A node subscribes to its peers' snapshots over the peer protocol and
+        checks each one. A core node swaps by itself when a peer's prices
+        beat its own costs and move its holdings toward balance. Peers never
+        ask on the snapshot's UDP port.
       </p>
-      <ol class="steps">
-        <li>
-          <p>
-            <strong>Find the node.</strong> Fetch its discovery document,
-            <code>https://&lt;host&gt;/.well-known/dassie/node</code>. It
-            names the node's <code>id</code>, its two public keys,
-            <code>publicKey</code> and <code>slhDsaPublicKey</code> in
-            base64url, and the feed's UDP port as <code>feedPort</code>.
-          </p>
-          <pre><code><span class="prompt">$</span>curl https://node.example/.well-known/dassie/node
-<span class="output">{"id":"…","publicKey":"…","slhDsaPublicKey":"…","feedPort":7768}</span></code></pre>
-          <p>
-            Check that the ID is the hash of the two keys before you trust
-            either (the reader <a href="#a-small-reader">below</a> shows how).
-            No <code>feedPort</code> means the node publishes no feed.
-            Programs that read the network's link states find the port there
-            too, in the node's own entry.
-          </p>
-        </li>
-        <li>
-          <p>
-            <strong>Ask for the feed.</strong> Send a Subscribe without a
-            cookie to that port on the node's host, from the socket you will
-            read on. It is 64 bytes: version <code>02</code>, tag
-            <code>80</code>, <code>80</code> for "no cookie", then zeros.
-          </p>
-        </li>
-        <li>
-          <p>
-            <strong>Take the cookie.</strong> The node answers with a
-            Challenge, 18 bytes: <code>02 81</code> and a 16-byte cookie.
-            Send a Subscribe at once with that cookie in it:
-            <code>02 80 81</code>, the cookie, then zeros to 64 bytes.
-          </p>
-        </li>
-        <li>
-          <p>
-            <strong>Read feeds.</strong> The node sends you its latest feed
-            right away, then every new one. Take datagrams only from the
-            node's address and port.
-          </p>
-        </li>
-        <li>
-          <p>
-            <strong>Renew every minute.</strong> Send the Subscribe with your
-            latest cookie once a minute. Whenever a Challenge comes, take its
-            cookie and send a Subscribe at once. A subscription you stop
-            renewing lapses after a few minutes, and a node that restarts
-            forgets every cookie, so it challenges you again.
-          </p>
-        </li>
-      </ol>
       <p>
-        A node never answers an address it has not proven with more bytes
-        than it got, which is why a Subscribe is padded. It keeps a bounded
-        list of subscribers, and only a few per IPv4 address or IPv6 /56. When
-        the list is full, a newcomer gets nothing and tries again at its next
-        renewal.
+        <code>dassie market-maker</code> works the same way. It reads the
+        snapshots its own node took from its peers, through the owner's
+        <code>ListPeerSnapshots</code> call, and trades by asking its node to
+        swap with a peer. See
+        <a href="/docs/services/market-maker/">Run a market maker</a>. If you
+        run a node, that call gives your own code its peers' snapshots
+        already checked and decoded, for the first 64 peers by node ID. It
+        has them only while <strong>Swapping with peers</strong> is on in the
+        wallet's settings under Peers (on by default): only then does the
+        node subscribe.
+      </p>
+      <p>
+        Asking over UDP is for everyone else: a tool that compares nodes'
+        prices, or a market maker choosing whom to peer with.
       </p>
 
-      <h2 id="checking-the-signature">Checking each datagram</h2>
+      <h2 id="finding-a-node">Finding a node</h2>
       <p>
-        A Feed datagram is <code>02 82</code>, the length of the feed, the
-        feed's bytes, and a 64-byte Ed25519 signature over exactly those
-        bytes. Take a feed only if all of these hold:
+        Fetch the node's discovery document,
+        <code>https://&lt;host&gt;/.well-known/dassie/node</code>. It names
+        the node's <code>id</code>, its two public keys,
+        <code>publicKey</code> and <code>slhDsaPublicKey</code> in base64url,
+        and the UDP port it answers on, <code>feedPort</code>:
+      </p>
+      <pre><code><span class="prompt">$</span>curl https://boot1.dassie.xyz/.well-known/dassie/node
+<span class="output">{"id":"32f6pclvm5p5xxdeqigvgxpjezayxacvmnnwgcy","publicKey":"2DJ7XMcmzgUu-Ec50PSdPvNHL5_4PKo6WmYrP4nMHEU","slhDsaPublicKey":"4nvvGnn31qeJEYBdzzulzaDcIpFtdFq9HeNhA6fJNeg","feedPort":7768}</span></code></pre>
+      <p>
+        Check that the ID is the hash of the two keys before you trust
+        either; the reader <a href="#a-small-reader">below</a> shows how.
+        <code>feedPort</code> is there only while the node answers: it has a
+        snapshot that counts now, and the socket to answer on. Programs that
+        read the network's link states find the port there too, in the entry
+        of each core node that offers swaps.
+      </p>
+
+      <h2 id="asking-for-it">Asking for it</h2>
+      <p>
+        Send one request to that port on the node's host. A request is 1180
+        bytes: version <code>02</code>, tag <code>80</code>, then zeros. The
+        node answers with its latest snapshot, once, from the port you sent
+        to. That is all: there is no subscription and no cookie, and the node
+        keeps nothing about you.
+      </p>
+      <ul>
+        <li>
+          <strong>Why so long:</strong> the request is as long as the largest
+          snapshot, so the node never sends anyone more bytes than it got.
+          Anything else, a request one byte short or with padding that is not
+          zero, gets no answer.
+        </li>
+        <li>
+          <strong>Ask again for news.</strong> Each answer is the snapshot of
+          the moment. To follow a node, ask again from time to time: it makes
+          a new snapshot at least every 30 seconds.
+        </li>
+        <li>
+          <strong>Retry when nothing comes.</strong> UDP may lose a datagram
+          either way. The node also answers at most 64 requests a second,
+          from everyone together, so a busy node may skip yours.
+        </li>
+      </ul>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/rate-feed.md#requests">How a node answers requests</a>
+      </p>
+
+      <h2 id="checking-the-signature">Checking a snapshot</h2>
+      <p>
+        A snapshot is <code>02 81</code>, then its sequence and its
+        <code>validUntil</code>, both milliseconds since 1970, the grid, the
+        methods, and a 64-byte Ed25519 signature. Take a snapshot only if all
+        of these hold:
       </p>
       <ul>
         <li>
           <strong>It decodes.</strong> The version byte is <code>02</code>,
-          and nothing follows the signature. The feed is canonical OER, every
-          value with one encoding; refuse anything else.
+          every value has its one canonical encoding, the rules below hold,
+          and nothing follows the signature. Refuse anything else.
         </li>
         <li>
-          <strong>It is a feed.</strong> Its bytes start with the feed's
-          object identifier, <code>0d 2b 06 01 04 01 83 a8 78 05 8a 77 03
-          02</code>, so a feed's signature never passes for anything else the
-          node signs.
+          <strong>Its rules hold.</strong> <code>validUntil</code> is after
+          the sequence; the grid's drops rise and stay below 10000 basis
+          points; there are at most 36 methods, in ascending order of their
+          tags, each once; and a side with a quote of zero has a ladder of
+          zeros.
         </li>
         <li>
-          <strong>It is this node's.</strong> The 32-byte key that follows is
-          the <code>publicKey</code> of the node you subscribed to.
+          <strong>It is this node's.</strong> The signature verifies under
+          the <code>publicKey</code> of the node you asked, over the
+          snapshot's object identifier,
+          <code>0d 2b 06 01 04 01 83 a8 78 05 8a 77 03 02</code>, followed by
+          every byte before the signature. The identifier is not sent, and
+          neither is the key: you know both. Dassie verifies by the ZIP-215
+          rules and refuses keys of small order; a key a node derives from
+          its phrase is never one.
         </li>
         <li>
-          <strong>The signature verifies</strong> under that key, over the
-          feed's bytes as received. Dassie verifies by the ZIP-215 rules and
-          refuses small-order keys; a key a node derives from its phrase is
-          never one.
-        </li>
-        <li>
-          <strong>It is newer.</strong> Its sequence, in milliseconds, is
-          larger than the last feed you took, so a replayed or late datagram
-          never sets the rates back.
+          <strong>It is newer.</strong> Its sequence is larger than that of
+          the last snapshot you took from this node, so a late or replayed
+          datagram never sets prices back.
         </li>
         <li>
           <strong>It still counts.</strong> Now is before its
-          <code>validUntil</code>. With no feed that counts, assume nothing
-          about the node's rates.
+          <code>validUntil</code>. With no snapshot that counts, assume
+          nothing about the node's prices.
         </li>
       </ul>
       <p>
-        A feed is signed, not encrypted: it says nothing a node's packets
-        would not.
+        A snapshot is signed, not encrypted. It says nothing a node's
+        packets would not.
       </p>
 
-      <h2 id="reading-the-rates">Reading the rates</h2>
+      <h2 id="reading-the-prices">Reading the prices</h2>
       <p>
-        Methods come in ascending order of their IDs, and each rate names
-        two of them by their place in that list: the method a packet comes
-        in on, and the one it leaves on. A rate is what one unit in gets out,
-        in the units of each method's ledger, times 10<sup>15</sup>, the
-        node's spread included. A packet that comes in with
-        <code>amount</code> goes out with at most:
+        Every number in a snapshot is defined in integers, so every reader
+        gets the same values:
       </p>
-      <pre><code>fee = floor(amount × feePpm / 1,000,000)
-out = floor((amount − fee) × rate / 10^15)</code></pre>
+      <ul>
+        <li>
+          <strong>A quote</strong> is 32 bits: an exponent <code>e</code> in
+          the top 8 and a mantissa <code>m</code> in the low 24, worth
+          <code>m × 2<sup>e − 150</sup></code>. The mantissa's top bit is
+          set, unless the whole quote is zero.
+        </li>
+        <li>
+          <strong>A ladder</strong> is 9 bytes for 8 amounts, in units of the
+          method's ledger. The first amount is 16 bits: an exponent in the top
+          6 and a mantissa in the low 10, worth
+          <code>m × 2<sup>e</sup></code>. Each later amount is one byte, a
+          step <code>b</code> up from the amount before:
+          <code>floor(previous × 2<sup>b/16</sup>)</code>, computed exactly
+          with a fixed table of 16 numbers. The reader below has the table.
+        </li>
+      </ul>
       <p>
-        "At most", because the rate is what a vanishingly small packet gets.
-        A real packet also pays for its own effect on the node's holdings,
-        so the larger it is against the node's value, the less it gets. A
-        pair the node does not convert right now is left out, and a rate is
-        never zero.
+        A swap from method A to method B is priced by A's bid and its bid
+        ladder, and by B's ask and its ask ladder:
+      </p>
+      <ul>
+        <li>
+          <strong>At the top,</strong> a unit of A gets A's bid over B's ask,
+          in units of B.
+        </li>
+        <li>
+          <strong>As the swap grows,</strong> each unit in gets at least the
+          bid less the drop of the bid ladder's level it falls in, times one
+          less the drop of the ask ladder's level, over the ask. The bid
+          ladder counts what has come in; the ask ladder counts the same, in
+          units of B at the top price.
+        </li>
+        <li>
+          <strong>Beyond either ladder's last amount,</strong> the snapshot
+          promises nothing.
+        </li>
+      </ul>
+      <p>
+        A node prices each packet at its last unit. So a swap sent as one
+        packet per step of the ladders gets at least the sum of the steps,
+        and one packet across several steps gets the rate of the step its
+        last unit falls in, on all of it.
       </p>
       <p>
-        So a feed is a reason to ask, not a price to count on. Before you
-        trade, quote the payment through the node, and pay only if the quote
-        still works for you.
+        The snapshot tells you what the node promised then. Its prices may
+        have moved since, either way, so set a minimum on every packet you
+        send.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/rate-feed.md#reading-a-snapshot">How a reader walks the ladders, exactly</a>
       </p>
 
       <h2 id="a-small-reader">A small reader</h2>
       <p>
         This Node.js script fetches a node's discovery document, checks its
-        ID, subscribes, and prints every feed that passes the checks above.
-        It uses only Node's own modules. Run it with
-        <code>node feed.mjs https://node.example</code>.
+        ID, asks for its snapshot, checks it as above, and prints each
+        method's quotes and what an amount gets from one method to another.
+        It uses only Node's own modules, and knows the testnet's two hub
+        schemes and the stub. Run it with the node's URL and an amount in
+        the ledger's units; every ledger counts 10<sup>9</sup> units to one
+        XRP or one dollar, and one of them is the default.
       </p>
+      <pre><code><span class="prompt">$</span>node snapshot.mjs https://boot1.dassie.xyz
+<span class="output">valid until 2026-10-28T12:47:19.243Z
+hub-xrpl-testnet-dsusd: bid 1.027647614479065, ask 1.1433690786361694
+hub-xrpl-testnet-xrp: bid 1.2857633829116821, ask 1.2857635021209717
+1000000000 on hub-xrpl-testnet-dsusd gets at least 798994324 on hub-xrpl-testnet-xrp
+1000000000 on hub-xrpl-testnet-xrp gets at least 1108266405 on hub-xrpl-testnet-dsusd</span></code></pre>
       <figure class="file">
-        <figcaption>feed.mjs</figcaption>
+        <figcaption>snapshot.mjs</figcaption>
         <pre><code>import { createHash, createPublicKey, verify } from "node:crypto";
 import dgram from "node:dgram";
 import { lookup } from "node:dns/promises";
 
-const FEED_OID = Buffer.from("0d2b0601040183a878058a770302", "hex");
+const REQUEST_BYTES = 1180;
+const MAX_DATAGRAM_BYTES = 1200;
+const MAX_METHODS = 36;
+const SNAPSHOT_OID = Buffer.from("0d2b0601040183a878058a770302", "hex");
 const ID_OID = Buffer.from("0d2b0601040183a878058a770202", "hex");
+const U64 = (1n &lt;&lt; 64n) - 1n;
+// floor(2^(62 + k/16)) for k from 0 to 15: a ladder's steps, in fixed point.
+const STEPS = [
+  "4000000000000000", "42d561b3e6243d8a", "45cae0f1f545eb73", "48e1e9b9d588e19b",
+  "4c1bf828c6dc54b7", "4f7a993048d088d6", "52ff6b54d8a89c75", "56ac1f752150a563",
+  "5a827999fcef3242", "5e8451cfac061b5f", "62b39508aa836d6e", "6712460a8fc24071",
+  "6ba27e656b4eb57a", "70666f76154a7088", "75606373ee921c97", "7a92be8a92436616",
+].map((hex) =&gt; BigInt(`0x${hex}`));
+// The schemes this reader runs: it knows their methods by their tags.
+const SCHEMES = ["hub-xrpl-testnet-xrp", "hub-xrpl-testnet-dsusd", "stub"];
 
 // The node's ID is the hash of its two keys: check it before trusting either.
 function nodeId(key, slhDsaKey) {
@@ -217,170 +312,258 @@ function nodeId(key, slhDsaKey) {
   const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
   let bits = 0, value = 0, text = "";
   for (const byte of bytes) {
-    value = (value &lt;&lt; 8) | byte;
+    value = ((value &lt;&lt; 8) | byte) &amp; 0xfff;
     bits += 8;
     while (bits &gt;= 5) text += alphabet[(value &gt;&gt;&gt; (bits -= 5)) &amp; 31];
   }
   return text + alphabet[(value &lt;&lt; (5 - bits)) &amp; 31];
 }
 
-// A Subscribe: version 2, tag 0, the cookie if there is one, zeros to 64 bytes.
-function subscribe(cookie) {
-  const datagram = Buffer.alloc(64);
-  datagram.set([2, 0x80, cookie ? 0x81 : 0x80]);
-  if (cookie) cookie.copy(datagram, 3);
-  return datagram;
+// A method's tag: the first 4 bytes of a SHA-256 of a domain and its scheme's ID.
+function methodTag(scheme) {
+  const hash = createHash("sha256").update("dassie-feed/method-tag").update(scheme);
+  return hash.digest().subarray(0, 4).toString("hex");
 }
 
-// Reads canonical OER from `bytes`, refusing anything short.
-function reader(bytes) {
+// A quote: m · 2^(e − 150), e in the top 8 bits, m normalized in the low 24.
+function quote(bits) {
+  const m = bits &amp; 0xffffff, e = bits &gt;&gt;&gt; 24;
+  if (bits !== 0 &amp;&amp; m &lt; 0x800000) throw new Error("a quote is not normalized");
+  return { m: BigInt(m), e, value: m * 2 ** (e - 150) };
+}
+
+// previous · 2^(step/16), rounded down; undefined beyond a u64.
+function stepUp(previous, step) {
+  const value = (previous * STEPS[step &amp; 15]) &gt;&gt; BigInt(62 - (step &gt;&gt; 4));
+  return value &gt; U64 ? undefined : value;
+}
+
+// A ladder: a 16-bit first amount (m · 2^e, e in the top 6 bits), then 7 steps.
+function ladder(bytes) {
+  const bits = bytes.readUInt16BE(0), m = bits &amp; 1023, e = bits &gt;&gt; 10;
+  if (e &gt; 0 &amp;&amp; (m &lt; 512 || e &gt; 54)) throw new Error("a first amount is not canonical");
+  const amounts = [BigInt(m) &lt;&lt; BigInt(e)];
+  for (const step of bytes.subarray(2)) {
+    const value = stepUp(amounts.at(-1), step);
+    if (value === undefined) throw new Error("a ladder goes beyond a u64");
+    if (step &gt; 0 &amp;&amp; stepUp(amounts.at(-1), step - 1) === value) {
+      throw new Error("a step is not the smallest");
+    }
+    amounts.push(value);
+  }
+  return amounts;
+}
+
+// A snapshot datagram, checked against the node's key and the last one taken.
+function readSnapshot(datagram, key, lastSequence, now) {
+  if (datagram.length &gt; MAX_DATAGRAM_BYTES) throw new Error("too long");
   let at = 0;
   const take = (n) =&gt; {
-    if (at + n &gt; bytes.length) throw new Error("too short");
-    return bytes.subarray(at, (at += n));
+    if (at + n &gt; datagram.length) throw new Error("too short");
+    return datagram.subarray(at, (at += n));
   };
-  const length = () =&gt; {
-    const first = take(1)[0];
-    if (first &lt; 0x80) return first;
-    return take(first &amp; 0x7f).reduce((n, byte) =&gt; n * 256 + byte, 0);
-  };
-  return {
-    take,
-    length,
-    count: () =&gt; take(length()).reduce((n, byte) =&gt; n * 256 + byte, 0),
-    u64: () =&gt; take(8).readBigUInt64BE(0),
-    done: () =&gt; at === bytes.length,
-  };
+  const [version, kind] = take(2);
+  if (version !== 2) throw new Error(`version ${version}`);
+  if (kind !== 0x81) throw new Error("not a snapshot");
+  const sequence = take(8).readBigUInt64BE(0);
+  const validUntil = take(8).readBigUInt64BE(0);
+  const grid = Array.from({ length: 8 }, () =&gt; take(2).readUInt16BE(0));
+  const [length, count] = take(2);
+  if (length !== 1 || count &gt; MAX_METHODS) throw new Error("a bad method count");
+  const methods = [];
+  for (let n = 0; n &lt; count; n++) {
+    const tag = take(4).toString("hex");
+    const bid = quote(take(4).readUInt32BE(0));
+    const ask = quote(take(4).readUInt32BE(0));
+    const bidLadder = ladder(take(9)), askLadder = ladder(take(9));
+    methods.push({ tag, bid, ask, bidLadder, askLadder });
+  }
+  const signature = take(64);
+  if (at !== datagram.length) throw new Error("bytes after the signature");
+  if (validUntil &lt;= sequence) throw new Error("valid only until its sequence");
+  if (grid.some((drop, i) =&gt; i &gt; 0 &amp;&amp; drop &lt;= grid[i - 1]) || grid[7] &gt;= 10000) {
+    throw new Error("a bad grid");
+  }
+  if (methods.some((method, i) =&gt; i &gt; 0 &amp;&amp; method.tag &lt;= methods[i - 1].tag)) {
+    throw new Error("methods out of order");
+  }
+  const closed = (q, amounts) =&gt; q.value === 0 &amp;&amp; amounts.some((a) =&gt; a !== 0n);
+  if (methods.some((m) =&gt; closed(m.bid, m.bidLadder) || closed(m.ask, m.askLadder))) {
+    throw new Error("a closed side with a ladder");
+  }
+  if (lastSequence !== undefined &amp;&amp; sequence &lt;= lastSequence) throw new Error("old");
+  if (now &gt;= validUntil) throw new Error("expired");
+  const signed = Buffer.concat([SNAPSHOT_OID, datagram.subarray(0, at - 64)]);
+  if (!verify(null, signed, key, signature)) throw new Error("a bad signature");
+  return { sequence, validUntil, grid, methods };
 }
 
-// A Feed datagram: version 2, tag 2, the signed feed, its 64-byte signature.
-function readFeed(datagram, key) {
-  const outer = reader(datagram);
-  const [version, tag] = outer.take(2);
-  if (version !== 2 || tag !== 0x82) return undefined;
-  const signed = outer.take(outer.length());
-  const signature = outer.take(64);
-  if (!outer.done()) throw new Error("bytes after the signature");
-  if (!verify(null, signed, key, signature)) throw new Error("bad signature");
-  const r = reader(signed);
-  if (!r.take(FEED_OID.length).equals(FEED_OID)) throw new Error("not a feed");
-  const publicKey = r.take(32);
-  const feed = { publicKey, sequence: r.u64(), validUntil: r.u64() };
-  feed.feePpm = r.take(4).readUInt32BE(0);
-  feed.methods = [];
-  for (let n = r.count(); n &gt; 0; n--) {
-    feed.methods.push({ id: r.take(r.length()).toString("ascii"), maxPacket: r.u64() });
+// m · 2^shift / d, rounded down, at most a u64.
+function scaled(m, shift, d) {
+  const value = shift &gt;= 0 ? (m &lt;&lt; BigInt(shift)) / d : m / d &gt;&gt; BigInt(-shift);
+  return value &gt; U64 ? U64 : value;
+}
+
+// The least `amount` in on method `from` gets out on method `to`, by the
+// snapshot's ladders; undefined when it does not say.
+function swapOut(snapshot, from, to, amount) {
+  const a = snapshot.methods.find((m) =&gt; m.tag === from);
+  const b = snapshot.methods.find((m) =&gt; m.tag === to);
+  if (from === to || !a || !b || a.bid.value === 0 || b.ask.value === 0) return undefined;
+  const { bid } = a, { ask } = b;
+  const keep = snapshot.grid.map((drop) =&gt; BigInt(10000 - drop));
+  // The ask ladder counts what came in at the top-of-book price.
+  const askTops = b.askLadder.map((out) =&gt; scaled(out * ask.m, ask.e - bid.e, bid.m));
+  // What n units in get out within level i of the bid ladder and j of the ask's.
+  const rate = (n, i, j) =&gt;
+    scaled(n * bid.m * keep[i] * keep[j], bid.e - ask.e, ask.m * 10n ** 8n);
+  let i = 0, j = 0, paid = 0n, got = 0n;
+  while (i &lt; 8 &amp;&amp; j &lt; 8 &amp;&amp; paid &lt; amount) {
+    const roomIn = a.bidLadder[i] - paid, roomOut = askTops[j] - paid;
+    if (roomIn &lt;= 0n) { i++; continue; }
+    if (roomOut &lt;= 0n) { j++; continue; }
+    let step = amount - paid;
+    if (roomIn &lt; step) step = roomIn;
+    if (roomOut &lt; step) step = roomOut;
+    paid += step;
+    got += rate(step, i, j);
+    if (got &gt; U64) got = U64;
+    if (step === roomIn) i++;
+    if (step === roomOut) j++;
   }
-  feed.rates = [];
-  for (let n = r.count(); n &gt; 0; n--) {
-    const [from, to] = r.take(2);
-    feed.rates.push({ from: feed.methods[from].id, to: feed.methods[to].id, rateE15: r.u64() });
-  }
-  if (!r.done()) throw new Error("bytes after the feed");
-  return feed;
+  return paid === amount ? got : undefined;
 }
 
 const url = new URL(process.argv[2]);
+const amount = BigInt(process.argv[3] ?? "1000000000");
 const node = await (await fetch(new URL("/.well-known/dassie/node", url))).json();
 const key = Buffer.from(node.publicKey, "base64url");
 const slhDsaKey = Buffer.from(node.slhDsaPublicKey, "base64url");
 if (nodeId(key, slhDsaKey) !== node.id) throw new Error("the ID is not the keys'");
-if (node.feedPort === undefined) throw new Error("this node publishes no feed");
+if (node.feedPort === undefined) throw new Error("this node answers no request");
 const verifyKey = createPublicKey({
   key: { kty: "OKP", crv: "Ed25519", x: node.publicKey },
   format: "jwk",
 });
+const names = new Map(SCHEMES.map((scheme) =&gt; [methodTag(scheme), scheme]));
 
 const { address, family } = await lookup(url.hostname);
 const socket = dgram.createSocket(family === 6 ? "udp6" : "udp4");
-let cookie;
-let last = -1n;
-const send = () =&gt; socket.send(subscribe(cookie), node.feedPort, address);
+const request = Buffer.alloc(REQUEST_BYTES);
+request.set([2, 0x80]);
+let tries = 0;
+const ask = () =&gt; {
+  if (++tries &gt; 5) {
+    console.error("no answer after five requests");
+    process.exit(1);
+  }
+  socket.send(request, node.feedPort, address);
+};
+const timer = setInterval(ask, 2_000);
 socket.on("message", (datagram, from) =&gt; {
   if (from.address !== address || from.port !== node.feedPort) return;
-  if (datagram.length === 18 &amp;&amp; datagram[0] === 2 &amp;&amp; datagram[1] === 0x81) {
-    cookie = Buffer.from(datagram.subarray(2));
-    return send();
-  }
+  let snapshot;
   try {
-    const feed = readFeed(datagram, verifyKey);
-    if (!feed || !feed.publicKey.equals(key)) return;
-    if (feed.sequence &lt;= last || BigInt(Date.now()) &gt;= feed.validUntil) return;
-    last = feed.sequence;
-    console.log(feed.feePpm, feed.methods, feed.rates);
+    snapshot = readSnapshot(datagram, verifyKey, undefined, BigInt(Date.now()));
   } catch (error) {
-    console.error(`refused a datagram: ${error.message}`);
+    return console.error(`refused a datagram: ${error.message}`);
+  }
+  clearInterval(timer);
+  socket.close();
+  console.log(`valid until ${new Date(Number(snapshot.validUntil)).toISOString()}`);
+  for (const m of snapshot.methods) {
+    console.log(`${names.get(m.tag) ?? m.tag}: bid ${m.bid.value}, ask ${m.ask.value}`);
+  }
+  for (const a of snapshot.methods) {
+    for (const b of snapshot.methods) {
+      const out = swapOut(snapshot, a.tag, b.tag, amount);
+      if (!names.has(a.tag) || !names.has(b.tag) || out === undefined) continue;
+      const [from, to] = [names.get(a.tag), names.get(b.tag)];
+      console.log(`${amount} on ${from} gets at least ${out} on ${to}`);
+    }
   }
 });
-send();
-setInterval(send, 60_000);</code></pre>
+ask();</code></pre>
       </figure>
       <p>
         Node's Ed25519 follows RFC 8032 rather than ZIP-215. The two agree on
         every signature a node makes; they differ only on odd signatures no
         node writes. In Rust, the
         <a href="https://github.com/justmoon/dassie/tree/main/crates/dassie-feed"><code>dassie-feed</code></a>
-        crate has a subscriber's side, <code>FeedReceiver</code>, that does
-        every check. It lives in the repository and is not on crates.io.
+        crate has the whole reader's side: <code>SnapshotReader</code> does
+        every check, and <code>Snapshot::swap_out</code>,
+        <code>packet_out</code> and <code>swap_at_least</code> price swaps.
+        It lives in the repository and is not on crates.io.
       </p>
 
       <h2 id="test-vectors">Test vectors</h2>
       <p>
-        <a href="https://github.com/justmoon/dassie/blob/main/testdata/feed/vectors.json"><code>testdata/feed/vectors.json</code></a>
-        pins the format. All its datagrams are signed with one fixed key,
-        whose <code>publicKey</code>, <code>slhDsaPublicKey</code> and
-        <code>nodeId</code> it gives, so you can check your ID code too. It
-        holds:
+        <a href="https://github.com/justmoon/dassie/blob/main/testdata/feed/snapshots.json"><code>testdata/feed/snapshots.json</code></a>
+        pins the format. Its datagrams are signed with one fixed key, whose
+        seed and <code>publicKey</code> it gives. It holds:
       </p>
       <ul>
-        <li>two Subscribes, with and without a cookie, and a Challenge;</li>
+        <li>method tags of four scheme IDs, and quotes, first amounts and ladders with their bytes and values;</li>
+        <li>the step table, and the request;</li>
         <li>
-          three feeds your reader must take, with their decoded fields: a
-          heartbeat with no methods, one with two methods, and the largest the
-          format allows, eight methods and a rate for every pair;
+          four snapshots your reader must take, with their decoded fields: a
+          heartbeat with no methods, one with two methods, one with a closed
+          side, and the largest the format allows, 36 methods;
         </li>
         <li>
-          four it must refuse, each with the reason: a tampered signature, a
-          feed signed by another key, a small-order key, and a datagram of
-          version 1.
+          swaps priced from the two-method snapshot: what an amount gets,
+          what one packet gets from a point in the swap, and the largest swap
+          that still gets a given rate;
+        </li>
+        <li>
+          fourteen datagrams it must refuse, each with the reason: bad
+          signatures, a weak key, version 1, a snapshot for each broken
+          rule, and two bad requests.
         </li>
       </ul>
       <p>
-        The heartbeat and two-method feeds have expired, and the largest is
-        valid until the largest u64, so test your decoding and signature
-        check with the vectors, and your clock check apart. Dassie's own code makes the vectors, since no other
-        implementation exists yet; running its generator again gives the same
-        file. A changed vector would mean a new feed version.
+        The small snapshots expired long ago, and the largest is valid until
+        the largest u64, so test your decoding and signature check with the
+        vectors, and your clock check apart. Dassie's own code makes the
+        vectors, since no other implementation exists yet; running its
+        generator again gives the same file. A changed vector would mean a
+        new version of the format.
       </p>
 
       <h2 id="when-nothing-arrives">When nothing arrives</h2>
       <ul>
         <li>
           <strong>No <code>feedPort</code> in the discovery document:</strong>
-          the node has no domain name, or no UDP socket for its feed.
+          the node has no domain name, its owner offers no swaps, it has no
+          UDP socket for requests, or it has no snapshot that counts right
+          now, as while it starts.
         </li>
         <li>
-          <strong>No Challenge comes back:</strong> a firewall drops UDP to the
-          port, on the node's side or yours. The default port is 7768.
+          <strong>No answer:</strong> a firewall drops UDP to the port, on
+          the node's side or yours; the default port is 7768. Check that your
+          request is exactly 1180 bytes, starts <code>02 80</code> and is
+          zeros after that. Otherwise the node may have spent its budget for
+          the moment: ask again shortly.
         </li>
         <li>
-          <strong>Challenges, but no feed:</strong> check that your Subscribe
-          carries the cookie and comes from the same address and port the
-          Challenge went to. If it does, the node's list may be full, or your
-          address may hold its share already; renew and wait.
+          <strong>A snapshot with no methods:</strong> the node is alive, but
+          offers its peers no settlement method yet.
         </li>
         <li>
-          <strong>Feeds with no methods:</strong> the node is alive, but
-          has no fresh exchange rates right now, or offers its peers no
-          settlement method yet.
+          <strong>Methods with quotes of zero:</strong> the node offers the
+          method, but does not convert that side right now.
+        </li>
+        <li>
+          <strong>Tags you don't know:</strong> methods of schemes you don't
+          run. You can't use them, so skip them.
         </li>
       </ul>
       <p>
-        If you run the node, <code>sudo dassie status</code> has a line for
-        its feed: where it serves, to how many subscribers, and what it sent
-        and took. Under systemd the feed's socket is
-        <code>dassie-feed.socket</code>, on UDP port 7768; open it in your
-        firewall. See <a href="/docs/node/status/">Check on your node</a> and
+        If you run the node, <code>dassie status</code> has a Rate feed
+        line: where the node answers, and how many datagrams it took,
+        answered, refused for the budget and ignored. Under systemd the
+        socket is <code>dassie-feed.socket</code>, on UDP port 7768; open it
+        in your firewall. See <a href="/docs/node/status/">Check on your node</a> and
         <a href="/docs/reference/files-and-ports/">Files, ports and sockets</a>.
       </p>
     </main>
