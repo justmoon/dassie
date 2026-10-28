@@ -485,22 +485,20 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// The scheme is neither active nor stored and left out at start, or
-    /// tokens use its ledger, outgoing payments from it have not finished,
-    /// or a move of its hub is on its way.
+    /// The scheme is neither active nor stored and left out at start, or,
+    /// active, tokens use its ledger, outgoing payments from it have not
+    /// finished, or a move of its hub is on its way.
     pub fn remove_scheme(&mut self, id: &str) -> Result<(), EngineError> {
         let id =
             Name::new(id).map_err(|_| EngineError::NotFound("the scheme is not active".into()))?;
         let ledger = match self.schemes.get(&id) {
             Some(active) => active.scheme.ledger(),
             // Stored but left out at start: it opened nothing, so only its
-            // stored config goes, unless the database shows a move of its
-            // hub on its way.
+            // stored config goes. A move of its hub that the database shows
+            // on its way stays with its row, and goes on if the owner adds
+            // the scheme again; the owner, who cannot give it up while the
+            // scheme does not run, is never kept from removing it.
             None if self.unusable.contains(&id) => {
-                if self.stored_hub_move_on_its_way(id)? {
-                    let blocker = RemovalBlocker::HubMove;
-                    return Err(EngineError::Precondition(blocker.message().into()));
-                }
                 self.unusable.remove(&id);
                 self.batch.schemes_removed.push(id);
                 return Ok(());

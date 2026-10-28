@@ -578,7 +578,7 @@
         "Peers and the route table, with each packet's next hop drawn at random among a route's first hops with a method on the ledger it came in on, weighted by the fees each earned the node on that ledger, and a share of the draws even, so no one node can stop a payment; a packet goes on that method, or, where no hop has one, on the drawn hop's method with the best rate, and never moves to another method for room",
         "Downlinks at child addresses below the node's own; a periphery node's addresses beneath its uplinks, forwarding nothing",
         "A cap on money in flight on each method of a peer, which bounds what a crash loses, and no new packets from a peer it cannot answer",
-        "Exchange between currencies, with fees and a spread, at a rate moved from spot by what the owner holds on each ledger once the packet and those in flight have moved it, so that payments bring a skewed node back toward balance and no round trip gains, and nothing to or from a ledger whose scheme is paused",
+        "Exchange between currencies, with fees and a spread, at a rate moved from spot by what the owner holds of each asset, a hub's ledger counted with the owner book that funds it, once the packet and those in flight have moved it, so that payments bring a skewed node back toward balance and no round trip gains, and nothing to or from a ledger whose scheme is paused",
         "The same pricing on every ledger with a currency, a settlement hub's as much as an owner book's, and, for a packet that cannot keep its ledger, a ranking of the ledgers it could convert to by what it gets there relative to spot",
         "A spending cap per BTP token",
         "A packet trace for the debug pages",

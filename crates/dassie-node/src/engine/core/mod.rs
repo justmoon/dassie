@@ -52,6 +52,10 @@ pub use events::{
     BtpEvent, EngineEvent, Event, MAX_EVENTS, PaymentEvent, PeerEvent, SettlementEvent, Severity,
 };
 pub use hub_funding::{Direction, Move};
+/// The simulation's oracle prices each asset whole by the node's own
+/// mapping from a hub to its owner book.
+#[cfg(feature = "testing")]
+pub(crate) use hub_moves::owner_book_ledger;
 pub use hub_moves::{HubHold, HubStatus};
 #[cfg(feature = "testing")]
 pub use hubs::HubPeer;

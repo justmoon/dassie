@@ -1,13 +1,13 @@
 //! The owner's removal of a stored scheme the node left out at start
-//! (spec/areas/hubs.md#in-the-node): a hub scheme whose move between the
-//! hub and its owner book is on its way, as the database keeps it, is not
-//! removed, as an active one is not.
+//! (spec/areas/hubs.md#in-the-node): a hub scheme goes as any other such
+//! scheme, its move between the hub and its owner book on its way or not,
+//! since the owner cannot give that move up while the scheme does not run;
+//! the database keeps the move's row, for the scheme added again.
 
 use std::sync::Arc;
 
 use dassie_ledger::Name;
 
-use super::super::EngineError;
 use super::{NOW, Store, core_on};
 use crate::store::{HubFundingRow, HubMoveRow, LedgerBatch};
 
@@ -37,12 +37,13 @@ fn stored(store: &Store) -> Vec<Name> {
         .collect()
 }
 
-// A move of the hub on its way, as the database keeps it, keeps the scheme
-// left out at start from being removed: the move is its account's in that
-// hub, and goes on once the owner adds the scheme again. The scheme and
-// the row stay.
+// A move of the hub on its way, as the database keeps it, does not keep
+// the scheme left out at start from being removed: the owner could not
+// give the move up while the scheme does not run. Its stored config goes,
+// and the row stays, so the move goes on once the owner adds the scheme
+// again.
 #[test]
-fn a_scheme_left_out_with_a_hub_move_on_its_way_is_not_removed() {
+fn a_scheme_left_out_with_a_hub_move_on_its_way_is_removed_and_its_row_kept() {
     let row = HubFundingRow {
         paused_until_ms: 0,
         moving: Some(HubMoveRow {
@@ -59,18 +60,14 @@ fn a_scheme_left_out_with_a_hub_move_on_its_way_is_not_removed() {
     let (store, hub) = stored_hub(&row);
     let mut core = core_on(Arc::clone(&store), 4);
     assert!(core.ledger_views().is_empty(), "the scheme ran");
-    let refused = core.remove_scheme(hub.as_str());
-    assert!(
-        matches!(&refused, Err(EngineError::Precondition(why)) if why.contains("move")),
-        "{refused:?}"
-    );
+    core.remove_scheme(hub.as_str()).unwrap();
     core.finish_step(&mut Vec::new());
-    assert_eq!(stored(&store), [hub]);
+    assert!(stored(&store).is_empty());
     assert_eq!(store.hub_funding(hub).unwrap().1, row);
 }
 
-// Without a move on its way, it goes as any scheme left out at start: its
-// stored config goes, and the row, which the database keeps, stays.
+// Without a move on its way, it goes the same: its stored config goes,
+// and the row, which the database keeps, stays.
 #[test]
 fn a_scheme_left_out_with_no_hub_move_is_removed() {
     let row = HubFundingRow {

@@ -71,7 +71,7 @@ fn in_asset(scheme: Name, smallest: u64) -> String {
 /// the testnet, XRP for the XRP hub and DSUSD for the DSUSD hub; on
 /// mainnet, XRP for the XRP hub and RLUSD for the RLUSD hub, each of the
 /// hub's realm. `None` for a ledger that is no hub's.
-pub(super) const fn owner_book_ledger(hub: LedgerId) -> Option<LedgerId> {
+pub(crate) const fn owner_book_ledger(hub: LedgerId) -> Option<LedgerId> {
     match hub {
         LedgerId::HubXrplTestnetXrp => Some(LedgerId::XrplTestnetXrp),
         LedgerId::HubXrplTestnetDsusdUsd => Some(LedgerId::XrplTestnetDsusdUsd),
@@ -321,26 +321,6 @@ impl Core {
         self.funding
             .get(&scheme)
             .is_some_and(|funding| funding.moving.is_some())
-    }
-
-    /// Whether the database shows a move between the hub of `scheme`, a
-    /// stored scheme left out at start, and its owner book on its way: the
-    /// scheme is not removed then, as an active one is not
-    /// ([`hub_move_on_its_way`](Self::hub_move_on_its_way)), so the move is
-    /// not forgotten, and goes on once the owner adds the scheme again.
-    ///
-    /// # Errors
-    ///
-    /// The database failed, or holds what it may not.
-    pub(super) fn stored_hub_move_on_its_way(&self, scheme: Name) -> Result<bool, EngineError> {
-        if let Some(row) = self.batch.hub_funding.get(&scheme) {
-            return Ok(row.moving.is_some());
-        }
-        let (_, row) = self
-            .store
-            .hub_funding(scheme)
-            .map_err(|e| EngineError::Internal(e.to_string()))?;
-        Ok(row.moving.is_some())
     }
 
     /// The scheme that books `ledger`, if one is active: a ledger has at

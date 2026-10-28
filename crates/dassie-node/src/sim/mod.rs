@@ -117,7 +117,6 @@ use dassie_ledger::LedgerId;
 use dassie_node_core::config::{LiveRealm, Realm};
 use dassie_oer::Decode;
 use dassie_payments::amount::paid_in_full;
-use dassie_peer::wire::SchemeId;
 use dassie_peer::{Bootstrap, Failure, InboundId, OwnInfo, RequestId, Response};
 use dassie_settlement::policy;
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
@@ -505,9 +504,6 @@ pub struct Withdrawal {
     pub by: usize,
     /// The peer.
     pub peer: NodeId,
-    /// The scheme the pair settles over, if the node still had the
-    /// peering.
-    pub scheme: Option<SchemeId>,
 }
 
 /// What the issuer of the run's token stops, in a run on a token.
@@ -563,16 +559,8 @@ pub fn least_across(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
 /// its prices count it (spec/decisions/passive-rebalancing.md).
 pub fn least_across_whole(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
     least_across_from(ledger, into, sent, |ledger| {
-        // The node's own mapping, `hub_moves::owner_book_ledger`, which the
-        // prices group by and the sim cannot reach: this must follow it.
-        let book = match ledger {
-            HUB => XRP,
-            HUB_DSUSD => DSUSD,
-            HUB_LIVE => LIVE_XRP,
-            HUB_RLUSD => RLUSD,
-            other => other,
-        };
-        Settling::deposit(book)
+        // The node's own mapping, which its prices group by.
+        Settling::deposit(crate::engine::core::owner_book_ledger(ledger).unwrap_or(ledger))
     })
 }
 
@@ -1766,18 +1754,10 @@ impl Sim {
             peer, short: true, ..
         }) = event
         {
-            let scheme = self.nodes[index].core.as_ref().and_then(|core| {
-                core.network()
-                    .peers
-                    .into_iter()
-                    .find(|view| view.id == *peer)
-                    .map(|view| view.peering.first().scheme)
-            });
             self.withdrawn.push(Withdrawal {
                 at: self.now,
                 by: index,
                 peer: *peer,
-                scheme,
             });
         }
         if let Event::Settlement(SettlementEvent::Reconciled {
