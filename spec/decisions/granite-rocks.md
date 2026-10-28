@@ -41,7 +41,7 @@
 - *A tinted rim, Sunrise laid over the gray at part strength:* orange over gray at part strength is brown, the color this decision takes off the rocks.
 - *Shrink the wide scene for a phone:* at a third of its size the dassies are a few pixels high and the kopjes pebbles, which is the misreading this decision is about.
 - *A sun beside the main kopje, or off its axis:* the lookout stands clear on the sky, but the sun then lights a corner of the scene rather than the kopje it is about, and the scene no longer has the mark's picture of a dassie on its rock in front of the sun.
-- *Today's sun, its edge at the lookout's head:* a tangent reads as the two touching, and neither stands apart.
+- *A sun whose edge meets the lookout's head, as the Terracotta scenes have it:* a tangent reads as the two touching, and neither stands apart.
 - *Ink rocks, as the mark's:* the mark has one dassie and one rock, parted by a rim of light. A scene's many ink dassies on ink rocks melt into one dark band, and the scene no longer shows ledgers apart from the nodes on them.
 - *Red sandstone mesas, flat-topped and layered:* strata read clearly as rock, but they are red, and a mesa is tall where Kopje lies low; kopjes are granite.
 - *One seeded generator in `packages/ui` draws every rock, and a test holds it to the rules:* it would keep a later drawing from bringing the brown or the mound back, but it is code to keep, and it binds every scene to what the generator can draw. The drawings with rocks are few, and the rules on the page are enough to draw them by.
