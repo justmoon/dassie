@@ -46,12 +46,10 @@ pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
 /// spec/areas/node.md#a-chosen-relay). Its ID is checked against its keys
 /// at startup, like any entry. `DASSIE_RELAY=` (empty) keeps no relay.
 ///
-/// None until the front door is upgraded: its ID now commits to its
-/// SLH-DSA key, which derives from its key file, so its entry is the one it
-/// logs once it runs a release that makes it (`relay_entry` in
-/// `front_door/key.rs`), and a later release builds that in. Until then a
-/// node keeps no relay by default.
-pub const DEFAULT_RELAY: Option<&str> = None;
+/// The entry is the one the front door logs (`relay_entry` in
+/// `front_door/key.rs`): its ID commits to both its keys, and the SLH-DSA
+/// key derives from its key file, so the entry changes only with that file.
+pub const DEFAULT_RELAY: &str = r#"{"id":"orksjbmxvscmvfv3apa6xwencnxw2rt7t655esa","url":"https://relay.dassiepay.net","publicKey":"DliIZHngMG7GTDqfHBSP_dfSTmn8ziA9OE37FnxC7eo","slhDsaPublicKey":"1MCsetw1qOFmBxhuYN4lD_dPAnRH8iOZWIRnb1ezcv8"}"#;
 
 /// Most bootstrap nodes accepted: each a registrar whose name list every
 /// node reads (spec/areas/network.md#holders).
@@ -532,13 +530,10 @@ pub fn bootstrap_nodes(env: &Env) -> Result<Vec<BootstrapNode>, EnvError> {
 }
 
 /// `DASSIE_RELAY`: one entry in the bootstrap list's format; when unset,
-/// [`DEFAULT_RELAY`], if there is one; when empty, none.
+/// [`DEFAULT_RELAY`]; when empty, none.
 fn relay(env: &Env) -> Result<Option<Relay>, EnvError> {
     let (text, is_default) = match env.get("DASSIE_RELAY")? {
-        None => match DEFAULT_RELAY {
-            Some(text) => (text, true),
-            None => return Ok(None),
-        },
+        None => (DEFAULT_RELAY, true),
         Some("") => return Ok(None),
         Some(text) => (text, false),
     };
@@ -862,20 +857,29 @@ mod tests {
         assert!(relay(&http).is_err());
     }
 
-    // spec/decisions/default-relay.md: there is no default relay until the
-    // front door of the default name is upgraded to an identity whose ID
-    // commits to its SLH-DSA key, so unset, as empty, keeps none. A release
-    // then builds the front door's entry in, and this test then checks
-    // that unset names it, checked as any entry and kept only without a
-    // hostname.
+    // spec/decisions/default-relay.md: unset, the relay is the front door
+    // of the default name, whose entry parses and whose ID is the one its
+    // two keys give, kept only without a hostname; empty, there is none.
     #[test]
-    fn the_default_relay_is_none_until_the_reset() {
-        assert_eq!(DEFAULT_RELAY, None);
-        let unset = settings(&[("HOME", "/h")]);
-        assert_eq!(unset.map(|s| s.relay), Ok(None));
+    fn the_default_relay_is_the_default_names_front_door() {
+        let unset = settings(&[("HOME", "/h")]).unwrap().relay.unwrap();
+        assert!(unset.is_default);
+        assert_eq!(
+            unset.node.endpoint.url(),
+            format!(
+                "https://relay.{}",
+                crate::open_payments::DEFAULT_FRONT_DOOR_DOMAIN
+            )
+        );
+        assert_eq!(
+            unset.node.id.as_str(),
+            "orksjbmxvscmvfv3apa6xwencnxw2rt7t655esa"
+        );
+        assert_eq!(unset.node.identity.node_id(), unset.node.id);
         let empty = settings(&[("HOME", "/h"), ("DASSIE_RELAY", "")]);
         assert_eq!(empty.map(|s| s.relay), Ok(None));
     }
+
     // spec/areas/peer-protocol.md#quic-over-websocket: the proxy for
     // tunnels is read as other programs read it, lowercase first, and
     // `NO_PROXY` only with a proxy.
