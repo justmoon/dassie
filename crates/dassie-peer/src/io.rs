@@ -310,6 +310,9 @@ pub enum Event {
         /// Whether we began it.
         by_us: bool,
     },
+    /// The core changed, as this node computes it
+    /// (spec/decisions/promotion-to-core.md).
+    CoreChanged,
     /// A peer's kind changed in place, as its status did: it became our
     /// downlink, or a core peer. Its peering, methods and channel stay
     /// (spec/decisions/promotion-to-core.md).

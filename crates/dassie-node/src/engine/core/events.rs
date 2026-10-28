@@ -508,6 +508,7 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
         }
         Event::SettlementRefused { .. } => Severity::Error,
         Event::RoutesChanged
+        | Event::CoreChanged
         | Event::NodeAdded(_)
         | Event::NodeRemoved(_)
         | Event::Registered(_)

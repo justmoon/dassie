@@ -554,7 +554,11 @@ impl PeerNode {
             self.routes = routes;
             self.event(Event::RoutesChanged);
         }
-        self.core = self.compute_core();
+        let core = self.compute_core();
+        if core != self.core {
+            self.core = core;
+            self.event(Event::CoreChanged);
+        }
         if !self.core.contains(&self.own) {
             self.own_core_since_ms = None;
         } else if self.own_core_since_ms.is_none() {
