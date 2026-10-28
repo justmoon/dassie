@@ -688,8 +688,13 @@ fn priced_as_if(
 /// in the XRP hub `hub`, whose account there holds `balance`, all of it
 /// deposited, with the node's own moves off; and a hundred dollars on the
 /// stub, at two XRP to the dollar: two assets, short of dollars.
-fn xrp_hub_and_dollars(ledger: &mut FakeLedger, hub: &mut Hub, balance: u64) -> Core {
-    let mut core = super::core(9);
+fn xrp_hub_and_dollars(
+    store: Arc<Store>,
+    ledger: &mut FakeLedger,
+    hub: &mut Hub,
+    balance: u64,
+) -> Core {
+    let mut core = super::core_on(store, 9);
     super::add_xrpl(&mut core, "xrpl-testnet-xrp", super::SHARED_CONFIG).unwrap();
     super::follow_xrpl(&mut core, ledger);
     core.add_scheme(SCHEME_ID, hub.config()).unwrap();
@@ -697,10 +702,9 @@ fn xrp_hub_and_dollars(ledger: &mut FakeLedger, hub: &mut Hub, balance: u64) -> 
     core.set_hub_automatic(SCHEME_ID, false).unwrap();
     hub.account(&mut core, balance, balance);
     super::add_stub(&mut core, super::TRUSTING);
-    let one = 10_u128.pow(dassie_connector::RATE_PRECISION);
     let now = core.now_ms() + 1_000;
     core.begin_step(now);
-    core.set_rates(&[("USD", one, now), ("XRP", 2 * one, now)]);
+    two_xrp_a_dollar(&mut core, now);
     let stub = Name::new("stub").unwrap();
     let mut effects = Vec::new();
     let active = core.schemes.get_mut(&stub).unwrap();
@@ -718,6 +722,29 @@ fn xrp_hub_and_dollars(ledger: &mut FakeLedger, hub: &mut Hub, balance: u64) -> 
     core
 }
 
+/// Dollars and XRP at two XRP to the dollar, learnt at `now`, in a step.
+fn two_xrp_a_dollar(core: &mut Core, now: u64) {
+    let one = 10_u128.pow(dassie_connector::RATE_PRECISION);
+    core.set_rates(&[("USD", one, now), ("XRP", 2 * one, now)]);
+}
+
+/// The prices in `core`'s table.
+fn prices(core: &Core) -> Vec<dassie_connector::Price> {
+    core.price_table().prices().copied().collect()
+}
+
+/// `core`'s deposit of `drops` into its XRP hub, made and applied on the
+/// XRP Ledger, not yet credited in the hub.
+fn deposit_applied(core: &mut Core, ledger: &mut FakeLedger, drops: u64) {
+    core.begin_step(core.now_ms() + 1_000);
+    core.hub_deposit_to(SCHEME_ID, drops * UNITS_PER_DROP)
+        .unwrap();
+    super::follow_xrpl(core, ledger);
+    super::close_xrpl(core, ledger);
+    assert!(core.hub_status().unwrap().moving.is_some());
+    assert_eq!(core.moves_on_their_way().len(), 1, "gone from the book");
+}
+
 // spec/decisions/passive-rebalancing.md: while the node's own deposit from
 // its XRP book into its XRP hub is on its way, held on the book until the
 // XRP Ledger applies it and then on neither ledger until the hub credits
@@ -732,10 +759,8 @@ fn a_hub_move_on_its_way_moves_no_price() {
     let (mut ledger, _) = super::funded_ledger();
     let mut hub = Hub::new(SCHEME_ID, TESTNET.id, Asset::Xrp);
     let balance = 5_000_000;
-    let mut core = xrp_hub_and_dollars(&mut ledger, &mut hub, balance);
-    let prices = |core: &Core| -> Vec<dassie_connector::Price> {
-        core.price_table().prices().copied().collect()
-    };
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = xrp_hub_and_dollars(store, &mut ledger, &mut hub, balance);
     let as_built = |core: &Core| priced_as_if(core, |holding| holding);
 
     // Held on the book: still there, but not at the least.
@@ -774,4 +799,75 @@ fn a_hub_move_on_its_way_moves_no_price() {
         u128::from((balance + drops) * UNITS_PER_DROP)
     );
     assert_eq!(prices(&core), as_built(&core));
+}
+
+// Found in review: the node counts a deposit as gone from its book only
+// while the hub scheme's own books, kept across a restart, show they have
+// not booked it. After a restart between the hub crediting the deposit,
+// which its books booked, and the funding check that ends the move, the
+// account has not read the hub again and cannot tell: the move counts as
+// on neither ledger, and the asset reads as the books hold it, never twice.
+#[test]
+fn a_deposit_the_hub_booked_counts_once_after_a_restart() {
+    let (mut ledger, _) = super::funded_ledger();
+    let mut hub = Hub::new(SCHEME_ID, TESTNET.id, Asset::Xrp);
+    let balance = 5_000_000;
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = xrp_hub_and_dollars(Arc::clone(&store), &mut ledger, &mut hub, balance);
+    let drops = 100_000_000;
+    deposit_applied(&mut core, &mut ledger, drops);
+    hub.account(&mut core, balance + drops, balance + drops);
+    core.finish_step(&mut Vec::new());
+    assert!(
+        core.hub_status().unwrap().moving.is_some(),
+        "not followed yet"
+    );
+    assert!(core.moves_on_their_way().is_empty(), "booked in the hub");
+    let now = core.now_ms() + 1_000;
+    drop(core);
+
+    let mut core = super::core_taking_downlinks(store, Realm::Test, LiveRealm::Refused, now);
+    super::follow_xrpl(&mut core, &mut ledger);
+    let now = core.now_ms() + 1_000;
+    core.begin_step(now);
+    two_xrp_a_dollar(&mut core, now);
+    core.finish_step(&mut Vec::new());
+    let scheme = Name::new(SCHEME_ID).unwrap();
+    assert!(core.funding[&scheme].moving.is_some(), "the move is kept");
+    let view = core
+        .hub_account(scheme)
+        .and_then(dassie_hub::member::HubAccount::view);
+    assert!(view.is_none(), "the hub not read again");
+    let in_hub = core.price_table().ledger(LedgerId::HubXrplTestnetXrp);
+    assert_eq!(
+        in_hub.unwrap().holding.posted,
+        u128::from((balance + drops) * UNITS_PER_DROP)
+    );
+    assert!(core.moves_on_their_way().is_empty());
+    assert_eq!(prices(&core), priced_as_if(&core, |holding| holding));
+}
+
+// Found in review: while the hub scheme has failed, its ledger still priced,
+// the node cannot tell what its books booked, and counts a deposit on its
+// way as on neither ledger.
+#[test]
+fn a_deposit_counts_nothing_while_its_hub_scheme_has_failed() {
+    let (mut ledger, _) = super::funded_ledger();
+    let mut hub = Hub::new(SCHEME_ID, TESTNET.id, Asset::Xrp);
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = xrp_hub_and_dollars(store, &mut ledger, &mut hub, 5_000_000);
+    deposit_applied(&mut core, &mut ledger, 100_000_000);
+    core.begin_step(core.now_ms() + 1_000);
+    core.stop_scheme(
+        Name::new(SCHEME_ID).unwrap(),
+        EngineError::Internal("stopped by the test".into()),
+    );
+    core.finish_step(&mut Vec::new());
+    let table = core.price_table();
+    assert!(
+        table.ledger(LedgerId::HubXrplTestnetXrp).is_some(),
+        "priced"
+    );
+    assert!(core.moves_on_their_way().is_empty());
+    assert_eq!(prices(&core), priced_as_if(&core, |holding| holding));
 }

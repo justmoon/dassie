@@ -1040,6 +1040,9 @@ impl Core {
             }
             self.close_if_stopped(asset);
         }
+        // What the prices count of a hub's move on its way follows whether
+        // its scheme runs (`moves_on_their_way`).
+        self.prices.due = true;
         self.update_peer_schemes();
     }
 

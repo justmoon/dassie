@@ -362,9 +362,13 @@ impl Core {
     /// no longer shows, by that ledger, for the prices to count toward its
     /// asset (spec/decisions/passive-rebalancing.md): held there until its
     /// payment applies; then, for a deposit the XRP Ledger applied, gone
-    /// from the owner book until the hub's account shows it credited. A
-    /// withdrawal's payment applies when the hub pays it out, which ends
-    /// the move.
+    /// from the owner book while the hub scheme's books, running, show they
+    /// have not booked it ([`deposits_booked`](dassie_settlement::SettlementScheme::deposits_booked)).
+    /// Whatever the node cannot tell, as after a restart before its books
+    /// took a state of the account, or while the hub scheme has failed, it
+    /// counts as on neither ledger: the asset reads short of the move,
+    /// never above what the owner holds. A withdrawal's payment applies
+    /// when the hub pays it out, which ends the move.
     pub(super) fn moves_on_their_way(&self) -> Vec<(LedgerId, OnItsWay)> {
         let mut moves = Vec::new();
         for (&scheme, funding) in &self.funding {
@@ -381,10 +385,11 @@ impl Core {
                 continue;
             };
             let amount = u128::from(moving.drops) * u128::from(UNITS_PER_DROP);
-            let credited = || {
-                self.hub_account(scheme)
-                    .and_then(HubAccount::view)
-                    .is_some_and(|(_, view)| view.deposited >= moving.target)
+            let not_booked = || {
+                (self.schemes.get(&scheme))
+                    .filter(|active| active.failed.is_none())
+                    .and_then(|active| active.scheme.deposits_booked())
+                    .is_some_and(|deposited| deposited < moving.target)
             };
             let on_its_way = if self.owner_payment_hold(leaves, moving.payment).is_some() {
                 OnItsWay {
@@ -393,7 +398,7 @@ impl Core {
                 }
             } else if moving.direction == Direction::Deposit
                 && self.paying(scheme) == OwnerPaymentState::Applied
-                && !credited()
+                && not_booked()
             {
                 OnItsWay {
                     held: 0,
