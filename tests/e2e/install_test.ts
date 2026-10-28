@@ -698,8 +698,14 @@ async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
         await machine.must("/usr/local/bin/dassie --version"),
         "dassie 1.0.0",
       );
-      await machine.must(
-        "test -z \"$(ls /etc/systemd/system | grep '^dassie')\"",
+      // No unit file and no link that enables one. The drop-in directory
+      // that points the updater at the test mirror stays: it is the
+      // owner's, and the uninstall leaves the owner's drop-ins alone.
+      assertEquals(
+        await machine.must(
+          "find /etc/systemd/system -name 'dassie*' ! -type d",
+        ),
+        "",
       );
       const removed = await machine.installer(mirror, "uninstall");
       assertEquals(removed.code, 0, `${removed.stdout}${removed.stderr}`);
