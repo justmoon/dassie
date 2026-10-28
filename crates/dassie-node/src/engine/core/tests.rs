@@ -3090,6 +3090,53 @@ fn rlusd_beside_xrp_on_one_account() {
     assert!(!frozen.line && frozen.global, "{frozen:?}");
 }
 
+// Seen on the testnet, and not reproduced here: `xrpl-testnet-dsusd` added
+// beside `xrpl-testnet-xrp` while their account does not exist yet sets its
+// line once the account is funded, and syncs, without a restart. The core
+// tells the token scheme first, before the XRP scheme booked the faucet's
+// XRP, so its first `TrustSet` finds no gas and waits for the next ledger.
+#[test]
+fn a_token_scheme_added_before_its_account_is_funded_syncs_once_it_is() {
+    use dassie_ledger::LedgerId;
+    use dassie_settlement::LedgerStatus;
+    use dassie_xrpl::Wallet;
+
+    let entropy = IdentityKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
+    let address = Wallet::from_entropy(entropy.as_bytes()).account();
+    let mut ledger = fake_ledger(false);
+    let mut core = core(12);
+    for scheme in ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"] {
+        add_xrpl(&mut core, scheme, SHARED_CONFIG).unwrap();
+        follow_xrpl(&mut core, &mut ledger);
+    }
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let status = |core: &Core, ledger: LedgerId| {
+        core.ledger_views()
+            .into_iter()
+            .find(|view| view.id == ledger)
+            .unwrap()
+            .status
+    };
+    assert_eq!(
+        status(&core, LedgerId::XrplTestnetDsusdUsd),
+        LedgerStatus::Unfunded
+    );
+
+    ledger.fund(address);
+    for _ in 0..5 {
+        wait_and_close(&mut core, &mut ledger, 1_000);
+    }
+    let line = ledger.line(
+        address,
+        dassie_xrpl::dsusd::ISSUER,
+        dassie_xrpl::dsusd::CURRENCY,
+    );
+    assert!(line.is_some(), "no line");
+    for id in [LedgerId::XrplTestnetXrp, LedgerId::XrplTestnetDsusdUsd] {
+        assert_eq!(status(&core, id), LedgerStatus::Synced, "{id}");
+    }
+}
+
 // spec/areas/xrpl.md#dsusd: the XRP and DSUSD schemes settle through the
 // node's one XRPL testnet account: the token scheme sets its line, whose
 // TrustSet's fee is a ledger fee on `xrpl-testnet-xrp+xrp` and whose reserve is
