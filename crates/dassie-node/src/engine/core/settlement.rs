@@ -179,8 +179,6 @@ pub(super) struct Settling {
     pub transfer: TransferId,
     /// How much.
     pub amount: u64,
-    /// What the scheme gave to send the peer.
-    pub message: Vec<u8>,
 }
 
 /// The message of one of our settlements, posted already, waiting for an
@@ -193,8 +191,6 @@ pub(super) struct Notice {
     pub scheme: SchemeId,
     /// What the settlement moved, which the message states.
     pub amount: u64,
-    /// What the scheme gave to send the peer.
-    pub message: Vec<u8>,
 }
 
 /// A peer's position, as the settlement policy needs it.
@@ -1018,8 +1014,10 @@ impl Core {
                 .is_none_or(|(until, _)| *until <= self.now_ms)
     }
 
-    /// Whether a `settlement` message on `scheme` books what it states, as
-    /// the stub's; one the node does not run is taken to.
+    /// Whether a `settlement` message on `scheme` books what it states:
+    /// only the stub's does, which only a build with debug assertions runs
+    /// (spec/decisions/stub-in-debug-builds.md), so the paths for a message
+    /// that books serve it alone. One the node does not run is taken to.
     fn books_messages(&self, scheme: Name) -> bool {
         self.schemes
             .get(&scheme)
@@ -1171,10 +1169,6 @@ impl Core {
             prepared.amount,
             "a scheme settles in whole units of its ledger"
         );
-        assert!(
-            self.books_messages(at.scheme) || prepared.message.is_empty(),
-            "a bare notice carries no data"
-        );
         spec.amount = prepared.amount;
         spec.reference = Reference::Settlement {
             scheme: at.scheme,
@@ -1200,7 +1194,6 @@ impl Core {
                 peer: node,
                 transfer,
                 amount,
-                message: prepared.message,
             },
         );
         self.settle.to_execute.push((at.scheme, prepared.id));
@@ -1349,21 +1342,10 @@ impl Core {
         let AccountName::AssetsInterledger(peer) = path.name else {
             return None;
         };
-        // The scheme makes its message again from the settlement's ID.
-        let message = self
-            .schemes
-            .get(&scheme)
-            .map(|active| active.scheme.settlement_message(id))
-            .unwrap_or_default();
-        assert!(
-            self.books_messages(scheme) || message.is_empty(),
-            "a bare notice carries no data"
-        );
         Some(Settling {
             peer: NodeId::parse(peer.as_str()).ok()?,
             transfer: transfer.id,
             amount: transfer.amount,
-            message,
         })
     }
 
@@ -1408,7 +1390,6 @@ impl Core {
             peer,
             scheme: scheme_id,
             amount: settling.amount,
-            message: settling.message,
         };
         if waits {
             self.settle.notices.push(notice);
@@ -1465,11 +1446,12 @@ impl Core {
             peer,
             scheme,
             amount,
-            message,
         } = notice;
-        if let Err(error) = self
-            .peer
-            .send_settlement(self.now_ms, &peer, scheme, amount, message)
+        // No scheme sends data with its message: the stub's states the
+        // amount, and every other is a bare notice.
+        if let Err(error) =
+            self.peer
+                .send_settlement(self.now_ms, &peer, scheme, amount, Vec::new())
         {
             self.report(SettlementEvent::AnnounceFailed { peer, error });
         }

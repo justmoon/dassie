@@ -173,10 +173,6 @@ pub struct PreparedSettlement {
     /// How much it settles: at most what was asked, less what the
     /// underlying ledger cannot represent. The node books this.
     pub amount: u64,
-    /// The proof or claim to send the peer with the settlement message:
-    /// empty for a scheme whose messages are bare notices
-    /// ([`SettlementScheme::books_messages`]), as the node asserts.
-    pub message: Vec<u8>,
 }
 
 /// The most bytes of the memo an [`OwnerPayment`] carries: of its type,
@@ -597,13 +593,6 @@ pub trait SettlementScheme: Send {
         let _ = (asset, settlement);
     }
 
-    /// The message for the peer for a settlement of ours, made again from
-    /// its ID, after a restart lost the one [`PreparedSettlement`] gave.
-    fn settlement_message(&self, settlement: Name) -> Vec<u8> {
-        let _ = settlement;
-        Vec::new()
-    }
-
     /// Executes a prepared settlement. Reports the outcome as
     /// [`Effect::Finalize`] or [`Effect::Cancel`], now or later. The node
     /// calls it only once the settlement's pending transfer is on disk. By
@@ -630,7 +619,8 @@ pub trait SettlementScheme: Send {
     );
 
     /// Whether a `settlement` message on this scheme books what it states.
-    /// The stub's does. A scheme whose ledger says what arrived, as a
+    /// Only the stub's does, which only a build with debug assertions runs
+    /// (spec/decisions/stub-in-debug-builds.md). A scheme whose ledger says what arrived, as a
     /// hub's, sends a bare notice instead, which only moves the settlement
     /// channel on, with no data, and takes a peer's whatever it states or
     /// carries: the node neither checks nor books the amount a peer's

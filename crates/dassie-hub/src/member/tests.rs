@@ -1041,7 +1041,6 @@ fn a_settlement_spends_only_what_the_books_hold() {
         )
         .unwrap();
     assert_eq!(prepared.amount, spendable, "spent what it said it could");
-    assert!(prepared.message.is_empty(), "a bare notice carries no data");
     scheme.check_invariants();
 }
 
