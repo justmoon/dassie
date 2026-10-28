@@ -171,8 +171,10 @@ fn a_shut_down_hub_draws_no_deposit_for_payments() {
 // A hub that stopped is judged stalled only after an hour, but a deposit
 // made meanwhile is never credited: until it shows progress again, a hub
 // that made none for a few minutes takes no deposit for the owner's
-// payments, and the owner book counts nothing toward them; once a new
-// final block is heard, the payment goes.
+// payments, and the owner book counts nothing toward them. A higher block
+// heard after the gap, as by a node that slept, may be where the hub
+// stopped meanwhile, and counts for nothing; one higher still, heard
+// shortly after, shows the hub goes on, and the payment goes.
 #[test]
 fn a_hub_with_no_progress_lately_draws_no_deposit_for_payments() {
     let (mut ledger, _) = funded_ledger();
@@ -196,6 +198,16 @@ fn a_hub_with_no_progress_lately_draws_no_deposit_for_payments() {
     assert_eq!(core.hub_refill(LedgerId::HubXrplTestnetXrp), 0);
     assert_eq!(deposits(&mut ledger, escrow).len(), 1, "no deposit");
     assert!(!core.is_sending(id));
+
+    hub.height += 5;
+    hub.account(&mut core, balance, opening);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    assert_eq!(core.hub_refill(LedgerId::HubXrplTestnetXrp), 0);
+    assert_eq!(
+        deposits(&mut ledger, escrow).len(),
+        1,
+        "where it stopped, heard after the gap"
+    );
 
     hub.account(&mut core, balance, opening);
     wait_and_close(&mut core, &mut ledger, 1_000);
