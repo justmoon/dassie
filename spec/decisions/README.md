@@ -22,6 +22,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [ended-for-room](ended-for-room.md) | A peering ended for room stays apart | network, settlement |
 | [ending-a-peering](ending-a-peering.md) | A node that ends a peering collects first, and pays nothing | network, settlement, peer-protocol, connector |
 | [epoch-handover](epoch-handover.md) | Each validator set runs an epoch of its own, and a repeat finalizes an epoch's last block | hubs, designs/settlement-hubs |
+| [event-log-file](event-log-file.md) | The event log is a file the node writes, opt-in, bounded and never waited for | node, rpc, connector, hubs |
 | [exchange-rates](exchange-rates.md) | Exchange rates, fees and spread | connector |
 | [external-assets](external-assets.md) | External assets apart from settlement schemes | settlement, xrpl, ledger, wallet |
 | [finality-after-any-outage](finality-after-any-outage.md) | A hub finalizes again after any outage, in bounded memory | hubs |

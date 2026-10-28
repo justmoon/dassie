@@ -229,6 +229,7 @@ The connector keeps a bounded record of recent packets, keyed by trace ID, which
 - **A record joins its packet's hops.** Each node keeps its own trace, so a record says what ties it to the same packet's records on other nodes: the Prepare's execution condition, which is a hash already and the same on every hop, so a client that reads several nodes' traces joins one packet's hops by it. A packet refused before it decoded has none. The record also keeps the ledger the packet came in on and the one it went out on, so each hop says what it was worth on either side.
 - **Records are fixed in size and inline,** the destination address cut to a bound, so tracing a packet allocates nothing on the packet path.
 - **The connector knows a peer only by the node's number for the peering.** The node adds the peer's node ID to each record it hands out, as far as it still has that peering, so a record names its hops by node rather than by a number that means nothing elsewhere.
+- **An owner may keep the records.** The node's opt-in [event log](node.md#the-event-log) writes each record the trace hands out to a file, so a packet's hops can be joined after the fact from several nodes' files.
 
 ## ILP-over-HTTP
 

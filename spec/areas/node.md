@@ -2,7 +2,7 @@
 
 The `dassie` binary: the daemon that composes every protocol crate into a running node, and the command-line tools that configure, inspect and update it.
 
-**Paths:** `crates/dassie-node/src/` (`daemon.rs`, `supervisor.rs`, `engine/`, `store/`, `env.rs`, `systemd.rs`, `ipc.rs`, `log.rs`, `clock.rs`, `node/`, `feed.rs`, `hub/`), `crates/dassie-node-core/src/`, `crates/dassie-cli/src/`
+**Paths:** `crates/dassie-node/src/` (`daemon.rs`, `supervisor.rs`, `engine/`, `store/`, `env.rs`, `systemd.rs`, `ipc.rs`, `log.rs`, `event_log.rs`, `clock.rs`, `node/`, `feed.rs`, `hub/`), `crates/dassie-node-core/src/`, `crates/dassie-cli/src/`
 **Read with:** [Release](release.md), [HTTP](http.md), [RPC](rpc.md), [Ledger](ledger.md), [Connector](connector.md), [Network](network.md), [Identity](identity.md)
 
 ## Runtime model
@@ -139,6 +139,26 @@ Events go through `tracing` (`log.rs`). Core crates do not log; the node maps th
 
 Where the node takes peers and subscribers can be read from the journal at the default level, under either runtime, without watching the network: the line that says the node listens names its QUIC endpoint ([Peer protocol](peer-protocol.md#transport)) and its snapshot socket, or says it has none.
 
+## The event log
+
+An owner who chooses to record their own node's traffic, to debug it, show it or study a network, names a file in `DASSIE_EVENT_LOG`, and the node appends to it every event of its [packet trace](connector.md#the-packet-trace) and of its [settlement hubs](hubs.md#in-the-node), one JSON object per line (`event_log.rs`, [event-log-file](../decisions/event-log-file.md)). A relative path is taken relative to the state directory, so a unit that may write only there (`ProtectSystem=strict`) can name one. The file is made readable by the node's user only.
+
+- **It is strictly opt-in.** It records whatever passes through the node: amounts, addresses, peers, conditions. Unset, nothing is made, written or kept, and the hub events are not even made unless an RPC client listens. No release, installer, unit or `dassie setup` turns it on; only the owner does, in the node's environment.
+- **The packet path never waits for it.** The log is one more listener on the engine's live broadcasts ([RPC](rpc.md#live-streams)), so it takes exactly the records `SubscribePackets` and `SubscribeHubEvents` stream, converted by the same functions, and makes the engine produce the hub events while it is on. A task of the engine's generation turns the events into lines and hands them, without waiting, to a writer thread through a bounded queue. What does not fit, what the broadcast dropped because the task fell behind, and what could not be written are counted, and the count is written as a `lost` line as soon as there is room; a line is never silently missing.
+- **Its disk use is bounded.** Before a line would take the file past `DASSIE_EVENT_LOG_MAX_BYTES`, the file is renamed `<path>.1`, the older ones shift up to a fixed number kept, and the oldest is deleted, so the log never takes more than the kept files and the current one, each at most the cap. The bounds and the default cap are constants in `event_log.rs`.
+- **A file the node cannot open stops the daemon at start,** naming the variable, like any bad variable: the owner asked for a record, and a node that ran without one would leave a gap found only when the record is read. A write that fails later, such as on a full disk, is logged once and counted as lost; the node runs on.
+
+### The line contract
+
+Scripts read the log, so its lines are a contract, kept as the RPC contract is: a field is added, never renamed or retyped. The golden lines in `event_log/tests.rs` pin it.
+
+- **Every line** has `ts`, the node's wall clock in Unix milliseconds when the line was made, a JSON number; `node`, the node's ID; and `type`, which says what follows.
+- **`start`** begins what an engine records, at start and after an engine restart, with the node's `version`.
+- **`packet`** is a record of the packet trace, written each time the trace hands it out (on arrival and on resolution), with the fields of `Packet` in `proto/dassie/owner/v1/debug.proto` under their proto JSON names, except `trace`, written `"<epoch>:<sequence>"`, and `state`, the enum's lowercase name.
+- **`hub`** is a `HubEvent` of `proto/dassie/owner/v1/hub_member.proto`: `scheme` and `observedAtUnixMs`, `event`, the name of the oneof's case in lowerCamelCase, and the case's fields in the same object under their proto JSON names. Enums are lowercase names without their prefix.
+- **`lost`** has the `count` of events dropped since the last such line.
+- **Values follow proto JSON,** with two exceptions that make lines easier to compare: 64-bit integers from the proto are decimal strings and 32-bit ones numbers, as in proto JSON, but bytes are lowercase hex (a condition's hex is what joins a packet's hops), and every field is written, defaults included, so a line's shape depends only on its type.
+
 ## The `dassie` command
 
 The CLI talks to the daemon over the IPC socket with the same RPC contract as the wallet ([rpc-contract](../decisions/rpc-contract.md)); access to the socket is the owner's ([RPC](rpc.md#ipc-socket)).
@@ -177,3 +197,4 @@ The CLI talks to the daemon over the IPC socket with the same RPC contract as th
 - [ready-after-first-step](../decisions/ready-after-first-step.md): readiness once the engine has committed a step, and a daemon that exits when its engine cannot start.
 - [default-relay](../decisions/default-relay.md): the default relay, kept only without a hostname, and `DASSIE_RELAY=` to keep none.
 - [headless-setup](../decisions/headless-setup.md): `dassie setup` from a passphrase file on the node's host, through the node's own setup route.
+- [event-log-file](../decisions/event-log-file.md): the event log is a file the node writes, not a recorder that subscribes over RPC.
