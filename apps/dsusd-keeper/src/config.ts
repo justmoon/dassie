@@ -12,7 +12,7 @@ export const TESTNET_FAUCET = "https://faucet.altnet.rippletest.net/accounts";
  * Deep enough that buying 50 DSUSD moves the pool's price by less than half a
  * percent: owners and the market maker buy dollars in tens at a time, and
  * a pool of a thousand XRP moved several percent at each. The faucet
- * fills it over a few hours, a few requests at a time. */
+ * fills it in about half an hour, a few requests at a time. */
 export const DEPTH_XRP_DEFAULT = 20_000n;
 const DEPTH_XRP_MIN = 10n;
 const DEPTH_XRP_MAX = 1_000_000n;

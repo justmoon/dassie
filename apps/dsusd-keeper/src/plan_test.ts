@@ -28,8 +28,9 @@ import type { Decimal } from "./units.ts";
 
 const XRP = 1_000_000n;
 const DSUSD = 1_000_000n;
-/** What the testnet faucet hands out per request. */
-const FAUCET_DROPS = 100n * XRP;
+/** What the testnet faucet hands out per request, as the keeper asks it
+ * (`FAUCET_XRP` in ledger.ts). */
+const FAUCET_DROPS = 1_000n * XRP;
 /** AMMCreate's fee: one owner reserve. */
 const AMM_CREATE_FEE_DROPS = 200_000n;
 const PRICE = 2_500_000n;
@@ -306,17 +307,26 @@ test("a fresh testnet: accounts, line and pool made, at the target", () => {
 });
 
 test("the pool deepens run by run to the configured depth, then stops", () => {
-  let state = run(EMPTY, PRICE).state;
+  // Deeper than a window's faucet requests reach, as the keeper's default
+  // is: each run spends them, ends done short of the depth, and the next
+  // goes on.
+  const deep: Config = { ...CONFIG, depthDrops: 5_000n * XRP };
+  let state = EMPTY;
+  let short = 0;
   for (let i = 0; i < 10; i += 1) {
-    const result = run(state, PRICE);
+    const result = run(state, PRICE, deep);
     assertEquals(result.last.kind, "done");
+    assert(result.faucet <= BUDGET.faucetCalls);
     state = result.state;
     assertSettled(state, PRICE);
+    assert(state.pool !== null);
+    if (state.pool.drops + DEEPEN_DROPS_MIN <= deep.depthDrops) short += 1;
   }
+  assert(short >= 2, `${short} runs ended short of the depth`);
   assert(state.pool !== null);
-  assert(state.pool.drops + DEEPEN_DROPS_MIN > CONFIG.depthDrops);
-  assert(state.pool.drops <= CONFIG.depthDrops);
-  assertEquals(run(state, PRICE).steps, []);
+  assert(state.pool.drops + DEEPEN_DROPS_MIN > deep.depthDrops);
+  assert(state.pool.drops <= deep.depthDrops);
+  assertEquals(run(state, PRICE, deep).steps, []);
 });
 
 /** A pool at depth and at the target. */

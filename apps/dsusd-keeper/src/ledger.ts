@@ -29,6 +29,10 @@ const REQUEST_TIMEOUT_MS = 20_000;
 const HTTP_TIMEOUT_MS = 20_000;
 /** The largest HTTP answer read, in bytes. */
 const HTTP_BODY_BYTES_MAX = 64 * 1024;
+/** What the keeper asks the faucet for, in XRP: the most the testnet's
+ * faucet hands out per request, which it gives as readily as its default
+ * of 100, so the pool deepens with a tenth of the requests. */
+const FAUCET_XRP = 1_000;
 /** How often, and how long apart, the keeper looks for the faucet's XRP
  * to arrive. */
 const FAUCET_POLLS_MAX = 30;
@@ -152,10 +156,14 @@ export class Ledger {
     return response.result.hash;
   }
 
-  /** Asks `faucet` for XRP for `address`, and waits until it arrives. */
+  /** Asks `faucet` for `FAUCET_XRP` for `address`, and waits until it
+   * arrives. */
   async fund(faucet: string, address: string): Promise<void> {
     const before = (await this.#account(address))?.drops ?? 0n;
-    const answer = await post(faucet, { destination: address });
+    const answer = await post(faucet, {
+      destination: address,
+      xrpAmount: String(FAUCET_XRP),
+    });
     if (!answer.ok) throw new Error(`faucet: ${answer.error}`);
     for (let poll = 0; poll < FAUCET_POLLS_MAX; poll += 1) {
       await new Promise((resolve) => setTimeout(resolve, FAUCET_POLL_MS));
