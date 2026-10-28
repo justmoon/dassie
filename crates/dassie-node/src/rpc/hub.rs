@@ -24,6 +24,7 @@ pub(super) const fn is_hub(method: &Method) -> bool {
             | Method::HubDeposit(_)
             | Method::HubWithdraw(_)
             | Method::SetHubAutomatic(_)
+            | Method::SetHubTarget(_)
             | Method::HubGiveUp(_)
     )
 }
@@ -56,6 +57,14 @@ pub(super) async fn dispatch(engine: &Engine, method: Method) -> Result<Reply, R
                 .set_hub_automatic(request.scheme, request.automatic)
                 .await?;
             response::Method::SetHubAutomatic(proto::SetHubAutomaticResponse {
+                status: Some(hub_status(&status)),
+            })
+        }
+        Method::SetHubTarget(request) => {
+            let status = engine
+                .set_hub_target(request.scheme, request.target)
+                .await?;
+            response::Method::SetHubTarget(proto::SetHubTargetResponse {
                 status: Some(hub_status(&status)),
             })
         }
@@ -93,6 +102,8 @@ fn hub_status(status: &HubStatus) -> proto::HubStatus {
         returned: status.returned,
         paying: status.paying.iter().map(hold).collect(),
         taking: status.taking.iter().map(hold).collect(),
+        target: status.target,
+        target_by_owner: status.target_by_owner,
         floor: status.floor,
         ceiling: status.ceiling,
         automatic: status.automatic,

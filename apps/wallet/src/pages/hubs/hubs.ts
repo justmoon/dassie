@@ -1,7 +1,7 @@
 /**
  * The settlement hubs the node is in, as the Hubs page shows them
  * (spec/areas/wallet.md#pages, spec/areas/hubs.md#in-the-node): each hub's
- * account, holds, floor and ceiling, the move on its way, and its payout
+ * account, holds, target, floor and ceiling, the move on its way, and its payout
  * once it ended or stalled, as the node reports them. The wallet holds no
  * rule of the node's: when to move funds, what a move may be and when one
  * is late are the node's.
@@ -166,6 +166,19 @@ export function automaticText(
   }
   return `Your node keeps this account ${keeps} by itself.${rest}`;
 }
+
+/** Whose target the node keeps the hub near, for people: the owner's, or
+ * the default, which the owner may change
+ * (spec/decisions/generous-hub-target.md). */
+export function targetSourceText(
+  status: Pick<HubStatus, "targetByOwner">,
+): string {
+  return status.targetByOwner ? "your target" : "the default";
+}
+
+/** What the target is, for people, beside the field that sets it. */
+export const TARGET_HINT =
+  "What your node keeps in this hub: its balance, its reserves and what it holds for your peers. It deposits from your own account once that falls a tenth below the target, and withdraws what is beyond once it rises a tenth above.";
 
 /** A duration of at least a second, for people, rounded up to the unit it
  * is shown in, so what is left never reads as nothing. */

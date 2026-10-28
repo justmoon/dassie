@@ -848,6 +848,7 @@ impl Core {
             && batch.tokens_revoked.is_empty()
             && batch.token_caps.is_empty()
             && batch.hub_automatic.is_empty()
+            && batch.hub_target.is_empty()
             && batch.hub_funding.is_empty());
         self.changes.network |= !batch.peer.is_empty();
         self.changes.payments |= batch.changes_payments();

@@ -135,8 +135,15 @@
               </td>
             </tr>
             <tr>
-              <td>Kept above, or Kept between</td>
-              <td>The floor, and the ceiling when there is one: see below.</td>
+              <td>Kept near</td>
+              <td>
+                The target, and whether it is yours or the default: see
+                below.
+              </td>
+            </tr>
+            <tr>
+              <td>Kept between</td>
+              <td>The floor and the ceiling: see below.</td>
             </tr>
             <tr>
               <td>You hold for your peers; Your peers hold for you</td>
@@ -160,8 +167,9 @@
         nothing, and grow when a peer asks to be settled with.
       </p>
       <p>
-        Your node keeps a generous amount in the hub, a thousand of the
-        largest packets, so that it can fund a hold at once when a peer asks.
+        Your node keeps a generous amount in the hub, its target: a thousand
+        of the largest packets unless you set another, so that it can fund a
+        hold at once when a peer asks.
         What counts is what it put in: the balance, the reserves and its holds
         for your peers. What peers hold for you counts once your node takes
         it.
@@ -179,10 +187,31 @@
         beyond to your own account. So if you hold less than that amount,
         nearly all of it is in the hub, where it settles with your peers.
       </p>
-      <p class="not-yet">
-        Setting the amount yourself is not there yet: the node works it
-        out.
-        <a href="/docs/project/roadmap/#hubs">What's next</a>
+
+      <h2 id="set-the-target">Set how much your node keeps</h2>
+      <p>
+        To keep less in a hub, or more, set its target. The floor and the
+        ceiling follow, a tenth either side. A lower target leaves more on
+        your own account and less at stake in the hub, but funds fewer holds
+        for your peers.
+      </p>
+      <ol class="steps">
+        <li>
+          Under <strong>Moving funds</strong>, type the amount in
+          <strong>Target</strong>.
+        </li>
+        <li>
+          Choose <strong>Set target</strong>. The card shows it beside
+          <strong>Kept near</strong>, as yours.
+        </li>
+        <li>
+          To go back to the default, choose <strong>Use the default</strong>.
+        </li>
+      </ol>
+      <p>
+        Your node remembers the target. It refuses one below ten of the
+        largest packets, or so low that the account's reserve alone would
+        fill it, and says the least it takes.
       </p>
 
       <h2 id="deposit-and-withdraw">Deposit and withdraw</h2>
@@ -270,6 +299,7 @@
 <span class="prompt">$</span>dassie hub deposit hub-xrpl-testnet-xrp 2.5
 <span class="prompt">$</span>dassie hub withdraw hub-xrpl-testnet-xrp 1
 <span class="prompt">$</span>dassie hub auto hub-xrpl-testnet-xrp off
+<span class="prompt">$</span>dassie hub target hub-xrpl-testnet-xrp 10
 <span class="prompt">$</span>dassie hub give-up hub-xrpl-testnet-xrp
 <span class="prompt">$</span>dassie hub payout hub-xrpl-testnet-xrp</code></pre>
       <p>

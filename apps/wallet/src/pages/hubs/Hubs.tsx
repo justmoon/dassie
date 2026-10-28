@@ -1,8 +1,9 @@
 /**
  * Settlement hubs (spec/areas/wallet.md#pages): every hub the node is in,
- * its account there, the holds toward and from its peers, the floor and
- * ceiling the node keeps it between, the move on its way, and moving funds
- * in and out, as the node reports them (spec/areas/hubs.md#in-the-node);
+ * its account there, the holds toward and from its peers, the target the
+ * node keeps it near and the floor and ceiling either side, the move on its
+ * way, moving funds in and out, and setting the target, as the node
+ * reports them (spec/areas/hubs.md#in-the-node);
  * and each hub's payout once it ended or stalled
  * (spec/areas/hubs.md#payout-bundles). No stream carries hubs, so the page
  * asks again every few seconds while it shows (spec/areas/wallet.md#live-data).
@@ -70,6 +71,8 @@ import {
   PAYOUT_POLL_MS,
   payoutState,
   payoutText,
+  TARGET_HINT,
+  targetSourceText,
   validatorsText,
   withHub,
 } from "./hubs.ts";
@@ -298,6 +301,13 @@ function HubAccount(
           <dt>Returned by withdrawals the escrow could not pay</dt>
           <dd>{amount(props.status.returned, "hub-returned")}</dd>
         </Show>
+        <dt>Kept near</dt>
+        <dd>
+          {amount(props.status.target, "hub-target")}{" "}
+          <span class="muted" data-testid={`hub-target-source-${id()}`}>
+            ({targetSourceText(props.status)})
+          </span>
+        </dd>
         <dt>Kept between, the rest going to your own account</dt>
         <dd>
           {amount(props.status.floor, "hub-floor")} and{" "}
@@ -408,8 +418,10 @@ function Moves(
   const client = useClient();
   const toast = useToast();
   const field = createUniqueId();
+  const targetField = createUniqueId();
   const id = () => props.status.hubId;
   const [text, setText] = createSignal("");
+  const [targetText, setTargetText] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string>();
   // While the node checks a token hub's escrow's XRP, the withdrawal goes
@@ -494,6 +506,21 @@ function Moves(
     }
     const done = await act(() => client.call("hubDeposit", request));
     if (done) moved("deposit");
+  };
+  // The target, or with none the default again: the node checks it.
+  const setTarget = async (target: bigint | undefined) => {
+    const done = await act(() =>
+      client.call("setHubTarget", { scheme: props.status.scheme, target })
+    );
+    if (done) setTargetText("");
+  };
+  const typedTarget = () => {
+    const parsed = parseAmount(targetText(), props.currency.scale);
+    if (!parsed.ok) {
+      setError(parseFailureText(parsed.reason, props.currency.scale));
+      return;
+    }
+    void setTarget(parsed.value);
   };
   return (
     <section class="hub-moves stack">
@@ -618,6 +645,47 @@ function Moves(
             : "Let your node move funds by itself"}
         </button>
       </div>
+      <form
+        onSubmit={(event: SubmitEvent) => {
+          event.preventDefault();
+          typedTarget();
+        }}
+      >
+        <Field
+          label={`Target, in ${props.currency.code}`}
+          for={targetField}
+          hint={TARGET_HINT}
+        >
+          <input
+            id={targetField}
+            inputmode="decimal"
+            autocomplete="off"
+            data-testid={`hub-target-amount-${id()}`}
+            value={targetText()}
+            onInput={(event) => setTargetText(event.currentTarget.value)}
+          />
+        </Field>
+        <div class="actions">
+          <Show when={props.status.targetByOwner}>
+            <button
+              type="button"
+              class="link"
+              data-testid={`hub-target-default-${id()}`}
+              disabled={busy()}
+              onClick={() => void setTarget(undefined)}
+            >
+              Use the default
+            </button>
+          </Show>
+          <button
+            type="submit"
+            data-testid={`hub-target-set-${id()}`}
+            disabled={busy()}
+          >
+            Set target
+          </button>
+        </div>
+      </form>
       <ErrorText message={error()} testid={`hub-error-${id()}`} />
     </section>
   );

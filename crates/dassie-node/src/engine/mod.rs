@@ -670,6 +670,17 @@ impl Engine {
             .await
     }
 
+    /// Sets the target the node keeps the hub over `scheme` near, or with
+    /// `None` goes back to the default.
+    pub async fn set_hub_target(
+        &self,
+        scheme: String,
+        target: Option<u64>,
+    ) -> Result<HubStatus, EngineError> {
+        self.call(move |core| core.set_hub_target(&scheme, target))
+            .await
+    }
+
     /// Changes the owner's peer settings.
     pub async fn set_peer_settings(
         &self,

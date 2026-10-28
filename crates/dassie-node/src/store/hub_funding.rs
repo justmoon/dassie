@@ -1,8 +1,8 @@
 //! Moving the owner's funds between the owner book of a hub's asset and
 //! the node's account in the hub, for each hub the node is in
 //! (spec/areas/hubs.md#in-the-node): whether the node does it by itself,
-//! until when an owner's move pauses that, and the move on its way, kept so
-//! a restart never pays it twice. Each hub's row is keyed by the scheme
+//! the target the owner set for it, until when an owner's move pauses
+//! that, and the move on its way, kept so a restart never pays it twice. Each hub's row is keyed by the scheme
 //! over it; a hub without one reads as the defaults. Only the core's
 //! funding of a scheme over a hub writes a row, and the code names those
 //! schemes, so the table holds a handful.
@@ -38,8 +38,8 @@ pub struct HubMoveRow {
     pub applied_ms: Option<u64>,
 }
 
-/// What the database keeps of one hub's moves, beyond whether they are
-/// automatic.
+/// What the database keeps of one hub's moves, beyond the owner's
+/// choices.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HubFundingRow {
     /// Until when an owner's move pauses the node's own.
@@ -51,8 +51,31 @@ pub struct HubFundingRow {
     pub given_up: Option<(bool, u64)>,
 }
 
-/// One hub's row: whether the node moves funds by itself, and the rest.
-pub type HubFunding = (bool, HubFundingRow);
+/// One hub's row: the owner's choices, whether the node moves funds by
+/// itself and the target it keeps, and the rest.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HubFunding {
+    /// Whether the node moves funds by itself.
+    pub automatic: bool,
+    /// The target the owner set for what the node keeps in the hub, in the
+    /// hub ledger's units; `None` for the default
+    /// (spec/decisions/generous-hub-target.md).
+    pub target: Option<u64>,
+    /// The rest.
+    pub row: HubFundingRow,
+}
+
+impl Default for HubFunding {
+    /// A hub without a row: the node's own moves on, the default target,
+    /// no pause, nothing on its way.
+    fn default() -> Self {
+        Self {
+            automatic: true,
+            target: None,
+            row: HubFundingRow::default(),
+        }
+    }
+}
 
 type Columns = (
     String,
@@ -67,11 +90,12 @@ type Columns = (
     Option<i64>,
     Option<String>,
     Option<i64>,
+    Option<i64>,
 );
 
 const SELECT: &str = "SELECT scheme, automatic, paused_until_ms, move_kind, move_drops, \
      move_target, move_payment, move_by_owner, move_sent_ms, move_applied_ms, \
-     given_up_kind, given_up_drops FROM hub_funding";
+     given_up_kind, given_up_drops, target FROM hub_funding";
 
 fn columns(row: &rusqlite::Row<'_>) -> rusqlite::Result<Columns> {
     Ok((
@@ -87,6 +111,7 @@ fn columns(row: &rusqlite::Row<'_>) -> rusqlite::Result<Columns> {
         row.get(9)?,
         row.get(10)?,
         row.get(11)?,
+        row.get(12)?,
     ))
 }
 
@@ -99,17 +124,18 @@ fn funding(columns: Columns) -> Result<(Name, HubFunding), StoreError> {
         paused,
         kind,
         drops,
-        target,
+        move_target,
         payment,
         by_owner,
         sent,
         applied,
         given,
         gave,
+        hub_target,
     ) = columns;
     let scheme = Name::new(&scheme).map_err(|_| corrupt())?;
     let unsigned = |value: i64| u64::try_from(value).map_err(|_| corrupt());
-    let moving = match (kind, drops, target, payment, by_owner, sent) {
+    let moving = match (kind, drops, move_target, payment, by_owner, sent) {
         (None, ..) => None,
         (Some(kind), Some(drops), Some(target), Some(payment), Some(by_owner), Some(sent)) => {
             Some(HubMoveRow {
@@ -131,22 +157,24 @@ fn funding(columns: Columns) -> Result<(Name, HubFunding), StoreError> {
     };
     Ok((
         scheme,
-        (
-            automatic != 0,
-            HubFundingRow {
+        HubFunding {
+            automatic: automatic != 0,
+            target: hub_target.map(unsigned).transpose()?,
+            row: HubFundingRow {
                 paused_until_ms: unsigned(paused)?,
                 moving,
                 given_up,
             },
-        ),
+        },
     ))
 }
 
 impl Store {
     /// The moves over the hub of `scheme`: whether the node moves funds by
-    /// itself, until when it waits for the owner's last move, and the move
-    /// on its way. A hub with no row reads as the defaults: the node's own
-    /// moves on, no pause, nothing on its way.
+    /// itself, the target the owner set, until when it waits for the
+    /// owner's last move, and the move on its way. A hub with no row reads
+    /// as the defaults: the node's own moves on, the default target, no
+    /// pause, nothing on its way.
     ///
     /// # Errors
     ///
@@ -162,7 +190,7 @@ impl Store {
             .optional()?;
         Ok(match columns {
             Some(columns) => funding(columns)?.1,
-            None => (true, HubFundingRow::default()),
+            None => HubFunding::default(),
         })
     }
 
@@ -186,13 +214,18 @@ impl Store {
 }
 
 /// Writes what a batch changed of each hub's moves: a hub without a row
-/// gets one first.
+/// gets one first. A target of `None` is the default again.
 pub(super) fn write_hub_funding(
     transaction: &Transaction<'_>,
     automatic: &BTreeMap<Name, bool>,
+    targets: &BTreeMap<Name, Option<u64>>,
     fundings: &BTreeMap<Name, HubFundingRow>,
 ) -> Result<(), StoreError> {
-    for scheme in automatic.keys().chain(fundings.keys()) {
+    for scheme in automatic
+        .keys()
+        .chain(targets.keys())
+        .chain(fundings.keys())
+    {
         transaction.execute_cached(
             "INSERT INTO hub_funding (scheme, automatic, paused_until_ms) VALUES (?1, 1, 0) \
              ON CONFLICT (scheme) DO NOTHING",
@@ -206,6 +239,12 @@ pub(super) fn write_hub_funding(
         )?;
     }
     let signed = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
+    for (scheme, target) in targets {
+        transaction.execute_cached(
+            "UPDATE hub_funding SET target = ?1 WHERE scheme = ?2",
+            params![target.map(signed), scheme.as_str()],
+        )?;
+    }
     for (scheme, funding) in fundings {
         let moving = funding.moving.as_ref();
         transaction.execute_cached(

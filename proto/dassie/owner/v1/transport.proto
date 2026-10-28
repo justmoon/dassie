@@ -198,6 +198,7 @@ message Request {
     HubDepositRequest hub_deposit = 131;
     HubWithdrawRequest hub_withdraw = 132;
     SetHubAutomaticRequest set_hub_automatic = 133;
+    SetHubTargetRequest set_hub_target = 144;
     HubGiveUpRequest hub_give_up = 134;
     // Streaming.
     SubscribeHubEventsRequest subscribe_hub_events = 143;
@@ -313,6 +314,7 @@ message Response {
     HubDepositResponse hub_deposit = 131;
     HubWithdrawResponse hub_withdraw = 132;
     SetHubAutomaticResponse set_hub_automatic = 133;
+    SetHubTargetResponse set_hub_target = 144;
     HubGiveUpResponse hub_give_up = 134;
 
     FoundHubResponse found_hub = 135;

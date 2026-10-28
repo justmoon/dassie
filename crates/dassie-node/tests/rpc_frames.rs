@@ -721,6 +721,9 @@ fn hub() -> BoxedStrategy<Method> {
         (any::<bool>(), hub_scheme()).prop_map(|(automatic, scheme)| {
             Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic, scheme })
         }),
+        (proptest::option::of(number()), hub_scheme()).prop_map(|(target, scheme)| {
+            Method::SetHubTarget(proto::SetHubTargetRequest { scheme, target })
+        }),
         hub_scheme().prop_map(|scheme| Method::HubGiveUp(proto::HubGiveUpRequest { scheme })),
         (
             field(&["", "{}", "{\"fees\":{\"operation\":0}}", "["]),

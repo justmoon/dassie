@@ -8,12 +8,13 @@
 //!
 //! - **Near a generous target.** What the node keeps in the hub, what it
 //!   put in (the balance, its reserves and its holds toward peers), stays
-//!   near a target of a thousand largest packets, more than its holds are
-//!   likely ever to need (`policy::hub_target`): below a floor a step under
-//!   it, the node deposits from its XRPL account back up to it, as much as
-//!   that account holds; above a ceiling a step over it, it withdraws to
-//!   the owner's own account back down to it
-//!   (spec/decisions/generous-hub-target.md). So most nodes keep all their
+//!   near a target: a thousand largest packets, more than its holds are
+//!   likely ever to need (`policy::hub_target`), unless the owner sets
+//!   another for the hub. Below a floor a step under it, the node deposits
+//!   from its XRPL account back up to it, as much as that account holds;
+//!   above a ceiling a step over it, it withdraws to the owner's own
+//!   account back down to it (`policy::hub_limits`,
+//!   spec/decisions/generous-hub-target.md). So most nodes keep all their
 //!   funds in the hub, and only funds truly in excess stay on the owner's
 //!   own account (spec/decisions/one-balance-per-asset.md). Our peers'
 //!   holds toward us count nowhere: they are theirs until the node takes
@@ -29,8 +30,9 @@
 //! - **Joining by deposit.** While the hub has no account for the node's
 //!   key, the first deposit opens it: tag 0, the account key as the memo,
 //!   of the hub's type for it (`dassie_hub::escrow::OPEN_MEMO_TYPE`),
-//!   sized to the account reserve, the fees of its first operations and the
-//!   target, as much of it as the XRPL account holds.
+//!   sized to the target, which the account reserve and the fees of its
+//!   first operations count toward, never less than they and a largest
+//!   packet, as much of it as the XRPL account holds.
 //! - **One move at a time, done by the counters.** A move names the counter
 //!   of the hub account it shows in, and the value it takes it to: a
 //!   deposit, what deposits credited the account as agreed when it was made
@@ -56,7 +58,8 @@
 //!   what the hub may yet credit.
 //! - **The owner's moves** go the same way, and pause the automatic ones
 //!   for a while, so the node does not undo them at once. The owner may
-//!   turn the automatic moves off. The database keeps both.
+//!   turn the automatic moves off, and set the target. The database keeps
+//!   all of it.
 //! - **Nothing moves into or out of a hub that is unavailable**, such as a
 //!   frozen token hub (spec/decisions/token-hubs.md): its scheme or its
 //!   account is not in step with the hub.
@@ -385,6 +388,9 @@ pub enum GasNext {
 pub struct Funding {
     /// Whether the node moves funds by itself: the owner's choice.
     pub automatic: bool,
+    /// The target the owner set for what the node keeps in the hub, in
+    /// internal units; `None` for the default (`policy::hub_target`).
+    pub target: Option<u64>,
     /// Until when an owner's move pauses the automatic ones.
     pub paused_until_ms: u64,
     /// The move on its way.
@@ -412,6 +418,7 @@ impl Funding {
     pub const fn new(now_ms: u64, interval_ms: u64) -> Self {
         Self {
             automatic: true,
+            target: None,
             paused_until_ms: 0,
             moving: None,
             given_up: None,
@@ -829,14 +836,16 @@ fn withdrawal(held: &Held, standing: &Standing, middle: u64) -> Option<Planned> 
 }
 
 /// The deposit that opens the account, once the hub says it has none for
-/// us, if the XRPL account has at least the least that opens it: what
-/// opening it takes and the target, as much of it as the account holds
-/// beyond the gas it keeps.
+/// us, if the XRPL account has at least the least that opens it: the
+/// target, since the account's reserve and the fees of its first operations
+/// count toward what the node keeps, and at least the least that opens it,
+/// as much of it as the account holds beyond the gas it keeps. So a low
+/// target the owner set opens the account at it, never past its ceiling.
 fn opening(standing: &Standing) -> Option<Planned> {
     let funds = standing.xrpl?.saturating_sub(standing.gas_kept);
     let enough = standing.unfunded && funds >= standing.least_opening();
     let target = standing.floor.midpoint(standing.ceiling);
-    let drops = standing.opening.saturating_add(target).min(funds);
+    let drops = target.max(standing.least_opening()).min(funds);
     enough.then(|| Planned::deposit(drops, 0, false))
 }
 
@@ -1031,9 +1040,9 @@ mod tests {
         let open = funding.due(1, &none).unwrap();
         assert_eq!(
             (open.direction, open.drops),
-            (Direction::Deposit, 2_001_000 + 5_200_000)
+            (Direction::Deposit, 5_200_000)
         );
-        assert_eq!(open.target, 2_001_000 + 5_200_000);
+        assert_eq!(open.target, 5_200_000);
         none.xrpl = Some(3_000_000);
         assert_eq!(funding.due(1, &none).unwrap().drops, 3_000_000, "all of it");
         none.xrpl = Some(2_100_999);

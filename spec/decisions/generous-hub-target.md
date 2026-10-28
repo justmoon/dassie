@@ -25,7 +25,7 @@
 
 - **More is at stake in a hub that fails:** up to the target, where the old ceiling held a tenth of it. Hubs are the way peers settle ([hubs-only](hubs-only.md)), and a node whose hub runs dry settles with nobody.
 - **The target does not follow the peerings.** A node with more peerings than its target funds fully shares it out among them. One with far fewer keeps more in the hub than it uses.
-- **An owner who wants less in the hub has no say yet.** The market maker's node in particular needs most of its funds on its owner books, where its rebalances spend.
+- **One number for every node unless its owner changes it.** An owner who wants less in a hub, or more, sets that hub's target, and its floor and ceiling follow, a tenth either side ([In the node](../areas/hubs.md#in-the-node)). The market maker's node does: it needs most of its funds on its owner books, where its rebalances spend ([Market maker VM](../areas/market-maker-vm.md#settings)).
 
 ## Rejected
 

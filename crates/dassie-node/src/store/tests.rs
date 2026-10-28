@@ -712,21 +712,23 @@ fn devices_are_kept_up_to_their_bound() {
 }
 
 // spec/areas/hubs.md#in-the-node: a new node keeps no row for any hub, and
-// a hub without a row reads as one with nothing on its way and the node's
-// own moves on.
+// a hub without a row reads as one with nothing on its way, the node's own
+// moves on and the default target.
 #[test]
 fn a_hub_without_a_row_reads_as_the_defaults() {
     let store = Store::open_in_memory().unwrap();
     assert!(store.hub_fundings().unwrap().is_empty());
     let xrp = dassie_ledger::Name::new("hub-xrpl-testnet-xrp").unwrap();
+    let funding = store.hub_funding(xrp).unwrap();
+    assert_eq!(funding, HubFunding::default());
     assert_eq!(
-        store.hub_funding(xrp).unwrap(),
-        (true, HubFundingRow::default())
+        (funding.automatic, funding.target, funding.row),
+        (true, None, HubFundingRow::default())
     );
 }
 
 // spec/areas/hubs.md#in-the-node: each hub's moves are kept on their own,
-// so one hub's move, pause or choice never touches another's.
+// so one hub's move, pause, target or choice never touches another's.
 #[test]
 fn each_hubs_funding_is_kept_on_its_own() {
     let store = Store::open_in_memory().unwrap();
@@ -754,12 +756,24 @@ fn each_hubs_funding_is_kept_on_its_own() {
         .commit_ledger(&LedgerBatch {
             at_ms: 1,
             hub_automatic: [(dsusd, false)].into(),
+            hub_target: [(dsusd, Some(10_000_000_000))].into(),
             hub_funding: [(xrp, xrp_row.clone()), (dsusd, dsusd_row.clone())].into(),
             ..LedgerBatch::default()
         })
         .unwrap();
-    assert_eq!(store.hub_funding(xrp).unwrap(), (true, xrp_row.clone()));
-    assert_eq!(store.hub_funding(dsusd).unwrap(), (false, dsusd_row));
+    let funding = |automatic, target, row| HubFunding {
+        automatic,
+        target,
+        row,
+    };
+    assert_eq!(
+        store.hub_funding(xrp).unwrap(),
+        funding(true, None, xrp_row.clone())
+    );
+    assert_eq!(
+        store.hub_funding(dsusd).unwrap(),
+        funding(false, Some(10_000_000_000), dsusd_row)
+    );
     // The XRP hub's move done, and its own moves turned off: the DSUSD
     // hub's stay as they were.
     let done = HubFundingRow {
@@ -770,15 +784,81 @@ fn each_hubs_funding_is_kept_on_its_own() {
         .commit_ledger(&LedgerBatch {
             at_ms: 2,
             hub_automatic: [(xrp, false)].into(),
+            hub_target: [(xrp, Some(5_000_000_000))].into(),
             hub_funding: [(xrp, done.clone())].into(),
             ..LedgerBatch::default()
         })
         .unwrap();
     let all = store.hub_fundings().unwrap();
     assert_eq!(all.len(), 2);
-    assert_eq!(all[&xrp], (false, done));
-    assert_eq!(all[&dsusd].1.given_up, Some((true, 5)));
-    assert!(!all[&dsusd].0);
+    assert_eq!(all[&xrp], funding(false, Some(5_000_000_000), done));
+    assert_eq!(all[&dsusd].row.given_up, Some((true, 5)));
+    assert_eq!(all[&dsusd].target, Some(10_000_000_000));
+    assert!(!all[&dsusd].automatic);
+}
+
+// spec/decisions/generous-hub-target.md: a hub's target back to the
+// default is none in its row, and leaves the rest of the row as it was.
+#[test]
+fn a_hubs_target_goes_back_to_the_default() {
+    let store = Store::open_in_memory().unwrap();
+    let dsusd = dassie_ledger::Name::new("hub-xrpl-testnet-dsusd").unwrap();
+    let paused = HubFundingRow {
+        paused_until_ms: 40,
+        ..HubFundingRow::default()
+    };
+    store
+        .commit_ledger(&LedgerBatch {
+            at_ms: 1,
+            hub_target: [(dsusd, Some(10_000_000_000))].into(),
+            hub_funding: [(dsusd, paused.clone())].into(),
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    assert_eq!(
+        store.hub_funding(dsusd).unwrap().target,
+        Some(10_000_000_000)
+    );
+    store
+        .commit_ledger(&LedgerBatch {
+            at_ms: 2,
+            hub_target: [(dsusd, None)].into(),
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    let kept = store.hub_funding(dsusd).unwrap();
+    assert_eq!(
+        (kept.automatic, kept.target, kept.row),
+        (true, None, paused)
+    );
+}
+
+// spec/areas/node.md#database, spec/decisions/generous-hub-target.md: a
+// hub's row kept before the owner could set a target moves forward
+// through migration 11 with the default, and keeps what it held.
+#[test]
+fn a_hub_kept_before_targets_reads_with_the_default() {
+    let temp = tempfile::tempdir().unwrap();
+    {
+        let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+        schema::prepare(&mut connection, &schema::MIGRATIONS[..10]).unwrap();
+        connection
+            .execute(
+                "INSERT INTO hub_funding (scheme, automatic, paused_until_ms)
+                 VALUES ('hub-xrpl-testnet-xrp', 0, 40)",
+                [],
+            )
+            .unwrap();
+    }
+    let store = Store::open(temp.path()).unwrap();
+    assert_eq!(
+        user_version(&temp.path().join(DATABASE_FILE)),
+        SCHEMA_VERSION
+    );
+    let xrp = dassie_ledger::Name::new("hub-xrpl-testnet-xrp").unwrap();
+    let kept = store.hub_funding(xrp).unwrap();
+    assert_eq!((kept.automatic, kept.target), (false, None));
+    assert_eq!(kept.row.paused_until_ms, 40);
 }
 
 // spec/areas/node.md#database, spec/decisions/ended-for-room.md: a

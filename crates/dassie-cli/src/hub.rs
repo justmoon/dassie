@@ -4,9 +4,10 @@
 //! the DSUSD hub), over the IPC socket (spec/areas/hubs.md#in-the-node).
 //! Amounts are in the hub's asset, which its scheme names.
 //!
-//! - `dassie hub status` shows each hub's account, its holds, the floor it
-//!   keeps the account above, the ceiling it withdraws beyond to the
-//!   owner's own account, and the move on its way.
+//! - `dassie hub status` shows each hub's account, its holds, the target it
+//!   keeps the account near, the floor below which it deposits, the
+//!   ceiling it withdraws beyond to the owner's own account, and the move
+//!   on its way.
 //! - `dassie hub deposit <scheme> <amount>` and `dassie hub withdraw
 //!   <scheme> <amount>` move funds now, which pauses the node's own moves
 //!   of that hub for a while. A token hub's withdrawal may first have the
@@ -14,12 +15,16 @@
 //!   shortly.
 //! - `dassie hub auto <scheme> on|off` turns the node's own moves on or
 //!   off.
+//! - `dassie hub target <scheme> <amount>|default` sets the target the
+//!   node keeps the hub near, and with it the floor and the ceiling, a
+//!   tenth either side, or goes back to the default.
 //! - `dassie hub give-up <scheme>` gives up a move that is late; the
 //!   node's own moves of that hub then wait for the owner.
 //! - `dassie hub found`, `foundings`, `drop` and `payout` found hubs, and
 //!   show the payout bundles kept ([`crate::founding`]).
 //!
-//! Each of `deposit`, `withdraw`, `auto`, `give-up` and `payout` acts on
+//! Each of `deposit`, `withdraw`, `auto`, `target`, `give-up` and `payout`
+//! acts on
 //! one hub, which it names first by the settlement scheme over it, as
 //! `status` shows it, such as `hub-xrpl-testnet-xrp`: always, so that a
 //! script means the same hub once the node is in more than one.
@@ -55,6 +60,8 @@ pub enum Move {
     Withdraw(u64),
     /// Turn the node's own moves on or off.
     Automatic(bool),
+    /// Keep the hub near this many units, or near the default.
+    Target(Option<u64>),
     /// Give up the late move.
     GiveUp,
 }
@@ -69,7 +76,7 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
         None => return Ok(Command::Status),
         Some(Value(word)) => match word.string()?.as_str() {
             "status" => Command::Status,
-            word @ ("deposit" | "withdraw" | "auto" | "give-up") => {
+            word @ ("deposit" | "withdraw" | "auto" | "target" | "give-up") => {
                 let scheme = hub_scheme(&parser.value()?.string()?)?;
                 let action = match word {
                     "deposit" => Move::Deposit(hub_amount(&parser.value()?.string()?)?),
@@ -80,6 +87,10 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
                         other => {
                             return Err(format!("`auto` takes on or off, not {other:?}").into());
                         }
+                    },
+                    "target" => match parser.value()?.string()?.as_str() {
+                        "default" => Move::Target(None),
+                        amount => Move::Target(Some(hub_amount(amount)?)),
                     },
                     _ => Move::GiveUp,
                 };
@@ -166,6 +177,7 @@ pub async fn run(env: &Env, command: Command) -> Result<(), String> {
         Move::Automatic(automatic) => {
             Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic, scheme })
         }
+        Move::Target(target) => Method::SetHubTarget(proto::SetHubTargetRequest { scheme, target }),
         Move::GiveUp => Method::HubGiveUp(proto::HubGiveUpRequest { scheme }),
     };
     let status = match client.call(method).await {
@@ -173,6 +185,7 @@ pub async fn run(env: &Env, command: Command) -> Result<(), String> {
             response::Method::HubDeposit(proto::HubDepositResponse { status })
             | response::Method::HubWithdraw(proto::HubWithdrawResponse { status })
             | response::Method::SetHubAutomatic(proto::SetHubAutomaticResponse { status })
+            | response::Method::SetHubTarget(proto::SetHubTargetResponse { status })
             | response::Method::HubGiveUp(proto::HubGiveUpResponse { status }),
         ) => status.unwrap_or_default(),
         other => return Err(unexpected(other)),
@@ -309,8 +322,9 @@ fn issuer_text(status: &proto::HubStatus) -> Option<String> {
     }
 }
 
-/// The floor, the ceiling where the node withdraws beyond it, and whether
-/// the node moves funds by itself.
+/// The target, the owner's or the default, the floor and the ceiling where
+/// the node withdraws beyond it, and whether the node moves funds by
+/// itself.
 fn keeps(status: &proto::HubStatus, now_ms: i64) -> String {
     let who = match (status.automatic, status.paused_until_unix_ms) {
         (false, _) => format!(
@@ -327,10 +341,19 @@ fn keeps(status: &proto::HubStatus, now_ms: i64) -> String {
         }
         (true, _) => "the node moves funds by itself".into(),
     };
+    let whose = if status.target_by_owner {
+        "your target".to_owned()
+    } else {
+        format!(
+            "the default (`dassie hub target {} <amount>` sets yours)",
+            status.scheme
+        )
+    };
     // spec/decisions/one-balance-per-asset.md: the hub keeps a float, and
     // what is beyond it goes to the owner's own account.
     format!(
-        "between {} and {}, what is beyond going to your own account; {who}",
+        "near {}, {whose}: between {} and {}, what is beyond going to your own account; {who}",
+        text(status, status.target),
         text(status, status.floor),
         text(status, status.ceiling)
     )
@@ -424,6 +447,11 @@ mod tests {
             on(Move::Withdraw(500_000_000))
         );
         assert_eq!(parse(&["auto", hub, "off"]), on(Move::Automatic(false)));
+        assert_eq!(
+            parse(&["target", hub, "10"]),
+            on(Move::Target(Some(10_000_000_000)))
+        );
+        assert_eq!(parse(&["target", hub, "default"]), on(Move::Target(None)));
         assert_eq!(parse(&["give-up", hub]), on(Move::GiveUp));
         for wrong in [
             &["deposit", "3"][..],
@@ -432,6 +460,11 @@ mod tests {
             &["withdraw", "0.5"],
             &["auto", "off"],
             &["auto", hub, "maybe"],
+            &["target", hub],
+            &["target", "10"],
+            &["target", hub, "0"],
+            &["target", hub, "none"],
+            &["target", hub, "10", "default"],
             &["give-up"],
             &["give-up", "xrpl-testnet-xrp"],
             &["give-up", hub, hub],
@@ -457,6 +490,7 @@ mod tests {
             validators: 4,
             validators_answering: 3,
             automatic: true,
+            target: 5_200_000_000,
             floor: 400_000_000,
             ceiling: 10_000_000_000,
             ..Default::default()
@@ -467,9 +501,12 @@ mod tests {
         );
         assert_eq!(
             keeps(&status, 0),
-            "between 0.4 XRP and 10 XRP, what is beyond going to your own account; the node \
-             moves funds by itself"
+            "near 5.2 XRP, the default (`dassie hub target  <amount>` sets yours): between 0.4 \
+             XRP and 10 XRP, what is beyond going to your own account; the node moves funds by \
+             itself"
         );
+        status.target_by_owner = true;
+        assert!(keeps(&status, 0).starts_with("near 5.2 XRP, your target: between 0.4 XRP"));
         status.paused_until_unix_ms = Some(60_000);
         assert!(keeps(&status, 0).contains("wait until 1970-01-01 00:01 UTC"));
         status.account = None;

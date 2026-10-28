@@ -63,7 +63,7 @@ fn a_scheme_left_out_with_a_hub_move_on_its_way_is_removed_and_its_row_kept() {
     core.remove_scheme(hub.as_str()).unwrap();
     core.finish_step(&mut Vec::new());
     assert!(stored(&store).is_empty());
-    assert_eq!(store.hub_funding(hub).unwrap().1, row);
+    assert_eq!(store.hub_funding(hub).unwrap().row, row);
 }
 
 // Without a move on its way, it goes the same: its stored config goes,
@@ -80,6 +80,6 @@ fn a_scheme_left_out_with_no_hub_move_is_removed() {
     core.remove_scheme(hub.as_str()).unwrap();
     core.finish_step(&mut Vec::new());
     assert!(stored(&store).is_empty());
-    assert_eq!(store.hub_funding(hub).unwrap().1, row);
+    assert_eq!(store.hub_funding(hub).unwrap().row, row);
     assert!(core.remove_scheme(hub.as_str()).is_err());
 }
