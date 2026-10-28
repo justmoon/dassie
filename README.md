@@ -40,7 +40,7 @@ From there, the wallet sends and receives payments, shows their status and your 
 
 **Open Payments.** Each ledger has a wallet address at `https://<your host>/pay/<ledger>`, for example `/pay/xrp`, and `$<your host>` names the default one. Other wallets and apps pay into it, and with a grant you approve in the wallet, they may also pay out of it, up to the limits you agreed to. The wallet's Send takes a payment pointer or a payment request, and its grants page lists who may do what.
 
-A node without a hostname answers Open Payments at `https://<node ID>.dassiepay.net` instead, through the front door there, which reaches it over a connection the node keeps to it while it has no hostname. That front door is the default relay again once it is upgraded to its new identity and a release builds in its entry; until then there is no default, and `DASSIE_RELAY` names a relay, as the entry its front door logs, or, set empty, none ([default-relay](spec/decisions/default-relay.md)).
+A node without a hostname answers Open Payments at `https://<node ID>.dassiepay.net` instead, through the front door there, which reaches it over a connection the node keeps to it while it has no hostname. That front door is the default relay, kept only while the node has no hostname; `DASSIE_RELAY` names another, as the entry its front door logs, or, set empty, none ([default-relay](spec/decisions/default-relay.md)).
 
 **BTP.** A BTP token, made in the wallet's settings, lets an ILP client such as `ilp-plugin-btp` spend through the node, at most its spending cap per window if you give it one. Over RPC, `createBtpToken` answers with the `btp+wss://` URL to connect with.
 
