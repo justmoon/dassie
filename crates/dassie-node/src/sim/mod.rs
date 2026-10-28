@@ -572,6 +572,8 @@ pub fn least_across(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
 /// its prices count it (spec/decisions/passive-rebalancing.md).
 pub fn least_across_whole(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
     least_across_from(ledger, into, sent, |ledger| {
+        // The node's own mapping, `hub_moves::owner_book_ledger`, which the
+        // prices group by and the sim cannot reach: this must follow it.
         let book = match ledger {
             HUB => XRP,
             HUB_DSUSD => DSUSD,
