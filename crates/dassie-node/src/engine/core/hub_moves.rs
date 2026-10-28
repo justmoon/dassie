@@ -314,6 +314,15 @@ impl Core {
         }
     }
 
+    /// Each hub's moves hold their bounds: at most one funding per hub,
+    /// and each its own ([`Funding::check_invariants`]).
+    pub(super) fn check_funding(&self) {
+        assert!(self.funding.len() <= MAX_OWN_HUBS, "a funding per hub");
+        for funding in self.funding.values() {
+            funding.check_invariants(self.now_ms);
+        }
+    }
+
     /// Keeps the moves' state of the hub of `scheme` with this batch. The
     /// prices count a move on its way ([`moves_on_their_way`](Self::moves_on_their_way)),
     /// so they are built again.
@@ -648,8 +657,17 @@ impl Core {
         // out of it (spec/areas/hubs.md#a-frozen-hub).
         let unavailable =
             active.scheme.status() != LedgerStatus::Synced || account.frozen().is_some();
+        // What a withdrawal could take once the account's operations ahead
+        // of it executed, as the scheme pays it; nothing while the scheme
+        // cannot tell.
+        let spendable = active
+            .asset
+            .and_then(|asset| self.assets.get(&asset))
+            .and_then(|asset| active.scheme.owner_spendable(Some(asset.asset.as_ref())))
+            .map_or(0, |units| units / UNITS_PER_DROP);
         Some(Standing {
             held: Self::held(account),
+            spendable,
             unfunded,
             unavailable,
             floor,
@@ -863,10 +881,12 @@ impl Core {
         {
             return;
         }
+        // One the side it leaves cannot take now backs off only the moves
+        // that way: the deposit the floor calls for goes all the same.
         if self.make_move(scheme, planned, &standing).is_err()
             && let Some(funding) = self.funding.get_mut(&scheme)
         {
-            funding.failed(now);
+            funding.failed(now, planned.direction);
         }
     }
 
@@ -1413,9 +1433,11 @@ impl Core {
                 in_asset(scheme, standing.least_payout)
             )));
         }
-        if drops.saturating_add(standing.withdrawal_fees) > held.balance {
+        if drops.saturating_add(standing.withdrawal_fees) > standing.spendable.min(held.balance) {
             return Err(EngineError::Refused(
-                "more than the hub account can spend, with the fees".into(),
+                "more than the hub account can spend, with the fees, once its settlements on \
+                 their way are paid"
+                    .into(),
             ));
         }
         if drops.saturating_add(standing.withdrawal_fees) > standing.hub_owner {
@@ -1573,6 +1595,7 @@ mod tests {
                 deposited: 7,
                 withdrawn: 3,
             }),
+            spendable: balance,
             floor: 400_000,
             ceiling: 10_000_000,
             least_payout: 1_000_000,
@@ -1622,7 +1645,10 @@ mod tests {
             .start(1, planned, Name::new("pay-1").unwrap());
         assert_eq!(fundings[&xrp].due(2, &low), None, "one on its way");
         assert!(fundings[&dsusd].due(2, &low).is_some(), "the other's own");
-        fundings.get_mut(&dsusd).unwrap().failed(2);
+        fundings
+            .get_mut(&dsusd)
+            .unwrap()
+            .failed(2, Direction::Deposit);
         assert_eq!(fundings[&dsusd].due(3, &low), None, "backing off");
         assert!(fundings[&xrp].moving.is_some());
         let owner = Planned::withdraw(1_000_000, 100, 3, true);

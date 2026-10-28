@@ -579,6 +579,21 @@ impl HubScheme {
         newest.min(booked)
     }
 
+    /// What an owner's withdrawal made now could take of the account with
+    /// its fees, in drops: what we may spend of its balance, less what the
+    /// operations waiting or on their way take, which execute before it.
+    /// An agreed state of the account says only every few seconds what our
+    /// own settlements took, and the books say it as each executes, so a
+    /// withdrawal sized from the state alone may be one the hub cannot
+    /// pay. Nothing while a withdrawal is on its way: one at a time.
+    fn withdrawable(&self, account: &HubAccount) -> Amount {
+        if account.has(Purpose::Withdraw) {
+            return 0;
+        }
+        self.spendable_balance(account)
+            .saturating_sub(account.committed())
+    }
+
     /// Makes the books hold what the account and the holds toward us from
     /// our peers held as of a block: on the first sync, the owner's
     /// deposit; on the first state of an account opened since the hub said
@@ -1833,9 +1848,8 @@ impl SettlementScheme for HubScheme {
         if account.has(Purpose::Withdraw) {
             return Err(SchemeError::Unavailable);
         }
-        let balance = self.spendable_balance(account);
-        let spendable = balance
-            .saturating_sub(account.committed())
+        let spendable = self
+            .withdrawable(account)
             .saturating_sub(fees.operation)
             .saturating_sub(fees.ledger);
         if spendable < drops {
@@ -1852,6 +1866,14 @@ impl SettlementScheme for HubScheme {
         self.withdrawals_made = self.withdrawals_made.saturating_add(1);
         self.withdrawal = Some((self.withdrawals_made, OwnerPaymentState::InFlight));
         Ok(withdrawal_name(self.withdrawals_made))
+    }
+
+    /// What [`pay_owner`](SettlementScheme::pay_owner) would let a
+    /// withdrawal take with its fees now ([`Self::withdrawable`]).
+    fn owner_spendable(&self, asset: Option<&dyn ExternalAsset>) -> Option<u64> {
+        asset
+            .and_then(account_in)
+            .map(|account| units(self.withdrawable(account)))
     }
 
     fn owner_payment(&self, id: Name) -> OwnerPaymentState {

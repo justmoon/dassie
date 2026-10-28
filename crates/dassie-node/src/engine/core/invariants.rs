@@ -53,6 +53,7 @@ impl Core {
         self.check_outgoing();
         self.check_probes();
         self.check_settling();
+        self.check_funding();
         self.check_downlinks();
         self.events.check_invariants();
     }

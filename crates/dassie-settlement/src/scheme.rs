@@ -690,6 +690,17 @@ pub trait SettlementScheme: Send {
         Err(SchemeError::Unsupported)
     }
 
+    /// The most an owner's payment made now could take of the asset with
+    /// its fees, in the ledger's units, as [`pay_owner`](Self::pay_owner)
+    /// checks it: what the asset can spend once what is ahead of the
+    /// payment has taken its share, so the node sizes none the scheme
+    /// would refuse (spec/areas/hubs.md#in-the-node). `None` if the scheme
+    /// cannot tell, as by default.
+    fn owner_spendable(&self, asset: Option<&dyn ExternalAsset>) -> Option<u64> {
+        let _ = asset;
+        None
+    }
+
     /// What became of the owner's payment `id`: the scheme keeps the one
     /// on its way and the outcome of the last, with its state.
     fn owner_payment(&self, id: Name) -> OwnerPaymentState {
