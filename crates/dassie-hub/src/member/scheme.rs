@@ -291,6 +291,12 @@ fn account_of(asset: &mut dyn ExternalAsset) -> Option<&mut HubAccount> {
     any.downcast_mut()
 }
 
+/// [`account_of`], to read.
+fn account_in(asset: &dyn ExternalAsset) -> Option<&HubAccount> {
+    let any: &dyn Any = asset;
+    any.downcast_ref()
+}
+
 /// A loss's ID: a hash of the operation that caused it, its cause, the
 /// hold and the packet's sequence on it, so that each packet's loss is
 /// booked once, however many one operation paid.
@@ -537,6 +543,25 @@ impl HubScheme {
                     .map(|mirror| mirror.amount.saturating_add(mirror.waiting()))
             })
             .fold(0, Amount::saturating_add)
+    }
+
+    /// What funding the hold toward `peer` may take of the account now,
+    /// in drops: what it can spend, less what its operations waiting or on
+    /// their way take, what it keeps for fees, and, to open the hold, the
+    /// hold's reserve. Nothing while the hold is being opened.
+    fn can_fund(&self, account: &HubAccount, peer: Name) -> Amount {
+        let hold = self.peers.get(&peer).and_then(|p| p.payer.hold);
+        let opening = self.settling.values().any(|s| s.peer == peer);
+        // Opening a hold locks its reserve besides what it holds.
+        let reserve = match hold {
+            Some(_) => 0,
+            None if opening => return 0,
+            None => self.terms.fees.hold_reserve,
+        };
+        self.spendable_balance(account)
+            .saturating_sub(account.committed())
+            .saturating_sub(self.kept_for_fees())
+            .saturating_sub(reserve)
     }
 
     /// What we may spend of the account's balance, in drops: what its
@@ -1672,20 +1697,9 @@ impl SettlementScheme for HubScheme {
             return self.prepare_pay_in(rng, account, peer, drops, &membership, opening);
         }
         let hold = self.peers.get(&peer).and_then(|p| p.payer.hold);
-        // Opening a hold locks its reserve besides what it holds.
-        let reserve = match hold {
-            Some(_) => 0,
-            None if opening => return Err(SchemeError::Unavailable),
-            None => self.terms.fees.hold_reserve,
-        };
-        let balance = self.spendable_balance(account);
-        let spendable = balance
-            .saturating_sub(account.committed())
-            .saturating_sub(self.kept_for_fees())
-            .saturating_sub(reserve);
         // At most what the account can spend: a node asked to settle funds
         // the hold with what it has (spec/areas/hubs.md#in-the-node).
-        let drops = drops.min(spendable);
+        let drops = drops.min(self.can_fund(account, peer));
         if drops == 0 {
             return Err(SchemeError::Unavailable);
         }
@@ -1700,6 +1714,18 @@ impl SettlementScheme for HubScheme {
             },
         };
         self.queue_settlement(rng, account, peer, drops, operation)
+    }
+
+    /// What funding the hold toward `peer` could take now, as
+    /// [`prepare_settlement`](SettlementScheme::prepare_settlement) clamps
+    /// it: nothing while the account takes no settlement, as while it reads
+    /// up to the newest state it heard of.
+    fn spendable(&self, asset: Option<&dyn ExternalAsset>, peer: Name) -> Option<u64> {
+        let drops = asset
+            .and_then(account_in)
+            .filter(|account| self.settling.len() < MAX_SETTLING && account.takes_settlements())
+            .map_or(0, |account| self.can_fund(account, peer));
+        Some(units(drops))
     }
 
     fn discard_settlement(&mut self, asset: Option<&mut dyn ExternalAsset>, settlement: Name) {

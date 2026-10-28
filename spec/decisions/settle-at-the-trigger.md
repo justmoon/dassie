@@ -22,7 +22,7 @@
 ## Accepted
 
 - **A few lookups on the packet path:** each Prepare from a peer reads the peer's position and, over a hub, the room of its hold, unless the peer was asked and is not due again, which is one lookup. That is bounded by the peer and its method, never by the number of peers.
-- **A payer that cannot fund when asked** answers that nothing is on its way, and is asked again only after the interval, a minute in production, as before: one whose hub account has nothing to spend until the node next moves funds into the hub. Links that move faster drain hub accounts faster, so this comes more often: three requests in 47 asked at the trigger, against one in 37 at the check, in the runs above.
+- **A payer that cannot fund when asked** answers that nothing is on its way, and is asked again only after the interval, a minute in production: one whose hub account has nothing to spend until the node next moves funds into the hub. Links that move faster drain hub accounts faster, so this comes more often: three requests in 47 asked at the trigger, against one in 37 at the check, in the runs above. The payer funds such a request as soon as it can, without being asked again ([settle-when-funds-arrive](settle-when-funds-arrive.md)).
 - **Money in flight is unchanged:** the cap, the trigger and the least settlement stay what [thresholds-in-packets](thresholds-in-packets.md) and [packets-in-flight](packets-in-flight.md) make them, so what a link survives does not move ([crash-drift](crash-drift.md)).
 - **A refused Prepare can ask too.** A Prepare the books refuse for want of room still has its peer asked if it is due: its room is at or below the trigger, which is when it should be asked.
 

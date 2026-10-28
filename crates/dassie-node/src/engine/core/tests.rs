@@ -4643,7 +4643,12 @@ fn a_stored_scheme_of_another_realm_keeps_what_is_pending_on_its_ledger() {
 /// A core node at `https://core.test`, over the stub with commitments,
 /// with a downlink peered on it: the downlink's ID.
 fn hub_core_with_downlink(seed: u64) -> (Core, dassie_identity::NodeId) {
-    let store = Arc::new(Store::open_in_memory().unwrap());
+    hub_core_with_downlink_on(Arc::new(Store::open_in_memory().unwrap()), seed)
+}
+
+/// [`hub_core_with_downlink`] on `store`: a core started on it again with
+/// [`core_on`] is the same node.
+fn hub_core_with_downlink_on(store: Arc<Store>, seed: u64) -> (Core, dassie_identity::NodeId) {
     let mut core = Core::start(
         CoreParts {
             store,
@@ -6869,6 +6874,9 @@ mod unavailable;
 
 // Asking a peer to settle as soon as its room falls to the trigger.
 mod asking;
+
+// Funding a request to settle late, once the scheme can.
+mod funds_arrive;
 
 // Our settlements on two methods of a peering, behind each other's
 // messages on its one channel.

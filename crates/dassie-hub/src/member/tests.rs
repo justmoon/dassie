@@ -947,6 +947,19 @@ fn an_operation_on_its_way_waits_for_the_restored_account_to_sync() {
     restored.check_invariants();
 }
 
+// An account that has not read up to the state it heard of takes no
+// settlement, so its scheme says it can spend nothing, and a payer funds
+// a request only once it can (spec/decisions/settle-when-funds-arrive.md).
+#[test]
+fn an_account_not_synced_can_spend_nothing() {
+    let hub = Hub::new();
+    let account = hub.account();
+    let scheme = HubScheme::new(&account, 100_000_000, None, &[]).unwrap();
+    assert!(!account.takes_settlements());
+    let peer = Name::new("peer").unwrap();
+    assert_eq!(scheme.spendable(Some(&account), peer), Some(0));
+}
+
 // A deposit reaches the account's state before the scheme is told of it:
 // the attestations that credit it are no operation the account reads, so
 // the scheme books it with the state that follows. Until then, a
@@ -1010,6 +1023,13 @@ fn a_settlement_spends_only_what_the_books_hold() {
         key: NodeKey::from_bytes(&[9; 32]).public_key(),
     }
     .write(&mut state);
+    // What it says it can spend is what it clamps to
+    // (spec/decisions/settle-when-funds-arrive.md).
+    let spendable = scheme.spendable(Some(&account), peer).unwrap();
+    assert!(
+        spendable <= units(5_000_000),
+        "{spendable} of the books' 5 XRP"
+    );
     let mut rng = dassie_kit::sim::SeededRng::new(1);
     let prepared = scheme
         .prepare_settlement(
@@ -1020,12 +1040,7 @@ fn a_settlement_spends_only_what_the_books_hold() {
             &state,
         )
         .unwrap();
-    assert!(
-        prepared.amount <= units(5_000_000),
-        "spent {} of the books' {}",
-        prepared.amount,
-        units(5_000_000)
-    );
+    assert_eq!(prepared.amount, spendable, "spent what it said it could");
     assert!(prepared.message.is_empty(), "a bare notice carries no data");
     scheme.check_invariants();
 }

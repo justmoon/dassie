@@ -302,6 +302,16 @@ pub enum SettlementEvent {
         /// Its ID.
         id: Name,
     },
+    /// A peer's request to settle found what we can settle on the method
+    /// short of what the rule asks, for want of what the scheme can spend
+    /// or of a free channel: the rest is funded once it can be, until the
+    /// peer would ask again (spec/decisions/settle-when-funds-arrive.md).
+    RequestShort {
+        /// The peer.
+        node: NodeId,
+        /// The method's scheme.
+        scheme: dassie_peer::wire::SchemeId,
+    },
     /// A scheme cannot settle now, said now and then.
     SchemeUnavailable {
         /// The peer.
@@ -553,6 +563,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         SettlementEvent::BalanceBooked { .. }
         | SettlementEvent::Settling { .. }
         | SettlementEvent::Reconciling { .. }
+        | SettlementEvent::RequestShort { .. }
         | SettlementEvent::PeerSettled { .. }
         | SettlementEvent::PegResumed { .. }
         // The books follow what is above the reserve: a change of it is

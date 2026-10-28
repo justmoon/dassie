@@ -839,6 +839,23 @@ impl HubAccount {
         self.enqueue(Purpose::Settle(settlement), operation, false)
     }
 
+    /// Whether it would take a settlement's operation now, as
+    /// [`prepare`](Self::prepare) does: it is synced, its queue has room,
+    /// also among operations without a deadline, as funding a hold is, and
+    /// the hub is not frozen.
+    #[must_use]
+    pub fn takes_settlements(&self) -> bool {
+        let without_deadline = self
+            .queue
+            .iter()
+            .filter(|q| !operation_has_deadline(&q.operation))
+            .count();
+        self.is_synced()
+            && self.queue.len() < MAX_QUEUED
+            && without_deadline < MAX_QUEUED_WITHOUT_DEADLINE
+            && self.frozen().is_none()
+    }
+
     /// Queues an operation to send at once. One for the same purpose that
     /// was not sent yet is replaced, so a newer claim to redeem takes the
     /// place of an older one.

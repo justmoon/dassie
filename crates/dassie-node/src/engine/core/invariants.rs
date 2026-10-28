@@ -85,6 +85,23 @@ impl Core {
             self.settle.backoff.len() <= (config.max_channels + config.max_downlinks) * methods,
             "a backoff per method of an open channel"
         );
+        // A request we could not fund in full is kept per method of a
+        // peering, from when it came, until its asker would ask again
+        // (spec/decisions/settle-when-funds-arrive.md).
+        assert!(
+            self.settle.unanswered.len()
+                <= (config.max_core_peers() + config.max_downlinks) * methods,
+            "an unanswered request per method of a peering"
+        );
+        assert!(
+            self.settle.unanswered.values().all(|unanswered| {
+                unanswered.asked_ms <= self.now_ms
+                    && unanswered
+                        .tried
+                        .is_none_or(|tried| tried >= self.settle.minimum)
+            }),
+            "an unanswered request came, and was tried only with the least settlement to spend"
+        );
     }
 
     /// A settlement's transfer is pending, as it was booked: posting or
