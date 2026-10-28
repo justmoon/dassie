@@ -2606,6 +2606,9 @@ html[data-theme="dark"] svg [fill="#62646B"]:not(:is(.tile, .card-stage, .merch,
 html[data-theme="dark"] svg [fill="#4F5158"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
   fill: #0E0B09;
 }
+html[data-theme="dark"] svg [fill="#74767D"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
+  fill: #221D1A;
+}
 html[data-theme="dark"] svg [fill="#80828A"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
   fill: #1A1613;
 }
