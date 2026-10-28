@@ -1750,7 +1750,8 @@ impl Core {
         // uplinks until it uses its own address, as a core node once its
         // status settled (spec/decisions/promotion-to-core.md).
         let children = self.child_addresses(false);
-        let periphery = self.peer.is_periphery();
+        // It forwards its peers' packets while others route through it.
+        let periphery = !self.peer.forwards();
         let taken = self.connector.set_child_addresses(&children, periphery);
         assert!(taken.is_ok(), "child addresses not taken: {taken:?}");
     }

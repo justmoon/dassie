@@ -506,7 +506,7 @@ impl PeerNode {
                         if stuck { now } else { confirmed }
                     } else if advertise.hold_until_ms > now {
                         advertise.hold_until_ms
-                    } else if entry.is_downlink() && !entry.was_core {
+                    } else if checked_for_promotion(entry) {
                         // Listed once promoted: its standing is long enough
                         // at a time we know; the other checks change with an
                         // input, or are looked at with each heartbeat's
@@ -678,15 +678,14 @@ impl PeerNode {
             && (self.free_downlinks() < self.config.max_free_downlinks() || self.paid_us(id, hooks))
     }
 
-    /// On a periphery node, ends the peerings with its downlinks, from
-    /// when it was a core node: a periphery node takes none
-    /// (spec/areas/network.md#downlinks). A node that leaves the core does
-    /// so once it has been out of it for as long as its status takes to
-    /// settle, so that a dip while a peer restarts, or views of the core
-    /// differ, ends nothing. Those not peered leave at once.
+    /// On a node that forwards for nobody, ends the peerings with its
+    /// downlinks, from when it did: it routes nothing to them
+    /// (spec/areas/network.md#downlinks). It does so once it has forwarded
+    /// for nobody for as long as its status takes to settle, so that a dip
+    /// while a peer restarts ends nothing. Those not peered leave at once.
     pub(crate) fn end_downlinks(&mut self) {
         let settled = self
-            .out_of_core_since_ms
+            .stranded_since_ms
             .is_some_and(|since| since.saturating_add(self.config.core_settle_ms) <= self.now_ms);
         if !settled {
             return;
@@ -833,13 +832,8 @@ impl PeerNode {
             } else {
                 entry.standing.since_ms = None;
             }
-            let downlink = entry.is_downlink();
-            entry.was_core |= !downlink;
-            // A peering that was core is listed by its health, as a core
-            // peer's: a node that left the core for a moment, silent past
-            // the confirmation or while a peer restarted, comes back after
-            // its hold-down, not after a new promotion.
-            let by_health = !downlink || entry.was_core;
+            entry.was_core |= !entry.is_downlink();
+            let by_health = !checked_for_promotion(entry);
             let promoted = by_health || promotable.contains(id);
             let advertise = &mut entry.advertise;
             if advertise.on
@@ -992,4 +986,14 @@ const fn keeps_away(reason: TerminationReason) -> bool {
         reason,
         TerminationReason::Owner | TerminationReason::ShortOfRoom
     )
+}
+
+/// Whether `entry`'s peer is listed only while it passes the checks of a
+/// promotion: our downlink, but for one whose peering was core while it is
+/// registered, which is listed by its health, as a core peer's. A node that
+/// left the core for a moment, silent past the confirmation or while a peer
+/// restarted, comes back after its hold-down, not after a new promotion;
+/// one whose registration ended is out (spec/decisions/promotion-to-core.md).
+fn checked_for_promotion(entry: &Entry) -> bool {
+    entry.is_downlink() && !(entry.was_core && entry.sources.contains(Sources::MAJORITY))
 }

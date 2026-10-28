@@ -583,7 +583,7 @@ impl PeerNode {
         };
         // A periphery node's uplinks carry everything it sends, whether or
         // not they list it yet.
-        let routes = if self.is_periphery() {
+        let routes = if !self.forwards() {
             routing::through(&self.own, &self.route_key, &self.advertised(), neighbors)
         } else {
             routing::compute(&self.own, &self.route_key, neighbors)
@@ -822,10 +822,10 @@ impl PeerNode {
             self.is_core(),
             "we know since when we are core"
         );
-        assert_ne!(
-            self.own_core_since_ms.is_some(),
-            self.out_of_core_since_ms.is_some(),
-            "we know since when we are core, or not"
+        assert_eq!(
+            self.stranded_since_ms.is_some(),
+            !self.forwards(),
+            "we know since when we forward for nobody"
         );
     }
 

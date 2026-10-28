@@ -336,8 +336,12 @@ pub struct PeerNode {
     /// Since when we are a core node in our own view, in this run
     /// ([`Self::is_core`]).
     pub(crate) own_core_since_ms: Option<u64>,
-    /// Since when we are not, in this run: one of the two is set.
-    pub(crate) out_of_core_since_ms: Option<u64>,
+    /// Since when we forward for nobody, in this run
+    /// ([`Self::forwards`]).
+    pub(crate) stranded_since_ms: Option<u64>,
+    /// Whether a peer we list lists us too, in its fresh link state: an edge
+    /// both ends list, which routes through us.
+    pub(crate) own_edges: bool,
     /// Whether we use our own address, as last told
     /// ([`Event::OwnAddress`]).
     own_address: bool,
@@ -474,7 +478,8 @@ impl PeerNode {
             routes: Routes::new(),
             core: BTreeSet::new(),
             own_core_since_ms: None,
-            out_of_core_since_ms: Some(now_ms),
+            stranded_since_ms: Some(now_ms),
+            own_edges: false,
             own_address: false,
             dev_core: BTreeSet::new(),
             route_key: RouteKey::of(&key),
@@ -1045,7 +1050,7 @@ impl PeerNode {
 
     /// When our own status is next due to settle: the time we use our own
     /// address, while core and waiting for it, or end our downlinks, while
-    /// out of the core with some.
+    /// forwarding for nobody with some.
     fn next_status_due(&self) -> Option<u64> {
         let settle = self.config.core_settle_ms;
         let own = self
@@ -1053,7 +1058,7 @@ impl PeerNode {
             .filter(|_| !self.own_address)
             .map(|since| since.saturating_add(settle));
         let downlinks = self
-            .out_of_core_since_ms
+            .stranded_since_ms
             .filter(|_| self.table.values().any(Entry::is_downlink))
             .map(|since| since.saturating_add(settle));
         own.into_iter()
@@ -1455,16 +1460,47 @@ impl PeerNode {
         has_url && (self.core.contains(node) || (self.is_seed(&self.own) && self.is_seed(node)))
     }
 
-    /// Follows our own status in our own view: since when we are core, or
-    /// out of the core.
+    /// Whether this node forwards its peers' packets, and keeps its
+    /// downlinks: a node with a URL that is core in its own view, or that
+    /// has an edge both ends list, through which other nodes route to it
+    /// and beyond: one promoted that is not core in its view yet, or one
+    /// whose core peers list it while it is out of the core for a moment,
+    /// as while the bootstrap nodes are out of reach. Forwarding follows
+    /// the routes, so that no node routes through one that refuses
+    /// (spec/decisions/promotion-to-core.md).
+    #[must_use]
+    pub const fn forwards(&self) -> bool {
+        self.has_url() && (self.own_core_since_ms.is_some() || self.own_edges)
+    }
+
+    /// Follows our own status in our own view: since when we are core, and
+    /// since when we forward for nobody.
     pub(crate) fn update_own_status(&mut self) {
         let now = self.now_ms;
+        let (stale, future) = (self.config.stale_ms, self.config.max_future_ms);
+        self.own_edges = self.advertised().iter().any(|peer| {
+            self.table
+                .get(peer)
+                .and_then(|entry| entry.link.as_ref())
+                .is_some_and(|link| {
+                    link.is_fresh(now, stale, future) && link.neighbors.contains(&self.own)
+                })
+        });
         if self.is_core() {
-            self.out_of_core_since_ms = None;
             self.own_core_since_ms.get_or_insert(now);
         } else {
             self.own_core_since_ms = None;
-            self.out_of_core_since_ms.get_or_insert(now);
+        }
+        let forwarded = self.stranded_since_ms.is_none();
+        if self.forwards() {
+            self.stranded_since_ms = None;
+        } else {
+            self.stranded_since_ms.get_or_insert(now);
+        }
+        // How the connector forwards follows.
+        if forwarded != self.forwards() {
+            self.gossip.routes_dirty = true;
+            self.event(Event::RoutesChanged);
         }
     }
 

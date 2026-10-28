@@ -205,13 +205,12 @@ impl PeerNode {
         let id = signed.node_id;
         // A periphery node's link state never floods, and a periphery node
         // forwards nothing (spec/areas/network.md#periphery-nodes).
-        let mode = if mode == Retransmit::Scheduled
-            && (signed.info.is_periphery() || self.is_periphery())
-        {
-            Retransmit::Never
-        } else {
-            mode
-        };
+        let mode =
+            if mode == Retransmit::Scheduled && (signed.info.is_periphery() || !self.forwards()) {
+                Retransmit::Never
+            } else {
+                mode
+            };
         if id == self.own && mode != Retransmit::Immediately {
             // Only we issue our link state; copies of it coming back are
             // echoes.

@@ -1201,3 +1201,136 @@ fn a_promoted_node_comes_back_after_an_outage(network: &mut Network, turning: us
         );
     }
 }
+
+/// Node `index` pays and has room at each of `uplinks`, and answers their
+/// checks over HTTPS, which the simulation does not make: as a downlink
+/// that asks to be promoted does (spec/decisions/promotion-to-core.md).
+fn pays_for_promotion(network: &mut Network, index: usize, uplinks: &[usize]) {
+    let (node, url) = (id(index), dassie_peer::sim::url(index));
+    for at in uplinks {
+        network.act_with_hooks(*at, |peer, hooks, now| {
+            hooks
+                .room_packets
+                .insert(node, dassie_peer::PROMOTION_ROOM_PACKETS);
+            peer.paid_by(now, hooks, &node);
+            peer.https_checked(now, &node, &url, true);
+        });
+    }
+}
+
+/// Settles `network` until every running node of the first `count`
+/// counts `node` core, within `within_ms`.
+fn until_core(network: &mut Network, node: NodeId, count: usize, within_ms: u64) {
+    let start = network.now;
+    while !(0..count)
+        .filter(|index| network.is_up(*index))
+        .all(|index| network.node(index).core().contains(&node))
+    {
+        settle(network, 5_000);
+        assert!(network.now < start + within_ms, "{node} in the core");
+    }
+}
+
+// Review of #701: while every bootstrap node is out of reach, the nodes
+// promoted beyond them are out of the core in every view, but the edges
+// between them are listed by both ends, so others route through them, and
+// they forward and keep their downlinks: no node routes through one that
+// refuses. Back, the bootstrap nodes take them in again.
+/// Three bootstrap nodes, and nodes 3 and 4 promoted beyond them: the
+/// first by bootstrap nodes, the second by one of them and the first, so
+/// that an edge joins the two beyond the bootstrap nodes; and node 5, a
+/// downlink of the second.
+fn promoted_beyond_the_bootstrap_nodes() -> Network {
+    let (promoted, downlink) = ([3, 4], 5);
+    // An outage well short of the time a silent peer is kept, as in
+    // production, where its peerings outlast it: the dev time is shorter
+    // than a node waits before it ends its downlinks.
+    let config = Config {
+        peer_dead_ms: Config::DEFAULT.peer_dead_ms,
+        ..Config::DEV
+    };
+    let mut network = Network::with_periphery(47, 5, 3, 1, config);
+    network.set_dev_core(&[]);
+    network.pin_uplinks(promoted[0], vec![id(0), id(1)]);
+    network.pin_uplinks(promoted[1], vec![id(0), id(promoted[0])]);
+    network.pin_uplinks(downlink, vec![id(promoted[1])]);
+    settle(&mut network, 90_000);
+    pays_for_promotion(&mut network, promoted[0], &[0, 1]);
+    settle(&mut network, Config::DEV.promotion_standing_ms);
+    until_core(&mut network, id(promoted[0]), 5, 120_000);
+    // The second asks the first once it is core.
+    let start = network.now;
+    while network
+        .node(promoted[1])
+        .peering_of(&id(promoted[0]))
+        .is_none()
+    {
+        settle(&mut network, 5_000);
+        assert!(network.now < start + 120_000, "it peers with the first");
+    }
+    pays_for_promotion(&mut network, promoted[1], &[0, promoted[0]]);
+    // A new link state of its own, which shows its clock to its new uplink:
+    // one it issued before they peered does not.
+    let second = promoted[1];
+    network.act(second, |node, now| {
+        node.set_own_info(
+            now,
+            dassie_peer::OwnInfo {
+                url: Some(dassie_peer::sim::url(second)),
+                alias: "promoted".into(),
+                feed_port: None,
+            },
+        );
+    });
+    settle(&mut network, Config::DEV.promotion_standing_ms);
+    until_core(&mut network, id(promoted[1]), 5, 120_000);
+    let start = network.now;
+    while network
+        .node(promoted[1])
+        .peering_of(&id(downlink))
+        .is_none()
+    {
+        settle(&mut network, 5_000);
+        assert!(network.now < start + 120_000, "the downlink peers");
+    }
+
+    network
+}
+
+#[test]
+fn promoted_nodes_forward_while_the_bootstrap_nodes_are_away() {
+    let (bootstraps, promoted, downlink) = (3, [3, 4], 5);
+    let mut network = promoted_beyond_the_bootstrap_nodes();
+    for index in 0..bootstraps {
+        network.crash(index);
+    }
+    settle(
+        &mut network,
+        Config::DEV.peer_confirm_ms + 2 * Config::DEV.core_settle_ms,
+    );
+    for index in promoted {
+        let node = network.node(index);
+        assert!(!node.is_core(), "node {index} out of the core");
+        assert!(node.forwards(), "node {index} forwards over its edges");
+    }
+    assert!(
+        network
+            .node(promoted[1])
+            .peering_of(&id(downlink))
+            .is_some_and(|peering| peering.depeering.is_none()),
+        "its downlink stays"
+    );
+
+    // Back, the bootstrap nodes list them again by their health, as their
+    // peerings were core, and the core takes them in again, well before a
+    // new promotion would.
+    for index in 0..bootstraps {
+        network.start(index);
+    }
+    until_core(
+        &mut network,
+        id(promoted[1]),
+        5,
+        Config::DEV.promotion_standing_ms / 2,
+    );
+}

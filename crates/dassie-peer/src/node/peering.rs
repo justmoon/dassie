@@ -206,7 +206,7 @@ impl PeerNode {
     /// with it forwards nothing for it, and it looks for others.
     pub(crate) fn confirmed_peers(&self) -> usize {
         let pinned = self.pinned_uplinks();
-        let periphery = self.is_periphery();
+        let periphery = !self.forwards();
         self.table
             .iter()
             .filter(|(id, entry)| {
