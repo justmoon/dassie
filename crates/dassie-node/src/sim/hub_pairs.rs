@@ -32,21 +32,18 @@ use dassie_hub::rules::Asset;
 use dassie_identity::NodeId;
 use dassie_kit::sim::{Outcome, Run, SeededRng};
 use dassie_ledger::LedgerId;
-use dassie_settlement::LedgerStatus;
-use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::api;
 use dassie_xrpl::codec::Amount;
 use dassie_xrpl::{DROPS_PER_XRP, UNITS_PER_DROP};
 
 use super::checks::{
-    check_across, check_events, check_held, check_hub_credit, check_hub_packets, check_settled,
-    first_failure,
+    check_across, check_events, check_hub_credit, check_hub_packets, check_settled, first_failure,
 };
-use super::hub::{HubNet, PREPARES_OVER_DSUSD, PREPARES_OVER_XRP, owed};
-use super::hubbed::{check_losses, paid, routed};
+use super::hub::{PREPARES_OVER_DSUSD, PREPARES_OVER_XRP, owed};
+use super::hub_checks::{check_each, check_losses, hub_standing, idle_in, moving_in, places};
+use super::hubbed::{paid, routed};
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{HUB, HUB_DSUSD, MINT_MICROS, START, Settling, Sim, key, xrpl_account};
-use crate::engine::core::{Direction, HubStatus};
 
 /// How long a move into a hub may be on its way before it is late
 /// (`CREDIT_WAIT_MS`, `engine/core/hub_funding.rs`).
@@ -81,94 +78,9 @@ pub(super) const HUB_STAKE_MICROS: u64 = MINT_MICROS / 2;
 /// What each member's owner moves into the XRP hub as its stake, in XRP.
 pub(super) const HUB_STAKE_XRP: u64 = super::hub_runs::HUB_STAKE_XRP;
 
-/// The ledger of a hub.
-#[must_use]
-pub fn ledger_of(hub: &HubNet) -> LedgerId {
-    match hub.spec.asset {
-        Asset::Xrp => HUB,
-        Asset::Token { .. } => HUB_DSUSD,
-    }
-}
-
-/// The members of the hub at `place`: the nodes with its ledger.
-pub fn members_of(sim: &Sim, place: usize) -> impl Iterator<Item = usize> + '_ {
-    let ledger = ledger_of(sim.hub_at(place));
-    (0..sim.nodes.len()).filter(move |index| sim.settling.ledgers(*index).contains(&ledger))
-}
-
-/// Node `index`'s account in the hub at `place` and its funding, while the
-/// node runs and the hub's scheme with it.
-#[must_use]
-pub fn status_in(sim: &Sim, index: usize, place: usize) -> Option<HubStatus> {
-    let id = *sim.hub_at(place).id().0.as_bytes();
-    sim.nodes[index]
-        .core
-        .as_ref()?
-        .hub_statuses()
-        .into_iter()
-        .find(|status| status.hub_id == id)
-}
-
-/// Whether node `index`'s account in the hub at `place` is in step with
-/// it.
-fn in_step_in(sim: &Sim, index: usize, place: usize) -> bool {
-    status_in(sim, index, place).is_some_and(|status| status.status == LedgerStatus::Synced)
-}
-
-/// Whether node `index` has a move into or out of the hub at `place` on
-/// its way.
-fn moving_in(sim: &Sim, index: usize, place: usize) -> bool {
-    status_in(sim, index, place).is_some_and(|status| status.moving.is_some())
-}
-
-/// The places of the run's hubs.
-fn places(sim: &Sim) -> Vec<usize> {
-    sim.hubs().map(|hub| hub.spec.place).collect()
-}
-
-/// Whether every member of each hub has its account there, in step with
-/// it.
-#[must_use]
-pub fn joined_all(sim: &Sim) -> bool {
-    places(sim).into_iter().all(|place| {
-        members_of(sim, place).all(|index| {
-            status_in(sim, index, place).is_some_and(|status| {
-                status.account.is_some() && status.status == LedgerStatus::Synced
-            })
-        })
-    })
-}
-
-/// How each member stands in each hub, for a failure's message.
-fn standing(sim: &Sim) -> String {
-    let mut out = Vec::new();
-    for place in places(sim) {
-        let hub = sim.hub_at(place);
-        let heights: Vec<u64> = hub
-            .validators
-            .iter()
-            .map(|validator| validator.height(&hub.id()))
-            .collect();
-        let members: Vec<String> = members_of(sim, place)
-            .map(|index| {
-                format!(
-                    "node {index}: {:?}",
-                    status_in(sim, index, place).map(|status| (
-                        status.account,
-                        status.status,
-                        status.balance,
-                        status.moving.map(|moving| (moving.direction, moving.drops))
-                    ))
-                )
-            })
-            .collect();
-        out.push(format!(
-            "{} hub at {place}: heights {heights:?}, {members:?}",
-            ledger_of(hub)
-        ));
-    }
-    out.join("; ")
-}
+// What a run over two hubs shares with every run over hubs, still
+// reachable here, where the runs beside this one and the tests found it.
+pub use super::hub_checks::{joined as joined_all, ledger_of, members_of, status_in};
 
 /// The members join each hub, each from the owner book of its asset,
 /// within the wait of a move.
@@ -181,7 +93,7 @@ pub(super) fn join_hubs(sim: &mut Sim) -> Result<(), Outcome> {
         "joined",
         format!(
             "the members did not all join their hubs in time: {}",
-            standing(sim)
+            hub_standing(sim)
         ),
     ))
 }
@@ -204,7 +116,7 @@ pub(super) fn stake(sim: &mut Sim) -> Result<(), Outcome> {
             "staked",
             format!(
                 "a member's first moves were not done in time: {}",
-                standing(sim)
+                hub_standing(sim)
             ),
         ));
     }
@@ -256,7 +168,7 @@ pub(super) fn stake(sim: &mut Sim) -> Result<(), Outcome> {
             "staked",
             format!(
                 "a member's stake did not reach its hub in time: {}",
-                standing(sim)
+                hub_standing(sim)
             ),
         ));
     }
@@ -271,12 +183,7 @@ pub(super) fn stake(sim: &mut Sim) -> Result<(), Outcome> {
 pub(super) fn settle_down_in(sim: &mut Sim, places: &[usize]) {
     sim.run_until(sim.now + CALM_MS);
     let places = places.to_vec();
-    let settled = move |sim: &Sim| {
-        places.iter().all(|&place| {
-            members_of(sim, place)
-                .all(|index| !moving_in(sim, index, place) && in_step_in(sim, index, place))
-        })
-    };
+    let settled = move |sim: &Sim| idle_in(sim, &places, None);
     let first = settled.clone();
     sim.run_until_or(sim.now + SETTLED_WITHIN_MS, move |sim| {
         first(sim) && check_settled(sim).is_ok()
@@ -287,146 +194,24 @@ pub(super) fn settle_down_in(sim: &mut Sim, places: &[usize]) {
     sim.run_until_or(sim.now + CALM_MS, settled);
 }
 
-/// The validators of the hub at `place` broke nothing.
-fn check_validators_in(sim: &Sim, place: usize) -> Result<(), String> {
-    match sim.hub_at(place).breaches.as_slice() {
-        [] => Ok(()),
-        breaches => Err(format!("hub at {place}: {}", breaches.join("; "))),
-    }
-}
-
-/// Each member's books hold what its schemes hold: its owner books their
-/// accounts on the fake ledger, and in the hub at `place` what its account
-/// and its peers' holds toward it hold, as that hub's honest validators
-/// have it once the network is calm. One whose account is not in step is
-/// left to [`check_in_step_in`].
-fn check_books_in(sim: &Sim, place: usize) -> Result<(), String> {
-    let hub = sim.hub_at(place);
-    let ledger = hub.ledger().ok_or("no honest validator runs")?;
-    let ours = ledger_of(hub);
-    for index in members_of(sim, place) {
-        for &book in sim.settling.owner_books(index) {
-            check_held(sim, index, book)?;
-        }
-        let booked = check_held(sim, index, ours)?;
-        if !in_step_in(sim, index, place) {
-            continue;
-        }
-        let member = dassie_hub::member::member_key(&key(index), &hub.id()).public_key();
-        let number = ledger
-            .account_of(&member)
-            .ok_or_else(|| format!("node {index} has no account in the {ours} hub"))?;
-        let account = ledger.account(number).unwrap();
-        let toward: u64 = ledger
-            .holds()
-            .filter(|(_, hold)| hold.payee == number)
-            .map(|(_, hold)| hold.amount)
-            .sum();
-        let held = i128::from(dassie_hub::member::units(account.balance + toward));
-        if booked != held {
-            return Err(format!(
-                "node {index} books {booked} in the {ours} hub, where its account holds {} and \
-                 its peers' holds toward it {toward}",
-                account.balance
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// Once the network is calm, every member's account in the hub at `place`
-/// is in step with it, and no move into or out of it is on its way.
-fn check_in_step_in(sim: &Sim, place: usize) -> Result<(), String> {
-    match members_of(sim, place)
-        .find(|index| !in_step_in(sim, *index, place) || moving_in(sim, *index, place))
-    {
-        Some(index) => Err(format!(
-            "node {index} is behind the hub at {place} or moving: {}",
-            standing(sim)
-        )),
-        None => Ok(()),
-    }
-}
-
-/// What the escrow of the hub at `place` holds of the hub's asset: drops of
-/// XRP, or millionths of the token.
-fn escrow_holds(sim: &Sim, place: usize) -> u64 {
-    let hub = sim.hub_at(place);
-    match hub.spec.asset {
-        Asset::Xrp => sim.ledger.balance(hub.escrow()).unwrap_or(0),
-        Asset::Token { .. } => sim
-            .ledger
-            .token_balance(hub.escrow(), IssuedAsset::DSUSD)
-            .and_then(|value| value.floor_units(6))
-            .and_then(|micros| u64::try_from(micros).ok())
-            .unwrap_or(0),
-    }
-}
-
-/// The escrow of the hub at `place` holds in the hub's asset what the hub
-/// owes, and for an XRP hub what its sponsor left, but for what is on its
-/// way between them: a deposit made and not yet credited, or a withdrawal
-/// the hub queued that the escrow paid and a quorum has not attested yet.
-/// A token escrow's XRP is gas, which credits no account. And the fake
-/// ledger made or lost no XRP and no token.
-fn check_escrow_in(sim: &Sim, place: usize) -> Result<(), String> {
-    let hub = sim.hub_at(place);
-    let ledger = hub.ledger().ok_or("no honest validator runs")?;
-    let depositing: u64 = members_of(sim, place)
-        .filter_map(|index| status_in(sim, index, place)?.moving)
-        .filter(|moving| moving.direction == Direction::Deposit)
-        .map(|moving| moving.drops)
-        .sum();
-    let withdrawing: u64 = ledger
-        .withdrawals()
-        .map(|(_, withdrawal)| withdrawal.amount + withdrawal.ledger_fee)
-        .sum();
-    let held = escrow_holds(sim, place);
-    let left = match hub.spec.asset {
-        Asset::Xrp => hub.escrow_funding,
-        Asset::Token { .. } => 0,
-    };
-    let owed = left + ledger.supply();
-    if held + withdrawing < owed || held > owed + depositing {
-        return Err(format!(
-            "the escrow of the hub at {place} holds {held}, while the hub owes {} and the \
-             sponsor left {left}, with {depositing} on its way in and {withdrawing} queued out",
-            ledger.supply()
-        ));
-    }
-    if sim.ledger.total() != dassie_xrpl::MAX_DROPS {
-        return Err("the fake ledger made or lost XRP".into());
-    }
-    if !sim.ledger.tokens_conserved() {
-        return Err("the fake ledger made or lost a token".into());
-    }
-    Ok(())
-}
-
 /// What a run over hubs checks of the hubs at `places` and of each member's
-/// books in each, once the network is calm: the validators, each member's
-/// books and its account in step, each escrow; and over all of them, no
-/// packet held past the connector, no credit apart from the holds, and no
-/// loss on a peer over a hub beyond the holds between them on that hub.
+/// books in each, once the network is calm, as every run over hubs does
+/// ([`check_each`]): the validators, each member's books and its owner's,
+/// its account in step and its moves done, each escrow; and over all of
+/// them, no packet held past the connector, no credit apart from the holds,
+/// and no loss on a peer over a hub beyond the holds between them on that
+/// hub.
 pub(super) fn check_hubs(sim: &Sim, places: &[usize]) -> Result<(), Outcome> {
-    let mut checks = vec![
-        check_hub_packets(sim).map_err(|problem| Outcome::safety("hub-packets", problem)),
-        check_hub_credit(sim).map_err(|problem| Outcome::safety("hub-credit", problem)),
-        check_losses(sim).map_err(|problem| Outcome::safety("hub-losses", problem)),
-    ];
-    for &place in places {
-        checks.extend([
-            check_validators_in(sim, place)
-                .map_err(|problem| Outcome::safety("hub-agreement", problem)),
-            check_books_in(sim, place).map_err(|problem| {
-                Outcome::safety("hub-books", format!("{problem}; {}", standing(sim)))
-            }),
-            check_escrow_in(sim, place).map_err(|problem| Outcome::safety("hub-escrow", problem)),
-            check_in_step_in(sim, place)
-                .map_err(|problem| Outcome::liveness("hub-in-step", problem)),
-        ]);
-    }
-    first_failure(checks)
+    first_failure(
+        [
+            check_hub_packets(sim).map_err(|problem| Outcome::safety("hub-packets", problem)),
+            check_hub_credit(sim).map_err(|problem| Outcome::safety("hub-credit", problem)),
+            check_losses(sim).map_err(|problem| Outcome::safety("hub-losses", problem)),
+        ]
+        .into_iter()
+        .chain(check_each(sim, places, None, &[]))
+        .collect::<Vec<_>>(),
+    )
 }
 
 /// The salt of the run's generator: "hubpairs".
@@ -925,7 +710,7 @@ fn stall(sim: &mut Sim, rng: &mut SeededRng, place: usize) -> Result<(), Outcome
     if !gathered(sim) {
         return Err(Outcome::liveness(
             "payout",
-            format!("no quorum signed one payout set: {}", standing(sim)),
+            format!("no quorum signed one payout set: {}", hub_standing(sim)),
         ));
     }
     let applied = |sim: &Sim| {

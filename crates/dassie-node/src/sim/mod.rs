@@ -2737,7 +2737,22 @@ impl Sim {
     /// Or when a failed commit stopped either node before its part was on
     /// disk.
     pub fn pay_outgoing(&mut self, from: usize, to: usize, amount: u64) -> Result<(), String> {
-        let ledger = self.settling.ledger();
+        self.pay_outgoing_in(from, self.settling.ledger(), to, amount)
+    }
+
+    /// As [`Sim::pay_outgoing`], from node `from`'s `ledger` to a receiver
+    /// on the same ledger.
+    ///
+    /// # Errors
+    ///
+    /// As [`Sim::pay_outgoing`].
+    pub fn pay_outgoing_in(
+        &mut self,
+        from: usize,
+        ledger: LedgerId,
+        to: usize,
+        amount: u64,
+    ) -> Result<(), String> {
         let mut incoming = None;
         let stopped = |index: usize| format!("node {index} stopped");
         let created = self.step(to, |core| {

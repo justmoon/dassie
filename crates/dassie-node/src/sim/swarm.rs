@@ -7,12 +7,13 @@
 //! A run settles on the stub with unlimited trust, where nothing settles,
 //! on the stub with commitments, as a hub's members settle
 //! (spec/areas/testing.md#levels), or over a hub of XRP run in the
-//! simulation, as the `node-hub` runs do
-//! (spec/areas/testing.md#over-a-settlement-hub). A run over a hub forms as
-//! those do, the members joining the hub before the network, and its chaos
+//! simulation, as the `node-hub` runs do, or over two, a hub of XRP and a
+//! hub of DSUSD, every node a member of both, as the `node-hubs` run's
+//! (spec/areas/testing.md#over-a-settlement-hub). A run over hubs forms as
+//! those do, the members joining the hubs before the network, and its chaos
 //! begins once every member joined; its members' connections to the fake
 //! XRP Ledger drop and come back to servers that lie, and its books are
-//! judged as theirs are ([`hub_checks`](super::hub_checks)).
+//! judged hub by hub as theirs are ([`hub_checks`](super::hub_checks)).
 //!
 //! A run has two phases. In the chaos, payments start while nodes crash
 //! or fail a commit and restart, links are cut and healed, messages are
@@ -41,15 +42,17 @@ use super::checks::{
     not_settled_down,
 };
 use super::hub_checks::waiting;
+use super::hub_pairs::join_hubs;
 use super::hubbed::{JOINED_WITHIN_MS, join_hub, over_hub as peered_over_hub};
 use super::scripted::{
     PAID_WITHIN_MS, READY_WITHIN_MS, collected_before_telling, ended, ready,
     settled_nothing_once_ending, trace_ms, until_peered,
 };
-use super::{Delivery, LONGEST_LIE_MS, REGIONAL_LATENCY_MS, Settling, Sim, key};
+use super::{Delivery, HUB, HUB_DSUSD, LONGEST_LIE_MS, REGIONAL_LATENCY_MS, Settling, Sim, key};
 use crate::engine::LedgerEvent;
 use crate::node::Policies;
-use crate::store::{Aim, OutgoingState};
+use crate::store::{Aim, OutgoingState, PeerSettings};
+use dassie_ledger::LedgerId;
 use dassie_xrpl::fake::{Lie, VALIDATORS};
 
 /// How long a healed network has to settle down, from the production rules
@@ -334,15 +337,19 @@ impl Options {
 }
 
 /// What a run settles over (spec/areas/testing.md#levels): in one seed in
-/// [`HUB_ONE_IN`] a hub of XRP of 4 to 7 honest validators run in the
-/// simulation, as `node-hub`'s, so that whole nodes settle over a hub
-/// through the chaos; of the rest, in half the stub with unlimited trust,
-/// where nothing settles, so that the chaos and the payments are the
-/// subject, and in the other half the stub with commitments, so that
-/// packets take the path over a settlement hub and settlements fund holds
-/// as a hub's members' do, with room for 1, 2, 4 or 8 packets in flight per
-/// peer each way. Its own generators, so that it draws nothing else's, and
-/// the hub's apart, so that every other seed draws what it drew before.
+/// [`HUB_ONE_IN`] hubs of 4 to 7 honest validators each run in the
+/// simulation, so that whole nodes settle over hubs through the chaos: of
+/// those, in one in [`TWO_HUBS_ONE_IN`] a hub of XRP and a hub of DSUSD,
+/// every node a member of both and each pair peered over both, as
+/// `node-hubs`'s, and otherwise a hub of XRP, as `node-hub`'s. Of the rest,
+/// in half the stub with unlimited trust, where nothing settles, so that
+/// the chaos and the payments are the subject, and in the other half the
+/// stub with commitments, so that packets take the path over a settlement
+/// hub and settlements fund holds as a hub's members' do, with room for 1,
+/// 2, 4 or 8 packets in flight per peer each way. Its own generators, so
+/// that it draws nothing else's, the hub's apart, so that every other seed
+/// draws what it drew before, and the second hub's apart again, so that a
+/// seed over hubs draws the same validators whether over one or two.
 fn settling(seed: u64) -> Settling {
     let mut rng = SeededRng::new(seed ^ 0x6875_6240);
     let stub = if rng.below(2) == 0 {
@@ -351,19 +358,35 @@ fn settling(seed: u64) -> Settling {
         Settling::StubHub(1 << rng.below(4))
     };
     let mut hub = SeededRng::new(seed ^ 0x6875_6241);
-    if hub.below(HUB_ONE_IN) == 0 {
-        Settling::Hub(4 + usize::try_from(hub.below(4)).unwrap())
+    if hub.below(HUB_ONE_IN) != 0 {
+        return stub;
+    }
+    let validators = 4 + usize::try_from(hub.below(4)).unwrap();
+    let mut second = SeededRng::new(seed ^ TWO_HUBS_SALT);
+    if second.below(TWO_HUBS_ONE_IN) == 0 {
+        Settling::Hubs(validators)
     } else {
-        stub
+        Settling::Hub(validators)
     }
 }
 
-/// How rarely a seed draws a run over a hub: one in this many. A run over
-/// a hub takes ten times the wall time of one on the stub, or more, as its
-/// validators make a block every block interval, so that the runs over a
-/// hub, one in this many, take about as much of the `node` simulation's
-/// time in a campaign as the rest together.
+/// How rarely a seed draws a run over hubs: one in this many. A run over a
+/// hub takes ten times the wall time of one on the stub, or more, as its
+/// validators make a block every block interval, so that the runs over
+/// one hub, one in this many, would take about as much of the `node`
+/// simulation's time in a campaign as the rest together; the runs over two
+/// ([`TWO_HUBS_ONE_IN`]) add a quarter to that.
 const HUB_ONE_IN: u64 = 8;
+
+/// How rarely a run over hubs is over two: one in this many. Two hubs run
+/// two sets of validators, and each member reads both, so that such a run
+/// takes about twice the wall time of one over a hub: one in four makes
+/// the runs over hubs take about a quarter more of a campaign than runs
+/// over one hub alone would.
+const TWO_HUBS_ONE_IN: u64 = 4;
+
+/// The salt of the generator that draws a second hub: "hubs".
+const TWO_HUBS_SALT: u64 = 0x6875_6273;
 
 /// How many members a run over a hub has, 2 to 5: each reads the hub every
 /// so often, which costs wall time as validators do. Its own generator, so
@@ -386,12 +409,28 @@ const fn most_skew_ms(settling: Settling) -> u64 {
     }
 }
 
-/// Whether the run is over a hub run in the simulation, whose members
-/// fund their accounts in it from their owners' books on the fake XRP
-/// Ledger: only such a run has connections to that ledger for the chaos to
-/// drop, or to send to a server that lies.
+/// Whether the run is over hubs run in the simulation, one or two, whose
+/// members fund their accounts in them from their owners' books on the fake
+/// XRP Ledger: only such a run has connections to that ledger for the chaos
+/// to drop, or to send to a server that lies.
 const fn over_hub(settling: Settling) -> bool {
-    matches!(settling, Settling::Hub(_))
+    matches!(settling, Settling::Hub(_) | Settling::Hubs(_))
+}
+
+/// What the run settles over, as its description prints it.
+struct Over(Settling);
+
+impl fmt::Display for Over {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Settling::Hubs(validators) => write!(
+                f,
+                "Hubs({validators}): an XRP hub and a DSUSD hub of {validators} validators each, \
+                 every node in both"
+            ),
+            settling => write!(f, "{settling:?}"),
+        }
+    }
 }
 
 /// How often a run over a hub draws a lying server for a member's owner's
@@ -423,14 +462,14 @@ impl fmt::Display for Options {
         let w = &self.weights;
         write!(
             f,
-            "{} nodes, {} bootstrap, {:?}; latency {}–{} ms, loss {}‰, forgeries {}‰, \
+            "{} nodes, {} bootstrap, {}; latency {}–{} ms, loss {}‰, forgeries {}‰, \
              clocks off by up to {} ms; chaos {} s, \
              every ~{} ms: pay {} crash {} restart {} cut {} heal {} ledger drop {} \
              lie {} rotate {} fail commit {} end {} ban {} idle {}; \
              {} payments and {} outgoing, up to {}",
             self.nodes,
             self.bootstraps,
-            self.settling,
+            Over(self.settling),
             self.latency_ms.0,
             self.latency_ms.1,
             self.loss_per_mille,
@@ -493,6 +532,15 @@ pub fn run(seed: u64) -> Run {
     for _ in skews.iter().filter(|skew| **skew != 0) {
         sim.count("clocks off");
     }
+    // Over two hubs, node 1 charges nothing, as no node of the swarm does:
+    // in a run over two hubs it is the node that converts, and charges for
+    // what passes, but the swarm's payments stay on one ledger end to end
+    // ([`pay`]), and each must arrive with all that was sent.
+    if matches!(options.settling, Settling::Hubs(_)) {
+        sim.step(1, |core| {
+            core.set_peer_settings(PeerSettings::DEFAULT).unwrap();
+        });
+    }
     sim.latency_ms = options.latency_ms;
     // The network forms first, calm, as the scripted runs' does: at
     // production timings that takes minutes, longer than a payer keeps
@@ -502,7 +550,13 @@ pub fn run(seed: u64) -> Run {
     sim.loss_per_mille = 0;
     if hub {
         sim.count("runs over a hub");
-        if let Err(late) = join_hub(&mut sim) {
+        let joined = if matches!(options.settling, Settling::Hubs(_)) {
+            sim.count("runs over two hubs");
+            join_hubs(&mut sim)
+        } else {
+            join_hub(&mut sim)
+        };
+        if let Err(late) = joined {
             return ended(sim, Err(late));
         }
         sim.join_network(options.bootstraps);
@@ -726,11 +780,16 @@ fn up(sim: &Sim, index: usize) -> bool {
 /// payment, sometimes to the node's own receiver. Both ends must run. A
 /// payment that a failed commit stopped before it started is left for
 /// later, as its owner or client, told of the failure, would try again.
+/// Over two hubs, each payment is in XRP or in dollars, drawn, from that
+/// ledger of the payer into the same ledger of its receiver, so that its
+/// packets keep their ledger and cross that hub
+/// (spec/areas/connector.md#settlement-method-slots).
 fn pay(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u64)) {
     let running: Vec<usize> = (0..sim.nodes.len()).filter(|i| up(sim, *i)).collect();
     let (Some(&from), Some(&to)) = (choose(&running, rng), choose(&running, rng)) else {
         return;
     };
+    let ledger = paid_on(sim.settling, rng);
     let amount = LEAST_PAYMENT + rng.below(options.largest_payment - LEAST_PAYMENT + 1);
     if left.0 > 0 && (left.1 == 0 || rng.below(4) != 0) {
         if from == to {
@@ -744,10 +803,17 @@ fn pay(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u
                 amount: LEAST_PAYMENT,
                 window_ms: 10_000,
             };
-            sim.pay(from, to, 4 * LEAST_PAYMENT, Some(cap), None)
+            sim.pay_in(
+                from,
+                (ledger, ledger),
+                to,
+                4 * LEAST_PAYMENT,
+                Some(cap),
+                None,
+            )
         } else {
             let limit = (rng.below(4) == 0).then_some(amount / 2);
-            sim.pay(from, to, amount, None, limit)
+            sim.pay_in(from, (ledger, ledger), to, amount, None, limit)
         };
         if started {
             left.0 -= 1;
@@ -757,7 +823,7 @@ fn pay(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u
             }
         }
     } else if left.1 > 0 {
-        match sim.pay_outgoing(from, to, amount) {
+        match sim.pay_outgoing_in(from, ledger, to, amount) {
             Ok(()) => {
                 left.1 -= 1;
                 sim.count("outgoing payments");
@@ -771,7 +837,7 @@ fn pay(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u
                 // hub, the member's book in the hub, whatever its owner
                 // still holds on the XRP Ledger. Any other refusal fails
                 // the run.
-                let pool = (sim.balances_on(from, sim.settling.ledger()))
+                let pool = (sim.balances_on(from, ledger))
                     .get("equity/owner")
                     .copied()
                     .unwrap_or(0);
@@ -786,6 +852,15 @@ fn pay(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u
                 }
             }
         }
+    }
+}
+
+/// The ledger a payment is on: over two hubs either hub's, drawn, and
+/// otherwise the run's one, drawing nothing.
+fn paid_on(settling: Settling, rng: &mut SeededRng) -> LedgerId {
+    match settling {
+        Settling::Hubs(_) => [HUB, HUB_DSUSD][usize::try_from(rng.below(2)).unwrap()],
+        settling => settling.ledger(),
     }
 }
 
@@ -1131,6 +1206,13 @@ fn heal(
     if over_hub(options.settling) {
         peered_over_hub(sim)?;
     }
+    // Over two hubs, this check and the drift a heal that did not settle
+    // down is excused for ([`not_settled_down`]) are weaker than the books:
+    // what a node said it had on its way is in its peering's first
+    // method's units, while a settlement booked does not say on which
+    // method it came, so the bookings of both count toward it; and the
+    // credit and room of a link are its first method's alone. Telling the
+    // methods apart needs the ledger in the booking's event.
     for end in ends.iter().filter(|end| !end.ban) {
         // A ban of the peer while the node collects tells it at once.
         let banned = ends
@@ -1258,26 +1340,30 @@ fn check_end(sim: &Sim, end: &End) -> Result<(), Outcome> {
     if ban {
         banned(sim, mark, by, peer)?;
     }
+    // Over two hubs, on each method of the peering, each in its own ledger.
     for (index, other) in [(by, peer), (peer, by)] {
         let id = key(other).node_id();
-        let balances = sim.balances(index);
-        let (Some(position), Some(trust)) = (
-            balances.get(&format!("assets/interledger/{id}")),
-            balances.get(&format!("contra/trust/{id}")),
-        ) else {
-            // A peering only the other side recorded, as when its
-            // requester crashed before the acceptance arrived: this node
-            // never opened the accounts, and extended nothing.
-            continue;
-        };
-        let (credit, owed) = (-trust, -(position + trust));
-        if owed > credit {
-            return Err(Outcome::safety(
-                "owed-past-credit",
-                format!(
-                    "node {other} owes node {index} {owed}, past the {credit} credit it extends"
-                ),
-            ));
+        for &ledger in sim.settling.ledgers(index) {
+            let balances = sim.balances_on(index, ledger);
+            let (Some(position), Some(trust)) = (
+                balances.get(&format!("assets/interledger/{id}")),
+                balances.get(&format!("contra/trust/{id}")),
+            ) else {
+                // A peering only the other side recorded, as when its
+                // requester crashed before the acceptance arrived: this
+                // node never opened the accounts, and extended nothing.
+                continue;
+            };
+            let (credit, owed) = (-trust, -(position + trust));
+            if owed > credit {
+                return Err(Outcome::safety(
+                    "owed-past-credit",
+                    format!(
+                        "node {other} owes node {index} {owed} on {ledger}, past the {credit} \
+                         credit it extends"
+                    ),
+                ));
+            }
         }
     }
     Ok(())
@@ -1431,6 +1517,35 @@ mod tests {
                 .map(Options::swarm)
                 .filter(|options| !over_hub(options.settling))
                 .all(|options| options.weights.lie == 0 && options.weights.ledger_drop == 0)
+        );
+    }
+
+    // A share of the seeds over hubs draws two, from a generator of its
+    // own: which seeds are over hubs, and their validators, are what the
+    // hub's generator draws, as before there were two.
+    #[test]
+    fn a_share_of_the_runs_over_hubs_draws_two() {
+        let mut over = 0;
+        let mut two = 0;
+        for seed in 0..800 {
+            let drawn = settling(seed);
+            let mut hub = SeededRng::new(seed ^ 0x6875_6241);
+            assert_eq!(
+                over_hub(drawn),
+                hub.below(HUB_ONE_IN) == 0,
+                "seed {seed}: {drawn:?}"
+            );
+            if !over_hub(drawn) {
+                continue;
+            }
+            over += 1;
+            two += usize::from(matches!(drawn, Settling::Hubs(_)));
+            let validators = 4 + usize::try_from(hub.below(4)).unwrap();
+            assert_eq!(drawn.hub_validators(), Some(validators), "seed {seed}");
+        }
+        assert!(
+            two > 0 && two < over / 2,
+            "{two} of {over} runs over hubs are over two"
         );
     }
 
