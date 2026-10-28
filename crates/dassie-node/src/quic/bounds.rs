@@ -106,6 +106,7 @@ mod tests {
             kind: dassie_peer::wire::Kind::LinkStateUpdate,
             body: Vec::new(),
             timeout_ms: 1_000,
+            fresh: false,
         }
     }
 

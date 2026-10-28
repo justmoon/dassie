@@ -338,6 +338,7 @@ fn request(to: NodeId, url: &str, timeout_ms: u64) -> PeerRequest {
         kind: Kind::LinkStateRequest,
         body: b"hello".to_vec(),
         timeout_ms,
+        fresh: false,
     }
 }
 

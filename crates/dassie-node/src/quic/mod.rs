@@ -80,6 +80,25 @@ use crate::tls;
 /// move under its name (spec/areas/peer-protocol.md#versions).
 pub const VERSIONS: [&[u8]; 1] = [b"dassie/2"];
 
+/// The versions of the peer protocol a check of a node's URL speaks, one
+/// for each of [`VERSIONS`], in their order: the same messages, on a
+/// connection the node answers on, but never keeps as its connection to
+/// the dialler, which closes it once answered
+/// (spec/areas/peer-protocol.md#quic).
+pub const CHECKS: [&[u8]; 1] = [b"dassie/2+check"];
+
+const _: () = assert!(CHECKS.len() == VERSIONS.len(), "a check for each version");
+
+/// Whether `connection` is a check of our URL: one that speaks a version of
+/// [`CHECKS`].
+fn is_check(connection: &Connection) -> bool {
+    connection
+        .handshake_data()
+        .and_then(|data| data.downcast::<quinn::crypto::rustls::HandshakeData>().ok())
+        .and_then(|data| data.protocol)
+        .is_some_and(|protocol| CHECKS.contains(&protocol.as_slice()))
+}
+
 /// The ALPN list of `versions`.
 fn alpn(versions: &[&[u8]]) -> Vec<Vec<u8>> {
     versions.iter().map(|version| version.to_vec()).collect()
@@ -346,6 +365,9 @@ pub async fn send_peer(
         return Err(Failure::NotDelivered);
     };
     let _slot = quic.bounds.hold(&request, quic.allow_private)?;
+    if request.fresh {
+        return quic.send_fresh(&request, resolver).await;
+    }
     // A periphery node has no endpoint: it is reached only over the
     // connection it opened to us, never dialled.
     if request.endpoint.is_none() {
@@ -745,6 +767,50 @@ impl Quic {
             .remove(node);
     }
 
+    /// Sends `request` on a connection of its own, dialled at its
+    /// endpoint, never the one kept for the node, and closed once answered:
+    /// what shows that the node answers at that endpoint, where the
+    /// connection it opened to us would answer as well
+    /// (spec/decisions/promotion-to-core.md). It speaks a check's version
+    /// ([`CHECKS`]), so the node answers on it but never keeps it as its
+    /// connection to us, and nothing of the node's goes over it. It ends no
+    /// backoff and starts none: it says nothing of the connection we keep
+    /// with the node.
+    ///
+    /// # Errors
+    ///
+    /// [`Failure::NotDelivered`] without our key, an endpoint or a
+    /// connection; [`Failure::Unknown`] past the request's time.
+    pub async fn send_fresh(
+        self: &Arc<Self>,
+        request: &Request,
+        resolver: &Resolver,
+    ) -> Result<Response, Failure> {
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_millis(request.timeout_ms.max(1));
+        let (Some(_), Some(endpoint)) = (self.keys.current(), request.endpoint.as_ref()) else {
+            return Err(Failure::NotDelivered);
+        };
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let periphery = self.periphery.load(Ordering::Relaxed);
+        let Some(connection) = self
+            .dial(
+                (request.to, endpoint),
+                resolver,
+                CONNECT_TIMEOUT.min(left),
+                (periphery, &CHECKS),
+            )
+            .await
+        else {
+            return Err(Failure::NotDelivered);
+        };
+        let result = tokio::time::timeout_at(deadline, exchange(&connection, &request.body))
+            .await
+            .unwrap_or(Err(Failure::Unknown));
+        connection.close(0u32.into(), b"");
+        result
+    }
+
     /// Sends `request` and reads its response within the request's time,
     /// making a connection if there is none.
     ///
@@ -871,7 +937,8 @@ impl Quic {
         } else {
             MIN_TO_JUDGE
         };
-        let Some(connection) = self.dial((to, endpoint), resolver, left, periphery).await else {
+        let dialled = self.dial((to, endpoint), resolver, left, (periphery, &VERSIONS));
+        let Some(connection) = dialled.await else {
             return Err(if left >= to_judge {
                 NoConnection::DialFailed
             } else {
@@ -922,7 +989,7 @@ impl Quic {
         (to, endpoint): (NodeId, &PeerEndpoint),
         resolver: &Resolver,
         within: Duration,
-        keep_alive: bool,
+        (keep_alive, versions): (bool, &[&[u8]]),
     ) -> Option<Connection> {
         let deadline = tokio::time::Instant::now() + within;
         let (host, port) = (endpoint.host(), endpoint.port());
@@ -938,14 +1005,15 @@ impl Quic {
             .ok()?
             .ok()?;
         let transport = || client_transport(self.idle, keep_alive);
-        let config = client_config(&self.keys, to, transport()).ok()?;
+        let config = client_offering(&self.keys, to, transport(), versions).ok()?;
         let udp = self.dial_udp(to, host, &addresses, config, deadline);
         // A node with a URL is, or is to be, core, and takes UDP: a tunnel
         // would only hide that its UDP is blocked.
         if !self.periphery.load(Ordering::Relaxed) {
             return udp.await;
         }
-        let config = client_config(&self.keys, to, tunnel::over_tunnel(transport())).ok()?;
+        let config =
+            client_offering(&self.keys, to, tunnel::over_tunnel(transport()), versions).ok()?;
         // Over TCP, which reaches addresses of either family.
         let tcp = addresses.get(..MAX_ADDRESSES).unwrap_or(&addresses);
         let tunnel = self.tunnels.dial(to, (host, port), tcp, &config, deadline);
@@ -1181,7 +1249,9 @@ impl Quic {
         if let Some(inside) = &inside {
             inside.settled();
         }
-        if let Some(peer) = keys::peer_node(&connection) {
+        // A check of our URL is answered, never kept: its dialler closes it
+        // once answered.
+        if let Some(peer) = keys::peer_node(&connection).filter(|_| !is_check(&connection)) {
             let (quic, connection) = (Arc::clone(&self), connection.clone());
             tokio::spawn(async move { quic.keep_inbound(peer, connection).await });
         }
@@ -1428,6 +1498,7 @@ fn server_config(keys: &Arc<Keys>, idle: Duration) -> Result<quinn::ServerConfig
         .with_client_cert_verifier(Arc::new(AnyNodeKey::new()))
         .with_cert_resolver(Arc::new(Present(Arc::clone(keys))));
     config.alpn_protocols = alpn(&VERSIONS);
+    config.alpn_protocols.extend(alpn(&CHECKS));
     let crypto = QuicServerConfig::try_from(config).map_err(|e| e.to_string())?;
     let mut config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
     config.transport_config(Arc::new(transport_config(idle)));
@@ -1455,7 +1526,9 @@ fn client_transport(idle: Duration, keep_alive: bool) -> TransportConfig {
     transport
 }
 
-/// The configuration for dialling `expected`, with `transport`'s settings.
+/// The configuration for dialling `expected`, with `transport`'s settings,
+/// offering this node's versions.
+#[cfg(test)]
 fn client_config(
     keys: &Arc<Keys>,
     expected: NodeId,
@@ -1464,7 +1537,8 @@ fn client_config(
     client_offering(keys, expected, transport, &VERSIONS)
 }
 
-/// [`client_config`], offering `versions`.
+/// The configuration for dialling `expected`, with `transport`'s settings,
+/// offering `versions`: [`VERSIONS`], or [`CHECKS`] for a check of its URL.
 fn client_offering(
     keys: &Arc<Keys>,
     expected: NodeId,

@@ -529,7 +529,10 @@ impl PeerNode {
         };
         let first = Method::new(scheme, agreed.state, agreed.credit_out);
         entry.peer = PeerState::Peered(PeeringState::new(first, now, inbound));
-        entry.standing = crate::table::Standing::NEW;
+        entry.standing = crate::table::Standing {
+            skew_ms: entry.standing.skew_ms,
+            ..crate::table::Standing::NEW
+        };
         entry.peering_failures = 0;
         // Its further methods are asked for at once.
         entry.method_at_ms = now;
@@ -586,7 +589,8 @@ impl PeerNode {
         if downlink && !repeat && !self.ensure(sender, Sources::DOWNLINK) {
             return Inbound::Reply(refused(RefusalReason::Capacity));
         }
-        self.process_link_state(&request.node_info, None, Retransmit::Never);
+        // From the sender itself, whose clock its link state shows.
+        self.process_link_state(&request.node_info, Some(sender), Retransmit::Never);
         if let Some(entry) = self.table.get_mut(&sender) {
             entry.key.get_or_insert(key.key());
         }

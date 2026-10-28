@@ -419,6 +419,7 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
                 room_packets: promotion.room_packets,
                 paid_us: promotion.paid_us,
                 clock_skew_ms: promotion.skew_ms,
+                url_answered: promotion.url_answered,
             }),
     }
 }
@@ -433,6 +434,7 @@ const fn promotion_check(check: dassie_peer::PromotionCheck) -> &'static str {
         PromotionCheck::Room => "room",
         PromotionCheck::Settled => "settled",
         PromotionCheck::Clock => "clock",
+        PromotionCheck::Url => "url",
         PromotionCheck::NotBanned => "not-banned",
     }
 }

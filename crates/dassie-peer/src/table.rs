@@ -628,8 +628,14 @@ pub struct Standing {
     /// When the newest bucket began.
     pub bucket_ms: u64,
     /// How far its clock was ahead of ours, negative behind, as the newest
-    /// sequence of its link state that came straight from it showed.
+    /// sequence of its link state that came straight from it showed, as an
+    /// update of one we held: one we see first may be up to a reissue old.
+    /// Kept across its peerings: it is the node's clock, not theirs.
     pub skew_ms: Option<i64>,
+    /// When we next check that it answers at its URL.
+    pub url_check_at_ms: u64,
+    /// Whether it answered at its URL the last time we checked.
+    pub url_answered: Option<bool>,
 }
 
 const _: () = assert!(STANDING_BUCKETS == 6, "the buckets' array");
@@ -644,6 +650,8 @@ impl Standing {
         }; 6],
         bucket_ms: 0,
         skew_ms: None,
+        url_check_at_ms: 0,
+        url_answered: None,
     };
 
     /// The newest bucket at `now_ms`, of buckets `bucket_ms` long: older
@@ -838,6 +846,27 @@ impl Entry {
             },
             standing: Standing::NEW,
             refuse_until_ms: 0,
+        }
+    }
+
+    /// What a new link state, `new`, in place of the one it holds, tells of
+    /// its node for its promotion (spec/decisions/promotion-to-core.md).
+    /// Straight from its subject (`direct`), a new sequence of a link state
+    /// we held shows its clock, which issued it a moment ago and sent it on
+    /// at once; one we see first may be up to a reissue old. A new URL is
+    /// checked anew: the old one's answer says nothing of it.
+    pub fn watch_link(&mut self, new: &LinkState, direct: bool, now_ms: u64) {
+        let Some(old) = &self.link else {
+            return;
+        };
+        if direct {
+            let sequence = i64::try_from(new.sequence).unwrap_or(i64::MAX);
+            let now = i64::try_from(now_ms).unwrap_or(i64::MAX);
+            self.standing.skew_ms = Some(sequence.saturating_sub(now));
+        }
+        if old.endpoint != new.endpoint {
+            self.standing.url_answered = None;
+            self.standing.url_check_at_ms = 0;
         }
     }
 

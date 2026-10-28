@@ -1083,6 +1083,10 @@ fn an_uplink_watches_its_downlink_for_promotion() {
         assert!(pending.contains(&check), "{check:?} in {pending:?}");
     }
     assert!(early.skew_ms.is_some(), "its clock, from its link state");
+    assert_eq!(
+        early.url_answered, None,
+        "a URL is checked only once it paid us"
+    );
 
     room.set(PROMOTION_ROOM_PACKETS);
     network.act_with_hooks(uplink, |peer, hooks, now| peer.paid_by(now, hooks, &node));
@@ -1094,5 +1098,12 @@ fn an_uplink_watches_its_downlink_for_promotion() {
         "{later:?}"
     );
     assert!(later.heartbeats.sent > 0 && later.heartbeats.answered > 0);
+    assert_eq!(later.url_answered, Some(true), "it answers at its URL");
     assert!(network.node(uplink).is_downlink(&node), "not acted on");
+    // Its URL no longer answers us: the next check finds it so.
+    network.cut_one_way.insert((uplink, turning));
+    settle(&mut network, Config::DEV.promotion_standing_ms / 3);
+    let cut = promotion(&network).expect("a candidate still");
+    assert_eq!(cut.url_answered, Some(false));
+    assert!(cut.pending(&Config::DEV).contains(&PromotionCheck::Url));
 }

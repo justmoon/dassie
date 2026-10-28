@@ -159,6 +159,7 @@ async fn send(from: &Side, to: &Side) {
         kind: Kind::LinkStateRequest,
         body: b"hello".to_vec(),
         timeout_ms: 5_000,
+        fresh: false,
     };
     let response = from.quic.send(&request, &client()).await;
     assert!(response.is_ok(), "{response:?}");
@@ -750,6 +751,7 @@ fn to_periphery(to: &Side) -> PeerRequest {
         kind: Kind::LinkStateRequest,
         body: b"hello".to_vec(),
         timeout_ms: 5_000,
+        fresh: false,
     }
 }
 

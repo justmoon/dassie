@@ -680,7 +680,12 @@ impl Quic {
                 }
                 Some(_) if self.is_serving() => {
                     let dialled = self
-                        .dial((relay, &endpoint), &resolver, CONNECT_TIMEOUT, true)
+                        .dial(
+                            (relay, &endpoint),
+                            &resolver,
+                            CONNECT_TIMEOUT,
+                            (true, &super::VERSIONS),
+                        )
                         .await;
                     if let Some(connection) = dialled {
                         let since = tokio::time::Instant::now();
