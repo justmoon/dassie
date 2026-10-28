@@ -147,15 +147,34 @@ function OutgoingRow(props: { payment: OutgoingPayment }): JSX.Element {
         <Show
           when={props.payment.fixedDebit}
           fallback={
-            <Show when={props.payment.receiveAmount}>
-              {(amount) => (
+            <>
+              <Show when={props.payment.receiveAmount}>
+                {(amount) => (
+                  <Amount
+                    value={amount().value}
+                    currency={ledgerCurrency(amount())}
+                    testid="outgoing-receive"
+                  />
+                )}
+              </Show>
+              {/* One that failed after spending says what left. */}
+              <Show
+                when={props.payment.state === "failed" &&
+                  props.payment.sentAmount > 0n}
+              >
+                {", paid "}
                 <Amount
-                  value={amount().value}
-                  currency={ledgerCurrency(amount())}
-                  testid="outgoing-receive"
+                  value={props.payment.sentAmount}
+                  currency={currency()}
+                  testid="outgoing-sent"
                 />
-              )}
-            </Show>
+                {" of "}
+                <Amount
+                  value={props.payment.debitAmount}
+                  currency={currency()}
+                />
+              </Show>
+            </>
           }
         >
           <Amount
