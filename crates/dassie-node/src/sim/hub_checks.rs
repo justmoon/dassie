@@ -9,7 +9,7 @@
 //! (spec/decisions/own-books.md), in the hub and in the owner book it funds
 //! its account there from. What a member lost on a peer, and whether it
 //! settled, are judged over every method of its peerings together. And the
-//! payout of a hub of XRP, once it stalls.
+//! payout of a hub, once it stalls.
 
 use std::collections::BTreeMap;
 
@@ -784,17 +784,22 @@ pub(super) fn check_moved_in(sim: &Sim, place: usize, liar: Option<usize>) -> Re
     }
 }
 
-/// The escrow paid out exactly the final balances of the block the set is
-/// of: each account with somewhere to go and enough to pay out received
-/// its balance, reserves and the holds it paid into, less the fee, as the
-/// design says, worked out apart from the set; every transaction of the set
-/// applied; and the escrow is left with what it held less what the set
-/// paid and its fees.
-pub(super) fn check_payout(sim: &mut Sim) -> Result<(), String> {
-    let hub = sim.hub.as_deref().unwrap();
+/// The escrow of the hub at `place` paid out exactly the final balances of
+/// the block its set is of, in the hub's asset: each account with somewhere
+/// to go and enough to pay out received its balance, reserves and the holds
+/// it paid into, less the ledger's fee where the hub charges one, as the
+/// design says, worked out apart from the set; every member was paid
+/// something; every transaction of the set applied, each withdrawal and
+/// payout delivering what it names; and the escrow's XRP is left with what
+/// it held less what the set paid of it, fees included, plus what was sent
+/// to it meanwhile. Every scripted run over hubs that stalls one judges its
+/// payout by this.
+pub(super) fn check_payout(sim: &mut Sim, place: usize) -> Result<(), String> {
+    let hub = sim.hub_at(place);
     let payout = hub.payout.as_ref().unwrap();
     let ledger = &payout.ledger;
-    let fees = ledger.terms().fees;
+    let terms = ledger.terms().clone();
+    let fees = terms.fees;
     let (_, before, first) = payout.submitted.unwrap();
     let (after, last) = payout.escrow_after.unwrap();
     let escrow = hub.escrow();
@@ -813,10 +818,12 @@ pub(super) fn check_payout(sim: &mut Sim) -> Result<(), String> {
             );
         }
     }
+    // What the set took of the escrow's XRP: every fee, and in a hub of
+    // XRP what it paid.
     let mut paid_out = 0u64;
     let mut delivered: BTreeMap<dassie_xrpl::AccountId, u64> = BTreeMap::new();
     for (hash, transaction) in hashes.iter().zip(&transactions) {
-        let record = transaction_record(sim, hash)
+        let record = transaction_record(sim, place, hash)
             .ok_or_else(|| format!("{transaction:?} was never applied"))?;
         if record.result != "tesSUCCESS" {
             return Err(format!("{transaction:?} ended {}", record.result));
@@ -831,20 +838,23 @@ pub(super) fn check_payout(sim: &mut Sim) -> Result<(), String> {
         if let PayoutTransaction::Payout(payment) | PayoutTransaction::Withdrawal(payment) =
             transaction
         {
-            let Amount::Xrp(amount) = payment.amount else {
-                return Err("a payout of something else than XRP".into());
+            let named = terms
+                .hub_amount(&payment.amount)
+                .ok_or("a payout of something else than the hub's asset")?;
+            let got = match payment.amount {
+                Amount::Xrp(_) => record.delivered,
+                Amount::Token(_) => record
+                    .delivered_token
+                    .and_then(|token| terms.hub_amount(&Amount::Token(token))),
             };
-            if record.delivered != Some(amount) {
-                return Err(format!(
-                    "a payout of {amount} delivered {:?}",
-                    record.delivered
-                ));
+            if got != Some(named) {
+                return Err(format!("a payout of {named} delivered {got:?}"));
             }
-            if !before_payout {
-                paid_out += amount;
+            if !before_payout && matches!(payment.amount, Amount::Xrp(_)) {
+                paid_out += named;
             }
             if matches!(transaction, PayoutTransaction::Payout(_)) {
-                *delivered.entry(payment.destination).or_default() += amount;
+                *delivered.entry(payment.destination).or_default() += named;
             }
         }
     }
@@ -853,15 +863,16 @@ pub(super) fn check_payout(sim: &mut Sim) -> Result<(), String> {
             "the escrow paid out {delivered:?}, where the final balances are {expected:?}"
         ));
     }
-    for index in 0..sim.nodes.len() {
+    for index in members_of(sim, place) {
         if !delivered.contains_key(&xrpl_account(index)) {
             return Err(format!("node {index} was paid nothing out"));
         }
     }
-    // Deposits a member made meanwhile, which the stalled hub never
-    // credits, are the only other money the escrow may have moved.
+    // XRP sent to the escrow meanwhile, deposits a stalled hub never
+    // credits or a token hub's gas, is the only other XRP the escrow may
+    // have moved.
     let mut deposited = 0u64;
-    for record in escrow_transactions(sim, escrow, first, last)? {
+    for record in escrow_transactions(sim, place, first, last)? {
         if hashes.contains(&record.hash) {
             continue;
         }
@@ -874,22 +885,27 @@ pub(super) fn check_payout(sim: &mut Sim) -> Result<(), String> {
     }
     if after + paid_out != before + deposited {
         return Err(format!(
-            "the escrow went from {before} to {after}, having paid out {paid_out} and taken \
-             {deposited} in deposits"
+            "the escrow's XRP went from {before} to {after}, having paid out {paid_out} and \
+             taken {deposited}"
         ));
     }
     sim.count("payouts checked");
+    if matches!(terms.asset, Asset::Token { .. }) {
+        sim.count("token payouts checked");
+    }
     Ok(())
 }
 
-/// The escrow's transactions in ledgers `first` to `last`.
-fn escrow_transactions(
+/// The transactions of the escrow of the hub at `place` in ledgers `first`
+/// to `last`.
+pub(super) fn escrow_transactions(
     sim: &mut Sim,
-    escrow: dassie_xrpl::AccountId,
+    place: usize,
     first: u32,
     last: u32,
 ) -> Result<Vec<api::TxRecord>, String> {
-    let connection = sim.hub.as_deref().unwrap().submitter();
+    let hub = sim.hub_at(place);
+    let (escrow, connection) = (hub.escrow(), hub.submitter());
     let mut records = Vec::new();
     let mut marker = None;
     loop {
@@ -910,9 +926,14 @@ fn escrow_transactions(
     }
 }
 
-/// The fake ledger's record of the transaction `hash`, if it applied.
-fn transaction_record(sim: &mut Sim, hash: &[u8; 32]) -> Option<api::TxRecord> {
-    let connection = sim.hub.as_deref().unwrap().submitter();
+/// The fake ledger's record of the transaction `hash`, if it applied, read
+/// over the connection of the hub at `place`.
+pub(super) fn transaction_record(
+    sim: &mut Sim,
+    place: usize,
+    hash: &[u8; 32],
+) -> Option<api::TxRecord> {
+    let connection = sim.hub_at(place).submitter();
     let reply = sim.ledger.request(connection, &api::tx_anywhere(9, hash));
     let api::Message::Response { outcome, .. } = api::parse(&reply) else {
         return None;
