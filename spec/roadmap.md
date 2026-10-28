@@ -164,6 +164,19 @@ A node's default rate sources are exchanges whose terms license their market dat
 - **Done when:** a new node's sources are only these; XRP's rate follows mainnet's XRP/RLUSD pool, and a pool pushed for less than half the window leaves it unmoved; a test node signs nothing on mainnet; no dollar token's scheme or hub pauses for its price; the fiat currencies' rates come from the four banks, each dropped once older than its calendar allows; the wallet names the sources; and the keeper holds DSUSD's pool at mainnet's XRP/RLUSD price.
 - **Later:** a source of XRP's price in dollars outside every dollar token's pool, close to real time and with terms that allow a node's use, and the peg guard on it again.
 
+### Peer swaps
+
+A core node's holdings drift, and only market makers bring them back. [peer-swaps](decisions/peer-swaps.md) lets a node swap with its peers over two settlement methods of a peering: a Prepare to `peer.swap.<scheme ID>` that the peer converts and sends back on the method it names, priced by snapshots of the peer's quotes, which ladders say how far a swap can go.
+
+- **Left to build:**
+  - the snapshot in `dassie-feed`, as feed version 2, or 3 if a release carries version 2 first ([the decision](decisions/peer-swaps.md#decision)): quotes per method with their ladders, tags of the schemes' IDs, the grid in the header, and its encoding, with vectors and constant assertions that the most methods and the grid fit one datagram; a padded request answered with the cached snapshot, in place of the subscription, the cookies and the subscriber table;
+  - the snapshot in the node: the quotes and ladders from the price table, the clamp that keeps a pair's product within the curve's cap, and the promise checked by a property test against the curve at many skews and sizes;
+  - the subscription and the snapshot as messages of the peer protocol's version 2;
+  - `peer.swap` in the connector: a peer's swap converted and sent back on the method it names, before routing, with its errors; and the node's own swaps coming back, fulfilled from their data;
+  - the node's swaps: with whom, how much and when, from its subscriptions and its own curve and costs, backing off on T04 and T05; the two owner settings, targets for a periphery node, and a swap the owner asks for, in the owner's contract and the wallet;
+  - `dassie market-maker` on one node, and the market maker's VM with one node ([Market maker VM](areas/market-maker-vm.md)).
+- **Done when:** in an end-to-end test, two core nodes skewed opposite ways in two assets, peered over both assets' hubs, swap until neither's quotes clear the other's costs, and both end closer to their targets; a market maker with one node trades through a target; and a reader never gets less than a snapshot it acted on promised.
+
 ### Kopje across Dassie
 
 The brand page holds Dassie's visual identity, Kopje ([visual-identity](decisions/visual-identity.md)), and dassie.land draws in it; the wallet and the desktop app do not yet.
