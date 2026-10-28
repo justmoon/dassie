@@ -1597,8 +1597,8 @@ mod tests {
     fn connection_ids_are_known_after_a_restart_and_only_there() {
         use quinn_proto::ConnectionIdGenerator;
         let (key, other) = (
-            IdentityKey::from_bytes(&[1; 32]),
-            IdentityKey::from_bytes(&[2; 32]),
+            dassie_identity::TableKeygen::identity_key(&[1; 32]),
+            dassie_identity::TableKeygen::identity_key(&[2; 32]),
         );
         let mut before = generator(&key, QuicEndpoint::Udp);
         let ids: Vec<_> = (0..64).map(|_| before.generate_cid()).collect();
@@ -1702,7 +1702,7 @@ mod tests {
     #[tokio::test]
     async fn a_request_sent_again_before_it_is_read_is_answered() {
         let shutdown = CancellationToken::new();
-        let key = Arc::new(IdentityKey::from_bytes(&[1; 32]));
+        let key = Arc::new(dassie_identity::TableKeygen::identity_key(&[1; 32]));
         let server_id = key.node_id();
         let (_server_key, receiver) = watch::channel(Some(key));
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -1711,8 +1711,9 @@ mod tests {
         let armed = Arc::new(AtomicBool::new(false));
         let relay = delaying(server.local_addr().unwrap(), Arc::clone(&armed));
 
-        let (_client_key, receiver) =
-            watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[2; 32]))));
+        let (_client_key, receiver) = watch::channel(Some(Arc::new(
+            dassie_identity::TableKeygen::identity_key(&[2; 32]),
+        )));
         let keys = Arc::new(Keys::new(receiver));
         // Datagrams of the initial size only, so that only the request's
         // reach the relay's threshold.
@@ -1752,7 +1753,7 @@ mod tests {
     // (spec/areas/peer-protocol.md#outbound-requests).
     #[tokio::test]
     async fn an_answer_too_short_for_a_status_is_an_unknown_outcome() {
-        let key = Arc::new(IdentityKey::from_bytes(&[1; 32]));
+        let key = Arc::new(dassie_identity::TableKeygen::identity_key(&[1; 32]));
         let server_id = key.node_id();
         let (_server_key, receiver) = watch::channel(Some(key));
         let keys = Arc::new(Keys::new(receiver));
@@ -1775,8 +1776,9 @@ mod tests {
             connection.closed().await;
         });
 
-        let (_client_key, receiver) =
-            watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[2; 32]))));
+        let (_client_key, receiver) = watch::channel(Some(Arc::new(
+            dassie_identity::TableKeygen::identity_key(&[2; 32]),
+        )));
         let keys = Arc::new(Keys::new(receiver));
         let config = client_config(&keys, server_id, transport_config(IDLE_TIMEOUT)).unwrap();
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -1798,8 +1800,9 @@ mod tests {
     /// The version a client offering `versions` speaks with `server`, or
     /// `None` if it fails the handshake.
     async fn speaks(server: &Quic, server_id: NodeId, versions: &[&[u8]]) -> Option<Vec<u8>> {
-        let (_client_key, receiver) =
-            watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[2; 32]))));
+        let (_client_key, receiver) = watch::channel(Some(Arc::new(
+            dassie_identity::TableKeygen::identity_key(&[2; 32]),
+        )));
         let keys = Arc::new(Keys::new(receiver));
         let config =
             client_offering(&keys, server_id, transport_config(IDLE_TIMEOUT), versions).unwrap();
@@ -1844,7 +1847,7 @@ mod tests {
     /// An endpoint on loopback with the key of `seed`, its node's ID, and
     /// what holds its key.
     fn endpoint_of(seed: u8) -> (Arc<Quic>, NodeId, watch::Sender<Option<Arc<IdentityKey>>>) {
-        let key = Arc::new(IdentityKey::from_bytes(&[seed; 32]));
+        let key = Arc::new(dassie_identity::TableKeygen::identity_key(&[seed; 32]));
         let id = key.node_id();
         let (identity, receiver) = watch::channel(Some(key));
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();

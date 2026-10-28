@@ -427,17 +427,12 @@ mod tests {
         }
     }
 
-    /// What `founding` answers `request` from `from`, as the node of `key`.
-    /// The node key of the seed `seed` repeated, made once per seed: its
-    /// SLH-DSA key takes a key generation.
+    /// The node key of the seed `seed` repeated.
     fn node_key(seed: u8) -> Arc<IdentityKey> {
-        static KEYS: [std::sync::OnceLock<Arc<IdentityKey>>; 256] =
-            [const { std::sync::OnceLock::new() }; 256];
-        Arc::clone(
-            KEYS[usize::from(seed)].get_or_init(|| Arc::new(IdentityKey::from_bytes(&[seed; 32]))),
-        )
+        Arc::new(dassie_identity::TableKeygen::identity_key(&[seed; 32]))
     }
 
+    /// What `founding` answers `request` from `from`, as the node of `key`.
     async fn decide(
         founding: &Founding,
         store: &Arc<Store>,
@@ -532,7 +527,7 @@ mod tests {
         let unknown = decide(&founding, &store, ours, &unknown).await;
         assert_eq!(unknown, FoundingAnswer::Refused(Refusal::UnknownHub));
         // Another sponsor is not answered.
-        let stranger = IdentityKey::from_bytes(&[55; 32]).identity();
+        let stranger = dassie_identity::TableKeygen::identity_key(&[55; 32]).identity();
         let refused = decide(&founding, &store, (&nodes[0], &stranger), &propose).await;
         assert_eq!(refused, FoundingAnswer::Refused(Refusal::NotAllowed));
     }
@@ -572,10 +567,6 @@ mod tests {
             other.execute_batch("COMMIT").unwrap();
         });
         let founding = Founding::new(&config(&sponsor));
-        // Made ahead, as the node makes its own once at its start: the
-        // runtime is to be free while it decides, not while a test makes
-        // keys.
-        let node = node_key(1);
         let ticks = Arc::new(AtomicU64::new(0));
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -590,6 +581,7 @@ mod tests {
                 }
             });
             tokio::task::yield_now().await;
+            let node = node_key(1);
             let propose = FoundingRequest::Propose(terms(&sponsor));
             decide(&founding, &store, (&node, &sponsor.identity()), &propose).await
         });

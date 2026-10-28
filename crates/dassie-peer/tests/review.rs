@@ -73,7 +73,10 @@ fn held(network: &Network, at: usize, of: &IdentityKey) -> Option<u64> {
 fn forged_link_states_do_not_use_up_the_real_nodes_allowance() {
     let mut network = Network::new(11, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let (victim, mallory) = (key(1), Arc::new(IdentityKey::from_bytes(&[90; 32])));
+    let (victim, mallory) = (
+        key(1),
+        Arc::new(dassie_identity::TableKeygen::identity_key(&[90; 32])),
+    );
     let base = network.clock(0);
     let mut sender = Sender::new(&mallory);
     for offset in 1..20u64 {
@@ -174,7 +177,7 @@ fn a_peer_our_packets_do_not_reach_is_reported_until_it_answers() {
 fn only_bootstrap_nodes_take_registrations() {
     let mut network = Network::new(13, 3, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let stranger = Arc::new(IdentityKey::from_bytes(&[91; 32]));
+    let stranger = Arc::new(dassie_identity::TableKeygen::identity_key(&[91; 32]));
     let own = state(&stranger, network.clock(2), "https://stranger.test");
     let info = SignedNodeInfo::decode_exact(&own).unwrap();
     let body = request(&network, &stranger, 2, &Content::Registration(info));
@@ -201,7 +204,7 @@ fn a_registration_from_a_new_url_is_probed_again() {
 fn one_probe_per_sender_at_a_time() {
     let mut network = Network::new(15, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let stranger = Arc::new(IdentityKey::from_bytes(&[92; 32]));
+    let stranger = Arc::new(dassie_identity::TableKeygen::identity_key(&[92; 32]));
     let own = state(&stranger, network.clock(0), "https://stranger.test");
     let info = SignedNodeInfo::decode_exact(&own).unwrap();
     let mut sender = Sender::new(&stranger);

@@ -120,7 +120,7 @@ fn a_newcomer_learns_the_only_bootstrap_nodes_link_state() {
 fn peering_requests_carry_the_senders_own_link_state() {
     let mut network = Network::new(2, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let mallory = Arc::new(IdentityKey::from_bytes(&[77; 32]));
+    let mallory = Arc::new(dassie_identity::TableKeygen::identity_key(&[77; 32]));
     let victim = key(1);
     let state = link_state(&victim, network.clock(0), &url(1));
     let content = Content::PeeringRequest(PeeringRequest {
@@ -137,7 +137,7 @@ fn peering_requests_carry_the_senders_own_link_state() {
 fn packets_need_a_peering() {
     let mut network = Network::new(3, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let stranger = Arc::new(IdentityKey::from_bytes(&[78; 32]));
+    let stranger = Arc::new(dassie_identity::TableKeygen::identity_key(&[78; 32]));
     let packet = Content::InterledgerPacket {
         request_id: 1,
         packet: &[1, 2, 3],
@@ -167,7 +167,7 @@ fn only_a_registrar_takes_name_messages() {
     let mut network = Network::new(2, 2, 1, Config::DEV);
     assert!(network.node(0).registrar().is_some() && network.node(1).registrar().is_none());
     settle(&mut network, 30_000);
-    let stranger = Arc::new(IdentityKey::from_bytes(&[79; 32]));
+    let stranger = Arc::new(dassie_identity::TableKeygen::identity_key(&[79; 32]));
     let alice = Name::parse("alice").unwrap();
     let contents = [
         Content::NameCommit(Commitment([1; 32])),
@@ -305,7 +305,7 @@ fn link_states_from_the_future_are_refused() {
 fn unknown_nodes_cannot_peer() {
     let mut network = Network::new(7, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let stranger = Arc::new(IdentityKey::from_bytes(&[79; 32]));
+    let stranger = Arc::new(dassie_identity::TableKeygen::identity_key(&[79; 32]));
     let state = link_state(&stranger, network.clock(0), "https://stranger.test");
     let content = Content::PeeringRequest(PeeringRequest {
         scheme: SchemeId::parse("stub").unwrap(),

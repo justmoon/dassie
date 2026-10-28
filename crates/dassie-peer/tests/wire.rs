@@ -84,16 +84,14 @@ fn with_v1_ids(v0: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// Node A's key, made once: its SLH-DSA key takes a key generation.
-fn node_a() -> &'static IdentityKey {
-    static KEY: std::sync::OnceLock<IdentityKey> = std::sync::OnceLock::new();
-    KEY.get_or_init(|| IdentityKey::from_bytes(&[1; 32]))
+/// Node A's key.
+fn node_a() -> IdentityKey {
+    dassie_identity::TableKeygen::identity_key(&[1; 32])
 }
 
-/// Node B's key, made once.
-fn node_b() -> &'static IdentityKey {
-    static KEY: std::sync::OnceLock<IdentityKey> = std::sync::OnceLock::new();
-    KEY.get_or_init(|| IdentityKey::from_bytes(&[3; 32]))
+/// Node B's key.
+fn node_b() -> IdentityKey {
+    dassie_identity::TableKeygen::identity_key(&[3; 32])
 }
 
 fn stub() -> SchemeId {
@@ -173,7 +171,7 @@ fn the_v0_signature_verifies() {
 
 #[test]
 fn signed_node_info_round_trips_and_verifies() {
-    let bytes = sign_node_info(node_a(), &info_a());
+    let bytes = sign_node_info(&node_a(), &info_a());
     let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
     assert_eq!(signed.bytes, &bytes[..]);
     assert_eq!(signed.info, info_a());
@@ -203,8 +201,8 @@ fn a_link_state_must_be_its_nodes_and_well_formed() {
     };
     let mut path = info_a();
     path.url = "https://a.example/peer";
-    assert_eq!(check(path, node_a()), Err(InvalidNodeInfo::Url));
-    assert_eq!(check(info_a(), node_b()), Err(InvalidNodeInfo::Signature));
+    assert_eq!(check(path, &node_a()), Err(InvalidNodeInfo::Url));
+    assert_eq!(check(info_a(), &node_b()), Err(InvalidNodeInfo::Signature));
 }
 
 // Under ZIP-215, R of small order and s = 0 verify any message under a key
@@ -306,7 +304,7 @@ fn v1_encodings_are_pinned() {
 
 #[test]
 fn peering_requests_round_trip() {
-    let info = sign_node_info(node_a(), &info_a());
+    let info = sign_node_info(&node_a(), &info_a());
     let request = Content::PeeringRequest(PeeringRequest {
         scheme: stub(),
         node_info: SignedNodeInfo::decode_exact(&info).unwrap(),
@@ -328,7 +326,7 @@ fn link_state_requests_and_answers_are_bounded() {
     assert!(Content::decode_exact(&request.to_vec()).is_err());
     let request = Content::LinkStateRequest(ids[..16].to_vec());
     assert_eq!(Content::decode_exact(&request.to_vec()).unwrap(), request);
-    let info = sign_node_info(node_a(), &info_a());
+    let info = sign_node_info(&node_a(), &info_a());
     let answer = LinkStateResponse(vec![
         None,
         Some(SignedNodeInfo::decode_exact(&info).unwrap()),
@@ -418,7 +416,7 @@ fn signed_full() -> Vec<u8> {
         kind: 1,
         value: &[7; 40],
     });
-    sign_node_info(node_a(), &info)
+    sign_node_info(&node_a(), &info)
 }
 
 /// Decodes content as the node does, and checks a link state it carries.
@@ -681,7 +679,7 @@ fn with_offers(offers: &[(&str, &[u8])]) -> Vec<u8> {
             details,
         })
         .collect();
-    sign_node_info(node_a(), &info)
+    sign_node_info(&node_a(), &info)
 }
 
 // spec/areas/peer-protocol.md#settlement-offers: an offer is its scheme
@@ -772,7 +770,7 @@ fn with_extensions(extensions: &[(u16, &[u8])]) -> Vec<u8> {
             .iter()
             .map(|(kind, value)| Entry::Extension { kind: *kind, value }),
     );
-    sign_node_info(node_a(), &info)
+    sign_node_info(&node_a(), &info)
 }
 
 /// The largest offers a node makes: `MAX_SCHEMES` of them at the longest
@@ -805,11 +803,14 @@ fn largest_offers() -> Vec<dassie_peer::Offer> {
 #[test]
 fn the_largest_own_link_state_fits_its_bound() {
     let neighbors = dassie_peer::Config::DEFAULT.max_peers;
-    let key = IdentityKey::from_bytes(&[7; 32]);
+    let key = dassie_identity::TableKeygen::identity_key(&[7; 32]);
     let url = "a".repeat(MAX_URL_BYTES);
     let alias = "\u{e9}".repeat(dassie_peer::wire::MAX_ALIAS_BYTES / 2);
     let ids: Vec<NodeId> = (0..neighbors)
-        .map(|n| IdentityKey::from_bytes(&[u8::try_from(n).unwrap() + 8; 32]).node_id())
+        .map(|n| {
+            dassie_identity::TableKeygen::identity_key(&[u8::try_from(n).unwrap() + 8; 32])
+                .node_id()
+        })
         .collect();
     let offers = largest_offers();
     let details: Vec<Vec<u8>> = offers.iter().map(dassie_peer::Offer::details).collect();
@@ -994,8 +995,8 @@ fn name_answers_are_pinned_and_bounded() {
             "0102\
              05616c696365{}000001a3185c5000\
              03626f62{}0000018bcfe56800",
-            id(node_a()),
-            id(node_b())
+            id(&node_a()),
+            id(&node_b())
         )
     );
     assert_eq!(NameListResponse::decode_exact(&bytes), Ok(name_list()));

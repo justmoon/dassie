@@ -128,11 +128,11 @@ impl Setup {
     fn funded(token: Option<IssuedAsset>) -> Self {
         let mut xrpl = FakeLedger::new();
         xrpl.sign_validations_with(SECRET);
-        let sponsor = IdentityKey::from_bytes(&[100; 32]);
+        let sponsor = dassie_identity::TableKeygen::identity_key(&[100; 32]);
         let nodes: Vec<(IdentityKey, String)> = (1..=4)
             .map(|i| {
                 (
-                    IdentityKey::from_bytes(&[i; 32]),
+                    dassie_identity::TableKeygen::identity_key(&[i; 32]),
                     format!("v{i}.example:443"),
                 )
             })

@@ -593,8 +593,6 @@ fn settled_by_peers(severity: Severity, event: &SettlementEvent) {
 mod tests {
     #![allow(clippy::indexing_slicing)]
 
-    use dassie_identity::IdentityKey;
-
     use super::*;
     use crate::log::{LogLevel, capture};
 
@@ -602,7 +600,7 @@ mod tests {
     // message and fields it had when the core logged it itself.
     #[test]
     fn events_are_logged_as_the_core_logged_them() {
-        let node = IdentityKey::from_bytes(&[7; 32]).node_id();
+        let node = dassie_identity::TableKeygen::identity_key(&[7; 32]).node_id();
         let lines = capture(|| {
             log(&SettlementEvent::PeerSettled {
                 from: node,

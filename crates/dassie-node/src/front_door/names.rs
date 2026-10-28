@@ -268,13 +268,12 @@ mod tests {
 
     use std::collections::BTreeMap;
 
-    use dassie_identity::IdentityKey;
     use dassie_peer::wire::NameHolding;
 
     use super::*;
 
     fn registrar(seed: u8) -> BootstrapNode {
-        let key = IdentityKey::from_bytes(&[seed; 32]);
+        let key = dassie_identity::TableKeygen::identity_key(&[seed; 32]);
         BootstrapNode {
             id: key.node_id(),
             endpoint: dassie_peer::wire::Endpoint::parse(&format!("r{seed}.example")).unwrap(),
@@ -305,7 +304,7 @@ mod tests {
         };
         let names = Names::new(&registrars);
         let alice = Name::parse("alice").unwrap();
-        let holder = IdentityKey::from_bytes(&[9; 32]).node_id();
+        let holder = dassie_identity::TableKeygen::identity_key(&[9; 32]).node_id();
         // Until a quorum is read, the view is frozen, and empty.
         assert!(names.is_frozen());
         let now_ms = 1_000_000;

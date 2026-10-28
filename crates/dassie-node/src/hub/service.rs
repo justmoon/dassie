@@ -759,8 +759,8 @@ mod tests {
     // failure.
     #[test]
     fn hearing_from_a_validator_ends_the_wait_for_it_alone() {
-        let peer = IdentityKey::from_bytes(&[1; 32]).identity();
-        let other = IdentityKey::from_bytes(&[2; 32]).identity();
+        let peer = dassie_identity::TableKeygen::identity_key(&[1; 32]).identity();
+        let other = dassie_identity::TableKeygen::identity_key(&[2; 32]).identity();
         let backoffs = Backoffs::default();
         {
             let mut held = backoffs.lock().unwrap();

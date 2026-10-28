@@ -22,7 +22,7 @@ pub struct Registrant {
 impl Registrant {
     pub fn new(seed: u8) -> Self {
         Self {
-            key: Arc::new(IdentityKey::from_bytes(&[seed; 32])),
+            key: Arc::new(dassie_identity::TableKeygen::identity_key(&[seed; 32])),
         }
     }
 

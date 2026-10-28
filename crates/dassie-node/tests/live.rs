@@ -24,7 +24,7 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 type Owner = RpcClient<Framed<UnixStream, LengthDelimitedCodec>>;
 
 fn key() -> IdentityKey {
-    IdentityKey::from_bytes(&[11; 32])
+    dassie_identity::TableKeygen::identity_key(&[11; 32])
 }
 
 /// Sets the node up, waits for its ledger and activates the stub.
@@ -260,7 +260,9 @@ async fn the_inspectors_show_the_node_without_its_secrets() {
             .all(|s| s.state() == proto::ServiceState::Running)
     );
     assert!(services.cells.iter().any(|cell| cell.name == "ledger"));
-    let stranger = IdentityKey::from_bytes(&[12; 32]).node_id().to_string();
+    let stranger = dassie_identity::TableKeygen::identity_key(&[12; 32])
+        .node_id()
+        .to_string();
     let refused = owner
         .call(Method::RegisterWithBootstrap(
             proto::RegisterWithBootstrapRequest { node: stranger },

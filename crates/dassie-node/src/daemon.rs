@@ -192,6 +192,9 @@ struct Extras {
     /// Where the node goes once it is made, held weakly so the daemon still
     /// ends with its node.
     node_out: Option<tokio::sync::oneshot::Sender<std::sync::Weak<Node>>>,
+    /// For tests: how the node's SLH-DSA key is made, in place of the real
+    /// key generation.
+    keygen: Option<Arc<dyn dassie_identity::SlhDsaKeygen>>,
 }
 
 impl Prepared {
@@ -315,6 +318,15 @@ impl Prepared {
     #[must_use]
     pub fn with_feed(mut self, socket: UdpSocket) -> Self {
         self.extras.feed = Some(socket);
+        self
+    }
+
+    /// For tests: the node's SLH-DSA key is made by `keygen`, the table of
+    /// the tests' keys, rather than by the real key generation
+    /// (spec/areas/testing.md#slh-dsa-keys-in-tests).
+    #[must_use]
+    pub fn with_keygen(mut self, keygen: Arc<dyn dassie_identity::SlhDsaKeygen>) -> Self {
+        self.extras.keygen = Some(keygen);
         self
     }
 
@@ -564,6 +576,9 @@ fn make_node(
         dev_wallet_dir: settings.dev_wallet_dir.clone(),
         public_names: settings.public_names.clone(),
         live_realm: settings.live_realm,
+        keygen: extras
+            .keygen
+            .unwrap_or_else(|| Arc::new(dassie_identity::Fips205Keygen)),
     })
     .map_err(DaemonError::Node)?;
     if let Some(to) = extras.node_out {

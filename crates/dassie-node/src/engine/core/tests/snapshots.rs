@@ -40,7 +40,7 @@ fn with_downlink() -> (Core, Arc<IdentityKey>) {
     add_stub(&mut core, TRUSTING);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
-    let downlink = Arc::new(IdentityKey::from_bytes(&[11; 32]));
+    let downlink = Arc::new(dassie_identity::TableKeygen::identity_key(&[11; 32]));
     let at = NOW + 1_000;
     core.begin_step(at);
     let body = super::stub_downlink_request(&mut core, &downlink, at);
@@ -263,7 +263,7 @@ fn snapshots_are_wanted_of_peerings_on_two_ledgers_while_swapping() {
     two.methods.push(method(STUB_TWO));
     let mut unrun = one.clone();
     unrun.methods.push(method("stub-three"));
-    let peer = IdentityKey::from_bytes(&[12; 32]).node_id();
+    let peer = dassie_identity::TableKeygen::identity_key(&[12; 32]).node_id();
     let wants = |core: &mut Core, peering: &Peering| {
         core.with_peer(|_, hooks, _| (hooks.wants_snapshots(peer, peering), hooks.offers_swaps()))
     };
@@ -301,14 +301,14 @@ fn peer_snapshot(key: &IdentityKey, sequence_ms: u64) -> Vec<u8> {
 #[test]
 fn a_peers_snapshot_is_taken_only_verified_newer_and_unexpired() {
     let (mut core, _) = with_downlink();
-    let peer = IdentityKey::from_bytes(&[12; 32]);
+    let peer = dassie_identity::TableKeygen::identity_key(&[12; 32]);
     let key = peer.public_key();
     let id = peer.node_id();
     let at = NOW + 2_000;
     core.begin_step(at);
     let first = peer_snapshot(&peer, at - 10);
     let newer = peer_snapshot(&peer, at - 5);
-    let foreign = peer_snapshot(&IdentityKey::from_bytes(&[13; 32]), at);
+    let foreign = peer_snapshot(&dassie_identity::TableKeygen::identity_key(&[13; 32]), at);
     let expired = peer_snapshot(&peer, at - 60_000);
     let takes = |core: &mut Core, bytes: &[u8], held: Option<&[u8]>| {
         core.with_peer(|_, hooks, _| hooks.takes_snapshot(id, &key, bytes, held))
@@ -331,7 +331,7 @@ fn a_peers_snapshot_is_taken_only_verified_newer_and_unexpired() {
 #[test]
 fn a_core_node_that_offers_swaps_has_a_snapshot_and_names_its_port() {
     let (mut core, _) = with_downlink();
-    let key = Arc::new(IdentityKey::from_bytes(&[7; 32]));
+    let key = Arc::new(dassie_identity::TableKeygen::identity_key(&[7; 32]));
     core.set_snapshot_source(Box::new(super::super::OwnSnapshots::new(Arc::clone(&key))));
     let at = NOW + 2_000;
     step(&mut core, at);

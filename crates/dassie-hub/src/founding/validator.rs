@@ -325,8 +325,10 @@ mod tests {
 
     impl Validators {
         fn new() -> Self {
-            let sponsor = IdentityKey::from_bytes(&[100; 32]);
-            let nodes = (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
+            let sponsor = dassie_identity::TableKeygen::identity_key(&[100; 32]);
+            let nodes = (1..=4)
+                .map(|i| dassie_identity::TableKeygen::identity_key(&[i; 32]))
+                .collect();
             let sponsors = vec![sponsor.node_id()];
             Self {
                 sponsor,
@@ -417,7 +419,7 @@ mod tests {
         let refused = accept(node, &unlisted, (&[], 0), &from, &terms, NOW);
         assert_eq!(refused.unwrap_err(), Refusal::NotAllowed);
         // Someone else passing the sponsor's terms on is not the sponsor.
-        let stranger = IdentityKey::from_bytes(&[50; 32]).identity();
+        let stranger = dassie_identity::TableKeygen::identity_key(&[50; 32]).identity();
         let refused = accept(node, &v.policy(), (&[], 0), &stranger, &terms, NOW);
         assert_eq!(refused.unwrap_err(), Refusal::NotAllowed);
         let no_endpoint = Policy {
@@ -492,7 +494,7 @@ mod tests {
         assert_eq!(later.unwrap_err(), Refusal::OtherGenesis);
         // Rules with another validator in place of one.
         let mut other = rules.clone();
-        let fifth = IdentityKey::from_bytes(&[5; 32]);
+        let fifth = dassie_identity::TableKeygen::identity_key(&[5; 32]);
         other.validators[3] = accept(&fifth, &policy, (&[], 0), &from, &terms, NOW)
             .unwrap()
             .0;
@@ -542,7 +544,7 @@ mod tests {
         let mine = core::slice::from_ref(&records[0]);
         // Its place taken by another node's acceptance.
         let mut without = rules.clone();
-        let fifth = IdentityKey::from_bytes(&[5; 32]);
+        let fifth = dassie_identity::TableKeygen::identity_key(&[5; 32]);
         without.validators[0] = accept(&fifth, &policy, (&[], 0), &from, &terms, NOW)
             .unwrap()
             .0;

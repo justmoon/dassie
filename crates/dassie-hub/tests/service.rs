@@ -125,10 +125,12 @@ impl Network {
 
     /// A network of a hub whose terms `adjust` changes.
     fn with_terms(adjust: impl FnOnce(&mut Terms)) -> Self {
-        let sponsor = IdentityKey::from_bytes(&[100; 32]);
+        let sponsor = dassie_identity::TableKeygen::identity_key(&[100; 32]);
         let mut terms = terms(&sponsor);
         adjust(&mut terms);
-        let nodes: Vec<IdentityKey> = (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
+        let nodes: Vec<IdentityKey> = (1..=4)
+            .map(|i| dassie_identity::TableKeygen::identity_key(&[i; 32]))
+            .collect();
         let acceptances: Vec<Acceptance> = nodes
             .iter()
             .enumerate()

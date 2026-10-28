@@ -373,7 +373,7 @@ pub(crate) mod tests {
         (1..=4)
             .map(|i| {
                 (
-                    IdentityKey::from_bytes(&[i; 32]),
+                    dassie_identity::TableKeygen::identity_key(&[i; 32]),
                     format!("v{i}.example:443"),
                 )
             })
@@ -383,7 +383,7 @@ pub(crate) mod tests {
     #[test]
     fn a_hub_of_a_listed_sponsor_is_taken() {
         let refused = LiveRealm::Refused;
-        let sponsor = IdentityKey::from_bytes(&[100; 32]);
+        let sponsor = dassie_identity::TableKeygen::identity_key(&[100; 32]);
         let rules = rules(&sponsor, &nodes());
         let listed = vec![sponsor.node_id().as_str().to_string()];
         let config = parse(&file(&listed, &rules), refused).unwrap();
@@ -417,7 +417,7 @@ pub(crate) mod tests {
     #[test]
     fn the_hub_version_is_the_owners_to_name() {
         let refused = LiveRealm::Refused;
-        let sponsor = IdentityKey::from_bytes(&[100; 32]);
+        let sponsor = dassie_identity::TableKeygen::identity_key(&[100; 32]);
         let rules = rules(&sponsor, &nodes());
         let listed = vec![sponsor.node_id().as_str().to_string()];
         assert_eq!(
@@ -440,7 +440,7 @@ pub(crate) mod tests {
     fn the_network_is_the_files() {
         use dassie_xrpl::network::MAINNET;
 
-        let sponsor = IdentityKey::from_bytes(&[100; 32]);
+        let sponsor = dassie_identity::TableKeygen::identity_key(&[100; 32]);
         let listed = vec![sponsor.node_id().as_str().to_string()];
         let testnet = rules(&sponsor, &nodes());
         let mainnet = rules_on(&sponsor, &nodes(), MAINNET.id);
@@ -473,7 +473,7 @@ pub(crate) mod tests {
     #[test]
     fn the_publishers_are_the_networks_unless_named() {
         let refused = LiveRealm::Refused;
-        let sponsor = IdentityKey::from_bytes(&[100; 32]);
+        let sponsor = dassie_identity::TableKeygen::identity_key(&[100; 32]);
         let rules = rules(&sponsor, &nodes());
         let listed = vec![sponsor.node_id().as_str().to_string()];
         let config = parse(&file(&listed, &rules), refused).unwrap();

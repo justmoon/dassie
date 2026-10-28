@@ -172,7 +172,7 @@ fn hex(rules: &Rules) -> String {
 /// The key of the sponsor whose hubs the validators run: no daemon, since
 /// the hubs are not founded here.
 fn sponsor() -> IdentityKey {
-    IdentityKey::from_bytes(&[70; 32])
+    dassie_identity::TableKeygen::identity_key(&[70; 32])
 }
 
 /// The seeds of the validators' keys.
@@ -248,7 +248,7 @@ impl HubNet {
         let xrpl = fake_ledger(network, clock).await;
         let bound: Vec<Bound> = VALIDATORS.map(|_| Bound::new()).collect();
         let keys: Vec<IdentityKey> = VALIDATORS
-            .map(|seed| IdentityKey::from_bytes(&[seed; 32]))
+            .map(|seed| dassie_identity::TableKeygen::identity_key(&[seed; 32]))
             .collect();
         let hubs: Vec<Hub> = assets
             .iter()
@@ -503,12 +503,12 @@ impl HubNet {
             .iter()
             .zip(&bound)
             .map(|(joining, bound)| {
-                let key = IdentityKey::from_bytes(&[joining.seed; 32]);
+                let key = dassie_identity::TableKeygen::identity_key(&[joining.seed; 32]);
                 (key, bound.https_port())
             })
             .collect();
         named.extend(also.iter().map(|member| {
-            let key = IdentityKey::from_bytes(&[member.seed; 32]);
+            let key = dassie_identity::TableKeygen::identity_key(&[member.seed; 32]);
             (key, member.node.https.port())
         }));
         let nodes = bootstrap_all(&named);
@@ -516,7 +516,7 @@ impl HubNet {
         env.push(("DASSIE_BOOTSTRAP_NODES", nodes));
         let mut started = Vec::new();
         for (joining, bound) in members.iter().zip(bound) {
-            let key = IdentityKey::from_bytes(&[joining.seed; 32]);
+            let key = dassie_identity::TableKeygen::identity_key(&[joining.seed; 32]);
             let pairs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
             let node = bound
                 .start_paused(self.clock, u64::from(joining.seed), POLICIES, &pairs)

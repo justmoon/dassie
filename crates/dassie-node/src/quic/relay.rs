@@ -1163,12 +1163,11 @@ fn server_tls(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dassie_identity::IdentityKey;
     use dassie_oer::Encode;
 
     #[test]
     fn node_ids_are_written_as_the_peer_protocol_writes_them() {
-        let id = IdentityKey::from_bytes(&[1; 32]).node_id();
+        let id = dassie_identity::TableKeygen::identity_key(&[1; 32]).node_id();
         let mut ours = Vec::new();
         write_node_id(&mut ours, &id);
         assert_eq!(ours, id.to_vec());
@@ -1228,7 +1227,7 @@ mod tests {
     #[test]
     fn a_destination_has_a_bounded_share() {
         let relaying = Relaying::new();
-        let node = IdentityKey::from_bytes(&[2; 32]).node_id();
+        let node = dassie_identity::TableKeygen::identity_key(&[2; 32]).node_id();
         let held: Vec<_> = (0..MAX_RELAYED_PER_DESTINATION)
             .map(|_| relaying.to_destination(node, None).unwrap())
             .collect();
@@ -1242,8 +1241,8 @@ mod tests {
     fn one_client_address_takes_only_its_share_of_a_destination() {
         let relaying = Relaying::new();
         let (node, other) = (
-            IdentityKey::from_bytes(&[2; 32]).node_id(),
-            IdentityKey::from_bytes(&[3; 32]).node_id(),
+            dassie_identity::TableKeygen::identity_key(&[2; 32]).node_id(),
+            dassie_identity::TableKeygen::identity_key(&[3; 32]).node_id(),
         );
         let client = |last: u8| Some(ClientKey::from_ip(IpAddr::from([192, 0, 2, last])));
         let mut held: Vec<_> = (0..MAX_RELAYED_PER_CLIENT_TO_DESTINATION)

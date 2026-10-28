@@ -610,9 +610,10 @@ mod tests {
 
     impl Founding {
         fn new() -> Self {
-            let sponsor_key = IdentityKey::from_bytes(&[100; 32]);
-            let nodes: Vec<IdentityKey> =
-                (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
+            let sponsor_key = dassie_identity::TableKeygen::identity_key(&[100; 32]);
+            let nodes: Vec<IdentityKey> = (1..=4)
+                .map(|i| dassie_identity::TableKeygen::identity_key(&[i; 32]))
+                .collect();
             let invited = nodes
                 .iter()
                 .enumerate()
@@ -747,7 +748,7 @@ mod tests {
     fn forged_answers_are_not_taken() {
         let mut founding = Founding::new();
         let terms = founding.sponsor.terms().clone();
-        let stranger = IdentityKey::from_bytes(&[77; 32]);
+        let stranger = dassie_identity::TableKeygen::identity_key(&[77; 32]);
         let keys =
             crate::escrow::ValidatorKeys::derive(&stranger, terms.network, &terms.nonce).unwrap();
         let theirs = keys
@@ -790,11 +791,11 @@ mod tests {
 
     #[test]
     fn foundings_need_a_set() {
-        let key = IdentityKey::from_bytes(&[1; 32]);
+        let key = dassie_identity::TableKeygen::identity_key(&[1; 32]);
         let three = (1..=3)
             .map(|i| {
                 (
-                    IdentityKey::from_bytes(&[i; 32]).node_id(),
+                    dassie_identity::TableKeygen::identity_key(&[i; 32]).node_id(),
                     "v.example:1".into(),
                 )
             })

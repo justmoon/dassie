@@ -22,19 +22,16 @@ use super::inputs::{KINDS, content};
 /// (spec/decisions/protocol-upgrades.md).
 pub const VERSION: &str = "dassie/2";
 
-/// The key of node A: the seed of 32 bytes `01`. Made once, since its
-/// SLH-DSA key takes a key generation.
+/// The key of node A: the seed of 32 bytes `01`.
 #[must_use]
-pub fn node_a() -> &'static IdentityKey {
-    static KEY: std::sync::OnceLock<IdentityKey> = std::sync::OnceLock::new();
-    KEY.get_or_init(|| IdentityKey::from_bytes(&[1; 32]))
+pub fn node_a() -> IdentityKey {
+    dassie_identity::TableKeygen::identity_key(&[1; 32])
 }
 
 /// The key of node B: the seed of 32 bytes `03`.
 #[must_use]
-pub fn node_b() -> &'static IdentityKey {
-    static KEY: std::sync::OnceLock<IdentityKey> = std::sync::OnceLock::new();
-    KEY.get_or_init(|| IdentityKey::from_bytes(&[3; 32]))
+pub fn node_b() -> IdentityKey {
+    dassie_identity::TableKeygen::identity_key(&[3; 32])
 }
 
 /// Node A's link state: two settlement offers, one over a hub and the
@@ -70,7 +67,7 @@ pub fn link_state() -> Vec<u8> {
             },
         ],
     };
-    sign_node_info(node_a(), &info)
+    sign_node_info(&node_a(), &info)
 }
 
 /// A message kind's name as the protocol spells it: `peeringRequest`.

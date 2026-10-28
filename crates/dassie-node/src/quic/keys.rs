@@ -344,7 +344,7 @@ mod tests {
     use super::*;
 
     fn key(byte: u8) -> IdentityKey {
-        IdentityKey::from_bytes(&[byte; 32])
+        dassie_identity::TableKeygen::identity_key(&[byte; 32])
     }
 
     #[test]

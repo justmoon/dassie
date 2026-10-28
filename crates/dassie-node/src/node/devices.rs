@@ -221,14 +221,12 @@ impl Node {
 mod tests {
     #![allow(clippy::unwrap_used)]
 
-    use dassie_identity::IdentityKey;
-
     use super::*;
 
     #[test]
     fn a_code_names_the_node_its_secret_and_where_to_reach_it() {
-        let node = IdentityKey::from_bytes(&[1; 32]).node_id();
-        let relay = IdentityKey::from_bytes(&[2; 32]).node_id();
+        let node = dassie_identity::TableKeygen::identity_key(&[1; 32]).node_id();
+        let relay = dassie_identity::TableKeygen::identity_key(&[2; 32]).node_id();
         let reach = Reach {
             direct: Some("https://node.example:4443".into()),
             relays: vec![(relay, "https://relay.example".into())],
@@ -246,7 +244,7 @@ mod tests {
 
     #[test]
     fn a_code_names_a_bounded_number_of_relays() {
-        let node = IdentityKey::from_bytes(&[1; 32]).node_id();
+        let node = dassie_identity::TableKeygen::identity_key(&[1; 32]).node_id();
         let relays = (0..10u8)
             .map(|seed| (NodeId::from_bytes(&[seed + 10; 24]), "https://r".into()))
             .collect();

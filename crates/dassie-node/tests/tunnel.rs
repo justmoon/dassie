@@ -159,7 +159,7 @@ fn side_behind(
     proxy: Option<Proxy>,
     shutdown: &CancellationToken,
 ) -> Side {
-    let key = Arc::new(IdentityKey::from_bytes(&[seed; 32]));
+    let key = Arc::new(dassie_identity::TableKeygen::identity_key(&[seed; 32]));
     let id = key.node_id();
     let (identity, receiver) = watch::channel(Some(key));
     let quic = Quic::new(socket, receiver, true)

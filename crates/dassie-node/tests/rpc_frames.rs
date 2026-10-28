@@ -16,7 +16,6 @@ use std::convert::Infallible;
 use std::sync::{Arc, LazyLock};
 
 use bytes::Bytes;
-use dassie_identity::IdentityKey;
 use dassie_kit::sim::SeededRng;
 use dassie_node::clock::ManualClock;
 use dassie_node::node::{Node, NodeOptions, PeerOptions, Policies, Runtime};
@@ -54,6 +53,7 @@ fn node_on(store: Store) -> Arc<Node> {
         dev_wallet_dir: None,
         public_names: Vec::new(),
         live_realm: dassie_node_core::config::LiveRealm::Refused,
+        keygen: Arc::new(dassie_identity::TableKeygen),
     })
     .unwrap()
 }
@@ -214,7 +214,7 @@ fn running_node(
     let store = Store::open_in_memory().unwrap();
     store
         .set_node_key_once(
-            &IdentityKey::from_bytes(&KEY),
+            &dassie_identity::TableKeygen::identity_key(&KEY),
             dassie_node_core::config::Realm::Test,
             1_800_000_000_000,
         )
@@ -405,7 +405,10 @@ fn payment_id() -> BoxedStrategy<String> {
 }
 
 fn node_id() -> BoxedStrategy<String> {
-    let own = IdentityKey::from_bytes(&KEY).node_id().as_str().to_string();
+    let own = dassie_identity::TableKeygen::identity_key(&KEY)
+        .node_id()
+        .as_str()
+        .to_string();
     prop_oneof![
         Just(own),
         "[A-Za-z0-9_-]{0,48}",

@@ -186,7 +186,8 @@ pub(crate) fn key_of(seed: u8) -> Arc<IdentityKey> {
     static KEYS: [std::sync::OnceLock<Arc<IdentityKey>>; 256] =
         [const { std::sync::OnceLock::new() }; 256];
     Arc::clone(
-        KEYS[usize::from(seed)].get_or_init(|| Arc::new(IdentityKey::from_bytes(&[seed; 32]))),
+        KEYS[usize::from(seed)]
+            .get_or_init(|| Arc::new(dassie_identity::TableKeygen::identity_key(&[seed; 32]))),
     )
 }
 

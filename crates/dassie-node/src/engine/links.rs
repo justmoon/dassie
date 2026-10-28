@@ -513,8 +513,8 @@ mod tests {
     // check only if it names the node checked.
     #[test]
     fn a_discovery_document_must_name_the_node() {
-        let node = dassie_identity::IdentityKey::from_bytes(&[1; 32]).node_id();
-        let other = dassie_identity::IdentityKey::from_bytes(&[2; 32]).node_id();
+        let node = dassie_identity::TableKeygen::identity_key(&[1; 32]).node_id();
+        let other = dassie_identity::TableKeygen::identity_key(&[2; 32]).node_id();
         let document = |id: &dassie_identity::NodeId| format!(r#"{{"id":"{id}","publicKey":"x"}}"#);
         assert!(super::names(document(&node).as_bytes(), &node));
         assert!(!super::names(document(&other).as_bytes(), &node));

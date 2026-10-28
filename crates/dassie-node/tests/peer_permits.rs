@@ -30,6 +30,7 @@ fn node() -> Arc<Node> {
         dev_wallet_dir: None,
         public_names: Vec::new(),
         live_realm: dassie_node_core::config::LiveRealm::Refused,
+        keygen: Arc::new(dassie_identity::TableKeygen),
     })
     .unwrap()
 }

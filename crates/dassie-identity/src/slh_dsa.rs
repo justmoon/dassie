@@ -51,6 +51,9 @@ impl SlhDsaPublicKey {
     /// from these seeds. A node's seeds are its node key's
     /// ([`NodeKey::slh_dsa_public_key`]); taking any is what lets the
     /// standard's known-answer vectors pin the generation.
+    ///
+    /// This is the real key generation, which [`Fips205Keygen`] runs and
+    /// nothing can replace: the known-answer vectors call it directly.
     #[must_use]
     pub fn from_seeds(
         sk_seed: &[u8; SLH_DSA_SEED_BYTES],
@@ -95,30 +98,64 @@ impl Decode<'_> for SlhDsaPublicKey {
     }
 }
 
+/// How a node key's SLH-DSA public key is made from its three seeds.
+///
+/// A node runs [`Fips205Keygen`], the real key generation, and nothing but
+/// a test passes another: [`TableKeygen`](crate::TableKeygen) looks the
+/// keys of the tests' seeds up rather than generate them
+/// (spec/areas/testing.md#slh-dsa-keys-in-tests). Whatever derives a
+/// node's SLH-DSA key from its node key takes one, so that a test can
+/// pass it its own.
+pub trait SlhDsaKeygen: fmt::Debug + Send + Sync {
+    /// The public key of the key FIPS 205's `slh_keygen_internal` makes
+    /// from these seeds.
+    fn public_key(
+        &self,
+        sk_seed: &[u8; SLH_DSA_SEED_BYTES],
+        sk_prf: &[u8; SLH_DSA_SEED_BYTES],
+        pk_seed: &[u8; SLH_DSA_SEED_BYTES],
+    ) -> SlhDsaPublicKey;
+}
+
+/// FIPS 205's `slh_keygen_internal`, as [`SlhDsaPublicKey::from_seeds`]
+/// runs it: the key generation every node uses.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Fips205Keygen;
+
+impl SlhDsaKeygen for Fips205Keygen {
+    fn public_key(
+        &self,
+        sk_seed: &[u8; SLH_DSA_SEED_BYTES],
+        sk_prf: &[u8; SLH_DSA_SEED_BYTES],
+        pk_seed: &[u8; SLH_DSA_SEED_BYTES],
+    ) -> SlhDsaPublicKey {
+        SlhDsaPublicKey::from_seeds(sk_seed, sk_prf, pk_seed)
+    }
+}
+
 impl NodeKey {
-    /// The public key of the node's SLH-DSA key, generated from the seeds
-    /// at `node/slh-dsa-sha2-128s/…` by FIPS 205's `slh_keygen_internal`.
+    /// The public key of the node's SLH-DSA key, made by `keygen` from the
+    /// seeds at `node/slh-dsa-sha2-128s/…`: by a node, [`Fips205Keygen`].
     ///
-    /// This builds the top tree of the key's hypertree, thousands of times
-    /// the work of an Ed25519 key: about 15 ms of optimized code, so a
-    /// caller computes it once, with [`identity`](Self::identity), and
-    /// keeps it. The seeds and the secret key are wiped on drop.
+    /// The real key generation builds the top tree of the key's hypertree,
+    /// thousands of times the work of an Ed25519 key: about 15 ms of
+    /// optimized code, so a caller computes it once, as an
+    /// [`IdentityKey`], and keeps it. The seeds are wiped on drop.
     #[must_use]
-    pub fn slh_dsa_public_key(&self) -> SlhDsaPublicKey {
+    pub fn slh_dsa_public_key(&self, keygen: &dyn SlhDsaKeygen) -> SlhDsaPublicKey {
         let sk_seed = self.secret(NodeSecret::SlhDsa(SlhDsaSeed::SkSeed));
         let sk_prf = self.secret(NodeSecret::SlhDsa(SlhDsaSeed::SkPrf));
         let pk_seed = self.secret(NodeSecret::SlhDsa(SlhDsaSeed::PkSeed));
-        SlhDsaPublicKey::from_seeds(seed_of(&sk_seed), seed_of(&sk_prf), seed_of(&pk_seed))
+        keygen.public_key(seed_of(&sk_seed), seed_of(&sk_prf), seed_of(&pk_seed))
     }
 
     /// The node's identity: its public key, and the public key of its
-    /// SLH-DSA key, which takes the time of
-    /// [`slh_dsa_public_key`](Self::slh_dsa_public_key). A node keeps its
-    /// own as an [`IdentityKey`]; there is no `node_id` here, so that no
-    /// caller pays for a key generation each time it asks.
+    /// SLH-DSA key, made by `keygen`. A node keeps its own as an
+    /// [`IdentityKey`]; there is no `node_id` here, so that no caller pays
+    /// for a key generation each time it asks.
     #[must_use]
-    pub fn identity(&self) -> NodeIdentity {
-        NodeIdentity::new(self.public_key(), self.slh_dsa_public_key())
+    pub fn identity(&self, keygen: &dyn SlhDsaKeygen) -> NodeIdentity {
+        NodeIdentity::new(self.public_key(), self.slh_dsa_public_key(keygen))
     }
 }
 
@@ -131,18 +168,19 @@ pub struct IdentityKey {
 }
 
 impl IdentityKey {
-    /// `key` with its identity, which takes the time of
-    /// [`NodeKey::slh_dsa_public_key`].
+    /// `key` with its identity, by the real key generation
+    /// ([`Fips205Keygen`]): what a node keeps of itself.
     #[must_use]
     pub fn new(key: NodeKey) -> Self {
-        let identity = key.identity();
-        Self { key, identity }
+        Self::with_keygen(key, &Fips205Keygen)
     }
 
-    /// The node key of Ed25519 seed `seed`, with its identity.
+    /// `key` with its identity, its SLH-DSA key made by `keygen`: a node's
+    /// is [`Fips205Keygen`], and a test's may be another.
     #[must_use]
-    pub fn from_bytes(seed: &[u8; 32]) -> Self {
-        Self::new(NodeKey::from_bytes(seed))
+    pub fn with_keygen(key: NodeKey, keygen: &dyn SlhDsaKeygen) -> Self {
+        let identity = key.identity(keygen);
+        Self { key, identity }
     }
 
     /// The node's identity.
@@ -159,7 +197,7 @@ impl IdentityKey {
 
     /// The SLH-DSA public key, as computed once. This shadows
     /// [`NodeKey::slh_dsa_public_key`], which the dereference would reach
-    /// otherwise and which generates the key again; [`identity`](Self::identity)
+    /// otherwise and which makes the key again; [`identity`](Self::identity)
     /// shadows [`NodeKey::identity`] the same way.
     #[must_use]
     pub const fn slh_dsa_public_key(&self) -> SlhDsaPublicKey {
@@ -254,17 +292,18 @@ mod tests {
 
     #[test]
     fn the_identity_is_the_two_keys() {
+        let keygen = crate::TableKeygen;
         let key = NodeKey::from_bytes(&[1; 32]);
-        let identity = key.identity();
+        let identity = key.identity(&keygen);
         assert_eq!(identity.key(), key.public_key());
-        assert_eq!(identity.slh_dsa(), key.slh_dsa_public_key());
+        assert_eq!(identity.slh_dsa(), key.slh_dsa_public_key(&keygen));
         assert_eq!(
             identity.node_id(),
             NodeId::from_keys(key.public_key().as_bytes(), identity.slh_dsa().as_bytes())
         );
         // A held key answers with the identity it computed once, through
         // the methods that would otherwise reach the node key's.
-        let held = IdentityKey::new(NodeKey::from_bytes(&[1; 32]));
+        let held = IdentityKey::with_keygen(NodeKey::from_bytes(&[1; 32]), &keygen);
         assert_eq!(held.identity(), identity);
         assert_eq!(held.slh_dsa_public_key(), identity.slh_dsa());
         assert_eq!(held.node_id(), identity.node_id());

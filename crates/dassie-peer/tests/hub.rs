@@ -449,7 +449,7 @@ fn details(hub: u8, account: u32) -> Vec<u8> {
 /// other's offers. The stub's peerings are over a hub, and the second
 /// scheme's too if `second_over_hub`.
 fn first_asked(own: Vec<Offer>, theirs: Theirs<'_>, second_over_hub: bool) -> Option<SchemeId> {
-    let other = IdentityKey::from_bytes(&[92; 32]);
+    let other = dassie_identity::TableKeygen::identity_key(&[92; 32]);
     let info = NodeInfo {
         sequence: START,
         url: "https://other.test",

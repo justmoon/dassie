@@ -101,9 +101,11 @@ impl Node {
         // Its SLH-DSA key, once, for the ID (spec/areas/identity.md#node-id):
         // a key generation, which takes a blocking task rather than the
         // runtime, and only once the setup token is checked.
-        let key = tokio::task::spawn_blocking(move || IdentityKey::new(key))
-            .await
-            .map_err(|_| AuthError::Interrupted)?;
+        let keygen = Arc::clone(&self.keygen);
+        let key =
+            tokio::task::spawn_blocking(move || IdentityKey::with_keygen(key, keygen.as_ref()))
+                .await
+                .map_err(|_| AuthError::Interrupted)?;
         {
             // Under the config's writer, so that no other change writes
             // back the realm from before.

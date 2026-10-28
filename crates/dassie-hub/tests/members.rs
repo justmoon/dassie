@@ -159,10 +159,12 @@ impl Validators {
     /// The sponsor's hub of `asset`, of `version` of the hub's protocol,
     /// with its escrow attested.
     fn found(faults: [Fault; 4], asset: Asset, version: u16) -> Self {
-        let sponsor = IdentityKey::from_bytes(&[100; 32]);
+        let sponsor = dassie_identity::TableKeygen::identity_key(&[100; 32]);
         let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
         let terms = terms(&sponsor, master.account().0, asset, version);
-        let nodes: Vec<IdentityKey> = (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
+        let nodes: Vec<IdentityKey> = (1..=4)
+            .map(|i| dassie_identity::TableKeygen::identity_key(&[i; 32]))
+            .collect();
         let keys: Vec<ValidatorKeys> = nodes
             .iter()
             .map(|node| ValidatorKeys::derive(node, TESTNET_NETWORK, &NONCE).unwrap())

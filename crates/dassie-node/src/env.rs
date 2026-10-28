@@ -592,7 +592,6 @@ fn key_bytes(text: &str) -> Option<[u8; 32]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dassie_identity::IdentityKey;
 
     fn settings(pairs: &[(&str, &str)]) -> Result<Settings, EnvError> {
         Settings::from_env(&Env::from_pairs(pairs.iter().copied()))
@@ -617,7 +616,7 @@ mod tests {
     /// The entry of the node of seed `seed` at `url`, as a front door logs
     /// its own.
     fn entry(seed: u8, url: &str) -> String {
-        let key = IdentityKey::from_bytes(&[seed; 32]);
+        let key = dassie_identity::TableKeygen::identity_key(&[seed; 32]);
         crate::front_door::key::relay_entry(&key, url)
     }
 
@@ -799,7 +798,7 @@ mod tests {
         let many: Vec<String> = (0..=dassie_peer::MAX_UPLINKS)
             .map(|n| {
                 let seed = [u8::try_from(n).unwrap(); 32];
-                dassie_identity::IdentityKey::from_bytes(&seed)
+                dassie_identity::TableKeygen::identity_key(&seed)
                     .node_id()
                     .to_string()
             })
@@ -844,7 +843,7 @@ mod tests {
     #[test]
     fn bootstrap_ids_must_match_keys() {
         let url = "https://test1.dassie.xyz";
-        let other = IdentityKey::from_bytes(&[2; 32]).node_id();
+        let other = dassie_identity::TableKeygen::identity_key(&[2; 32]).node_id();
         let swapped = entry_with(1, url, "id", other.as_str());
         let mut slh_dsa = [0u8; 43];
         let length = dassie_base64url::encode(&[9; 32], &mut slh_dsa);
@@ -887,7 +886,7 @@ mod tests {
         assert_eq!(chosen.node.identity.node_id(), chosen.node.id);
         // One the owner named is kept, hostname or not.
         assert!(!chosen.is_default);
-        let other = IdentityKey::from_bytes(&[2; 32]).node_id();
+        let other = dassie_identity::TableKeygen::identity_key(&[2; 32]).node_id();
         let swapped = entry_with(1, "https://boot1.dassie.xyz", "id", other.as_str());
         assert!(relay(&swapped).is_err());
         assert!(relay(&format!("[{boot1}]")).is_err());

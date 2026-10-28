@@ -930,13 +930,9 @@ pub(crate) mod tests {
     use super::*;
     use dassie_identity::NodeKey;
 
-    /// The node key of seed `seed`, with its identity, made once per seed:
-    /// its SLH-DSA key takes a key generation, and the tests sign with the
-    /// same few node keys over and over.
-    pub(crate) fn node_key(seed: u8) -> &'static IdentityKey {
-        static KEYS: [std::sync::OnceLock<IdentityKey>; 256] =
-            [const { std::sync::OnceLock::new() }; 256];
-        KEYS[usize::from(seed)].get_or_init(|| IdentityKey::from_bytes(&[seed; 32]))
+    /// The node key of seed `seed`, with its identity.
+    pub(crate) fn node_key(seed: u8) -> IdentityKey {
+        dassie_identity::TableKeygen::identity_key(&[seed; 32])
     }
 
     /// Terms that pass [`Terms::check`], for tests.
@@ -1001,7 +997,7 @@ pub(crate) mod tests {
     /// The rules of a hub of `n` validators whose node keys are seeds
     /// 1..=n, for tests.
     pub(crate) fn rules(n: u8) -> (Rules, Vec<NodeKey>) {
-        let mut terms = terms(node_key(100));
+        let mut terms = terms(&node_key(100));
         terms.timers.margin = least_margin_ms(usize::from(n));
         let consensus: Vec<NodeKey> = (1..=n)
             .map(|i| NodeKey::from_bytes(&[i + 50; 32]))
@@ -1018,7 +1014,7 @@ pub(crate) mod tests {
                     endpoint: alloc::format!("v{i}.example:443"),
                     signature: Signature::from_bytes([0; 64]),
                 }
-                .sign(node_key(i), &terms)
+                .sign(&node_key(i), &terms)
             })
             .collect();
         (Rules { terms, validators }, consensus)
@@ -1108,7 +1104,7 @@ pub(crate) mod tests {
 
     #[test]
     fn terms_relations() {
-        let sponsor = crate::rules::tests::node_key(1);
+        let sponsor = &crate::rules::tests::node_key(1);
         let mut bad = terms(sponsor);
         bad.timers.hold_notice = MAX_HOLD_MS;
         assert!(bad.check().is_err());
@@ -1149,7 +1145,7 @@ pub(crate) mod tests {
     // a hub other than the same terms in XRP would.
     #[test]
     fn token_terms_round_trip_and_name_another_hub() {
-        let sponsor = crate::rules::tests::node_key(3);
+        let sponsor = &crate::rules::tests::node_key(3);
         let xrp = terms(sponsor);
         let token = token_terms(xrp.clone());
         token.check().unwrap();
@@ -1181,7 +1177,7 @@ pub(crate) mod tests {
 
     #[test]
     fn fee_checks_follow_the_asset() {
-        let sponsor = crate::rules::tests::node_key(3);
+        let sponsor = &crate::rules::tests::node_key(3);
         let fails = |change: &dyn Fn(&mut Terms), token: bool| {
             let mut terms = terms(sponsor);
             if token {
@@ -1243,7 +1239,7 @@ pub(crate) mod tests {
     // millionths, rounded down, and only in the hub's token.
     #[test]
     fn token_amounts_and_the_hubs_unit() {
-        let xrp = terms(crate::rules::tests::node_key(3));
+        let xrp = terms(&crate::rules::tests::node_key(3));
         let token = token_terms(xrp.clone());
         let value = |text: &str| TokenValue::parse(text).unwrap();
         assert_eq!(token_value(1_500_000), value("1.5"));

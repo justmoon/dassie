@@ -674,19 +674,23 @@ mod tests {
         /// A network of a hub whose terms `adjust` changes, each validator
         /// accepting them.
         fn with_terms(adjust: impl FnOnce(&mut dassie_hub::rules::Terms)) -> Self {
-            let nodes: Vec<IdentityKey> =
-                (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
+            let nodes: Vec<IdentityKey> = (1..=4)
+                .map(|i| dassie_identity::TableKeygen::identity_key(&[i; 32]))
+                .collect();
             let endpoints: Vec<(IdentityKey, String)> = nodes
                 .iter()
                 .enumerate()
                 .map(|(i, key)| {
                     (
-                        IdentityKey::from_bytes(key.as_bytes()),
+                        dassie_identity::TableKeygen::identity_key(key.as_bytes()),
                         format!("v{i}.example:443"),
                     )
                 })
                 .collect();
-            let mut rules = rules(&IdentityKey::from_bytes(&[100; 32]), &endpoints);
+            let mut rules = rules(
+                &dassie_identity::TableKeygen::identity_key(&[100; 32]),
+                &endpoints,
+            );
             adjust(&mut rules.terms);
             let terms = rules.terms.clone();
             for ((node, endpoint), acceptance) in endpoints.iter().zip(&mut rules.validators) {
@@ -863,7 +867,7 @@ mod tests {
         });
         attest_all(&mut net, &ValidatorOperation::AttestEscrow { sequence: 5 });
         net.run(1_000);
-        let member = IdentityKey::from_bytes(&[31; 32]);
+        let member = dassie_identity::TableKeygen::identity_key(&[31; 32]);
         let deposit = Deposit {
             transaction: Digest([1; 32]),
             ledger: 10,
@@ -1096,7 +1100,7 @@ mod tests {
             amount: 50_000_000,
             sender: [3; 20],
             tag: 0,
-            key: Some(IdentityKey::from_bytes(&[n; 32]).public_key()),
+            key: Some(dassie_identity::TableKeygen::identity_key(&[n; 32]).public_key()),
         };
         for n in 1..=5 {
             attest_all(&mut net, &ValidatorOperation::AttestDeposit(deposit(n)));
@@ -1144,7 +1148,7 @@ mod tests {
                 amount: 50_000_000,
                 sender: [3; 20],
                 tag: 0,
-                key: Some(IdentityKey::from_bytes(&[n; 32]).public_key()),
+                key: Some(dassie_identity::TableKeygen::identity_key(&[n; 32]).public_key()),
             };
             attest_all(&mut net, &ValidatorOperation::AttestDeposit(deposit));
             net.run(1_000);
