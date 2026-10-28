@@ -581,6 +581,16 @@ pub trait SettlementScheme: Send {
         Err(SchemeError::Unsupported)
     }
 
+    /// The most a settlement to `peer` could move now, in the ledger's
+    /// units, as [`prepare_settlement`](Self::prepare_settlement) would
+    /// clamp it: so the node asks for none it cannot fund, and knows when
+    /// one it could not fund can be (spec/decisions/settle-when-funds-arrive.md).
+    /// `None` if the scheme cannot tell, as by default.
+    fn spendable(&self, asset: Option<&dyn ExternalAsset>, peer: Name) -> Option<u64> {
+        let _ = (asset, peer);
+        None
+    }
+
     /// Forgets a settlement prepared and never executed: the node could
     /// not book it. It is never sent.
     fn discard_settlement(&mut self, asset: Option<&mut dyn ExternalAsset>, settlement: Name) {

@@ -269,10 +269,10 @@ fn peer_settlement(severity: Severity, event: &dassie_peer::Event) {
             emit!(severity, target: target::SETTLEMENT, %peer, settling, "the peer answered our request to settle");
         }
         Event::SettlementRequestRefused { peer } => {
-            emit!(severity, target: target::SETTLEMENT, %peer, "the peer is not peered with us yet; it is asked to settle again at the next check");
+            emit!(severity, target: target::SETTLEMENT, %peer, "the peer is not peered with us yet; it is asked to settle again at its next Prepare at the trigger, or the next check");
         }
         Event::SettlementRequestNotDelivered { peer } => {
-            emit!(severity, target: target::SETTLEMENT, %peer, "our request to settle did not reach the peer; it is asked again at the next check");
+            emit!(severity, target: target::SETTLEMENT, %peer, "our request to settle did not reach the peer; it is asked again at its next Prepare at the trigger, or the next check");
         }
         Event::SettlementRefused {
             peer,
@@ -440,6 +440,9 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::PrepareFailed { node, error } => {
             emit!(severity, target: target::SETTLEMENT, %node, %error, "the scheme could not prepare a settlement");
         }
+        SettlementEvent::RequestShort { node, scheme } => {
+            emit!(severity, target: target::SETTLEMENT, %node, %scheme, "asked to settle with less on hand than the request calls for: the rest follows once the scheme can fund it");
+        }
         SettlementEvent::Reconciling { .. }
         | SettlementEvent::UnknownExecuted { .. }
         | SettlementEvent::AnnounceFailed { .. }
@@ -536,6 +539,7 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::Settling { .. }
         | SettlementEvent::SchemeUnavailable { .. }
         | SettlementEvent::PrepareFailed { .. }
+        | SettlementEvent::RequestShort { .. }
         | SettlementEvent::HistoryGap { .. }
         | SettlementEvent::SettlementUnproven { .. }
         // Logged by `settled_by_peers`.

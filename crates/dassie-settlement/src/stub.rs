@@ -134,6 +134,25 @@ impl Stub {
         self.hub.is_none()
     }
 
+    /// What the stub can spend that no settlement prepared and not yet
+    /// executed takes: the most a new one can move. What the peers' holds
+    /// toward us hold, not taken yet, is not ours to spend, as a hub's
+    /// member cannot spend it either.
+    fn unprepared(&self) -> u64 {
+        let prepared = self
+            .prepared
+            .values()
+            .fold(0, |sum: u64, (_, amount)| sum.saturating_add(*amount));
+        let toward_us = self.hub.as_ref().map_or(0, |hub| {
+            hub.holds
+                .values()
+                .fold(0, |sum: u64, holds| sum.saturating_add(holds.from))
+        });
+        self.balance
+            .saturating_sub(prepared)
+            .saturating_sub(toward_us)
+    }
+
     /// What a stub of our kind writes as its peering info, request and
     /// response: [`UNLIMITED`] with unlimited trust, nothing with
     /// commitments.
@@ -656,12 +675,7 @@ impl SettlementScheme for Stub {
         if self.prepared.len() >= MAX_PREPARED {
             return Err(SchemeError::TooManyPrepared);
         }
-        let spendable = self.balance.saturating_sub(
-            self.prepared
-                .values()
-                .fold(0, |sum, (_, amount)| sum.saturating_add(*amount)),
-        );
-        let amount = amount.min(spendable);
+        let amount = amount.min(self.unprepared());
         if amount == 0 || !hub.has_room_for(peer) {
             return Err(SchemeError::Unavailable);
         }
@@ -672,6 +686,15 @@ impl SettlementScheme for Stub {
             amount,
             message: Vec::new(),
         })
+    }
+
+    /// With commitments, what it holds and no prepared settlement takes,
+    /// while it has room for the peer's holds and for one more prepared;
+    /// with unlimited trust, nothing, as it never settles.
+    fn spendable(&self, _asset: Option<&dyn ExternalAsset>, peer: Name) -> Option<u64> {
+        let room = self.hub.as_ref().is_some_and(|hub| hub.has_room_for(peer))
+            && self.prepared.len() < MAX_PREPARED;
+        Some(if room { self.unprepared() } else { 0 })
     }
 
     fn execute_settlement(

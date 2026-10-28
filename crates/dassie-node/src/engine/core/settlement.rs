@@ -58,6 +58,12 @@ pub(super) struct Settlements {
     /// When each peer was last asked to settle on each method, until it
     /// settles on it (spec/decisions/settlement-methods.md).
     pub asked: BTreeMap<(NodeId, SchemeId), u64>,
+    /// The peers' requests to settle on each method that we could not fund
+    /// in full when they came: each is funded as the rule then stands, as
+    /// soon as the scheme can spend the least settlement, until its asker
+    /// would ask again (spec/decisions/settle-when-funds-arrive.md). In
+    /// memory: a restart forgets them, and the asker asks again.
+    pub unanswered: BTreeMap<(NodeId, SchemeId), Unanswered>,
     /// Our settlements prepared and not yet final, by scheme and ID.
     pub settling: BTreeMap<(Name, Name), Settling>,
     /// Settlements to execute once their pending transfers are on disk.
@@ -106,6 +112,7 @@ impl Settlements {
             peg: policies.peg,
             default_hubs: super::schemes::DEFAULT_HUBS,
             asked: BTreeMap::new(),
+            unanswered: BTreeMap::new(),
             settling: BTreeMap::new(),
             to_execute: Vec::new(),
             backoff: BTreeMap::new(),
@@ -117,6 +124,36 @@ impl Settlements {
             validation_secret: None,
         }
     }
+}
+
+/// A peer's request to settle that we could not fund in full when it
+/// came (spec/decisions/settle-when-funds-arrive.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Unanswered {
+    /// When the last such request came.
+    pub asked_ms: u64,
+    /// What the scheme could spend when a try to fund it late funded
+    /// nothing: it is tried again only once that changed, so a scheme that
+    /// cannot settle for another reason is not asked at every step.
+    pub tried: Option<u64>,
+}
+
+/// How a request to settle on a method was answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Answer {
+    /// As the rule asks: funded in full, or with nothing, as it asks
+    /// nothing.
+    Full,
+    /// With less than the rule asks, or nothing, for want of what the
+    /// scheme can spend now or of a free channel or method: funded as soon
+    /// as it can be (spec/decisions/settle-when-funds-arrive.md).
+    Short,
+    /// With a settlement already on its way on the method, which is the
+    /// answer: a request that was short stays so.
+    OnItsWay,
+    /// Never on this method: we settle nothing on it, or the peering has
+    /// no such method.
+    Never,
 }
 
 /// One of our settlements, prepared and not yet final.
@@ -547,19 +584,129 @@ impl Core {
 
     /// A peer asks us to settle on `scheme`: we settle half the way to our
     /// own trigger for it, unless a settlement to it is on its way already,
-    /// which is the answer (spec/decisions/own-fulfills.md).
+    /// which is the answer (spec/decisions/own-fulfills.md). One we cannot
+    /// fund in full now, for want of what the scheme can spend or of a
+    /// free channel, is kept, and funded as soon as it can be
+    /// (spec/decisions/settle-when-funds-arrive.md).
     ///
     /// Returns what is then on its way to the peer, which the answer tells
     /// it (spec/decisions/ending-a-peering.md): a settlement already under
     /// way, which is the whole answer, or the one made now.
     pub(super) fn settlement_requested(&mut self, node: NodeId, scheme: SchemeId) -> u64 {
+        let key = (node, scheme);
+        match self.fund_request(node, scheme) {
+            Answer::Full | Answer::Never => {
+                self.settle.unanswered.remove(&key);
+            }
+            Answer::Short => {
+                let asked = Unanswered {
+                    asked_ms: self.now_ms,
+                    tried: None,
+                };
+                if self.settle.unanswered.insert(key, asked).is_none() {
+                    self.report(SettlementEvent::RequestShort { node, scheme });
+                }
+                self.refill_soon(scheme);
+            }
+            Answer::OnItsWay => {}
+        }
+        self.settling_to(&node, scheme)
+    }
+
+    /// Funds, as the rule stands now, each request to settle we could not
+    /// fund in full when it came, once its scheme can spend the least
+    /// settlement and the method and the channel are free: answering it
+    /// late, within the interval its asker waits before asking again, never
+    /// settling on our own (spec/decisions/settle-when-funds-arrive.md). A
+    /// request is forgotten once that interval passed, the peering or the
+    /// method is no longer one we settle on, or it is funded in full. At
+    /// most one per method of a peering, so bounded as the peerings are.
+    pub(super) fn answer_late(&mut self) {
+        if self.settle.unanswered.is_empty() {
+            return;
+        }
+        let now = self.now_ms;
+        let every = self.settle.request_every_ms;
+        let kept: Vec<((NodeId, SchemeId), Unanswered)> = self
+            .settle
+            .unanswered
+            .iter()
+            .map(|(key, unanswered)| (*key, *unanswered))
+            .collect();
+        for ((node, scheme), unanswered) in kept {
+            let key = (node, scheme);
+            if unanswered.asked_ms.saturating_add(every) <= now || !self.answers_on(node, scheme) {
+                self.settle.unanswered.remove(&key);
+                continue;
+            }
+            if !self.can_settle(&node, scheme) {
+                continue;
+            }
+            // Only once the scheme can spend the least settlement, and
+            // more than at a try that funded nothing.
+            let Some(spendable) = self.spendable_for(node, scheme) else {
+                continue;
+            };
+            if spendable < self.settle.minimum || unanswered.tried == Some(spendable) {
+                continue;
+            }
+            match self.fund_request(node, scheme) {
+                Answer::Full | Answer::Never => {
+                    self.settle.unanswered.remove(&key);
+                }
+                // Funded in part, it waits for that settlement to land,
+                // since the method settles one at a time; funded with
+                // nothing, for the scheme to spend more than now.
+                Answer::Short => {
+                    let funded = self.settling_to(&node, scheme) > 0;
+                    let tried = (!funded).then_some(spendable);
+                    if let Some(unanswered) = self.settle.unanswered.get_mut(&key) {
+                        unanswered.tried = tried;
+                    }
+                }
+                Answer::OnItsWay => {}
+            }
+        }
+    }
+
+    /// Whether a request to settle on `scheme` from `node` is still one we
+    /// answer: the peering is active and not being ended, and has a method
+    /// on it that is not being wound down
+    /// (spec/decisions/ending-a-peering.md).
+    fn answers_on(&self, node: NodeId, scheme: SchemeId) -> bool {
+        self.peer
+            .peering_of(&node)
+            .filter(|peering| peering.depeering.is_none())
+            .and_then(|peering| peering.method(scheme))
+            .is_some_and(|method| !method.winding_down())
+    }
+
+    /// What a settlement to `node` on `scheme` could move now, as its
+    /// scheme clamps it; `None` if the scheme cannot tell.
+    fn spendable_for(&self, node: NodeId, scheme: SchemeId) -> Option<u64> {
+        let name = Name::new(scheme.as_str()).ok()?;
+        let peer = Name::new(node.as_str()).ok()?;
+        let active = self.schemes.get(&name).filter(|a| a.failed.is_none())?;
+        let asset = match active.asset {
+            Some(id) => Some(self.assets.get(&id)?.asset.as_ref()),
+            None => None,
+        };
+        active.scheme.spendable(asset, peer)
+    }
+
+    /// Settles with `node` on `scheme` as a request asks, now: half the way
+    /// to our own trigger, as far as the scheme can spend, unless a
+    /// settlement on the method is on its way already. A request the
+    /// scheme cannot fund with the least settlement funds nothing, rather
+    /// than make the hub's fee for a few drops: the rest follows once it
+    /// can (spec/decisions/settle-when-funds-arrive.md).
+    fn fund_request(&mut self, node: NodeId, scheme: SchemeId) -> Answer {
         // With unlimited trust, nothing is ever settled, nor on its way.
         if self.settle.never_settles || self.unlimited(scheme) {
-            return 0;
+            return Answer::Never;
         }
-        let under_way = self.settling_to(&node, scheme);
-        if under_way > 0 || !self.can_settle(&node, scheme) {
-            return under_way;
+        if self.settling_to(&node, scheme) > 0 {
+            return Answer::OnItsWay;
         }
         // Only on a method of the peering, with what its scheme keeps for
         // the peer on it.
@@ -569,7 +716,7 @@ impl Core {
             .and_then(|peering| peering.method(scheme))
             .map(|method| method.state.clone())
         else {
-            return 0;
+            return Answer::Never;
         };
         // While one of us has no account in its hub, we pay the peer in once
         // we owe it the hub's minimum for a new account, never before, with
@@ -577,34 +724,72 @@ impl Core {
         // (spec/designs/settlement-hubs.md#5-joining).
         let joining = self.joining_on(&node, scheme);
         if matches!(joining, Some(super::hubs::Joining::PaidIn(_))) {
-            return 0;
+            return Answer::Never;
         }
         let Some((mut at, mut over_hub, mut amount)) = self.requested(node, scheme) else {
-            return 0;
+            return Answer::Never;
         };
-        if let Some(super::hubs::Joining::Paying(minimum)) = joining {
+        let paying = match joining {
+            Some(super::hubs::Joining::Paying(minimum)) => Some(minimum),
+            _ => None,
+        };
+        if let Some(minimum) = paying {
             amount = self.pay_in_amount(&at, minimum);
+        }
+        if amount == 0 {
+            return Answer::Full;
+        }
+        if !self.can_settle(&node, scheme) {
+            return Answer::Short;
+        }
+        // A hold the scheme could fund with less than the least
+        // settlement is funded with nothing now: the rest follows.
+        if paying.is_none()
+            && self
+                .spendable_for(node, scheme)
+                .is_some_and(|spendable| spendable < amount && spendable < self.settle.minimum)
+        {
+            return Answer::Short;
         }
         // Over a hub, what we settle funds our hold toward the peer: value
         // moves with it, which opens a downlink's accounts, and then stands
         // where they do. Without room for them, nothing is settled
         // (spec/decisions/lazy-downlink-accounts.md).
-        if over_hub && amount > 0 && !self.has_accounts(node, at.ledger) {
+        if over_hub && !self.has_accounts(node, at.ledger) {
             if !self.open_downlink_accounts(node, at.scheme) {
-                return 0;
+                return Answer::Never;
             }
             let Some(opened) = self.requested(node, scheme) else {
-                return 0;
+                return Answer::Never;
             };
             (at, over_hub, amount) = opened;
-            if let Some(super::hubs::Joining::Paying(minimum)) = joining {
+            if let Some(minimum) = paying {
                 amount = self.pay_in_amount(&at, minimum);
             }
+            if amount == 0 {
+                return Answer::Full;
+            }
         }
-        if amount > 0 {
-            self.prepare_settlement(node, &at, amount, &state, over_hub);
+        self.prepare_settlement(node, &at, amount, &state, over_hub);
+        if self.settling_to(&node, scheme) < amount {
+            Answer::Short
+        } else {
+            Answer::Full
         }
-        self.settling_to(&node, scheme)
+    }
+
+    /// A request on `scheme` found the scheme short: over a hub, the funding
+    /// check of its hub is due at once rather than at its next interval, so
+    /// that a deposit from the owner book the floor calls for leaves now
+    /// (spec/areas/hubs.md#in-the-node).
+    fn refill_soon(&mut self, scheme: SchemeId) {
+        let now = self.now_ms;
+        if let Some(funding) = Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.funding.get_mut(&name))
+        {
+            funding.at_ms = funding.at_ms.min(now);
+        }
     }
 
     /// Where we stand with `node` on `scheme`, whether it is over a hub, and

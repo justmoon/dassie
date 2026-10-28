@@ -723,6 +723,9 @@ impl Core {
         if self.settle.at_ms != checked_at {
             self.sync_peer_slots();
         }
+        // What this step let the schemes spend, or freed of a method or a
+        // channel, funds the requests we could not fund in full.
+        self.answer_late();
         self.fund_hub();
         self.expire(self.now_ms);
         self.hub_waits(self.now_ms);

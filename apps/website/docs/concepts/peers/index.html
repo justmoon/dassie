@@ -73,13 +73,15 @@
           peer to fund its hold right away.
         </li>
         <li>
-          <strong>The creditor asks, the debtor decides.</strong> Your node
-          checks every few seconds. When a peer's room with you falls to one
-          and a half of the largest packets, your node asks it to top up its
-          hold. The peer decides how much from its own books, and settles
-          nothing smaller than one largest packet, so nobody can make it pay
-          a ledger fee for every few drops. Your node answers the same way
-          when asked, and never settles on its own.
+          <strong>The creditor asks, the debtor decides.</strong> As soon as
+          a packet takes a peer's room with you to one and a half of the
+          largest packets, your node asks it to top up its hold, and a check
+          every few seconds catches anything else. The peer decides how much
+          from its own books, and settles nothing smaller than one largest
+          packet, so nobody can make it pay a ledger fee for every few drops.
+          Your node answers the same way when asked, and never settles on its
+          own: when its hub account cannot fund a request at once, it funds
+          it as soon as the account can, without being asked again.
         </li>
         <li>
           <strong>Nothing about credit is announced.</strong> No message
