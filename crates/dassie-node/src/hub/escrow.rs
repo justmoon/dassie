@@ -74,9 +74,21 @@
 //!   lost neither to a restart, which reads it again, nor past the bound on
 //!   what the hub's service keeps to attest again.
 //!
-//! The verifier's state is not kept across restarts: a restarted validator
-//! fetches its lists and anchors anew, and its cursor's newest ledger still
-//! tells a server behind, or a chain gone back.
+//! - **The verifier's state across a restart.** Its UNL's lists and
+//!   manifests, whether it is UNL-blocked, and its anchor go to its host
+//!   with the cursor, after the hub's network ([`Watcher::take_kept`]):
+//!   once they changed, at most every [`KEEP_VERIFIER_EVERY_MS`], and at
+//!   once after a reset, so a restart never meets the chain gone as a new
+//!   reset. A restarted watcher takes them back before it connects
+//!   ([`Watcher::restore`]), verified again at the restart's time, so a
+//!   restart neither lifts a block nor takes an older anchor as current:
+//!   the anchor taken back is current to nothing, and no hint is proven
+//!   against it, as it may be of a chain that reset while the validator
+//!   was down, until a newer one is proven; one off its chain is a reset on
+//!   the testnet, and a fork, which stops the verifier, on any other
+//!   network. A state of another network, or one the verifier does not
+//!   read, is dropped, and the verifier starts afresh, its cursor's newest
+//!   ledger still telling a server behind, or a chain gone back.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -101,7 +113,7 @@ use dassie_xrpl::verifier::{
 };
 use serde_json::Value;
 
-use crate::store::EscrowCursor;
+use crate::store::{EscrowCursor, MAX_HUB_VERIFIER_BYTES};
 
 /// How far back from the last ledger attested a catch-up starts: what was
 /// attested just before a crash may never have reached a block.
@@ -132,6 +144,16 @@ pub const RETRY_MS: u64 = 10_000;
 /// Past it, its server stopped closing ledgers, or keeps the newer ones
 /// from it, and nothing is judged until a newer anchor is proven.
 pub const ANCHOR_FRESH_MS: u64 = REQUEST_TIMEOUT_MS + STALL_MS + 2 * ANCHOR_EVERY_MS;
+
+/// How often at most the verifier's state goes to the host with the cursor
+/// while it changes. What changes it is mostly its anchor, about every
+/// [`ANCHOR_EVERY_MS`], with lists and manifests that are far larger:
+/// written with each anchor, the lists' bytes would be rewritten every few
+/// seconds. What a restart loses of a minute is anchors, which the next
+/// round proves forward from the one kept, and lists and manifests, which
+/// it fetches again; a list that lapsed since still blocks, as the state is
+/// verified again at the restart's time.
+pub const KEEP_VERIFIER_EVERY_MS: u64 = 60_000;
 
 /// The most signed escrow transactions kept: waiting for a connection, for
 /// the issuer to let go of the escrow, or for their withdrawal to settle.
@@ -275,10 +297,23 @@ pub enum Out {
     /// the watcher neither remembers the transaction nor moves its cursor
     /// past it.
     Attest(ValidatorOperation, Option<[u8; 32]>),
-    /// Persist how far it followed the escrow.
+    /// Persist how far it followed the escrow, and with it, in the same
+    /// write, the verifier's state [`Watcher::take_kept`] hands over, if
+    /// it does.
     Cursor(EscrowCursor),
     /// Something the owner should read in the log.
     Problem(&'static str),
+}
+
+/// Why what a watcher kept of its verifier before a restart is not taken
+/// back: the verifier starts afresh.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unrestored {
+    /// It was kept on another network.
+    Network(u32),
+    /// The verifier does not read it: of a version it does not read, cut
+    /// short, or not what it writes.
+    Unread,
 }
 
 /// What a request of its own was.
@@ -518,6 +553,17 @@ pub struct Watcher {
     ceiling: Option<u32>,
     /// The cursor last persisted.
     persisted: Option<EscrowCursor>,
+    /// Whether its verifier's anchor was taken back from before a restart,
+    /// and none proven since: no hint is proven against it, as it may be of
+    /// a chain gone while the validator was down.
+    taken_back: bool,
+    /// The verifier's count of changes when its state was last handed to
+    /// the host, or taken back.
+    kept_changes: u64,
+    /// When it was last handed to the host.
+    kept_ms: Option<u64>,
+    /// The state handed to the host with the cursor, until it takes it.
+    keeping: Option<Vec<u8>>,
     now_ms: u64,
     out: VecDeque<Out>,
 }
@@ -576,9 +622,60 @@ impl Watcher {
             untaken: BTreeMap::new(),
             ceiling: None,
             persisted: cursor,
+            taken_back: false,
+            kept_changes: 0,
+            kept_ms: None,
+            keeping: None,
             now_ms: 0,
             out: VecDeque::new(),
         }
+    }
+
+    /// Takes back at `now_ms` what it handed its host of its verifier
+    /// before a restart ([`Self::take_kept`]), before it first connects: the
+    /// verifier's state, verified again at `now_ms`, whose validations
+    /// `signatures` checks, as [`Self::new`]'s do. The anchor it holds is
+    /// current to nothing, and no hint is proven against it: only a newer
+    /// one, proven with fresh signatures, moves the cursor.
+    ///
+    /// # Errors
+    ///
+    /// Why it is not taken back, kept on another network or unread: the
+    /// verifier then starts afresh, as [`Self::new`] made it.
+    pub fn restore(
+        &mut self,
+        kept: &[u8],
+        signatures: Box<dyn ValidationSignatures + Send>,
+        now_ms: u64,
+    ) -> Result<(), Unrestored> {
+        assert!(
+            self.phase == Phase::Disconnected && self.queries.is_empty(),
+            "taken back before it follows the escrow"
+        );
+        let (network, state) = kept.split_first_chunk::<4>().ok_or(Unrestored::Unread)?;
+        let network = u32::from_be_bytes(*network);
+        if network != self.network {
+            return Err(Unrestored::Network(network));
+        }
+        let config = self.verifier.unl().config().clone();
+        let verifier = Verifier::restore(self.network, config, signatures, state, now_ms)
+            .ok_or(Unrestored::Unread)?;
+        self.verifier = verifier;
+        self.now(now_ms);
+        self.taken_back = self.verifier.anchor().is_some();
+        self.kept_changes = self.verifier.changes();
+        // The threads it reads proven transactions for are no part of its
+        // state.
+        if !self.walk_keys.is_empty() {
+            self.verifier.thread(self.walk_keys.clone());
+        }
+        Ok(())
+    }
+
+    /// The verifier's state, after the hub's network, to write with the
+    /// cursor of the [`Out::Cursor`] just taken, if it is handed over now.
+    pub fn take_kept(&mut self) -> Option<Vec<u8>> {
+        self.keeping.take()
     }
 
     /// Whether it follows the escrow's stream now.
@@ -642,6 +739,10 @@ impl Watcher {
         assert!(self.remembered.len() <= MAX_REMEMBERED);
         assert_eq!(self.remembered.len(), self.remembered_order.len());
         assert!(self.submits.len() <= MAX_QUEUED_SUBMITS);
+        assert!(
+            (self.keeping.as_ref()).is_none_or(|kept| kept.len() <= MAX_HUB_VERIFIER_BYTES),
+            "the verifier's state handed over is bounded"
+        );
         assert!(self.pending_submits() <= MAX_PENDING_SUBMITS);
         assert!(
             self.deposits.len() <= MAX_WAITING_DEPOSITS,
@@ -912,6 +1013,7 @@ impl Watcher {
         self.retry_deposits();
         self.drain_verifier();
         self.work();
+        self.keep(false);
     }
 
     /// Takes a message from the server.
@@ -1220,6 +1322,9 @@ impl Watcher {
     /// since that ledger closed: a quorum saw it before this validator did,
     /// and a late vote only waits out the hub's quiet period.
     fn anchored(&mut self, anchor: Anchor, reset: bool) {
+        // Proven with fresh signatures on the chain it is on: the chain
+        // lives, whichever the anchor taken back was on.
+        self.taken_back = false;
         let close_time = u64::from(anchor.close_time);
         let judged = match chain(self.newest(), self.network, anchor.index, close_time) {
             Chain::Current if reset => Chain::Restarted,
@@ -1297,6 +1402,9 @@ impl Watcher {
         self.deposits.clear();
         self.submits.clear();
         self.persist(cursor);
+        // The new chain's anchor is kept at once: kept as of the chain
+        // gone, a restart would meet the new one as another reset.
+        self.keep(true);
         // What the server said of the old chain goes with it: the escrow's
         // history is read again on the new one.
         if self.phase != Phase::Disconnected {
@@ -1492,6 +1600,11 @@ impl Watcher {
     /// Asks for the proofs of hints, the oldest ledgers first, as many at
     /// once as [`MAX_HINT_QUERIES`].
     fn prove_hints(&mut self) {
+        // Proven against an anchor taken back, a transaction of a chain
+        // that reset while the validator was down would be applied.
+        if self.taken_back {
+            return;
+        }
         let open = self
             .hints
             .values()
@@ -1793,6 +1906,39 @@ impl Watcher {
         };
         if self.persisted != Some(cursor) {
             self.persisted = Some(cursor);
+            self.out.push_back(Out::Cursor(cursor));
+        }
+    }
+
+    /// Hands the verifier's state to the host with the cursor once it
+    /// changed, and [`KEEP_VERIFIER_EVERY_MS`] passed since it last did, or
+    /// at once if `now`: with a cursor going out already, or with the one
+    /// persisted last. Before a cursor is, there is nothing to keep it
+    /// with, and a restart starts as the first start did.
+    fn keep(&mut self, now: bool) {
+        let changes = self.verifier.changes();
+        let due = now
+            || (self.kept_ms)
+                .is_none_or(|at| self.now_ms.saturating_sub(at) >= KEEP_VERIFIER_EVERY_MS);
+        let Some(cursor) = self.persisted else {
+            return;
+        };
+        if changes == self.kept_changes || !due {
+            return;
+        }
+        self.kept_changes = changes;
+        self.kept_ms = Some(self.now_ms);
+        let mut kept = self.network.to_be_bytes().to_vec();
+        kept.extend(self.verifier.state());
+        if kept.len() > MAX_HUB_VERIFIER_BYTES {
+            self.keeping = None;
+            self.out.push_back(Out::Problem(
+                "the XRPL verifier's lists are too large to keep: a restart fetches them anew",
+            ));
+            return;
+        }
+        self.keeping = Some(kept);
+        if !(self.out.iter()).any(|out| matches!(out, Out::Cursor(_))) {
             self.out.push_back(Out::Cursor(cursor));
         }
     }

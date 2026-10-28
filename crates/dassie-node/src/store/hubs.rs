@@ -4,8 +4,9 @@
 //! a step's messages go out, so a restart never signs a vote that conflicts
 //! with one sent before; the states after a few recent final blocks and
 //! after the last blocks of recent epochs, which validators far behind
-//! catch up from; how far it followed the escrow on the XRP Ledger; and the
-//! payout bundles it signed.
+//! catch up from; how far it followed the escrow on the XRP Ledger, with
+//! what its verifier keeps across a restart; and the payout bundles it
+//! signed.
 //!
 //! The rows hold bytes the hub's crate encodes and reads; the store knows
 //! only their bounds.
@@ -20,6 +21,11 @@ pub const MAX_HUB_CONSENSUS_BYTES: usize = 512 * 1024 * 1024;
 
 /// The largest ledger stored: the hub's terms bound its tables.
 pub const MAX_HUB_LEDGER_BYTES: usize = 256 * 1024 * 1024;
+
+/// The largest state of a validator's verifier stored, with the hub's
+/// network before it: as large as an XRPL account's state may be, which
+/// keeps the same lists, manifests and anchor.
+pub const MAX_HUB_VERIFIER_BYTES: usize = 256 * 1024;
 
 /// The largest payout bundle stored.
 pub const MAX_HUB_BUNDLE_BYTES: usize = 16 * 1024 * 1024;
@@ -188,17 +194,50 @@ impl Store {
         )
     }
 
-    /// Records how far the validator of `hub` followed its escrow.
+    /// What the validator of `hub` kept of its verifier with its cursor, if
+    /// it kept anything: bytes its watcher writes and reads.
+    pub fn hub_verifier(&self, hub: &[u8; 32]) -> Result<Option<Vec<u8>>, StoreError> {
+        let row = self
+            .lock()
+            .query_row_cached(
+                "SELECT verifier FROM hub_escrow WHERE hub = ?1",
+                [&hub[..]],
+                |row| row.get::<_, Option<Vec<u8>>>(0),
+            )
+            .optional()?;
+        Ok(row.flatten())
+    }
+
+    /// Records how far the validator of `hub` followed its escrow, keeping
+    /// what it kept of its verifier.
     pub fn set_hub_escrow(&self, hub: &[u8; 32], cursor: &EscrowCursor) -> Result<(), StoreError> {
+        self.keep_hub_escrow(hub, cursor, None)
+    }
+
+    /// Records how far the validator of `hub` followed its escrow, and with
+    /// it its verifier's state if `verifier` holds one, in one write, so a
+    /// restart reads the two as they were together. Without one, what was
+    /// kept of the verifier stays.
+    pub fn keep_hub_escrow(
+        &self,
+        hub: &[u8; 32],
+        cursor: &EscrowCursor,
+        verifier: Option<&[u8]>,
+    ) -> Result<(), StoreError> {
+        if verifier.is_some_and(|bytes| bytes.len() > MAX_HUB_VERIFIER_BYTES) {
+            return Err(StoreError::Corrupt("verifier state over its bound"));
+        }
         self.lock().execute_cached(
-            "INSERT INTO hub_escrow (hub, newest_ledger, newest_close_time, scanned_to) \
-             VALUES (?1, ?2, ?3, ?4) ON CONFLICT (hub) DO UPDATE SET \
-             newest_ledger = ?2, newest_close_time = ?3, scanned_to = ?4",
+            "INSERT INTO hub_escrow (hub, newest_ledger, newest_close_time, scanned_to, verifier) \
+             VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (hub) DO UPDATE SET \
+             newest_ledger = ?2, newest_close_time = ?3, scanned_to = ?4, \
+             verifier = coalesce(?5, verifier)",
             params![
                 &hub[..],
                 cursor.newest_ledger,
                 to_sql_time(cursor.newest_close_time),
                 cursor.scanned_to,
+                verifier,
             ],
         )?;
         Ok(())
@@ -322,6 +361,7 @@ mod tests {
         };
         store.set_hub_escrow(&hub, &cursor).unwrap();
         assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor));
+        assert_eq!(store.hub_verifier(&hub).unwrap(), None);
         for height in 0..u64::from(KEPT_BUNDLES) + 3 {
             store.add_hub_bundle(&hub, height, 1, &[1]).unwrap();
         }
@@ -332,5 +372,49 @@ mod tests {
             u64::from(KEPT_BUNDLES) + 2,
             "the newest first"
         );
+    }
+
+    // spec/areas/hubs.md#the-validator-in-the-node: the verifier's state is
+    // written with the cursor, stays while only the cursor moves, and is
+    // bounded.
+    #[test]
+    fn the_verifier_is_kept_with_the_cursor() {
+        let store = Store::open_in_memory().unwrap();
+        let hub = [7; 32];
+        let cursor = |newest_ledger| EscrowCursor {
+            newest_ledger,
+            newest_close_time: 700,
+            scanned_to: 8,
+        };
+        store
+            .keep_hub_escrow(&hub, &cursor(9), Some(&[1, 2, 3]))
+            .unwrap();
+        assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor(9)));
+        assert_eq!(store.hub_verifier(&hub).unwrap(), Some(vec![1, 2, 3]));
+        store.set_hub_escrow(&hub, &cursor(10)).unwrap();
+        assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor(10)));
+        assert_eq!(store.hub_verifier(&hub).unwrap(), Some(vec![1, 2, 3]));
+        store
+            .keep_hub_escrow(&hub, &cursor(11), Some(&[4]))
+            .unwrap();
+        assert_eq!(store.hub_verifier(&hub).unwrap(), Some(vec![4]));
+        let over = vec![0; MAX_HUB_VERIFIER_BYTES + 1];
+        assert!(
+            store
+                .keep_hub_escrow(&hub, &cursor(12), Some(&over))
+                .is_err()
+        );
+        assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor(11)));
+        let largest = vec![5; MAX_HUB_VERIFIER_BYTES];
+        store
+            .keep_hub_escrow(&hub, &cursor(12), Some(&largest))
+            .unwrap();
+        assert_eq!(store.hub_verifier(&hub).unwrap(), Some(largest));
+        // The column's own bound is the same.
+        let refused = store.lock().execute(
+            "UPDATE hub_escrow SET verifier = ?1 WHERE hub = ?2",
+            params![over, &hub[..]],
+        );
+        assert!(refused.is_err());
     }
 }

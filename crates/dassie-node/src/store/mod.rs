@@ -60,7 +60,7 @@ pub use hub_founding::{
 pub use hub_funding::{HubFunding, HubFundingRow, HubMoveRow};
 pub use hubs::{
     EscrowCursor, HubStep, KEPT_BOUNDARIES, KEPT_BUNDLES, KEPT_TIPS, MAX_HUB_BUNDLE_BYTES,
-    MAX_HUB_CONSENSUS_BYTES, MAX_HUB_LEDGER_BYTES, StoredHub,
+    MAX_HUB_CONSENSUS_BYTES, MAX_HUB_LEDGER_BYTES, MAX_HUB_VERIFIER_BYTES, StoredHub,
 };
 pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
 pub use ledger::{BtpTokenRow, Checkpoint, JournalRow, LedgerBatch, StoredLedger, TokenCap};

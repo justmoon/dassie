@@ -19,7 +19,8 @@ use dassie_xrpl::fake::{
     CLOSE_INTERVAL_S, DSUSD_CURRENCY, DSUSD_ISSUER, FEE_BASE, FakeLedger, KeyedSignatures,
     LIST_SITE, Lie,
 };
-use dassie_xrpl::unl::ledger_seconds;
+use dassie_xrpl::lists::LIST_RETRY_MS;
+use dassie_xrpl::unl::{RIPPLE_EPOCH_UNIX_S, ledger_seconds};
 
 use super::*;
 use crate::hub::config::tests::{NONCE, rules};
@@ -78,6 +79,9 @@ struct Setup {
     on_the_way: Vec<Vec<u8>>,
     /// What it told the owner, in order.
     problems: Vec<&'static str>,
+    /// What the watcher last handed over of its verifier, as its host
+    /// keeps it with the cursor.
+    kept: Option<Vec<u8>>,
 }
 
 /// The watcher of `escrow` on the testnet, trusting the fake's validators.
@@ -159,6 +163,7 @@ impl Setup {
             round_trip_ms: 0,
             on_the_way: Vec::new(),
             problems: Vec::new(),
+            kept: None,
         };
         if token.is_some() {
             setup.hold_dsusd();
@@ -262,7 +267,12 @@ impl Setup {
                         self.untaken.push((operation, transaction));
                     }
                 }
-                Out::Cursor(cursor) => self.cursor = Some(cursor),
+                Out::Cursor(cursor) => {
+                    self.cursor = Some(cursor);
+                    if let Some(kept) = self.watcher.take_kept() {
+                        self.kept = Some(kept);
+                    }
+                }
                 Out::Problem(problem) => self.problems.push(problem),
             }
         }
@@ -1496,4 +1506,202 @@ fn a_hold_its_server_cannot_name_is_searched_once_a_connection() {
     setup.reconnect();
     setup.closes(4 * checks);
     assert_eq!(told(&setup), 2, "{:?}", setup.problems);
+}
+
+/// The watcher of `escrow` from `cursor`, restarted with `kept`, as its
+/// host restarts it.
+fn restarted(
+    escrow: AccountId,
+    cursor: Option<EscrowCursor>,
+    kept: &[u8],
+    now: u64,
+) -> (Watcher, Result<(), Unrestored>) {
+    let mut watcher = watcher(escrow, cursor);
+    let restored = watcher.restore(kept, Box::new(KeyedSignatures::new(SECRET)), now);
+    (watcher, restored)
+}
+
+/// The deposits it attested, by tag and amount.
+fn tagged_deposits(setup: &Setup) -> Vec<(u32, u64)> {
+    (setup.attested.iter())
+        .filter_map(|op| match op {
+            ValidatorOperation::AttestDeposit(deposit) => Some((deposit.tag, deposit.amount)),
+            _ => None,
+        })
+        .collect()
+}
+
+// spec/areas/hubs.md#the-validator-in-the-node: a validator restarted
+// with what its verifier kept takes back its newest anchor, and the block
+// of a list that lapsed while it was down: it anchors nowhere, and attests
+// nothing a lying server claims, until the publisher lists again. Then it
+// anchors forward from the anchor it kept, and attests the deposit made
+// meanwhile, walked through the threads it reads again.
+#[test]
+fn a_restarted_validator_keeps_its_verifier_s_block_and_anchor() {
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    let lapses = ledger_seconds(setup.now) + 3_600;
+    setup
+        .xrpl
+        .publish_validator_list(u32::try_from(lapses).unwrap(), None);
+    setup.connect();
+    setup.closes(2);
+    setup.tick(KEEP_VERIFIER_EVERY_MS);
+    let anchor = setup.watcher.verifier().anchor().unwrap();
+    let kept = setup.kept.clone().expect("handed over with the cursor");
+
+    // Down past the list's lapse, the validator restarts on a server that
+    // makes up a deposit, and a real one is made.
+    setup.now = (lapses + RIPPLE_EPOCH_UNIX_S + 60) * 1_000;
+    let escrow = setup.escrow();
+    let (watcher, restored) = restarted(escrow, setup.cursor, &kept, setup.now);
+    assert_eq!(restored, Ok(()));
+    setup.watcher = watcher;
+    assert_eq!(setup.watcher.verifier().anchor(), Some(anchor));
+    assert!(setup.watcher.verifier().unl().blocked(setup.now));
+    assert_eq!(setup.watcher.anchor(), None, "current to nothing yet");
+    setup.attested.clear();
+    setup.xrpl.deposit_tagged(escrow, 5_000_000, Some(7));
+    setup.lie = Some(Lie::Transaction);
+    setup.connect();
+    for _ in 0..3 {
+        setup.closes(2);
+        setup.tick(LIST_RETRY_MS);
+    }
+    assert!(setup.attested.is_empty(), "{:?}", setup.attested);
+    assert_eq!(setup.watcher.verifier().anchor(), Some(anchor));
+    assert!(setup.watcher.verifier().unl().blocked(setup.now));
+
+    // Listed again, on an honest server, it anchors forward.
+    let later = ledger_seconds(setup.now) + 86_400;
+    setup
+        .xrpl
+        .publish_validator_list(u32::try_from(later).unwrap(), None);
+    setup.lie = None;
+    setup.reconnect();
+    for _ in 0..3 {
+        setup.tick(LIST_RETRY_MS);
+        setup.closes(2);
+    }
+    let newer = setup.watcher.anchor().expect("anchored forward");
+    assert!(newer.index > anchor.index);
+    assert_eq!(tagged_deposits(&setup), vec![(7, 5_000_000)]);
+}
+
+// A state kept on another network, or one that does not read, is dropped:
+// the verifier starts afresh, and follows as on a first start.
+#[test]
+fn a_verifier_kept_on_another_network_is_not_taken_back() {
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    setup.connect();
+    setup.closes(2);
+    setup.tick(1);
+    let kept = setup.kept.clone().expect("handed over with the cursor");
+    assert_eq!(kept[..4], TESTNET_NETWORK.to_be_bytes());
+    let escrow = setup.escrow();
+
+    let mut mainnet = kept.clone();
+    mainnet[..4].copy_from_slice(&0_u32.to_be_bytes());
+    let (watcher, restored) = restarted(escrow, setup.cursor, &mainnet, setup.now);
+    assert_eq!(restored, Err(Unrestored::Network(0)));
+    assert_eq!(watcher.verifier().anchor(), None, "afresh");
+    for unread in [&kept[..3], &kept[..kept.len() - 1]] {
+        let (watcher, restored) = restarted(escrow, setup.cursor, unread, setup.now);
+        assert_eq!(restored, Err(Unrestored::Unread));
+        assert_eq!(watcher.verifier().anchor(), None, "afresh");
+    }
+
+    setup.watcher = restarted(escrow, setup.cursor, &mainnet, setup.now).0;
+    setup.xrpl.deposit_tagged(escrow, 5_000_000, Some(7));
+    setup.connect();
+    setup.closes(3);
+    assert!(setup.watcher.following());
+    assert!(setup.watcher.anchor().is_some());
+    assert_eq!(tagged_deposits(&setup), vec![(7, 5_000_000)]);
+}
+
+// spec/decisions/ledger-resets.md: a reset's anchor is handed over at
+// once, however recently the last state was: a validator restarted after
+// it takes back the new chain's anchor, and attests the reset no second
+// time.
+#[test]
+fn a_reset_is_kept_at_once() {
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    setup.connect();
+    setup.closes(2);
+    setup.tick(KEEP_VERIFIER_EVERY_MS);
+    let old = setup.cursor.unwrap();
+    setup.xrpl.reset();
+    setup.close();
+    setup.watcher.disconnected();
+    setup.connect();
+    setup.closes(2);
+    let resets = |setup: &Setup| {
+        (setup.attested.iter())
+            .filter(|op| matches!(op, ValidatorOperation::AttestReset { .. }))
+            .count()
+    };
+    assert_eq!(resets(&setup), 1);
+
+    let kept = setup.kept.clone().unwrap();
+    let escrow = setup.escrow();
+    let (watcher, restored) = restarted(escrow, setup.cursor, &kept, setup.now);
+    assert_eq!(restored, Ok(()));
+    let anchor = watcher.verifier().anchor().unwrap();
+    assert!(anchor.index < old.newest_ledger, "the new chain's");
+    setup.watcher = watcher;
+    setup.attested.clear();
+    setup.connect();
+    setup.closes(2);
+    assert_eq!(resets(&setup), 0, "{:?}", setup.attested);
+    assert!(setup.watcher.following());
+}
+
+// spec/decisions/ledger-resets.md: the anchor taken back may be of a chain
+// that reset while the validator was down. Until a newer one is proven, no
+// transaction is proven against it, so a server still on the chain gone
+// gets none of its deposits attested again; on the new chain, the reset is.
+#[test]
+fn an_anchor_taken_back_proves_nothing_until_one_is_proven_anew() {
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    setup.connect();
+    setup.closes(2);
+    let escrow = setup.escrow();
+    setup.xrpl.deposit_tagged(escrow, 5_000_000, Some(7));
+    setup.closes(3);
+    setup.tick(KEEP_VERIFIER_EVERY_MS);
+    assert_eq!(tagged_deposits(&setup), vec![(7, 5_000_000)]);
+    let kept = setup.kept.clone().unwrap();
+    let mut gone = setup.xrpl.clone();
+
+    // Down across a reset, the validator restarts on a server still on the
+    // chain gone, whose driver names no deposit recorded.
+    setup.xrpl.reset();
+    setup.close();
+    let (watcher, restored) = restarted(escrow, setup.cursor, &kept, setup.now);
+    assert_eq!(restored, Ok(()));
+    setup.watcher = watcher;
+    setup.view.deposits_recorded.clear();
+    setup.attested.clear();
+    std::mem::swap(&mut setup.xrpl, &mut gone);
+    setup.connect();
+    setup.tick(1_000);
+    assert!(setup.attested.is_empty(), "{:?}", setup.attested);
+
+    std::mem::swap(&mut setup.xrpl, &mut gone);
+    setup.reconnect();
+    setup.closes(2);
+    assert!(
+        any(&setup.attested, |op| matches!(
+            op,
+            ValidatorOperation::AttestReset { .. }
+        )),
+        "{:?}",
+        setup.attested
+    );
+    assert!(tagged_deposits(&setup).is_empty(), "{:?}", setup.attested);
 }
