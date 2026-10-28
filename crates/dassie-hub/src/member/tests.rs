@@ -239,6 +239,7 @@ fn holds_read_anew_wait_for_every_page() {
         reduction: None,
         total: 0,
         through: 0,
+        pending: (0, 0),
     };
     let page = |page: u16| Statement::Holds {
         height: 100,
@@ -860,20 +861,24 @@ fn the_scheme_books_nothing_on_its_own() {
 #[test]
 fn losses_of_each_cause_are_booked_once_each() {
     let operation = crate::digest::Digest([7; 32]);
-    let ids: alloc::collections::BTreeSet<Name> =
-        [LossCause::ClaimFee, LossCause::PaidLate, LossCause::Cheated]
-            .into_iter()
-            .map(|cause| {
-                scheme::loss_id(&payer::Loss {
-                    units: 1,
-                    cause,
-                    operation,
-                    hold: crate::promise::HoldNumber(1),
-                    sequence: 1,
-                })
-            })
-            .collect();
-    assert_eq!(ids.len(), 3);
+    let ids: alloc::collections::BTreeSet<Name> = [
+        LossCause::ClaimFee,
+        LossCause::PaidLate,
+        LossCause::Cheated,
+        LossCause::DisputeFee,
+    ]
+    .into_iter()
+    .map(|cause| {
+        scheme::loss_id(&payer::Loss {
+            units: 1,
+            cause,
+            operation,
+            hold: crate::promise::HoldNumber(1),
+            sequence: 1,
+        })
+    })
+    .collect();
+    assert_eq!(ids.len(), 4);
 }
 
 // An account restored with its operation on its way sends it again once it
@@ -1510,7 +1515,7 @@ fn a_scheme_state_of_version_1_reads_with_no_unread_pays() {
     let hub = Hub::new();
     let (account, scheme) = synced_scheme(&hub);
     let state = scheme.state();
-    assert_eq!(state.first(), Some(&3));
+    assert_eq!(state.first(), Some(&4));
     let (body, rest) = state.split_at(state.len() - 5);
     assert_eq!(rest, [0; 5], "no unread pays, no shutdown");
     let mut old = body.to_vec();
@@ -1696,6 +1701,7 @@ fn a_thaw_moves_no_reduction_read_anew_after_it() {
         reduction: Some((30, 8_000 + notice)),
         total: 0,
         through: 0,
+        pending: (0, 0),
     };
     let trimmed = Statement::Trimmed {
         height: 100,
@@ -1946,14 +1952,23 @@ fn an_account_restores_only_its_own_hubs_state() {
         )
     };
     let state = account.state();
-    assert_eq!(state.first(), Some(&3), "the version");
+    assert_eq!(state.first(), Some(&4), "the version");
     assert_eq!(super::hub_of_state(&state), Some(hub.rules.id()));
     assert_eq!(restore(&state).unwrap().state(), state);
+    // Version 3 knew of neither what waits in holds nor the hub's
+    // version: an account without holds wrote what version 4 writes but
+    // for the version it ends with.
+    let (body, version) = state.split_at(state.len() - 10);
+    assert_eq!(version[..2], hub.rules.terms.version.to_be_bytes());
+    let mut v3 = body.to_vec();
+    v3[0] = 3;
+    assert_eq!(super::hub_of_state(&v3), Some(hub.rules.id()));
+    assert_eq!(restore(&v3).unwrap().state(), state);
     let mut other = state.clone();
     other[1] ^= 1;
     assert_ne!(super::hub_of_state(&other), Some(hub.rules.id()));
     assert!(matches!(restore(&other), Err(SchemeError::InvalidData)));
-    for version in [1, 2, 4] {
+    for version in [1, 2, 5] {
         let mut older = state.clone();
         older[0] = version;
         assert_eq!(super::hub_of_state(&older), None, "version {version}");

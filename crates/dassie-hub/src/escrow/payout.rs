@@ -94,7 +94,9 @@ fn selector_entries(rules: &Rules, height: u64) -> Option<Vec<SignerEntry>> {
 
 /// What each account is paid out: its share of what the hub owes it, its
 /// balance and reserves and the holds it paid into, which go back to their
-/// payers first ([`shares`]).
+/// payers first ([`shares`]), with what claims on them took and had not paid
+/// yet: the payee loses a claim the hub stopped before it paid, as it loses
+/// what it had not taken (spec/decisions/signed-rejects.md).
 fn owed(ledger: &Ledger) -> alloc::collections::BTreeMap<crate::operation::AccountNumber, Drops> {
     let mut owed: alloc::collections::BTreeMap<_, Drops> = ledger
         .accounts()
@@ -104,7 +106,8 @@ fn owed(ledger: &Ledger) -> alloc::collections::BTreeMap<crate::operation::Accou
         if let Some(total) = owed.get_mut(&hold.payer) {
             *total = total
                 .saturating_add(hold.amount)
-                .saturating_add(hold.reserve);
+                .saturating_add(hold.reserve)
+                .saturating_add(hold.pending_amount());
         }
     }
     let (have, due) = shares(ledger);

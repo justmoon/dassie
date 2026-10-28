@@ -132,11 +132,22 @@ fn a_frozen_hub_takes_only_claims_within_the_window() {
         hub.run(bob, &bob_key, claim(1, end, 1)),
         Outcome::Applied {
             fee: OP_FEE,
-            detail: Detail::Paid(100)
+            detail: Detail::Pending(100)
         }
     );
+    // The claim waits for the hold's notice by the hub's clock, which
+    // stands still while frozen: the thaw moves its payout back by the
+    // freeze's length (spec/decisions/signed-rejects.md).
+    let notice = hub.ledger.terms().timers.hold_notice;
+    let due = hub.ledger.hold(hold).unwrap().pending_due;
+    assert_eq!(due, since + notice);
     attest(&mut hub, 0..3, &issuer(11, false, false));
     assert_eq!(hub.ledger.frozen(), None);
+    let thawed = hub.ledger.timestamp();
+    assert_eq!(
+        hub.ledger.hold(hold).unwrap().pending_due,
+        due + (thawed - since)
+    );
     assert!(matches!(
         hub.run(alice, &alice_key, transfer),
         Outcome::Applied { .. }
@@ -145,7 +156,7 @@ fn a_frozen_hub_takes_only_claims_within_the_window() {
         hub.run(bob, &bob_key, claim(2, end + 1, 2)),
         Outcome::Applied {
             fee: OP_FEE,
-            detail: Detail::Paid(100)
+            detail: Detail::Pending(100)
         }
     );
 }

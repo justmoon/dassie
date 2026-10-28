@@ -147,11 +147,13 @@ fn a_prepare_over_a_hub_comes_with_its_commitment() {
             packet,
             scheme: method,
             commitment,
+            release,
             answer,
         } => {
             assert_eq!((from, request_id, packet), (key(1).node_id(), 6, PREPARE));
             assert_eq!(method, Some(scheme(STUB)));
             assert_eq!(commitment, Some(COMMITMENT));
+            assert_eq!(release, None);
             assert!(!answer.takes_claim());
             answer.reply(&[])
         }
@@ -519,4 +521,66 @@ fn offers_are_read_by_the_schemes_a_node_offers() {
     assert_eq!(first_asked(two_hubs.clone(), &theirs, true), Some(second));
     let theirs = [(stub, details(2, 2)), (second, details(2, 2))];
     assert_eq!(first_asked(two_hubs, &theirs, true), None);
+}
+
+/// A Reject, as far as the peer protocol reads one.
+const REJECT: &[u8] = &[14, 1, 0];
+
+/// A payee's release, opaque to the peer protocol.
+const RELEASE: &[u8] = &[0x5e; 80];
+
+// spec/decisions/signed-rejects.md: a Reject over a hub comes in a
+// `hubReject` with the payee's release, which reaches the node beside it;
+// anything but a Reject in one is malformed.
+#[test]
+fn a_reject_over_a_hub_comes_with_its_release() {
+    let (mut network, _, _) = peered(61, true);
+    let mut sender = Sender::new(&key(1));
+    let released = Content::HubReject {
+        request_id: 6,
+        packet: REJECT,
+        release: RELEASE,
+    };
+    let request = sender.request(&network, 0, &released);
+    let reply = handle(&mut network, 0, &request, |inbound| match inbound {
+        Inbound::Packet {
+            packet,
+            scheme,
+            release,
+            answer,
+            ..
+        } => {
+            assert_eq!(packet, REJECT);
+            assert_eq!(scheme, None);
+            assert_eq!(release, Some(RELEASE));
+            assert!(!answer.takes_claim());
+            answer.reply(&[])
+        }
+        other => panic!("{other:?}"),
+    });
+    assert!(body(&reply).is_empty());
+    // A plain Reject comes without one.
+    let request = sender.request(&network, 0, &plain_packet(REJECT));
+    handle(&mut network, 0, &request, |inbound| match inbound {
+        Inbound::Packet {
+            release, answer, ..
+        } => {
+            assert_eq!(release, None);
+            answer.reply(&[])
+        }
+        other => panic!("{other:?}"),
+    });
+    for packet in [FULFILL, PREPARE] {
+        let wrong = Content::HubReject {
+            request_id: 6,
+            packet,
+            release: RELEASE,
+        };
+        let request = sender.request(&network, 0, &wrong);
+        let reply = handle(&mut network, 0, &request, |inbound| match inbound {
+            Inbound::Reply(reply) => reply,
+            other => panic!("{other:?}"),
+        });
+        assert_eq!(reply.status, 400);
+    }
 }

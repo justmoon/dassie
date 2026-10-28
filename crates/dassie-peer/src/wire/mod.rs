@@ -93,6 +93,11 @@ pub const MAX_COMMITMENT_BYTES: usize = 256;
 /// over a hub: the payer's claim. More is ignored.
 pub const MAX_CLAIM_BYTES: usize = 256;
 
+/// Most bytes of the release a `hubReject` carries with its Reject: a
+/// signature and what it covers, well within this
+/// (spec/decisions/signed-rejects.md).
+pub const MAX_RELEASE_BYTES: usize = 256;
+
 /// Most bytes of the snapshot a `snapshot` message carries: one datagram
 /// of the rate feed's, which a snapshot fits whatever methods it quotes
 /// (spec/decisions/peer-swaps.md). The node checks that it is
@@ -162,6 +167,8 @@ pub enum Kind {
     Subscription,
     /// `snapshot [20]`.
     Snapshot,
+    /// `hubReject [21]`.
+    HubReject,
 }
 
 impl Kind {
@@ -190,6 +197,7 @@ impl Kind {
             18 => Self::MethodDrop,
             19 => Self::Subscription,
             20 => Self::Snapshot,
+            21 => Self::HubReject,
             _ => return None,
         })
     }
@@ -219,6 +227,7 @@ impl Kind {
             Self::MethodDrop => 18,
             Self::Subscription => 19,
             Self::Snapshot => 20,
+            Self::HubReject => 21,
         }
     }
 
@@ -226,7 +235,10 @@ impl Kind {
     /// the connector's, not those of the protocol's own requests.
     #[must_use]
     pub const fn carries_packet(self) -> bool {
-        matches!(self, Self::InterledgerPacket | Self::MethodPacket)
+        matches!(
+            self,
+            Self::InterledgerPacket | Self::MethodPacket | Self::HubReject
+        )
     }
 
     /// Whether a message of this kind only reads: it changes nothing at the

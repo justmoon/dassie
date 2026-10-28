@@ -130,6 +130,9 @@ struct PeerPacket {
     /// The method a Prepare came on; `None` with a Fulfill or Reject.
     scheme: Option<SchemeId>,
     commitment: Option<Vec<u8>>,
+    /// The peer's release that came with its Reject over a hub
+    /// (spec/decisions/signed-rejects.md).
+    release: Option<Vec<u8>>,
     answer: PacketAnswer,
 }
 
@@ -742,6 +745,7 @@ impl Core {
                     packet,
                     scheme,
                     commitment,
+                    release,
                     answer,
                 } => Inbound::Packet(PeerPacket {
                     from,
@@ -749,6 +753,7 @@ impl Core {
                     packet: packet.to_vec(),
                     scheme,
                     commitment: commitment.map(<[u8]>::to_vec),
+                    release: release.map(<[u8]>::to_vec),
                     answer,
                 }),
                 dassie_peer::Inbound::Settlement {
@@ -798,6 +803,7 @@ impl Core {
             packet,
             scheme,
             commitment,
+            release,
             answer,
         } = inbound;
         let now = self.now_ms;
@@ -809,7 +815,14 @@ impl Core {
         if let (true, Some(scheme)) = (is_prepare, scheme)
             && self.peer.method_winding(&from, scheme)
         {
-            self.refuse_prepare(now, &from, request_id, "the method is being wound down");
+            let message = "the method is being wound down";
+            self.refuse_hub_prepare(
+                now,
+                &from,
+                (scheme, commitment.as_deref()),
+                request_id,
+                message,
+            );
             return answer.reply(&[]);
         }
         if let (true, Some(scheme)) = (is_prepare, scheme)
@@ -832,6 +845,17 @@ impl Core {
         } else {
             self.forwarded_ledger(&from, request_id)
         };
+        // A Reject of a packet over a hub stands only where the scheme
+        // takes it: over a hub of version 2, one without the peer's release
+        // of the packet's commitment is not taken, and the packet waits for
+        // the hub as one that expired, since the peer could still claim it
+        // (spec/decisions/signed-rejects.md).
+        let is_reject = packet.first() == Some(&dassie_ilp::TYPE_REJECT);
+        if let (true, Some(ledger)) = (is_reject, forwarded)
+            && !self.hub_rejected(&from, ledger, request_id, release.as_deref().unwrap_or(&[]))
+        {
+            return answer.reply(&[]);
+        }
         let taken = self.peer_packet(from, scheme, request_id, &packet);
         let Some(ledger) = forwarded else {
             return answer.reply(&[]);
@@ -840,7 +864,6 @@ impl Core {
             let claim = self.hub_claim(now, &from, ledger, request_id, taken);
             return answer.reply(&claim);
         }
-        self.hub_rejected(&from, ledger, request_id);
         answer.reply(&[])
     }
 
@@ -1173,6 +1196,52 @@ impl Core {
         self.take_journal();
     }
 
+    /// Our packet `request_id` to `peer` failed to arrive, `definite` if it
+    /// surely did not arrive or the peer did not act on it, with the status
+    /// the peer answered if it answered one. Only a definite failure is
+    /// failed now: one that may have arrived is left to expire, so a peer
+    /// that fulfilled it does not bear its loss.
+    fn packet_failed(
+        &mut self,
+        peer: NodeId,
+        request_id: u32,
+        definite: bool,
+        status: Option<u16>,
+    ) {
+        let Some(&endpoint) = self.peer_endpoints.get(&peer).filter(|_| definite) else {
+            return;
+        };
+        // Over a hub, the scheme of the packet's method forgets the
+        // commitment too, a dropped method's as well. One the peer answered
+        // with a status reached it: over a hub of version 2 it is failed
+        // only with the peer's release, which a status does not carry, and
+        // waits for the hub as one that expired
+        // (spec/decisions/signed-rejects.md).
+        let ledger = self.forwarded_ledger(&peer, request_id);
+        if let Some((scheme, name)) = ledger.and_then(|ledger| self.packet_hub(&peer, ledger)) {
+            let stands = match status {
+                None => {
+                    self.with_commitments(scheme, |c| c.on_answered(name, request_id));
+                    true
+                }
+                Some(_) => self
+                    .with_commitments(scheme, |c| c.on_rejected(name, request_id, &[]))
+                    .unwrap_or(true),
+            };
+            if !stands {
+                return;
+            }
+        }
+        let (code, message) = undelivered(status);
+        self.connector.fail_forwarded(
+            self.now_ms,
+            EndpointId::Peer(endpoint),
+            request_id,
+            code,
+            message,
+        );
+    }
+
     pub(super) fn peer_event(&mut self, event: Event) {
         self.changes.network = true;
         self.report(event.clone());
@@ -1233,30 +1302,7 @@ impl Core {
                 request_id,
                 definite,
                 status,
-            } => {
-                // Only a packet that surely did not arrive, or that the
-                // peer did not act on, is failed now: one that may have
-                // been is left to expire, so a peer that fulfilled it does
-                // not bear its loss.
-                if definite && let Some(&endpoint) = self.peer_endpoints.get(&peer) {
-                    // Over a hub, the scheme of the packet's method forgets
-                    // the commitment too, a dropped method's as well.
-                    let ledger = self.forwarded_ledger(&peer, request_id);
-                    if let Some((scheme, name)) =
-                        ledger.and_then(|ledger| self.packet_hub(&peer, ledger))
-                    {
-                        self.with_commitments(scheme, |c| c.on_answered(name, request_id));
-                    }
-                    let (code, message) = undelivered(status);
-                    self.connector.fail_forwarded(
-                        self.now_ms,
-                        EndpointId::Peer(endpoint),
-                        request_id,
-                        code,
-                        message,
-                    );
-                }
-            }
+            } => self.packet_failed(peer, request_id, definite, status),
             // The names the node answers to follow its view
             // (spec/areas/payments.md#the-nodes-names).
             Event::Name(NameEvent::HoldersChanged { .. }) => {

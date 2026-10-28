@@ -9,7 +9,8 @@
 //!   "hubs": [{ "rules": "<hex>", "genesisMs": 1800000000000, "xrpl": "wss://..." }],
 //!   "xrpl": "wss://...",
 //!   "network": "testnet",
-//!   "publishers": [{ "key": "<hex>", "sites": ["https://..."] }]
+//!   "publishers": [{ "key": "<hex>", "sites": ["https://..."] }],
+//!   "hubVersion": 2
 //! }
 //! ```
 //!
@@ -30,7 +31,10 @@
 //! the node proves the escrows' ledgers under, as an XRPL account's config
 //! names them (spec/designs/xrpl-validation.md#10-configuration-and-state):
 //! by default the network's own, which only a test or a dev network
-//! replaces.
+//! replaces. `hubVersion` is the version of the hub's protocol the node
+//! votes to move every hub it validates to, while the hub runs an older
+//! one (spec/decisions/hub-protocol-version.md): a version the node's code
+//! runs, and none by default, so a node moves no hub until its owner says.
 
 use dassie_hub::Rules;
 use dassie_identity::NodeId;
@@ -71,6 +75,9 @@ pub struct ValidatorConfig {
     /// The validator list publishers whose lists make the UNL it proves
     /// that network's ledgers under.
     pub unl: UnlConfig,
+    /// The version of the hub's protocol it votes to move its hubs to, if
+    /// any.
+    pub hub_version: Option<u16>,
 }
 
 /// One hub the node validates.
@@ -93,6 +100,7 @@ struct File {
     xrpl: Option<String>,
     network: Option<String>,
     publishers: Option<serde_json::Value>,
+    hub_version: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -134,12 +142,20 @@ pub fn parse(text: &str, live: LiveRealm) -> Result<ValidatorConfig, String> {
         }
         hubs.push(hub);
     }
+    if let Some(version) = file.hub_version
+        && !dassie_hub::rules::runs(version)
+    {
+        return Err(format!(
+            "names hub version {version}, which this release does not run"
+        ));
+    }
     Ok(ValidatorConfig {
         sponsors,
         hubs,
         xrpl,
         network,
         unl,
+        hub_version: file.hub_version,
     })
 }
 
@@ -393,6 +409,29 @@ pub(crate) mod tests {
         let snake = file(&listed, &rules).replace("genesisMs", "genesis_ms");
         let error = parse(&snake, refused).unwrap_err();
         assert!(error.contains("genesis_ms"), "{error}");
+    }
+
+    // spec/decisions/hub-protocol-version.md: the node votes to move its
+    // hubs to a version only where the owner names one, and only one its
+    // code runs.
+    #[test]
+    fn the_hub_version_is_the_owners_to_name() {
+        let refused = LiveRealm::Refused;
+        let sponsor = IdentityKey::from_bytes(&[100; 32]);
+        let rules = rules(&sponsor, &nodes());
+        let listed = vec![sponsor.node_id().as_str().to_string()];
+        assert_eq!(
+            parse(&file(&listed, &rules), refused).unwrap().hub_version,
+            None
+        );
+        let with = |version: u16| {
+            let mut file: serde_json::Value = serde_json::from_str(&file(&listed, &rules)).unwrap();
+            file["hubVersion"] = version.into();
+            parse(&file.to_string(), refused)
+        };
+        assert_eq!(with(2).unwrap().hub_version, Some(2));
+        let error = with(dassie_hub::rules::HUB_VERSION + 1).unwrap_err();
+        assert!(error.contains("does not run"), "{error}");
     }
 
     // The network is the testnet unless the file names another; one of

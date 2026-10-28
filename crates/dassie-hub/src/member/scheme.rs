@@ -83,8 +83,8 @@ use crate::digest::Digest;
 use crate::ledger::TESTNET_NETWORK;
 use crate::ledger::{Detail, Failure, Outcome};
 use crate::operation::{AccountNumber, MemberOperation, Operation, SignedMemberOperation};
-use crate::promise::{Claim, Commitment, HoldNumber, Signed};
-use crate::rules::{Amount, Asset, HubId, Terms};
+use crate::promise::{Claim, Commitment, HoldNumber, Release, Signed};
+use crate::rules::{Amount, Asset, HubId, Millis, Terms};
 
 /// The ID of the scheme over a hub of XRP on the XRP Ledger testnet.
 pub const SCHEME_ID: &str = "hub-xrpl-testnet-xrp";
@@ -264,6 +264,10 @@ pub struct HubScheme {
     pub(super) shut_down: bool,
     /// The hub stalled or ended, as its validators last told the account.
     stalled: bool,
+    /// The hub takes a payee's release of a commitment, and its claims wait
+    /// for the hold's notice, as its validators last told the account
+    /// (spec/decisions/signed-rejects.md).
+    takes_releases: bool,
 }
 
 /// Whether `news` says the hub is shutting down or ended: an operation
@@ -296,6 +300,7 @@ pub(super) fn loss_id(loss: &Loss) -> Name {
         LossCause::ClaimFee => 0,
         LossCause::PaidLate => 1,
         LossCause::Cheated => 2,
+        LossCause::DisputeFee => 3,
     };
     let mut hash = Sha256::new();
     hash.update(b"dassie-hub/loss");
@@ -382,6 +387,7 @@ impl HubScheme {
             now_ms: 0,
             shut_down: false,
             stalled: false,
+            takes_releases: false,
         };
         if !state.is_empty() {
             super::state::restore_scheme(&mut scheme, state).ok_or(SchemeError::InvalidData)?;
@@ -437,19 +443,7 @@ impl HubScheme {
                     None => self.other(operation, *outcome, effects),
                 }
             }
-            News::Final { height, timestamp } => {
-                self.cursor = self.cursor.max(*height);
-                for (name, peer) in &mut self.peers {
-                    for request_id in peer.payer.final_block(*timestamp) {
-                        self.decided.push_back(Decided {
-                            peer: *name,
-                            request_id,
-                            fulfillment: None,
-                        });
-                    }
-                    peer.payee.final_block(*timestamp);
-                }
-            }
+            News::Final { height, timestamp } => self.final_block(*height, *timestamp),
             News::Dropped { purpose } => self.dropped(*purpose, effects),
             News::Resynced {
                 height,
@@ -486,16 +480,62 @@ impl HubScheme {
             // (spec/designs/settlement-hubs.md#5-joining).
             News::Unfunded => self.synced = true,
             News::Reduced { .. } => {}
+            News::ClaimsPaid {
+                hold,
+                sequences,
+                unlisted,
+            } => self.claims_paid(*hold, sequences, *unlisted),
+        }
+    }
+
+    /// A final block at `height`, stamped `timestamp`, up to which the
+    /// account read everything: it decides the waits whose commitments
+    /// expired, and what no claim can take any more is forgotten.
+    fn final_block(&mut self, height: u64, timestamp: Millis) {
+        self.cursor = self.cursor.max(height);
+        for (name, peer) in &mut self.peers {
+            for request_id in peer.payer.final_block(timestamp) {
+                self.decided.push_back(Decided {
+                    peer: *name,
+                    request_id,
+                    fulfillment: None,
+                });
+            }
+            peer.payee.final_block(timestamp);
+            peer.payee.forget_releases(timestamp);
+        }
+    }
+
+    /// What a peer's claims took from our hold `hold` and waited was paid
+    /// to it: a claim of a packet it released that our dispute did not stop
+    /// is a loss, and its cheating. What a claim took from a hold toward us
+    /// was in our books already, as the hold was.
+    fn claims_paid(&mut self, hold: HoldNumber, sequences: &[u64], unlisted: bool) {
+        let Some(name) = self.payee_of(hold) else {
+            return;
+        };
+        let losses = self
+            .peers
+            .get_mut(&name)
+            .map(|peer| peer.payer.claims_paid(sequences, unlisted))
+            .unwrap_or_default();
+        for loss in losses {
+            self.queue_loss(name, loss);
         }
     }
 
     /// What holds toward us from our peers hold, as the account mirrors
-    /// them, in drops.
+    /// them, in drops, with what claims took from them that waits to be
+    /// paid to us (spec/decisions/signed-rejects.md).
     fn toward_us(&self, account: &HubAccount) -> Amount {
         self.peers
             .values()
             .filter_map(|peer| peer.payee.hold)
-            .filter_map(|hold| account.hold(hold).map(|mirror| mirror.amount))
+            .filter_map(|hold| {
+                account
+                    .hold(hold)
+                    .map(|mirror| mirror.amount.saturating_add(mirror.waiting()))
+            })
             .fold(0, Amount::saturating_add)
     }
 
@@ -699,6 +739,29 @@ impl HubScheme {
                     self.withdrew(id, *amount, effects);
                 } else {
                     self.withdrawal_done(OwnerPaymentState::Failed(PaymentFailure::Other), effects);
+                }
+            }
+            Purpose::Dispute(hold) => {
+                if let (Some(name), MemberOperation::Dispute { releases, .. }) =
+                    (self.payee_of(hold), &operation.operation)
+                    && let Some(peer) = self.peers.get_mut(&name)
+                {
+                    let sequences: Vec<u64> = releases
+                        .iter()
+                        .map(|release| release.value.sequence)
+                        .collect();
+                    peer.payer.disputed(&sequences);
+                    // The peer claimed what it released: its cheating, which
+                    // cost us the dispute's fee (spec/decisions/signed-rejects.md).
+                    let loss = Loss {
+                        units: units(fee),
+                        cause: LossCause::DisputeFee,
+                        operation: id,
+                        hold,
+                        sequence: 0,
+                    };
+                    self.book_loss(name, loss, effects);
+                    return;
                 }
             }
             Purpose::Redeem(_) | Purpose::Disbursal => {}
@@ -908,7 +971,8 @@ impl HubScheme {
             Purpose::Withdraw => {
                 self.withdrawal_done(OwnerPaymentState::Failed(PaymentFailure::Other), effects);
             }
-            Purpose::Redeem(_) | Purpose::Disbursal => {}
+            // Disputed again while its claims wait ([`Self::dispute_claims`]).
+            Purpose::Redeem(_) | Purpose::Disbursal | Purpose::Dispute(_) => {}
         }
     }
 
@@ -965,7 +1029,12 @@ impl HubScheme {
             }
             (MemberOperation::Claim { hold, fulfilled }, Detail::Paid(paid)) => {
                 if let Some(name) = self.payee_of(*hold) {
-                    self.peer_claimed(name, fulfilled, paid, operation_hash(operation));
+                    self.peer_claimed(name, fulfilled, (paid, false), operation_hash(operation));
+                }
+            }
+            (MemberOperation::Claim { hold, fulfilled }, Detail::Pending(taken)) => {
+                if let Some(name) = self.payee_of(*hold) {
+                    self.peer_claimed(name, fulfilled, (taken, true), operation_hash(operation));
                 }
             }
             (MemberOperation::HoldRelease { hold }, _) => {
@@ -1021,18 +1090,19 @@ impl HubScheme {
         }
     }
 
-    /// Peer `name` won a claim on the hub on our hold toward it.
+    /// Peer `name` won a claim on the hub on our hold toward it, which
+    /// paid it, or took what waits for its payout (`waits`).
     fn peer_claimed(
         &mut self,
         name: Name,
         fulfilled: &[crate::promise::Fulfilled],
-        paid: Amount,
+        (paid, waits): (Amount, bool),
         operation: Digest,
     ) {
         let Some(peer) = self.peers.get_mut(&name) else {
             return;
         };
-        let (decided, losses) = peer.payer.claimed(fulfilled, paid, operation);
+        let (decided, losses) = peer.payer.claimed(fulfilled, paid, operation, waits);
         for (request_id, fulfillment) in decided {
             if self.decided.len() < MAX_DECIDED {
                 self.decided.push_back(Decided {
@@ -1061,7 +1131,7 @@ impl HubScheme {
     }
 
     fn book_loss(&mut self, peer: Name, loss: Loss, effects: &mut Vec<Effect>) {
-        if loss.cause == LossCause::ClaimFee {
+        if loss.cause.is_fee() {
             self.booked = self.booked.saturating_sub(loss.units);
         }
         if loss.units > 0 {
@@ -1144,6 +1214,29 @@ impl HubScheme {
     }
 
     /// Claims on the hub what our peers' claims left uncovered, once late.
+    /// Disputes, with each peer's releases, what its claims took for
+    /// packets it released and that still waits in our hold toward it:
+    /// one dispute per hold at a time (spec/decisions/signed-rejects.md).
+    fn dispute_claims(&mut self, account: &mut HubAccount) {
+        let limit = usize::from(self.terms.limits.commitments_per_claim);
+        for peer in self.peers.values() {
+            let Some(hold) = peer.payer.hold else {
+                continue;
+            };
+            if account.has(Purpose::Dispute(hold)) {
+                continue;
+            }
+            let releases = peer.payer.to_dispute(limit);
+            if releases.is_empty() {
+                continue;
+            }
+            let _ = account.submit(
+                Purpose::Dispute(hold),
+                MemberOperation::Dispute { hold, releases },
+            );
+        }
+    }
+
     fn claim_missing(&mut self, account: &mut HubAccount) {
         let timing = (self.terms.timers.allowance, self.margin());
         let limit = usize::from(self.terms.limits.commitments_per_claim);
@@ -1432,9 +1525,11 @@ impl SettlementScheme for HubScheme {
             // Not queued, and not told: only the counters can say.
             self.withdrawal_done(OwnerPaymentState::Unknown, effects);
         }
+        self.takes_releases = account.takes_releases();
         self.refresh(account);
         self.adopt_holds(account, effects);
         if self.synced {
+            self.dispute_claims(account);
             self.claim_missing(account);
             self.redeem(account);
         }
@@ -1825,11 +1920,63 @@ impl Commitments for HubScheme {
         }
     }
 
-    fn on_released(&mut self, peer: Name, request_id: u32) {
-        let now = self.now_ms;
-        if let Some(peer) = self.peer(peer) {
-            peer.payee.released(now, request_id);
+    fn on_released(&mut self, peer: Name, request_id: u32, release: &mut Vec<u8>) {
+        release.clear();
+        let (now, hub, key, takes) = (
+            self.now_ms,
+            self.hub,
+            Arc::clone(&self.key),
+            self.takes_releases,
+        );
+        if let Some(peer) = self.peer(peer)
+            && let Some(released) = peer.payee.released(now, request_id)
+            && takes
+        {
+            release.extend_from_slice(&Signed::sign(released, &hub, &key).to_vec());
         }
+    }
+
+    fn release_refused(
+        &mut self,
+        now_ms: u64,
+        peer: Name,
+        commitment: &[u8],
+        release: &mut Vec<u8>,
+    ) {
+        release.clear();
+        self.now_ms = self.now_ms.max(now_ms);
+        let (now, hub, key) = (self.now_ms, self.hub, Arc::clone(&self.key));
+        if !self.takes_releases {
+            return;
+        }
+        let Ok(signed) = decode_exact(commitment, Signed::<Commitment>::decode) else {
+            return;
+        };
+        if let Some(peer) = self.peer(peer) {
+            let payer = peer.key;
+            if let Some(released) = peer.payee.refused(&signed, (&hub, &payer, now)) {
+                release.extend_from_slice(&Signed::sign(released, &hub, &key).to_vec());
+            }
+        }
+    }
+
+    fn on_rejected(&mut self, peer: Name, request_id: u32, release: &[u8]) -> bool {
+        let (hub, takes) = (self.hub, self.takes_releases);
+        let Some(state) = self.peer(peer) else {
+            return true;
+        };
+        let release = decode_exact(release, Signed::<Release>::decode)
+            .ok()
+            .filter(|release| state.payer.releases(request_id, release, &hub, &state.key));
+        // Without its release, the peer could still claim the packet: it
+        // waits for the hub as one that expired.
+        if takes && release.is_none() && state.payer.requests.contains_key(&request_id) {
+            return false;
+        }
+        if let Some(loss) = state.payer.answered(request_id, release) {
+            self.queue_loss(peer, loss);
+        }
+        true
     }
 
     fn claim(&mut self, now_ms: u64, peer: Name, request_id: u32, taken: bool, out: &mut Vec<u8>) {
@@ -1896,7 +2043,7 @@ impl Commitments for HubScheme {
         let Some(state) = self.peer(peer) else {
             return;
         };
-        if let Some(loss) = state.payer.answered(request_id) {
+        if let Some(loss) = state.payer.answered(request_id, None) {
             self.queue_loss(peer, loss);
         }
     }

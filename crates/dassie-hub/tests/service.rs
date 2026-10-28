@@ -448,11 +448,13 @@ fn issuer_heard(net: &mut Network, number: AccountNumber) -> Vec<(u64, Option<u6
         let Ok(Message::Statements(list)) = Message::decode_exact(bytes) else {
             panic!("not statements");
         };
-        // Each answer ends with the issuer's hold, then its final block.
+        // Each answer ends with the issuer's hold, the hub's version, then
+        // its final block.
         let kinds: Vec<&Statement> = list.iter().map(|s| &s.statement).collect();
         let [
             ..,
             Statement::Issuer { height, .. },
+            Statement::Protocol { .. },
             Statement::Final { height: last, .. },
         ] = kinds.as_slice()
         else {
@@ -1081,10 +1083,11 @@ fn a_validator_resumes_from_what_its_host_persisted() {
         let Ok(Message::Statements(list)) = Message::decode_exact(bytes) else {
             panic!("not statements");
         };
-        assert!(
-            list.iter()
-                .all(|s| matches!(s.statement, Statement::Trimmed { .. }))
-        );
+        // Nothing but that, and the hub's version.
+        assert!(list.iter().all(|s| matches!(
+            s.statement,
+            Statement::Trimmed { .. } | Statement::Protocol { .. }
+        )));
     }
 }
 
@@ -1154,7 +1157,7 @@ fn attest_issuer(net: &mut Network, ledger: u32, frozen: bool) {
 }
 
 /// The issuer's hold each validator's answer to `Since` ends with, before
-/// its final block.
+/// the hub's version and its final block.
 fn issuer_told(net: &mut Network, account: AccountNumber) -> Vec<Statement> {
     net.member.clear();
     net.request(&Request::Since { account, from: 1 });
@@ -1165,9 +1168,10 @@ fn issuer_told(net: &mut Network, account: AccountNumber) -> Vec<Statement> {
             let Ok(Message::Statements(list)) = Message::decode_exact(bytes) else {
                 panic!("not statements");
             };
-            let [.., issuer, last] = list.as_slice() else {
+            let [.., issuer, version, last] = list.as_slice() else {
                 panic!("too short");
             };
+            assert!(matches!(version.statement, Statement::Protocol { .. }));
             assert!(matches!(last.statement, Statement::Final { .. }));
             issuer.statement.clone()
         })

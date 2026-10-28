@@ -91,7 +91,7 @@ pub async fn run(node: Arc<Node>, config: Arc<ValidatorConfig>, shutdown: Cancel
                 tracing::warn!(target: target::HUB, hub = %hex(id.0.as_bytes()), "validating as many hubs as the node does: not this one");
                 continue;
             }
-            match start(&node, &key, &hub, &config.unl, &client, &tasks, &stop) {
+            match start(&node, &key, (&hub, &config), &client, &tasks, &stop) {
                 Ok(true) => running.push(id),
                 Ok(false) => {}
                 // The database failed: the service starts again.
@@ -149,12 +149,12 @@ async fn identity(node: &Node, shutdown: &CancellationToken) -> Option<Arc<Ident
 fn start(
     node: &Arc<Node>,
     key: &IdentityKey,
-    hub: &HubConfig,
-    unl: &dassie_xrpl::validator_list::UnlConfig,
+    (hub, config): (&HubConfig, &ValidatorConfig),
     client: &HubClient,
     tasks: &TaskTracker,
     stop: &CancellationToken,
 ) -> Result<bool, ()> {
+    let unl = &config.unl;
     let id = hub.rules.id();
     let opened = Driver::open(
         node.store_handle(),
@@ -181,6 +181,7 @@ fn start(
         Arc::clone(node.hubs()),
         node.clock(),
     );
+    let task = task.voting_for(config.hub_version);
     let follow = xrpl::Follow {
         store: node.store_handle(),
         hub: id,
@@ -278,6 +279,9 @@ pub struct HubTask {
     /// Escrow transactions the XRPL connection had no room for yet, in
     /// order: at most [`ESCROW_QUEUE`].
     unsent: std::collections::VecDeque<Vec<u8>>,
+    /// The version of the hub's protocol the owner has us vote to move the
+    /// hub to (spec/decisions/hub-protocol-version.md).
+    hub_version: Option<u16>,
 }
 
 impl std::fmt::Debug for HubTask {
@@ -335,6 +339,7 @@ impl HubTask {
             last_fetch: None,
             retried: std::collections::VecDeque::new(),
             unsent: std::collections::VecDeque::new(),
+            hub_version: None,
         };
         let links = EscrowLinks {
             attest,
@@ -343,6 +348,15 @@ impl HubTask {
             connected,
         };
         (task, links)
+    }
+
+    /// The task voting to move the hub to `version` of the hub's protocol
+    /// while it runs an older one, as the owner's file says; none votes for
+    /// nothing.
+    #[must_use]
+    pub const fn voting_for(mut self, version: Option<u16>) -> Self {
+        self.hub_version = version;
+        self
     }
 
     /// Runs until `shutdown`.
@@ -387,6 +401,15 @@ impl HubTask {
                     // Attests again one of what found no room.
                     if let Some(operation) = self.retried.pop_front() {
                         self.attest(operation, shutdown).await?;
+                    }
+                    // Votes to move the hub to the version the owner names,
+                    // until the hub runs it.
+                    if let Some(version) = self.hub_version
+                        && self.driver.validator().wants_upgrade(version)
+                    {
+                        tracing::info!(target: target::HUB, hub = %hex(self.driver.hub().0.as_bytes()), version, "voting to move the hub to a newer version of its protocol");
+                        self.attest(ValidatorOperation::Upgrade { version }, shutdown)
+                            .await?;
                     }
                 }
                 Input::Fetched(finalized, state) => {

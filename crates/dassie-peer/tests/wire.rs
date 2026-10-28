@@ -1071,8 +1071,8 @@ fn settlement_method_messages_are_pinned_and_bounded() {
         assert_eq!(kind.carries_packet(), kind == Kind::MethodPacket);
     }
     assert_eq!(Content::decode_exact(&direct.to_vec()).unwrap(), direct);
-    assert_eq!(Kind::from_tag(21), None);
-    assert!(Content::decode_exact(&[0x95]).is_err());
+    assert_eq!(Kind::from_tag(22), None);
+    assert!(Content::decode_exact(&[0x96]).is_err());
 
     // A commitment past the bound is malformed; one at it is not.
     let at_bound = Content::MethodPacket {

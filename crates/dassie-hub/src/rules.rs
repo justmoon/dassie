@@ -74,14 +74,37 @@ pub const LEAST_TOKEN_GAS_DROPS: Amount = LEDGER_BASE_FEE * (MAX_VALIDATORS as u
 /// A time in milliseconds since the Unix epoch, or a duration in them.
 pub type Millis = u64;
 
-/// The version of the hub's protocol this code runs: the hub's encodings
-/// and digests, what its ledger does with a block, and its consensus rules
+/// The newest version of the hub's protocol this code runs, the one it
+/// founds hubs under: the hub's encodings and digests, what its ledger does
+/// with a block, and its consensus rules
 /// (spec/decisions/hub-protocol-version.md). It is not the release's
 /// version: it changes only when something every validator of a hub must
-/// agree on changes, and `testdata/hub/vectors.json` pins what it means.
-/// Terms of any other version neither decode nor check, so a validator or
-/// member never runs a hub it would execute otherwise than its peers.
-pub const HUB_VERSION: u16 = 1;
+/// agree on changes, and the golden vectors pin what each version means
+/// (`testdata/hub/`). Terms of a version this code does not run neither
+/// decode nor check, so a validator or member never runs a hub it would
+/// execute otherwise than its peers.
+///
+/// Version 2 adds the payee's release of a commitment, the payer's
+/// `dispute` with it, and claims that pay their payee only after the
+/// hold's notice (spec/decisions/signed-rejects.md).
+pub const HUB_VERSION: u16 = 2;
+
+/// The oldest version of the hub's protocol this code runs: it runs every
+/// version from this one to [`HUB_VERSION`], each as that version says, so
+/// a hub founded under an older one goes on running, and can be moved to a
+/// newer one by its validators (`ValidatorOperation::Upgrade`).
+pub const OLDEST_HUB_VERSION: u16 = 1;
+
+/// Whether this code runs version `version` of the hub's protocol.
+#[must_use]
+pub const fn runs(version: u16) -> bool {
+    version >= OLDEST_HUB_VERSION && version <= HUB_VERSION
+}
+
+/// The first version in which a payee releases commitments, a payer
+/// disputes a claim with a release, and a claim pays its payee only after
+/// the hold's notice (spec/decisions/signed-rejects.md).
+pub const RELEASES_VERSION: u16 = 2;
 
 /// A hub, named by the digest of its rules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -195,8 +218,11 @@ pub struct Timers {
 /// Everything in the rules but the validators.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Terms {
-    /// The version of the hub's protocol the hub runs, for its whole life:
-    /// new rules keep it ([`Terms::keeps_tables_of`]).
+    /// The version of the hub's protocol the hub was founded under, or that
+    /// its rules were last changed under: new rules name the version the
+    /// hub runs then. A hub runs it until its validators move it to a newer
+    /// one (`ValidatorOperation::Upgrade`), which leaves its rules, and so
+    /// its ID, as they are (`Ledger::version`).
     pub version: u16,
     /// A random nonce the sponsor picked, under which validators derive
     /// their keys for this hub.
@@ -272,7 +298,7 @@ impl Terms {
     /// let the ledger reach a state it cannot leave are refused here, never
     /// found in a block.
     pub fn check(&self) -> Result<(), RulesError> {
-        if self.version != HUB_VERSION {
+        if !runs(self.version) {
             return Err(RulesError::Terms("a hub version this code does not run"));
         }
         self.check_fees()?;
@@ -404,7 +430,8 @@ impl Terms {
     }
 
     /// Whether these terms keep every table at least as large as
-    /// `current`'s, and keep its asset and gas. New rules may not shrink a
+    /// `current`'s, and keep its asset and gas; the version they name is
+    /// the caller's to check, against the one the hub runs. New rules may not shrink a
     /// table: what it holds could no longer fit. Nor may they change the
     /// asset, which every amount in the tables counts, or the gas, which a
     /// withdrawal already given a sequence names: validators that signed it
@@ -413,8 +440,7 @@ impl Terms {
     #[must_use]
     pub fn keeps_tables_of(&self, current: &Self) -> bool {
         let (new, old) = (&self.limits, &current.limits);
-        self.version == current.version
-            && self.asset == current.asset
+        self.asset == current.asset
             && self.fees.gas == current.fees.gas
             && new.accounts >= old.accounts
             && new.holds >= old.holds
@@ -742,13 +768,14 @@ fn encode_timers(writer: &mut Writer<'_>, timers: &Timers) {
 }
 
 impl Terms {
-    /// Decodes terms of the version this code runs ([`HUB_VERSION`]):
-    /// another version's may lay out what follows its version otherwise,
-    /// and is refused before anything else is read. [`Terms::check`] is the
-    /// caller's. A token hub's terms name a token, and only a token.
+    /// Decodes terms of a version this code runs ([`runs`]): another
+    /// version's may lay out what follows its version otherwise, and is
+    /// refused before anything else is read. Every version this code runs
+    /// lays its terms out alike. [`Terms::check`] is the caller's. A token
+    /// hub's terms name a token, and only a token.
     pub fn decode(reader: &mut Reader<'_>) -> Result<Self, HubDecodeError> {
         let version = reader.read_u16()?;
-        if version != HUB_VERSION {
+        if !runs(version) {
             return Err(HubDecodeError::Invalid(
                 "a hub version this code does not run",
             ));
@@ -1141,7 +1168,7 @@ pub(crate) mod tests {
         // Another version, an unknown asset, or an XRP "token", does not
         // decode.
         let mut later = bytes.clone();
-        later[1] = 2;
+        later[..2].copy_from_slice(&(HUB_VERSION + 1).to_be_bytes());
         assert!(Terms::decode(&mut Reader::new(&later)).is_err());
         let asset_at = 2 + 32 + NODE_LEN + 4 + LEDGER_ACCOUNT_LEN;
         let mut unknown = bytes.clone();
@@ -1170,8 +1197,11 @@ pub(crate) mod tests {
             false
         ));
         assert!(fails(&|t| t.fees.gas = 1, false));
-        // Terms of a version this code does not run do not check.
+        // Terms of a version this code does not run do not check; every
+        // version it runs does.
         assert!(fails(&|t| t.version = HUB_VERSION + 1, false));
+        assert!(fails(&|t| t.version = OLDEST_HUB_VERSION - 1, false));
+        assert!(!fails(&|t| t.version = OLDEST_HUB_VERSION, false));
         // A token hub's least payout is any amount but none; its fees are
         // gas, enough for the largest set of validators and at most what
         // the escrow keeps; and its token is a token of
@@ -1201,10 +1231,11 @@ pub(crate) mod tests {
         let mut more_gas = token.clone();
         more_gas.fees.gas += 1;
         assert!(!more_gas.keeps_tables_of(&token));
-        // And the version: a hub runs one for its whole life.
+        // The version is not theirs to judge: new rules name the one the
+        // hub runs, which the ledger checks (`Ledger::version`).
         let mut later = token.clone();
         later.version += 1;
-        assert!(!later.keeps_tables_of(&token));
+        assert!(later.keeps_tables_of(&token));
     }
 
     // Millionths of a token are its value exactly up to sixteen digits, and

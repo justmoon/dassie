@@ -75,15 +75,22 @@ pub const FINAL_STATEMENT_BYTES: usize = 1 + 8 + 8;
 /// holds the escrow.
 pub const ISSUER_STATEMENT_BYTES: usize = 1 + 8 + 8 + (1 + 8) + 1;
 
-/// How many statements end every answer to `Since` that is not
-/// `Trimmed`: a token hub's issuer's hold and the final block it covers.
-pub const SINCE_TAIL: usize = 2;
+/// The encoded size of [`Statement::Protocol`]: its tag, height,
+/// timestamp and version.
+pub const PROTOCOL_STATEMENT_BYTES: usize = 1 + 8 + 8 + 2;
 
-/// Room for what ends an answer to `Since`: the issuer's hold and the
-/// final block.
+/// How many statements end every answer to `Since` that is not
+/// `Trimmed`, at most: a token hub's issuer's hold, the version of a hub
+/// past version 1, and the final block it covers.
+pub const SINCE_TAIL: usize = 3;
+
+/// Room for what ends an answer to `Since`: the issuer's hold, the version
+/// and the final block.
 const SINCE_TAIL_BYTES: usize = 64;
 
-const _: () = assert!(SINCE_TAIL_BYTES >= FINAL_STATEMENT_BYTES + ISSUER_STATEMENT_BYTES);
+const _: () = assert!(
+    SINCE_TAIL_BYTES >= FINAL_STATEMENT_BYTES + ISSUER_STATEMENT_BYTES + PROTOCOL_STATEMENT_BYTES
+);
 
 /// The most bytes of statements an honest answer to `Since` carries, over
 /// however many messages it spans: up to [`MAX_ANSWER_BYTES`] of them, or
@@ -548,6 +555,30 @@ impl Validator {
             .push_back(Action::Validators(Message::Consensus(inner).to_vec()));
     }
 
+    /// Whether we are to vote to move the hub to `version` of the hub's
+    /// protocol (spec/decisions/hub-protocol-version.md): our code runs it,
+    /// the hub runs an older one and no move waits, and no vote of ours for
+    /// it is recorded or on its way. The host votes with
+    /// [`Self::attest`] while it says so.
+    #[must_use]
+    pub fn wants_upgrade(&self, version: u16) -> bool {
+        let ledger = &self.chain.ledger;
+        let Some(index) = self.index() else {
+            return false;
+        };
+        let vote = ValidatorOperation::Upgrade { version };
+        let recorded = ledger
+            .upgrade_votes()
+            .iter()
+            .any(|(voted, signers)| *voted == version && signers.contains(index));
+        let on_its_way = self.own.iter().any(|own| own.signed.operation == vote);
+        crate::rules::runs(version)
+            && version > ledger.version()
+            && ledger.pending_upgrade().is_none()
+            && !recorded
+            && !on_its_way
+    }
+
     /// Signs and passes on one of our own operations: what we saw of the
     /// escrow, or a vote. Its sequence is the time, or one more than the
     /// last, so it grows across restarts.
@@ -746,15 +777,20 @@ impl Validator {
 
     /// What was executed that touches `account` from `height` on, as far
     /// as it fits in one answer, then a token hub's issuer's hold as of the
-    /// newest final block, and the final block the answer covers. Every
-    /// answer states the issuer's hold, a short one and `Trimmed` too, so a
-    /// member reads a freeze from what f + 1 validators sign alike, as it
-    /// reads everything else (spec/areas/hubs.md#a-frozen-hub). It is as of
-    /// the newest block even when the answer stops before it: the hold is
-    /// known only as it is now.
+    /// newest final block, the version of a hub past version 1, and the
+    /// final block the answer covers. Every answer states the issuer's
+    /// hold and the version, a short one and `Trimmed` too, so a member
+    /// reads a freeze or a move to a newer version from what f + 1
+    /// validators sign alike, as it reads everything else
+    /// (spec/areas/hubs.md#a-frozen-hub). They are as of the newest block
+    /// even when the answer stops before it: each is known only as it is
+    /// now.
     fn since(&self, account: AccountNumber, from: u64) -> Vec<Statement> {
         let ledger = &self.chain.ledger;
-        let issuer = Statement::issuer(ledger);
+        let issuer: Vec<Statement> = Statement::issuer(ledger)
+            .into_iter()
+            .chain(Statement::protocol(ledger))
+            .collect();
         let tip = Statement::Final {
             height: ledger.height(),
             timestamp: ledger.timestamp(),
@@ -781,7 +817,7 @@ impl Validator {
                 || bytes.saturating_add(block_bytes) > MAX_ANSWER_BYTES;
             bytes = bytes.saturating_add(block_bytes);
             if long && !statements.is_empty() {
-                statements.extend(issuer);
+                statements.extend(issuer.iter().cloned());
                 statements.push(Statement::Final {
                     height: block.height.saturating_sub(1),
                     timestamp: block.timestamp.saturating_sub(1),
@@ -1256,7 +1292,8 @@ mod tests {
         let messages = sent(&mut v, member);
         assert!(messages.len() > 1, "over several messages");
         let statements: Vec<Statement> = messages.into_iter().flatten().collect();
-        assert_eq!(statements.len(), long + 1);
+        // The block whole, the version and the final block.
+        assert_eq!(statements.len(), long + 2);
         assert!(matches!(
             statements.last(),
             Some(Statement::Final { height: 2, .. })
@@ -1350,6 +1387,8 @@ mod tests {
         let mut v = validator();
         let ledger = &mut v.chain.ledger;
         ledger.rules.terms = crate::rules::tests::token_terms(ledger.rules.terms.clone());
+        // Of version 1, which states no version.
+        ledger.version = 1;
         ledger.issuer = Issuer {
             ledger: 5,
             frozen: true,
@@ -1547,8 +1586,13 @@ mod tests {
                 ..
             }
         ));
+        // A hub past version 1 states its version too
+        // (spec/decisions/hub-protocol-version.md).
+        let version = Statement::protocol(&v.chain.ledger).unwrap();
+        assert_eq!(version.encoded_len(), PROTOCOL_STATEMENT_BYTES);
         let tail = [
             held.clone(),
+            version.clone(),
             Statement::Final {
                 height: v.chain.ledger.height(),
                 timestamp: v.chain.ledger.timestamp(),
@@ -1557,25 +1601,36 @@ mod tests {
         assert_eq!(tail.len(), SINCE_TAIL);
         assert_eq!(
             tail.iter().map(Encode::encoded_len).sum::<usize>(),
-            FINAL_STATEMENT_BYTES + ISSUER_STATEMENT_BYTES
+            FINAL_STATEMENT_BYTES + ISSUER_STATEMENT_BYTES + PROTOCOL_STATEMENT_BYTES
         );
         // Short: what touched the account, then the tail.
         v.history.push_back(block_of(2, 1));
         let short = v.since(AccountNumber(6), 1);
         assert_eq!(short.len(), 1 + SINCE_TAIL);
         assert_eq!(&short[1..], &tail);
-        // Long: it stops before a block, the hold as of the tip before the
-        // final block it covers.
+        // Long: it stops before a block, the hold and the version as of the
+        // tip before the final block it covers.
         v.history.push_back(block_of(3, MAX_ANSWER));
         let long = v.since(AccountNumber(6), 1);
         assert_eq!(long.len(), 1 + SINCE_TAIL);
         assert_eq!(long[1], held);
-        assert!(matches!(long[2], Statement::Final { height: 2, .. }));
-        // Trimmed: the member reads its state anew, and the freeze with it.
+        assert_eq!(long[2], version);
+        assert!(matches!(long[3], Statement::Final { height: 2, .. }));
+        // Trimmed: the member reads its state anew, and the freeze and the
+        // version with it.
         v.complete_from = 2;
         let trimmed = v.since(AccountNumber(6), 1);
         assert_eq!(trimmed[0], held);
-        assert!(matches!(trimmed[1], Statement::Trimmed { below: 2, .. }));
+        assert_eq!(trimmed[1], version);
+        assert!(matches!(trimmed[2], Statement::Trimmed { below: 2, .. }));
+        // A hub of version 1 states none, so a member of a release from
+        // before version 2 is never sent one.
+        v.chain.ledger.version = 1;
+        assert!(
+            !v.since(AccountNumber(6), 1)
+                .iter()
+                .any(|s| matches!(s, Statement::Protocol { .. }))
+        );
     }
 
     // Our attestation of a deposit that failed for want of room waits, and

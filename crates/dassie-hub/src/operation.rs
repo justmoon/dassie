@@ -18,7 +18,7 @@ use crate::codec::{
     write_digest, write_key, write_signature,
 };
 use crate::digest::{Digest, Domain};
-use crate::promise::{Claim, Fulfilled, HoldNumber, Signed};
+use crate::promise::{Claim, Fulfilled, HoldNumber, Release, Signed};
 use crate::rules::{Amount, HubId, LEDGER_ACCOUNT_LEN, Rules};
 use crate::validators::{MAX_VALIDATORS, ValidatorIndex};
 
@@ -118,6 +118,15 @@ pub enum MemberOperation {
     },
     /// Pays out everything and ends the account.
     Close(CloseTo),
+    /// The payer's answer to a claim of commitments its payee released:
+    /// what the claim took for each that still waits goes back to the hold.
+    /// From version 2 on (spec/decisions/signed-rejects.md).
+    Dispute {
+        /// The hold.
+        hold: HoldNumber,
+        /// The payee's releases, each of a commitment on `hold`.
+        releases: Vec<Signed<Release>>,
+    },
 }
 
 /// A member's operation with its signature.
@@ -182,6 +191,14 @@ pub enum ValidatorOperation {
     /// A clawback of the hub's asset from the escrow, in a validated
     /// ledger (spec/decisions/token-hubs.md).
     AttestClawback(Clawback),
+    /// A vote to move the hub to a newer version of the hub's protocol,
+    /// after the rules' notice for new rules. Every version counts the
+    /// votes alike; a validator whose code does not run the version stops
+    /// at the block it takes effect in (spec/decisions/hub-protocol-version.md).
+    Upgrade {
+        /// The version.
+        version: u16,
+    },
 }
 
 /// The issuer's hold on a token hub's escrow, as a validator proved it: a
@@ -262,14 +279,41 @@ pub enum Operation {
 
 impl MemberOperation {
     /// Whether it has a deadline, and so a place kept for it in every
-    /// block (spec/designs/settlement-hubs.md#7-fees).
+    /// block (spec/designs/settlement-hubs.md#7-fees): a dispute's is the
+    /// claim's payout.
     #[must_use]
     pub const fn has_deadline(&self) -> bool {
-        matches!(self, Self::Redeem(_) | Self::Claim { .. })
+        matches!(
+            self,
+            Self::Redeem(_) | Self::Claim { .. } | Self::Dispute { .. }
+        )
+    }
+
+    /// The first version of the hub's protocol that has it. A block of a
+    /// hub that runs an older one holds none, so validators that do not
+    /// know it are never handed one there.
+    #[must_use]
+    pub const fn since_version(&self) -> u16 {
+        match self {
+            Self::Dispute { .. } => crate::rules::RELEASES_VERSION,
+            _ => 1,
+        }
     }
 }
 
 impl Operation {
+    /// The first version of the hub's protocol that has it
+    /// ([`MemberOperation::since_version`]). A vote to move a hub to a
+    /// newer version is in every version that runs a hub, since it is how
+    /// a hub leaves an older one.
+    #[must_use]
+    pub const fn since_version(&self) -> u16 {
+        match self {
+            Self::Member(signed) => signed.operation.since_version(),
+            Self::Validator(_) => 1,
+        }
+    }
+
     /// Whether it goes first in a block.
     #[must_use]
     pub const fn has_deadline(&self) -> bool {
@@ -420,6 +464,10 @@ impl Encode for MemberOperation {
             Self::Withdraw { .. } => 8 + DESTINATION_LEN,
             Self::Close(CloseTo::Account(_)) => 1 + 4,
             Self::Close(CloseTo::Ledger(_)) => 1 + DESTINATION_LEN,
+            Self::Dispute { releases, .. } => {
+                8 + dassie_oer::size::quantity(releases.len())
+                    + releases.len() * crate::promise::SIGNED_RELEASE_LEN
+            }
         }
     }
 
@@ -495,6 +543,14 @@ impl MemberOperation {
                     }
                 }
             }
+            Self::Dispute { hold, releases } => {
+                writer.write_u8(11);
+                writer.write_u64(hold.0);
+                writer.write_quantity(releases.len());
+                for release in releases {
+                    release.encode_to(writer);
+                }
+            }
             _ => {}
         }
     }
@@ -552,6 +608,15 @@ impl MemberOperation {
                 1 => CloseTo::Ledger(read_destination(reader)?),
                 other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
             }),
+            11 => {
+                let hold = HoldNumber(reader.read_u64()?);
+                let count = reader.read_quantity(MAX_COMMITMENTS)?;
+                let mut releases = Vec::with_capacity(count);
+                for _ in 0..count {
+                    releases.push(Signed::<Release>::decode(reader)?);
+                }
+                Self::Dispute { hold, releases }
+            }
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         })
     }
@@ -617,6 +682,7 @@ impl Encode for ValidatorOperation {
             Self::Shutdown => 0,
             Self::AttestIssuer(_) => ISSUER_LEN,
             Self::AttestClawback(_) => CLAWBACK_LEN,
+            Self::Upgrade { .. } => 2,
         }
     }
 
@@ -667,6 +733,10 @@ impl Encode for ValidatorOperation {
                 writer.write_u32(clawback.ledger);
                 writer.write_u64(clawback.amount);
             }
+            Self::Upgrade { version } => {
+                writer.write_u8(10);
+                writer.write_u16(*version);
+            }
         }
     }
 }
@@ -713,6 +783,9 @@ impl ValidatorOperation {
                 ledger: reader.read_u32()?,
                 amount: reader.read_u64()?,
             }),
+            10 => Self::Upgrade {
+                version: reader.read_u16()?,
+            },
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         })
     }
@@ -802,8 +875,8 @@ mod tests {
         ))
     }
 
-    /// The operations that carry a payer's promises.
-    fn promise_operations() -> [MemberOperation; 2] {
+    /// The operations that carry a payer's promises, or a payee's release.
+    fn promise_operations() -> [MemberOperation; 3] {
         let key = NodeKey::from_bytes(&[4; 32]);
         let hub = HubId(Digest([2; 32]));
         let commitment = Signed::sign(
@@ -826,7 +899,19 @@ mod tests {
             &hub,
             &key,
         );
+        let release = Signed::sign(
+            Release {
+                hold: HoldNumber(1),
+                sequence: 2,
+            },
+            &hub,
+            &key,
+        );
         [
+            MemberOperation::Dispute {
+                hold: HoldNumber(1),
+                releases: alloc::vec![release],
+            },
             MemberOperation::Redeem(claim),
             MemberOperation::Claim {
                 hold: HoldNumber(1),
@@ -921,6 +1006,7 @@ mod tests {
                 ledger: 9,
                 amount: 10,
             }),
+            ValidatorOperation::Upgrade { version: 2 },
         ] {
             let signed = SignedValidatorOperation::sign(
                 &hub,

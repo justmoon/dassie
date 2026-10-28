@@ -31,7 +31,8 @@ use crate::names::{Commitment, Holders, Name, Registrant, Registrar};
 use crate::routing::{RouteKey, Routes};
 use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
 use crate::wire::{
-    Content, Endpoint, HubDetails, MAX_CLAIM_BYTES, MAX_COMMITMENT_BYTES, MAX_OFFERS, SchemeId,
+    Content, Endpoint, HubDetails, MAX_CLAIM_BYTES, MAX_COMMITMENT_BYTES, MAX_OFFERS,
+    MAX_RELEASE_BYTES, SchemeId,
 };
 
 pub use lifecycle::BanError;
@@ -285,6 +286,9 @@ pub(crate) struct Answer {
     pub peer: NodeId,
     pub request_id: u32,
     pub packet: Vec<u8>,
+    /// The payee's release that goes with a Reject over a hub, in a
+    /// `hubReject`; empty for any other answer.
+    pub release: Vec<u8>,
     pub until_ms: u64,
 }
 
@@ -1058,11 +1062,32 @@ impl PeerNode {
     /// expiry; a Fulfill counts in our books whether or not the peer took
     /// it (spec/decisions/own-fulfills.md).
     pub fn send_response(&mut self, now_ms: u64, peer: &NodeId, request_id: u32, packet: &[u8]) {
+        self.send_released(now_ms, peer, request_id, packet, &[]);
+    }
+
+    /// Sends a Reject of a Prepare that came on a method over a hub with
+    /// our `release` of its commitment, in a `hubReject`
+    /// (spec/decisions/signed-rejects.md), as [`Self::send_response`]
+    /// sends any other answer; an empty `release` sends it in an
+    /// `interledgerPacket`, as that does.
+    pub fn send_released(
+        &mut self,
+        now_ms: u64,
+        peer: &NodeId,
+        request_id: u32,
+        packet: &[u8],
+        release: &[u8],
+    ) {
         self.advance(now_ms);
+        assert!(
+            release.len() <= MAX_RELEASE_BYTES,
+            "a release past its bound"
+        );
         let answer = Answer {
             peer: *peer,
             request_id,
             packet: packet.to_vec(),
+            release: release.to_vec(),
             until_ms: self.now_ms.saturating_add(self.config.request_timeout_ms),
         };
         self.try_answer(answer);
@@ -1073,9 +1098,17 @@ impl PeerNode {
             self.stats.answers_dropped += 1;
             return;
         }
-        let content = Content::InterledgerPacket {
-            request_id: answer.request_id,
-            packet: &answer.packet,
+        let content = if answer.release.is_empty() {
+            Content::InterledgerPacket {
+                request_id: answer.request_id,
+                packet: &answer.packet,
+            }
+        } else {
+            Content::HubReject {
+                request_id: answer.request_id,
+                packet: &answer.packet,
+                release: &answer.release,
+            }
         };
         let timeout = answer
             .until_ms

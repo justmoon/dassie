@@ -35,7 +35,7 @@ use dassie_hub::operation::{
     AccountNumber, Deposit, Destination, Issuer, MemberOperation, Operation, SignedMemberOperation,
     SignedValidatorOperation, ValidatorOperation,
 };
-use dassie_hub::promise::{Commitment, Fulfilled, HoldNumber, Signed};
+use dassie_hub::promise::{Commitment, Fulfilled, HoldNumber, Release, Signed};
 use dassie_hub::rules::{Asset, Fees, LEAST_TOKEN_GAS_DROPS, Limits, Rules, Terms, Timers};
 use dassie_hub::service::wire::Message;
 use dassie_hub::validators::{Signers, ValidatorIndex};
@@ -71,10 +71,10 @@ const DSUSD: Asset = Asset::Token {
     issuer: dassie_xrpl::dsusd::ISSUER,
 };
 
-fn terms(sponsor: &IdentityKey, escrow: [u8; 20], asset: Asset) -> Terms {
+fn terms(sponsor: &IdentityKey, escrow: [u8; 20], asset: Asset, version: u16) -> Terms {
     let token = asset != Asset::Xrp;
     Terms {
-        version: dassie_hub::rules::HUB_VERSION,
+        version,
         nonce: NONCE,
         sponsor: sponsor.identity(),
         network: 1,
@@ -156,11 +156,12 @@ struct Validators {
 }
 
 impl Validators {
-    /// The sponsor's hub of `asset`, with its escrow attested.
-    fn found(faults: [Fault; 4], asset: Asset) -> Self {
+    /// The sponsor's hub of `asset`, of `version` of the hub's protocol,
+    /// with its escrow attested.
+    fn found(faults: [Fault; 4], asset: Asset, version: u16) -> Self {
         let sponsor = IdentityKey::from_bytes(&[100; 32]);
         let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
-        let terms = terms(&sponsor, master.account().0, asset);
+        let terms = terms(&sponsor, master.account().0, asset, version);
         let nodes: Vec<IdentityKey> = (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
         let keys: Vec<ValidatorKeys> = nodes
             .iter()
@@ -361,7 +362,8 @@ impl Validators {
                 MemberOperation::HoldFund { hold, .. }
                 | MemberOperation::HoldReduce { hold, .. }
                 | MemberOperation::HoldRelease { hold }
-                | MemberOperation::Claim { hold, .. } => party(hold),
+                | MemberOperation::Claim { hold, .. }
+                | MemberOperation::Dispute { hold, .. } => party(hold),
                 MemberOperation::Redeem(claim) => party(&claim.value.hold),
                 _ => false,
             }
@@ -397,8 +399,10 @@ impl Validators {
                 outcome: entry.outcome,
             });
         }
-        // A token hub's issuer's hold, as of the newest block.
+        // A token hub's issuer's hold, and the version past version 1, as
+        // of the newest block.
         statements.extend(Statement::issuer(&self.ledger));
+        statements.extend(Statement::protocol(&self.ledger));
         statements.push(Statement::Final {
             height: covered,
             timestamp: self.stamps[&covered],
@@ -579,7 +583,7 @@ impl Books {
                 id,
             } => {
                 assert!(self.ids.insert(id), "a loss booked once");
-                if cause == LossCause::ClaimFee {
+                if cause.is_fee() {
                     self.settlement -= i128::from(amount);
                 }
                 self.losses.push((peer, amount, cause));
@@ -629,10 +633,15 @@ impl World {
 
     /// A hub of `asset`.
     fn of(faults: [Fault; 4], asset: Asset) -> Self {
+        Self::of_version(faults, asset, dassie_hub::rules::HUB_VERSION)
+    }
+
+    /// A hub of `asset`, of `version` of the hub's protocol.
+    fn of_version(faults: [Fault; 4], asset: Asset, version: u16) -> Self {
         Self {
             now: START + 10,
             next_block: START + 10 + BLOCK_MS,
-            validators: Validators::found(faults, asset),
+            validators: Validators::found(faults, asset, version),
             members: Vec::new(),
             rng: SeededRng::new(1),
         }
@@ -789,7 +798,7 @@ impl World {
             .ledger
             .holds()
             .filter(|(_, hold)| hold.payee == number)
-            .map(|(_, hold)| hold.amount)
+            .map(|(_, hold)| hold.amount + hold.pending_amount())
             .sum();
         units(self.balance(i) + toward)
     }
@@ -923,19 +932,30 @@ impl World {
         }
     }
 
-    /// `b` rejects `a`'s Prepare, and `a` takes the Reject.
-    fn reject(&mut self, (a, b): (usize, usize), request_id: u32) {
+    /// `b` rejects `a`'s Prepare, with its release of the commitment where
+    /// the hub takes one, and `a` takes the Reject. Returns the release.
+    fn reject(&mut self, (a, b): (usize, usize), request_id: u32) -> Vec<u8> {
         let (name_a, name_b) = (self.members[a].name, self.members[b].name);
+        let mut release = Vec::new();
         self.members[b]
             .scheme
             .commitments()
             .unwrap()
-            .on_released(name_a, request_id);
-        self.members[a]
+            .on_released(name_a, request_id, &mut release);
+        let stands = self.members[a]
             .scheme
             .commitments()
             .unwrap()
-            .on_answered(name_b, request_id);
+            .on_rejected(name_b, request_id, &release);
+        assert!(stands, "a Reject with its release stands");
+        release
+    }
+
+    /// Moves time on past the hold's notice, by which what claims took is
+    /// paid (spec/decisions/signed-rejects.md).
+    fn past_the_notice(&mut self) {
+        let notice = self.validators.ledger.terms().timers.hold_notice;
+        self.run(notice + 1_000);
     }
 
     /// `a`'s Prepare to `b` timed out: its Reject upstream waits for the
@@ -1015,6 +1035,12 @@ impl World {
     /// a hold of `hold` XRP toward `b`.
     fn pair(faults: [Fault; 4], hold: u64) -> (Self, usize, usize) {
         Self::pair_in(Self::new(faults), hold)
+    }
+
+    /// [`pair`](Self::pair), in a hub of version 1, whose claims pay at
+    /// once and which takes no releases.
+    fn pair_of_version_1(faults: [Fault; 4], hold: u64) -> (Self, usize, usize) {
+        Self::pair_in(Self::of_version(faults, Asset::Xrp, 1), hold)
     }
 
     /// [`pair`](Self::pair), in a DSUSD hub: amounts in millionths of a
@@ -1245,6 +1271,11 @@ fn a_payee_claims_on_the_hub_what_claims_left_out() {
     assert_eq!(ledger_hold.claimed.len(), 3, "claimed on the hub");
     let claim_fees = world.members[b].books.lost(LossCause::ClaimFee);
     assert!(claim_fees >= units(FEE));
+    // What the claims took waits for the hold's notice: the books count
+    // it as in the hold until then (spec/decisions/signed-rejects.md).
+    assert_eq!(world.balance(b), before - claim_fees / 1_000);
+    assert_eq!(world.members[b].scheme.balance(), world.truth(b));
+    world.past_the_notice();
     assert_eq!(
         world.balance(b),
         before + 3 * P / 1_000 - claim_fees / 1_000
@@ -1319,18 +1350,18 @@ fn a_deferred_reject_is_decided_from_the_hub() {
         .scheme
         .commitments()
         .unwrap()
-        .on_released(name_a, 2);
+        .on_released(name_a, 2, &mut Vec::new());
     world.run(500);
     assert!(world.members[a].books.losses.is_empty(), "decided in time");
 }
 
-/// A packet the payer gave up on, which the payee then won on the hub, is
-/// a loss on the payee; one the payee rejected and then claimed is
-/// evidence of cheating. A payee that claims twice, or late, gains
-/// nothing.
+/// In a hub of version 1: a packet the payer gave up on, which the payee
+/// then won on the hub, is a loss on the payee; one the payee rejected and
+/// then claimed is evidence of cheating. A payee that claims twice, or
+/// late, gains nothing.
 #[test]
 fn what_a_payee_takes_behind_its_answers_is_booked_against_it() {
-    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    let (mut world, a, b) = World::pair_of_version_1([Fault::Honest; 4], 2);
     let hold = world.hold(a, b).unwrap();
     // 1: the payee rejects it, then claims it anyway.
     let first = signed_commitment(&world.prepare((a, b), 1, P, 10_000).unwrap());
@@ -2472,10 +2503,10 @@ fn claims_for_packets_taken_before_the_freeze_go_on() {
     let ledger_hold = world.validators.ledger.hold(hold).unwrap();
     assert_eq!(ledger_hold.claimed.len(), 3, "claimed while frozen");
     let claim_fees = world.members[b].books.lost(LossCause::ClaimFee);
-    assert_eq!(
-        world.balance(b),
-        before + 3 * P / 1_000 - claim_fees / 1_000
-    );
+    // What they took waits for the hold's notice, by the hub's clock,
+    // which stands still while frozen (spec/decisions/signed-rejects.md).
+    world.past_the_notice();
+    assert_eq!(world.balance(b), before - claim_fees / 1_000);
     for i in [a, b] {
         assert_eq!(world.members[i].scheme.balance(), world.truth(i));
         assert_eq!(world.members[i].books.suspense, 0);
@@ -2483,6 +2514,11 @@ fn claims_for_packets_taken_before_the_freeze_go_on() {
     world.validators.freeze(false);
     world.run(3_000);
     assert!(world.validators.ledger.frozen().is_none());
+    world.past_the_notice();
+    assert_eq!(
+        world.balance(b),
+        before + 3 * P / 1_000 - claim_fees / 1_000
+    );
     for i in [a, b] {
         for cause in [LossCause::PaidLate, LossCause::Cheated] {
             assert_eq!(world.members[i].books.lost(cause), 0, "{i}: {cause:?}");
@@ -2561,4 +2597,170 @@ fn a_commitment_past_the_bound_is_refused() {
     for i in [a, b] {
         assert_eq!(world.members[i].scheme.balance(), world.truth(i));
     }
+}
+
+/// Bob's claim on `hold` of Alice's `commitment` for Prepare `request_id`,
+/// submitted by Bob itself.
+fn claim_of(hold: HoldNumber, commitment: Signed<Commitment>, request_id: u32) -> MemberOperation {
+    MemberOperation::Claim {
+        hold,
+        fulfilled: vec![Fulfilled {
+            commitment,
+            fulfillment: preimage(request_id),
+        }],
+    }
+}
+
+/// spec/decisions/signed-rejects.md: the payee's Reject comes with its
+/// release; a claim it makes all the same waits, the payer disputes it with
+/// the release, and the hub never pays it. The dispute's fee is the payee's
+/// cheating, booked against it.
+#[test]
+fn a_claim_of_what_the_payee_released_is_disputed_and_never_paid() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    let hold = world.hold(a, b).unwrap();
+    let before = world.balance(b);
+    let commitment = signed_commitment(&world.prepare((a, b), 1, P, 10_000).unwrap());
+    let release = world.reject((a, b), 1);
+    let release = Signed::<Release>::decode(&mut dassie_oer::Reader::new(&release)).unwrap();
+    assert_eq!(release.value, Release { hold, sequence: 1 });
+    world.raw(b, claim_of(hold, commitment, 1));
+    world.run(2_000);
+    assert_eq!(
+        world.validators.ledger.hold(hold).unwrap().amount,
+        2 * XRP,
+        "the dispute put it back"
+    );
+    world.past_the_notice();
+    assert_eq!(world.balance(b), before - FEE, "only its claim's fee");
+    let books = &world.members[a].books;
+    assert_eq!(books.lost(LossCause::Cheated), 0, "nothing paid");
+    assert_eq!(books.lost(LossCause::DisputeFee), units(FEE));
+    for i in [a, b] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+        assert_eq!(world.members[i].books.suspense, 0);
+    }
+}
+
+/// A payer away for longer than the hold's notice cannot dispute in time:
+/// the claim of what its payee released is paid, and booked as the payee's
+/// cheating once the payer reads it.
+#[test]
+fn a_payer_away_past_the_notice_books_the_claim_it_could_not_dispute() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    let hold = world.hold(a, b).unwrap();
+    let commitment = signed_commitment(&world.prepare((a, b), 1, P, 10_000).unwrap());
+    world.reject((a, b), 1);
+    world.members[a].offline = true;
+    world.raw(b, claim_of(hold, commitment, 1));
+    world.past_the_notice();
+    assert!(
+        world
+            .validators
+            .ledger
+            .hold(hold)
+            .unwrap()
+            .pending
+            .is_empty(),
+        "paid"
+    );
+    world.members[a].offline = false;
+    world.run(3_000);
+    assert_eq!(world.members[a].books.lost(LossCause::Cheated), P);
+    for i in [a, b] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+        assert_eq!(world.members[i].books.suspense, 0);
+    }
+}
+
+/// From version 2 on, a Reject without the payee's release does not stand:
+/// the payee could still claim the packet, so it waits for the hub as one
+/// that expired, which decides it. In a hub of version 1 it stands, and
+/// no release goes with it.
+#[test]
+fn a_reject_without_its_release_waits_for_the_hub() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    let name_b = world.members[b].name;
+    world.prepare((a, b), 1, P, 2_000).unwrap();
+    let stands = world.members[a]
+        .scheme
+        .commitments()
+        .unwrap()
+        .on_rejected(name_b, 1, &[]);
+    assert!(!stands, "no release");
+    // A release of another packet's commitment is no release of this one.
+    world.prepare((a, b), 2, P, 2_000).unwrap();
+    let other = world.reject((a, b), 2);
+    let stands = world.members[a]
+        .scheme
+        .commitments()
+        .unwrap()
+        .on_rejected(name_b, 1, &other);
+    assert!(!stands, "another packet's release");
+    world.run(2_000);
+    world.wait((a, b), 1, world.now + 1_000);
+    world.run(1_000);
+    assert!(world.members[a].decided.contains(&Decided {
+        peer: name_b,
+        request_id: 1,
+        fulfillment: None,
+    }));
+
+    let (mut world, a, b) = World::pair_of_version_1([Fault::Honest; 4], 2);
+    world.prepare((a, b), 1, P, 2_000).unwrap();
+    assert!(
+        world.reject((a, b), 1).is_empty(),
+        "no release in version 1"
+    );
+}
+
+/// A payee never takes again a commitment it released: the payer could
+/// otherwise dispute its claim of the packet with the release. It releases
+/// a Prepare it refused too, if the payer signed its commitment, and none
+/// it never could have taken.
+#[test]
+fn a_payee_takes_no_commitment_it_released() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    let (name_a, name_b, now) = (world.members[a].name, world.members[b].name, world.now);
+    let bytes = world.prepare((a, b), 1, P, 10_000).unwrap();
+    world.reject((a, b), 1);
+    let promised = promised(1, P, now + 10_000);
+    let payee = world.members[b].scheme.commitments().unwrap();
+    assert!(
+        payee
+            .check_commitment(now, name_a, 7, promised, &bytes)
+            .is_err(),
+        "taken again"
+    );
+    // Refused before it was taken: released, and never taken after.
+    let refused = world.members[a].scheme.commitments().unwrap().commit(
+        now,
+        name_b,
+        2,
+        promised,
+        &mut Vec::new(),
+    );
+    assert!(refused.is_ok());
+    let mut fresh = Vec::new();
+    world.members[a]
+        .scheme
+        .commitments()
+        .unwrap()
+        .commit(now, name_b, 3, promised, &mut fresh)
+        .unwrap();
+    let payee = world.members[b].scheme.commitments().unwrap();
+    let mut release = Vec::new();
+    payee.release_refused(now, name_a, &fresh, &mut release);
+    assert!(!release.is_empty());
+    assert!(
+        payee
+            .check_commitment(now, name_a, 8, promised, &fresh)
+            .is_err()
+    );
+    // One the payer did not sign is not released.
+    let mut forged = fresh.clone();
+    let last = forged.len() - 1;
+    forged[last] ^= 1;
+    payee.release_refused(now, name_a, &forged, &mut release);
+    assert!(release.is_empty());
 }

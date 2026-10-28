@@ -10,7 +10,10 @@
 //!   account's rules name is refused: its number, holds and operations
 //!   are another hub's (spec/decisions/hub-named-when-added.md). So is one
 //!   of a version before 3, which named no hub; no database kept one
-//!   (spec/decisions/database-continuity.md).
+//!   (spec/decisions/database-continuity.md). Its version 4 keeps what
+//!   claims took that waits in each hold, and the version of the hub's
+//!   protocol the hub runs (spec/decisions/signed-rejects.md); version 3
+//!   is read as knowing of none waiting, and of the rules' version.
 //! - **The scheme** keeps its peers and the records of their holds: the next
 //!   sequence, W and T of our claims and the packets the hub may still pay,
 //!   and what we fulfilled that no claim of the payer's covers, and its
@@ -20,6 +23,9 @@
 //!   as an operation that failed for it said, since a hub never runs again
 //!   after. Its version 1 had no unread `pay`s, and is read as having none;
 //!   its versions 1 and 2 had no shutdown, and are read as knowing of none.
+//!   Its version 4 keeps the peer's releases of our packets and the claims
+//!   of them we dispute, and the commitments we released; versions before
+//!   it are read as having none.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -36,14 +42,17 @@ use super::scheme::{HubScheme, Peer, Settling, UnreadPay};
 use crate::codec::{read_key, write_key};
 use crate::digest::Digest;
 use crate::operation::{AccountNumber, MemberOperation, SignedMemberOperation};
-use crate::promise::{Claim, Commitment, HoldNumber, Signed};
+use crate::promise::{Claim, Commitment, HoldNumber, Release, Signed};
 use crate::rules::HubId;
 
-/// The account's state's version: 3 names the account's hub.
-const VERSION: u8 = 3;
+/// The account's state's version: 3 names the account's hub, 4 keeps
+/// what waits in holds and the hub's version.
+const VERSION: u8 = 4;
+/// The oldest account's state's version it reads.
+const OLDEST_VERSION: u8 = 3;
 /// The scheme's state's version: 2 keeps its unread `pay`s, 3 whether the
-/// hub is shutting down.
-const SCHEME_VERSION: u8 = 3;
+/// hub is shutting down, 4 releases and disputes.
+const SCHEME_VERSION: u8 = 4;
 
 /// Bytes being written.
 struct Out(Vec<u8>);
@@ -166,6 +175,8 @@ pub(super) fn account_state(account: &HubAccount) -> Vec<u8> {
         out.option(issuer.frozen.as_ref(), |out, since| out.u64(*since));
         out.bool(issuer.held);
     });
+    out.0.extend_from_slice(&account.version.0.to_be_bytes());
+    out.u64(account.version.1);
     out.0
 }
 
@@ -185,10 +196,18 @@ fn write_hold(out: &mut Out, hold: &HoldMirror) {
         out.u64(*sequence);
         out.u64(*paid);
     }
+    out.count(hold.pending.len());
+    for (sequence, amount) in &hold.pending {
+        out.u64(*sequence);
+        out.u64(*amount);
+    }
+    out.u64(hold.pending_unlisted);
+    out.u64(hold.pending_due);
+    out.u64(hold.pending_at);
 }
 
-/// A hold as `write_hold` wrote it.
-fn read_hold(reader: &mut Reader<'_>) -> Option<HoldMirror> {
+/// A hold as `write_hold` wrote it, in the account's state's `version`.
+fn read_hold(reader: &mut Reader<'_>, version: u8) -> Option<HoldMirror> {
     let mut hold = HoldMirror::opened(
         AccountNumber(reader.read_u32().ok()?),
         AccountNumber(reader.read_u32().ok()?),
@@ -209,6 +228,16 @@ fn read_hold(reader: &mut Reader<'_>) -> Option<HoldMirror> {
         hold.claimed
             .insert(reader.read_u64().ok()?, reader.read_u64().ok()?);
     }
+    if version >= 4 {
+        let count = read_count(reader, 16, usize::from(u16::MAX))?;
+        for _ in 0..count {
+            hold.pending
+                .insert(reader.read_u64().ok()?, reader.read_u64().ok()?);
+        }
+        hold.pending_unlisted = reader.read_u64().ok()?;
+        hold.pending_due = reader.read_u64().ok()?;
+        hold.pending_at = reader.read_u64().ok()?;
+    }
     Some(hold)
 }
 
@@ -228,6 +257,10 @@ fn write_purpose(out: &mut Out, purpose: Purpose) {
         }
         Purpose::Disbursal => out.u8(3),
         Purpose::Withdraw => out.u8(4),
+        Purpose::Dispute(hold) => {
+            out.u8(5);
+            out.u64(hold.0);
+        }
     }
 }
 
@@ -238,6 +271,7 @@ fn read_purpose(reader: &mut Reader<'_>) -> Option<Purpose> {
         2 => Purpose::Claim(HoldNumber(reader.read_u64().ok()?)),
         3 => Purpose::Disbursal,
         4 => Purpose::Withdraw,
+        5 => Purpose::Dispute(HoldNumber(reader.read_u64().ok()?)),
         _ => return None,
     })
 }
@@ -247,7 +281,7 @@ fn read_purpose(reader: &mut Reader<'_>) -> Option<Purpose> {
 #[must_use]
 pub fn hub_of_state(state: &[u8]) -> Option<HubId> {
     let mut reader = Reader::new(state);
-    if reader.read_u8().ok()? != VERSION {
+    if !(OLDEST_VERSION..=VERSION).contains(&reader.read_u8().ok()?) {
         return None;
     }
     Some(HubId(Digest(*reader.read_array::<32>().ok()?)))
@@ -257,7 +291,8 @@ pub fn hub_of_state(state: &[u8]) -> Option<HubId> {
 /// another version, or of another hub than the account's.
 pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<()> {
     let mut reader = Reader::new(state);
-    if reader.read_u8().ok()? != VERSION {
+    let version = reader.read_u8().ok()?;
+    if !(OLDEST_VERSION..=VERSION).contains(&version) {
         return None;
     }
     if HubId(Digest(*reader.read_array::<32>().ok()?)) != account.hub {
@@ -270,7 +305,9 @@ pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<
     let holds = read_count(&mut reader, 8, most)?;
     for _ in 0..holds {
         let number = HoldNumber(reader.read_u64().ok()?);
-        account.holds.insert(number, read_hold(&mut reader)?);
+        account
+            .holds
+            .insert(number, read_hold(&mut reader, version)?);
         if reader.read_bool().ok()? {
             account.strangers.insert(number);
         }
@@ -291,6 +328,13 @@ pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<
             held: r.read_bool().ok()?,
         })
     })?;
+    if version >= 4 {
+        let protocol = (reader.read_u16().ok()?, reader.read_u64().ok()?);
+        if !crate::rules::runs(protocol.0) || protocol.0 < account.rules.terms.version {
+            return None;
+        }
+        account.version = protocol;
+    }
     reader.finish().ok()?;
     let bounded = account.strangers.len() <= super::account::MAX_STRANGER_HOLDS
         && account.holds.len().saturating_sub(account.strangers.len()) <= super::account::MAX_HOLDS;
@@ -404,15 +448,28 @@ fn write_payer(out: &mut Out, payer: &Payer) {
             State::Rejected => 3,
             State::Decided => 4,
         });
-        out.option(packet.paid.as_ref(), |out, paid| {
-            out.bytes(&paid.fulfillment);
-            out.u64(paid.drops);
-            out.bytes(paid.operation.as_bytes());
-        });
+        out.option(packet.paid.as_ref(), write_paid);
+        out.option(packet.release.as_ref(), |out, release| out.encoded(release));
+        out.option(packet.disputed.as_ref(), write_paid);
     }
 }
 
-fn read_payer(reader: &mut Reader<'_>) -> Option<Payer> {
+fn write_paid(out: &mut Out, paid: &PaidOnHub) {
+    out.bytes(&paid.fulfillment);
+    out.u64(paid.drops);
+    out.bytes(paid.operation.as_bytes());
+}
+
+fn read_paid(reader: &mut Reader<'_>) -> Option<PaidOnHub> {
+    Some(PaidOnHub {
+        fulfillment: *reader.read_array::<32>().ok()?,
+        drops: reader.read_u64().ok()?,
+        operation: Digest(*reader.read_array::<32>().ok()?),
+    })
+}
+
+/// Our records of a hold toward a peer, in the scheme's state's `version`.
+fn read_payer(reader: &mut Reader<'_>, version: u8) -> Option<Payer> {
     let mut payer = Payer::new();
     payer.hold = read_option(reader, |r| Some(HoldNumber(r.read_u64().ok()?)))?;
     payer.next_sequence = reader.read_u64().ok()?;
@@ -432,19 +489,23 @@ fn read_payer(reader: &mut Reader<'_>) -> Option<Payer> {
             4 => State::Decided,
             _ => return None,
         };
-        let paid = read_option(reader, |r| {
-            Some(PaidOnHub {
-                fulfillment: *r.read_array::<32>().ok()?,
-                drops: r.read_u64().ok()?,
-                operation: Digest(*r.read_array::<32>().ok()?),
-            })
-        })?;
+        let paid = read_option(reader, read_paid)?;
+        let (release, disputed) = if version >= 4 {
+            (
+                read_option(reader, |r| Signed::<Release>::decode(r).ok())?,
+                read_option(reader, read_paid)?,
+            )
+        } else {
+            (None, None)
+        };
         let packet = Packet {
             request_id: None,
             units,
             commitment,
             state,
             paid,
+            release,
+            disputed,
         };
         let fits = sequence < payer.next_sequence && sequence == commitment.sequence;
         if !fits || payer.packets.insert(sequence, packet).is_some() {
@@ -479,9 +540,16 @@ fn write_payee(out: &mut Out, payee: &Payee) {
         });
         out.u8(done.tries);
     }
+    out.count(payee.released.len());
+    for (sequence, expiry) in &payee.released {
+        out.u64(*sequence);
+        out.u64(*expiry);
+    }
 }
 
-fn read_payee(reader: &mut Reader<'_>) -> Option<Payee> {
+/// Our records of a peer's hold toward us, in the scheme's state's
+/// `version`.
+fn read_payee(reader: &mut Reader<'_>, version: u8) -> Option<Payee> {
     let mut payee = Payee {
         hold: read_option(reader, |r| Some(HoldNumber(r.read_u64().ok()?)))?,
         key_confirmed: reader.read_bool().ok()?,
@@ -520,6 +588,16 @@ fn read_payee(reader: &mut Reader<'_>) -> Option<Payee> {
             return None;
         }
     }
+    if version >= 4 {
+        let count = read_count(reader, 16, super::payee::MAX_RELEASED)?;
+        for _ in 0..count {
+            let sequence = reader.read_u64().ok()?;
+            let expiry = reader.read_u64().ok()?;
+            if payee.released.insert(sequence, expiry).is_some() {
+                return None;
+            }
+        }
+    }
     Some(payee)
 }
 
@@ -541,8 +619,8 @@ pub(super) fn restore_scheme(scheme: &mut HubScheme, state: &[u8]) -> Option<()>
         let peer = Peer {
             account,
             key,
-            payer: read_payer(&mut reader)?,
-            payee: read_payee(&mut reader)?,
+            payer: read_payer(&mut reader, version)?,
+            payee: read_payee(&mut reader, version)?,
             look_up_ms: 0,
             pay_after_ms: 0,
         };

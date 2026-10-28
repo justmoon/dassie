@@ -113,6 +113,28 @@ pub enum LossCause {
     /// rejected, which an honest payee never claims: evidence against the
     /// peering. It left `assets/interledger/<peer>`.
     Cheated,
+    /// The hub's fee for a dispute we submitted because the peer claimed a
+    /// packet it had released with its Reject: evidence against the
+    /// peering, as [`Cheated`](Self::Cheated) is, though the dispute kept
+    /// the packet from being paid (spec/decisions/signed-rejects.md). It
+    /// left `assets/settlement`.
+    DisputeFee,
+}
+
+impl LossCause {
+    /// Whether it is evidence that the peer cheated: the node ends the
+    /// peering.
+    #[must_use]
+    pub const fn cheated(self) -> bool {
+        matches!(self, Self::Cheated | Self::DisputeFee)
+    }
+
+    /// Whether it is a fee we paid the hub, which left `assets/settlement`,
+    /// rather than a packet paid, which left `assets/interledger/<peer>`.
+    #[must_use]
+    pub const fn is_fee(self) -> bool {
+        matches!(self, Self::ClaimFee | Self::DisputeFee)
+    }
 }
 
 /// What a scheme takes a reconciliation to come from.

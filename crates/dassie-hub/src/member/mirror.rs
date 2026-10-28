@@ -2,6 +2,11 @@
 //! (`ledger/holds.rs`), replayed from the operations executed on it, in
 //! the order of the log. Amounts paid come from the outcomes, so the mirror
 //! never has to guess what a redeem or a claim took.
+//!
+//! From version 2 on, what a claim took waits in the hold until the hold's
+//! notice has passed since the last claim, and the payer may put some of it
+//! back with a dispute (spec/decisions/signed-rejects.md): the mirror pays
+//! it out by the hub's clock, as it applies a reduction.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -35,6 +40,18 @@ pub struct HoldMirror {
     pub through: u64,
     /// Sequences above `through` taken with `claim`, and what each paid.
     pub claimed: BTreeMap<u64, Amount>,
+    /// What claims took that waits to pay the payee, by sequence, as read
+    /// in order.
+    pub pending: BTreeMap<u64, Amount>,
+    /// What waits that the hub's holds told without its sequences, when
+    /// the account read its state anew: paid out with the rest.
+    pub pending_unlisted: Amount,
+    /// When what waits is paid, by the hub's clock; 0 while nothing waits.
+    pub pending_due: Millis,
+    /// The hub's clock at the last claim that added to what waits, as
+    /// `reduced_at` is for a reduction: a thaw moves the payout only if
+    /// that claim was at or before its freeze's stamp.
+    pub pending_at: Millis,
 }
 
 impl HoldMirror {
@@ -50,12 +67,17 @@ impl HoldMirror {
             total: 0,
             through: 0,
             claimed: BTreeMap::new(),
+            pending: BTreeMap::new(),
+            pending_unlisted: 0,
+            pending_due: 0,
+            pending_at: 0,
         }
     }
 
-    /// A hold as a statement told it, its reduction counted as made at
-    /// `as_of`: what `claim` took above its W is not in the view, and
-    /// starts empty.
+    /// A hold as a statement told it, its reduction and what waits counted
+    /// as made at `as_of`: what `claim` took above its W is not in the
+    /// view, and starts empty, and what waits is told without its
+    /// sequences.
     #[must_use]
     pub const fn of(view: &HoldView, as_of: Millis) -> Self {
         Self {
@@ -67,7 +89,21 @@ impl HoldMirror {
             total: view.total,
             through: view.through,
             claimed: BTreeMap::new(),
+            pending: BTreeMap::new(),
+            pending_unlisted: view.pending.0,
+            pending_due: view.pending.1,
+            pending_at: as_of,
         }
+    }
+
+    /// What claims took that waits to pay the payee.
+    #[must_use]
+    pub fn waiting(&self) -> Amount {
+        self.pending
+            .values()
+            .fold(self.pending_unlisted, |sum, amount| {
+                sum.saturating_add(*amount)
+            })
     }
 
     /// Everything the payee has taken from it: the last redeemed total,
@@ -105,12 +141,37 @@ impl HoldMirror {
         };
     }
 
+    /// Pays out what waits, if it is due by the hub's clock `clock`, as
+    /// the ledger does before a block's operations, and before any
+    /// reduction. Returns the sequences it paid above the last redeemed W,
+    /// and whether it paid any it did not know the sequences of.
+    pub fn pay_due(&mut self, clock: Millis) -> Option<(Vec<u64>, bool)> {
+        if self.waiting() == 0 && self.pending_due == 0 {
+            return None;
+        }
+        if self.pending_due > clock {
+            return None;
+        }
+        let through = self.through;
+        let sequences = self
+            .pending
+            .keys()
+            .copied()
+            .filter(|sequence| *sequence > through)
+            .collect();
+        let unlisted = self.pending_unlisted > 0;
+        self.pending.clear();
+        self.pending_unlisted = 0;
+        self.pending_due = 0;
+        Some((sequences, unlisted))
+    }
+
     /// Applies a reduction due by a block stamped `timestamp`, as the
-    /// ledger does before the block's operations. Returns what went back
-    /// to the payer.
+    /// ledger does before the block's operations; not while claims wait.
+    /// Returns what went back to the payer.
     pub fn apply_due(&mut self, timestamp: Millis) -> Option<Amount> {
         let (amount, at) = self.reduction?;
-        if at > timestamp {
+        if at > timestamp || self.waiting() > 0 {
             return None;
         }
         let amount = amount.min(self.amount);
@@ -128,23 +189,83 @@ impl HoldMirror {
         self.claimed.retain(|sequence, _| *sequence > through);
     }
 
+    /// A `claim` of `fulfilled` applied in version 2 or later, which took
+    /// `taken` to wait in the hold until `due`, by the hub's clock, which
+    /// stood at `clock`.
+    pub fn claim_waiting(
+        &mut self,
+        fulfilled: &[Fulfilled],
+        taken: Amount,
+        (clock, due): (Millis, Millis),
+    ) {
+        self.claim(fulfilled, taken);
+        // One that took nothing leaves nothing to wait, as the ledger has it.
+        if taken == 0 {
+            return;
+        }
+        for (sequence, amount) in paid_in_order(fulfilled, taken) {
+            if amount > 0 {
+                self.pending.insert(sequence, amount);
+            }
+        }
+        self.pending_due = due;
+        self.pending_at = clock;
+    }
+
+    /// The payer's dispute of what claims took for `sequences`, which put
+    /// `returned` back in the hold: what waits for each above the last
+    /// redeemed W, and, for what it does not know the sequences of, from
+    /// what waits unlisted.
+    pub fn dispute(&mut self, sequences: &[u64], returned: Amount) {
+        let mut left = returned;
+        for sequence in sequences {
+            if *sequence <= self.through {
+                continue;
+            }
+            if let Some(amount) = self.pending.remove(sequence) {
+                left = left.saturating_sub(amount);
+                self.claimed.insert(*sequence, 0);
+            }
+        }
+        if left > 0 {
+            self.pending_unlisted = self.pending_unlisted.saturating_sub(left);
+            for sequence in sequences.iter().filter(|s| **s > self.through) {
+                self.claimed.insert(*sequence, 0);
+            }
+        }
+        self.amount = self.amount.saturating_add(returned);
+        if self.waiting() == 0 {
+            self.pending_due = 0;
+        }
+    }
+
     /// A `claim` of `fulfilled` applied, which paid `paid`: each commitment
     /// in sequence order, as far as what was paid covers it, as the ledger
     /// pays them as far as the hold covers them.
     pub fn claim(&mut self, fulfilled: &[Fulfilled], paid: Amount) {
-        let mut ordered: Vec<(u64, Amount)> = fulfilled
-            .iter()
-            .map(|item| (item.commitment.value.sequence, item.commitment.value.amount))
-            .collect();
-        ordered.sort_unstable();
-        let mut left = paid;
-        for (sequence, amount) in ordered {
-            let pay = amount.min(left);
-            left = left.saturating_sub(pay);
+        for (sequence, pay) in paid_in_order(fulfilled, paid) {
             self.claimed.insert(sequence, pay);
         }
         self.amount = self.amount.saturating_sub(paid);
     }
+}
+
+/// What a claim of `fulfilled` took for each of its commitments: in
+/// sequence order, each as far as `paid` covers it, as the ledger takes
+/// them as far as the hold covers them.
+fn paid_in_order(fulfilled: &[Fulfilled], paid: Amount) -> Vec<(u64, Amount)> {
+    let mut ordered: Vec<(u64, Amount)> = fulfilled
+        .iter()
+        .map(|item| (item.commitment.value.sequence, item.commitment.value.amount))
+        .collect();
+    ordered.sort_unstable();
+    let mut left = paid;
+    for (_, amount) in &mut ordered {
+        let pay = (*amount).min(left);
+        left = left.saturating_sub(pay);
+        *amount = pay;
+    }
+    ordered
 }
 
 #[cfg(test)]
@@ -206,5 +327,24 @@ mod tests {
         assert_eq!((hold.amount, hold.reduction), (70, None));
         hold.reduce(500, 2_000, 10);
         assert_eq!(hold.apply_due(2_010), Some(70), "never more than is left");
+    }
+
+    // spec/decisions/signed-rejects.md: what a claim took waits in the hold,
+    // a dispute puts it back, and the rest pays out at once when due,
+    // before any reduction.
+    #[test]
+    fn what_a_claim_took_waits_until_it_is_paid_or_disputed() {
+        let mut hold = HoldMirror::opened(AccountNumber(1), AccountNumber(2), 1_000);
+        hold.claim_waiting(&[fulfilled(3, 100), fulfilled(4, 50)], 150, (1_000, 61_000));
+        assert_eq!((hold.amount, hold.waiting(), hold.taken()), (850, 150, 150));
+        hold.dispute(&[3], 100);
+        assert_eq!((hold.amount, hold.waiting(), hold.taken()), (950, 50, 50));
+        assert_eq!(hold.claimed.get(&3), Some(&0));
+        hold.reduce(950, 2_000, 10);
+        assert_eq!(hold.apply_due(2_010), None, "claims wait");
+        assert_eq!(hold.pay_due(60_999), None);
+        assert_eq!(hold.pay_due(61_000), Some((alloc::vec![4], false)));
+        assert_eq!(hold.waiting(), 0);
+        assert_eq!(hold.apply_due(61_000), Some(950));
     }
 }

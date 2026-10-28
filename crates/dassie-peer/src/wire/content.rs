@@ -7,8 +7,8 @@ use dassie_identity::NodeId;
 use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Size, Writer, size};
 
 use super::{
-    Kind, MAX_COMMITMENT_BYTES, MAX_LINK_STATE_REQUEST_IDS, MAX_SNAPSHOT_BYTES, SchemeId,
-    SignedNodeInfo, node_id_len, read_fixed, read_node_id, write_node_id,
+    Kind, MAX_COMMITMENT_BYTES, MAX_LINK_STATE_REQUEST_IDS, MAX_RELEASE_BYTES, MAX_SNAPSHOT_BYTES,
+    SchemeId, SignedNodeInfo, node_id_len, read_fixed, read_node_id, write_node_id,
 };
 use crate::names::{
     COMMITMENT_BYTES, Commitment, Name, SALT_BYTES, Salt, name_len, read_name, write_name,
@@ -21,6 +21,9 @@ const METHOD_COMMITMENT_SIZE: Size = Size::range(0, MAX_COMMITMENT_BYTES);
 /// The size of a `snapshot`'s snapshot: never empty, and at most one of
 /// the rate feed's datagrams.
 const SNAPSHOT_SIZE: Size = Size::range(1, MAX_SNAPSHOT_BYTES);
+
+/// The size of a `hubReject`'s release: never empty, and bounded.
+const RELEASE_SIZE: Size = Size::range(1, MAX_RELEASE_BYTES);
 
 /// A peering request: the requester's signed link state and the scheme it
 /// wants to settle with. A scheme's meaning is versioned by its ID and the
@@ -156,6 +159,22 @@ pub enum Content<'a> {
     /// answer is empty, and nothing is sent again, since the next snapshot
     /// supersedes it.
     Snapshot(&'a [u8]),
+    /// `hubReject [21]`: an ILP Reject of a Prepare that came on a method
+    /// over a settlement hub, with the payee's release of the Prepare's
+    /// commitment, which keeps the payee from claiming it
+    /// (spec/decisions/signed-rejects.md). It joined version 2 once
+    /// releases spoke it: a node sends it only on a peering over a hub of
+    /// version 2 of the hub's protocol, whose members all run a release
+    /// that knows it, and one that does not answers it 400.
+    HubReject {
+        /// The request ID, scoped to the peering.
+        request_id: u32,
+        /// The ILP Reject.
+        packet: &'a [u8],
+        /// The release, opaque to this crate: the hub's scheme reads it.
+        /// Not empty, and at most [`MAX_RELEASE_BYTES`].
+        release: &'a [u8],
+    },
 }
 
 /// Why a peering is terminated. Unknown codes read as
@@ -229,6 +248,7 @@ impl Content<'_> {
             Self::MethodDrop { .. } => Kind::MethodDrop,
             Self::Subscription { .. } => Kind::Subscription,
             Self::Snapshot(_) => Kind::Snapshot,
+            Self::HubReject { .. } => Kind::HubReject,
         }
     }
 
@@ -271,6 +291,9 @@ impl Content<'_> {
             Self::MethodAdd { scheme, data } => scheme.encoded_len() + size::prefixed(data.len()),
             Self::Subscription { .. } => 1,
             Self::Snapshot(snapshot) => size::prefixed(snapshot.len()),
+            Self::HubReject {
+                packet, release, ..
+            } => 4 + size::prefixed(packet.len()) + size::prefixed(release.len()),
         }
     }
 }
@@ -290,6 +313,15 @@ impl Encode for Content<'_> {
             Self::InterledgerPacket { request_id, packet } => {
                 writer.write_u32(*request_id);
                 writer.write_octets(packet, Size::ANY);
+            }
+            Self::HubReject {
+                request_id,
+                packet,
+                release,
+            } => {
+                writer.write_u32(*request_id);
+                writer.write_octets(packet, Size::ANY);
+                writer.write_octets(release, RELEASE_SIZE);
             }
             Self::LinkStateRequest(ids) => {
                 writer.write_quantity(ids.len());
@@ -391,6 +423,11 @@ impl<'a> Decode<'a> for Content<'a> {
                 subscribe: reader.read_bool()?,
             },
             Kind::Snapshot => Self::Snapshot(reader.read_octets(SNAPSHOT_SIZE)?),
+            Kind::HubReject => Self::HubReject {
+                request_id: reader.read_u32()?,
+                packet: reader.read_octets(Size::ANY)?,
+                release: reader.read_octets(RELEASE_SIZE)?,
+            },
         })
     }
 }

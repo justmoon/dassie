@@ -33,6 +33,11 @@ impl Ledger {
         if fee > signed.max_fee || fee > account.balance {
             return Outcome::Refused(Refusal::Fee);
         }
+        // An operation the version in force does not have is no block's
+        // (`Ledger::check_block`); one put to the ledger anyway is refused.
+        if signed.operation.since_version() > self.version {
+            return Outcome::Refused(Refusal::NotAllowed);
+        }
         // A frozen hub takes only claims within the freeze's window; the
         // rest waits for the thaw, paying nothing and using no sequence
         // (spec/decisions/token-hubs.md).
@@ -64,6 +69,7 @@ impl Ledger {
             operation,
             MemberOperation::Redeem(_)
                 | MemberOperation::Claim { .. }
+                | MemberOperation::Dispute { .. }
                 | MemberOperation::SetDisbursal(_)
         );
         if self.phase != Phase::Running && !allowed_now {
@@ -81,6 +87,7 @@ impl Ledger {
             MemberOperation::Claim { hold, fulfilled } => self.claim(from, *hold, fulfilled),
             MemberOperation::Withdraw { amount, to } => self.withdraw(from, *amount, *to),
             MemberOperation::Close(to) => self.close(from, *to),
+            MemberOperation::Dispute { hold, releases } => self.dispute(from, *hold, releases),
         }
     }
 
@@ -294,6 +301,8 @@ impl Ledger {
                 total: 0,
                 through: 0,
                 claimed: alloc::collections::BTreeMap::new(),
+                pending: alloc::collections::BTreeMap::new(),
+                pending_due: 0,
             },
         );
         self.hold_index.insert((from, number));
@@ -316,6 +325,11 @@ impl Ledger {
         let found = self.holds.get(&hold).ok_or(Failure::Missing)?;
         if found.payee != from {
             return Err(Failure::NotYours);
+        }
+        // What its claims took waits for their payout, or for the payer's
+        // dispute, in the hold (spec/decisions/signed-rejects.md).
+        if !found.pending.is_empty() {
+            return Err(Failure::Busy);
         }
         self.close_hold(hold);
         Ok(Detail::None)

@@ -512,6 +512,9 @@ fn hub_status(status: &crate::hub::HubStatus) -> proto::HubValidator {
         stalled: status.stalled,
         escrow_checked: status.escrow_checked,
         xrpl_connected: status.xrpl_connected,
+        protocol_version: u32::from(status.version),
+        upgrade_version: status.upgrade.map_or(0, |(version, _)| u32::from(version)),
+        upgrade_unix_ms: status.upgrade.map_or(0, |(_, at)| convert::time(at)),
     }
 }
 

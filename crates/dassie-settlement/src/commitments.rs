@@ -2,7 +2,9 @@
 //! settlement hub's do (spec/designs/settlement-hubs.md#4-peering-over-a-hub):
 //! the payer signs a commitment with each Prepare and a claim with its
 //! reply to each Fulfill, and the payee can take what it is owed with
-//! either, without the payer's help.
+//! either, without the payer's help. Where the hub takes them, the payee
+//! signs a release of the commitment with each Reject, with which the payer
+//! disputes a claim of it (spec/decisions/signed-rejects.md).
 //!
 //! The node reaches this side of a scheme through
 //! [`SettlementScheme::commitments`](crate::SettlementScheme::commitments).
@@ -131,8 +133,39 @@ pub trait Commitments {
     fn on_fulfilled(&mut self, now_ms: u64, peer: Name, request_id: u32, fulfillment: [u8; 32]);
 
     /// As the payee: `peer`'s Prepare `request_id` was rejected or expired:
-    /// its commitment is forgotten.
-    fn on_released(&mut self, peer: Name, request_id: u32);
+    /// its commitment is forgotten. Where the hub takes releases, `release`
+    /// gets our signed release of the commitment, which the node sends with
+    /// the Reject; it is left empty otherwise.
+    fn on_released(&mut self, peer: Name, request_id: u32, release: &mut Vec<u8>);
+
+    /// As the payee: we refused `peer`'s Prepare with `commitment` without
+    /// taking it. Where the hub takes releases, `release` gets our signed
+    /// release of the commitment, if the payer signed it for its hold
+    /// toward us, for the node to send with the Reject; it is left empty
+    /// otherwise. Nothing, by default.
+    fn release_refused(
+        &mut self,
+        now_ms: u64,
+        peer: Name,
+        commitment: &[u8],
+        release: &mut Vec<u8>,
+    ) {
+        let _ = (now_ms, peer, commitment);
+        release.clear();
+    }
+
+    /// As the payer: `peer` rejected our Prepare `request_id`, with
+    /// `release`, empty if it sent none. Whether the Reject stands: not
+    /// where the hub takes releases and `release` is not the peer's release
+    /// of the packet's commitment, since the peer could still claim it. The
+    /// node then takes no Reject for it, and it waits for the hub as one
+    /// that expired. One that stands answers the packet, as
+    /// [`on_answered`](Self::on_answered) does. It stands, by default.
+    fn on_rejected(&mut self, peer: Name, request_id: u32, release: &[u8]) -> bool {
+        let _ = release;
+        self.on_answered(peer, request_id);
+        true
+    }
 
     /// As the payer: the claim to send in the reply to `peer`'s Fulfill of
     /// our Prepare `request_id`, written to `out`.

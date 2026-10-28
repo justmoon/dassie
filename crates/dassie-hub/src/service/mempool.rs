@@ -184,7 +184,11 @@ impl Mempool {
             MemberOperation::Claim { fulfilled, .. } => fulfilled.len() <= commitments,
             _ => true,
         };
-        signed.sequence >= current
+        // An operation the hub's version does not have is no block's: a
+        // validator of an older release could not read it
+        // (spec/decisions/hub-protocol-version.md).
+        signed.operation.since_version() <= ledger.version()
+            && signed.sequence >= current
             && signed.sequence < current.saturating_add(SEQUENCE_WINDOW)
             && signed.max_fee >= ledger.terms().fees.operation
             && !account.closing

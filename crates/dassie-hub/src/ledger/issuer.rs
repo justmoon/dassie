@@ -161,6 +161,12 @@ impl Ledger {
             if let Some(reduction) = hold.reduction.as_mut() {
                 reduction.at = reduction.at.saturating_add(length);
             }
+            if !hold.pending.is_empty() {
+                hold.pending_due = hold.pending_due.saturating_add(length);
+            }
+        }
+        if let Some(upgrade) = self.pending_upgrade.as_mut() {
+            upgrade.at = upgrade.at.saturating_add(length);
         }
         if let Some(pending) = self.pending_rules.as_mut()
             && pending.from_height.is_none()

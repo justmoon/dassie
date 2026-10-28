@@ -146,7 +146,8 @@ fn max_news(terms: &Terms) -> usize {
 /// A tally of statements in which each validator's signatures on statements
 /// still waiting fit a buffer's worth and a message more: an honest answer
 /// is never refused. The message more also holds what ends each of the two
-/// answers a buffer holds, the issuer's hold and the final block.
+/// answers a buffer holds, the issuer's hold, the version and the final
+/// block.
 fn agreement(hub: HubId, set: &ValidatorSet, terms: &Terms) -> Agreement {
     let quota = max_buffered(terms).saturating_add(MAX_STATEMENTS);
     Agreement::new(hub, set.clone(), quota.saturating_mul(set.len()))
@@ -216,6 +217,9 @@ pub enum Purpose {
     Disbursal,
     /// The owner's withdrawal to the underlying ledger.
     Withdraw,
+    /// A `dispute` of claims on our hold toward a peer, with its releases
+    /// (spec/decisions/signed-rejects.md).
+    Dispute(HoldNumber),
 }
 
 /// What the account learnt for its scheme, in the order it did.
@@ -253,6 +257,18 @@ pub enum News {
         hold: HoldNumber,
         /// What went back.
         amount: Amount,
+    },
+    /// What claims took and waited in a hold was paid to its payee
+    /// (spec/decisions/signed-rejects.md): `sequences` above the last
+    /// redeemed W, and whether it paid any whose sequences the account
+    /// does not know, having read the hold anew.
+    ClaimsPaid {
+        /// The hold.
+        hold: HoldNumber,
+        /// The sequences paid above the last redeemed W.
+        sequences: Vec<u64>,
+        /// Whether it paid what waited unlisted.
+        unlisted: bool,
     },
     /// A final block, up to which every operation touching the account was
     /// told.
@@ -401,6 +417,10 @@ pub struct HubAccount {
     /// The issuer's hold on a token hub's escrow, as last agreed; kept
     /// with the books, so a restart during a freeze knows it.
     pub(super) issuer: Option<IssuerState>,
+    /// The version of the hub's protocol the hub runs, as f + 1 validators
+    /// last said, and the height they said it as of; the rules' until any
+    /// did (spec/decisions/hub-protocol-version.md). Kept with the books.
+    pub(super) version: (u16, u64),
     /// The last freeze the account learnt ended: its stamp, and the stamp
     /// of the block the account learnt the thaw at, no earlier than the
     /// thaw's. A reduction applied before it and read only after the thaw
@@ -485,6 +505,7 @@ impl HubAccount {
         rules.check().map_err(|_| SchemeError::InvalidConfig)?;
         let set = rules.validator_set().ok_or(SchemeError::InvalidConfig)?;
         let hub = rules.id();
+        let founded = rules.terms.version;
         let endpoints = rules
             .validators
             .iter()
@@ -512,6 +533,7 @@ impl HubAccount {
             stale_sequence: None,
             disbursal_set: false,
             issuer: None,
+            version: (founded, 0),
             thawed: None,
             view: None,
             waiting_view: None,
@@ -572,6 +594,20 @@ impl HubAccount {
     #[must_use]
     pub const fn rules(&self) -> &Rules {
         &self.rules
+    }
+
+    /// The version of the hub's protocol the hub runs, as f + 1 validators
+    /// last said: the rules' until any did.
+    #[must_use]
+    pub const fn version(&self) -> u16 {
+        self.version.0
+    }
+
+    /// Whether the hub takes a payee's release of a commitment, and its
+    /// claims wait for the hold's notice (spec/decisions/signed-rejects.md).
+    #[must_use]
+    pub const fn takes_releases(&self) -> bool {
+        self.version.0 >= crate::rules::RELEASES_VERSION
     }
 
     /// The account's key.
@@ -1335,7 +1371,25 @@ impl HubAccount {
                 }
             }
             issuer @ Statement::Issuer { .. } => self.issuer_agreed(&issuer),
+            Statement::Protocol {
+                height, version, ..
+            } => self.protocol_agreed(height, version),
             _ => {}
+        }
+    }
+
+    /// A version of the hub's protocol f + 1 validators agree the hub runs
+    /// after the block at `height`: one of them is honest. Only the newest
+    /// counts, and a hub only ever moves to a newer one. One this release
+    /// does not run ends the account: it could no longer read the hub
+    /// (spec/decisions/hub-protocol-version.md).
+    fn protocol_agreed(&mut self, height: u64, version: u16) {
+        if height <= self.version.1 || version < self.version.0 {
+            return;
+        }
+        self.version = (version, height);
+        if !crate::rules::runs(version) {
+            self.failed = Some("the hub runs a version of its protocol this release does not");
         }
     }
 
@@ -1399,6 +1453,9 @@ impl HubAccount {
                 && *at > since
             {
                 *at = at.saturating_add(length);
+            }
+            if mirror.pending_at <= since && mirror.pending_due > since {
+                mirror.pending_due = mirror.pending_due.saturating_add(length);
             }
         }
     }
@@ -1496,6 +1553,7 @@ impl HubAccount {
             | MemberOperation::HoldRelease { hold }
             | MemberOperation::Claim { hold, .. } => self.holds.contains_key(hold),
             MemberOperation::Redeem(claim) => self.holds.contains_key(&claim.value.hold),
+            MemberOperation::Dispute { hold, .. } => self.holds.contains_key(hold),
             _ => false,
         }
     }
@@ -1557,6 +1615,19 @@ impl HubAccount {
             .map_or(timestamp, |since| timestamp.min(since));
         let numbers: Vec<HoldNumber> = self.holds.keys().copied().collect();
         for hold in numbers {
+            let Some(mirror) = self.holds.get_mut(&hold) else {
+                continue;
+            };
+            // What claims took is paid before any reduction, as the
+            // ledger pays it (spec/decisions/signed-rejects.md).
+            if let Some((sequences, unlisted)) = mirror.pay_due(timestamp) {
+                self.last_touch = self.last_touch.max(height);
+                self.push_news(News::ClaimsPaid {
+                    hold,
+                    sequences,
+                    unlisted,
+                });
+            }
             let Some(mirror) = self.holds.get_mut(&hold) else {
                 continue;
             };
@@ -1714,8 +1785,31 @@ impl HubAccount {
                 }
             }
             MemberOperation::Claim { hold, fulfilled } => {
+                // From version 2 on what it took waits, by the hub's clock,
+                // which stands at the freeze's stamp while frozen.
+                let clock = self
+                    .frozen()
+                    .map_or(timestamp, |since| timestamp.min(since));
                 if let Some(mirror) = self.holds.get_mut(hold) {
-                    mirror.claim(fulfilled, paid);
+                    match detail {
+                        Detail::Pending(taken) => mirror.claim_waiting(
+                            fulfilled,
+                            taken,
+                            (clock, clock.saturating_add(notice)),
+                        ),
+                        _ => mirror.claim(fulfilled, paid),
+                    }
+                }
+            }
+            MemberOperation::Dispute { hold, releases } => {
+                if let (Some(mirror), Detail::Returned(returned)) =
+                    (self.holds.get_mut(hold), detail)
+                {
+                    let sequences: Vec<u64> = releases
+                        .iter()
+                        .map(|release| release.value.sequence)
+                        .collect();
+                    mirror.dispute(&sequences, returned);
                 }
             }
             _ => {}
@@ -1837,6 +1931,12 @@ impl HubAccount {
                 mirror
                     .claimed
                     .retain(|sequence, _| *sequence > hold.through);
+                // What waits as it waited before keeps its sequences.
+                if (old.waiting(), old.pending_due) == hold.pending {
+                    mirror.pending = old.pending.clone();
+                    mirror.pending_unlisted = old.pending_unlisted;
+                    mirror.pending_at = old.pending_at;
+                }
             }
             self.take_hold(number, mirror);
         }
