@@ -81,6 +81,17 @@ pub const fn redeem_threshold(max_packet: u64) -> u64 {
     max_packet.saturating_mul(2)
 }
 
+/// The least a node holds toward a peer over a settlement hub when its hub
+/// cannot give every peer the default credit: what the peer may have in
+/// flight, `max_in_flight`, and what it lets claims add before it redeems
+/// them ([`redeem_threshold`]). So the hold carries a link filled to the
+/// cap on money in flight while the payee waits to redeem
+/// (spec/decisions/hold-allotment.md).
+#[must_use]
+pub const fn least_hold(max_packet: u64, max_in_flight: u64) -> u64 {
+    max_in_flight.saturating_add(redeem_threshold(max_packet))
+}
+
 /// What a node keeps in its settlement hub unless its owner sets another
 /// target for it: a thousand of the largest packets, more than its holds
 /// toward its peers are likely ever to need, so that the owner's funds stay
@@ -131,7 +142,9 @@ pub const fn hub_limits(target: u64) -> (u64, u64) {
 /// toward the peer. A payer over a hub settles as if it extended the
 /// default `credit`, with its hold counted as paid in advance, so a request
 /// takes at most what [`requested_amount`] gives at that credit, and never
-/// less than the least settlement. At most half a [`hub_step`] of the hub's
+/// less than the least settlement. A peer's allotment of the hub's funds
+/// only lowers what a request takes (spec/decisions/hold-allotment.md), so
+/// this stays the most requests may ask. At most half a [`hub_step`] of the hub's
 /// `target`, the default [`hub_target`] or the owner's, so that a
 /// withdrawal down to it still carries many packets' worth. At a target
 /// the owner set below ninety-five packets, half a step is less than one
@@ -229,6 +242,15 @@ mod tests {
         // Two triggers, twice the minimum, and a crash's drift at the cap
         // of two and a half packets in flight: 7.5 packets.
         assert_eq!(least_credit(P, 250_000_000), 750_000_000);
+        // What may be in flight and what claims add before a redeem: 4.5
+        // packets. Below the least credit by a trigger and more whatever
+        // the largest packet and the drift, so the default credit always
+        // covers it (spec/decisions/hold-allotment.md).
+        assert_eq!(least_hold(P, 250_000_000), 450_000_000);
+        for (max_packet, drift) in [(1, 0), (P, 0), (P, 250_000_000), (7, 1_000)] {
+            let gap = least_credit(max_packet, drift) - least_hold(max_packet, drift);
+            assert!(gap >= trigger(max_packet));
+        }
     }
 
     // The least credit a node starts with keeps a hub link settling after

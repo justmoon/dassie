@@ -140,6 +140,11 @@ pub struct HubHold {
     pub account: u32,
     /// What is left in it, in internal units.
     pub amount: u64,
+    /// For a hold of ours toward a peer the node peers with over the hub,
+    /// the most a request to settle raises it to: the peer's allotment of
+    /// what the node can hold, the default credit while that covers every
+    /// peer (spec/decisions/hold-allotment.md).
+    pub allotment: Option<u64>,
 }
 
 /// The node's account in one hub and its funding, as the owner sees them.
@@ -637,7 +642,7 @@ impl Core {
     /// extends them over the hub, paid in advance. Its peers' holds toward
     /// it count nowhere: they are the peers' until it takes them, and what
     /// it takes joins the balance (spec/decisions/generous-hub-target.md).
-    fn held(account: &HubAccount) -> Option<Held> {
+    pub(super) fn held(account: &HubAccount) -> Option<Held> {
         let hold_reserve = account.terms().fees.hold_reserve;
         account
             .view()
@@ -662,6 +667,7 @@ impl Core {
                         .saturating_add(view.reserve)
                         .saturating_add(hold_reserves)
                         .saturating_add(ours),
+                    ours,
                     deposited: view.deposited,
                     withdrawn: view.withdrawn,
                 }
@@ -1441,11 +1447,23 @@ impl Core {
                 .map(|(node, _)| *node),
             account: other.0,
             amount: units(amount),
+            allotment: None,
         };
+        let allotments = dassie_peer::wire::SchemeId::parse(scheme.as_str())
+            .and_then(|method| self.hub_allotments(method));
         let (mut paying, mut taking) = (Vec::new(), Vec::new());
         for (_, mirror) in account.holds() {
             if Some(mirror.payer) == number {
-                paying.push(hold(mirror.payee, mirror.amount));
+                let mut ours = hold(mirror.payee, mirror.amount);
+                ours.allotment = ours.peer.and_then(|node| {
+                    allotments
+                        .as_ref()?
+                        .peers
+                        .iter()
+                        .find(|(peer, _)| *peer == node)
+                        .map(|(_, allotment)| *allotment)
+                });
+                paying.push(ours);
             } else {
                 taking.push(hold(mirror.payer, mirror.amount));
             }
@@ -1874,6 +1892,7 @@ mod tests {
             held: Some(Held {
                 balance,
                 kept: balance,
+                ours: 0,
                 deposited: 7,
                 withdrawn: 3,
             }),

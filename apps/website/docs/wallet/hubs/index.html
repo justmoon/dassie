@@ -147,7 +147,11 @@
             </tr>
             <tr>
               <td>You hold for your peers; Your peers hold for you</td>
-              <td>The holds, peer by peer, with their total.</td>
+              <td>
+                The holds, peer by peer, with their total. Beside each of
+                your holds, Up to: the most a request to settle tops it up
+                to, that peer's share of what you have in the hub.
+              </td>
             </tr>
           </tbody>
         </table>
@@ -165,6 +169,18 @@
         for you works the same way round: it is what that peer can spend
         through your node, and your node is paid from it. Holds start at
         nothing, and grow when a peer asks to be settled with.
+      </p>
+      <p>
+        <strong>Up to</strong> is each peer's allotment, its share of what
+        you have in the hub, your balance and your holds. While that covers
+        every peer in full, every peer can count on the full amount. When it
+        does not, every peer can count on enough to carry a full load of
+        payments, core peers before the peers that use your node as their
+        way in, and the rest goes to those that earned you the most fees. A
+        busy peer may still get more, up to the full amount, from what the
+        others leave unused, but never what another peer needs for a full
+        load. A hold above its share stays, and shrinks as the peer takes
+        from it.
       </p>
       <p>
         Your node keeps a generous amount in the hub, its target: a thousand

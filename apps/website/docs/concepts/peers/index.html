@@ -84,6 +84,15 @@
           it as soon as the account can, without being asked again.
         </li>
         <li>
+          <strong>Short of funds, core peers come first.</strong> When your
+          hub account cannot give every peer a full hold, each gets a share:
+          enough for a full load of packets in flight first, core peers
+          before the peers that use your node as their way in, and the rest
+          by the fees each earned you. A request tops a hold up to its share,
+          and requests that waited for funds are answered in the same order.
+          <a href="/docs/concepts/hubs/#holds">Settlement hubs</a> says more.
+        </li>
+        <li>
           <strong>Nothing about credit is announced.</strong> No message
           tells a peer how much your node will let it owe. More credit only
           means your node asks later.

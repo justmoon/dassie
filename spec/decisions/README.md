@@ -31,6 +31,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [generous-hub-target](generous-hub-target.md) | A node keeps a generous target in its hub, counting what it put in | hubs, settlement, payments |
 | [granite-rocks](granite-rocks.md) | Kopje's rocks are granite: gray blocks with hard edges, stacked, bigger than the dassies, and the brand page says why | website |
 | [headless-setup](headless-setup.md) | An owner who keeps the passphrase on the node's host sets the node up with `dassie setup`, through the node's own setup route | node, http, identity, overview |
+| [hold-allotment](hold-allotment.md) | A node shares what it can hold in a hub among its peers, core peers first and by what they earned it | settlement, hubs, network |
 | [hub-founding](hub-founding.md) | The sponsor founds a hub over a stream of its own, and a quorum's signatures of the genesis found it | hubs, peer-protocol, designs/settlement-hubs |
 | [hub-keys-by-network](hub-keys-by-network.md) | A hub's keys name its network, and a validator validates on its owner's network | hubs, identity, node |
 | [hub-move-races](hub-move-races.md) | A withdrawal is sized as the hub scheme pays it, and a failed move backs off only its own way | hubs |

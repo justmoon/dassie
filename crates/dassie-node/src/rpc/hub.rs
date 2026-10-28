@@ -142,6 +142,7 @@ fn hold(hold: &HubHold) -> proto::HubHold {
         peer: hold.peer.map(|node| node.to_string()).unwrap_or_default(),
         account: hold.account,
         amount: hold.amount,
+        allotment: hold.allotment,
     }
 }
 

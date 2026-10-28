@@ -21,6 +21,7 @@ import {
   GAS_RETRY_MS,
   givenUpText,
   holdRows,
+  holdsAllotted,
   holdsTotal,
   hubConnectionText,
   hubCurrency,
@@ -189,11 +190,32 @@ test("holds are listed as the node reports them", () => {
     create(HubHoldSchema, { account: 9, amount: 3n }),
   ];
   assertEquals(holdRows(holds), [
-    { peer: "dA", account: 7, amount: 5n },
-    { peer: undefined, account: 9, amount: 3n },
+    { peer: "dA", account: 7, amount: 5n, allotment: undefined },
+    { peer: undefined, account: 9, amount: 3n, allotment: undefined },
   ]);
   assertEquals(holdsTotal(holds), 8n);
   assertEquals(holdsTotal([]), 0n);
+  assertEquals(holdsAllotted(holds), false);
+});
+
+// spec/decisions/hold-allotment.md: a hold of ours toward a peer says the
+// most a request raises it to; one toward an account the node does not
+// peer with says nothing.
+test("holds of ours say how far a request raises them", () => {
+  const holds = [
+    create(HubHoldSchema, {
+      peer: "dA",
+      account: 7,
+      amount: 5n,
+      allotment: 45n,
+    }),
+    create(HubHoldSchema, { account: 9, amount: 3n }),
+  ];
+  assertEquals(holdRows(holds), [
+    { peer: "dA", account: 7, amount: 5n, allotment: 45n },
+    { peer: undefined, account: 9, amount: 3n, allotment: undefined },
+  ]);
+  assertEquals(holdsAllotted(holds), true);
 });
 
 test("the payout: nothing while the hub runs, then signing, then ready", () => {

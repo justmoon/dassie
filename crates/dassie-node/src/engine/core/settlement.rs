@@ -151,9 +151,22 @@ enum Answer {
     /// With a settlement already on its way on the method, which is the
     /// answer: a request that was short stays so.
     OnItsWay,
+    /// Over a hub whose funds are short, with less than the rule asks, or
+    /// nothing, as the peer's allotment caps the hold toward it: funded as
+    /// soon as the hold has room under it again, as the payee takes from
+    /// it (spec/decisions/hold-allotment.md).
+    Allotted,
     /// Never on this method: we settle nothing on it, or the peering has
     /// no such method.
     Never,
+}
+
+impl Answer {
+    /// A request funded as far as the rule goes: in full, or as far as the
+    /// peer's allotment lets it, if that cut it short.
+    const fn funded(allotted: bool) -> Self {
+        if allotted { Self::Allotted } else { Self::Full }
+    }
 }
 
 /// One of our settlements, prepared and not yet final.
@@ -613,11 +626,14 @@ impl Core {
     /// way, which is the whole answer, or the one made now.
     pub(super) fn settlement_requested(&mut self, node: NodeId, scheme: SchemeId) -> u64 {
         let key = (node, scheme);
-        match self.fund_request(node, scheme) {
+        let allotment = self
+            .hub_allotments(scheme)
+            .and_then(|allotments| allotments.of(&node));
+        match self.fund_request(node, scheme, allotment) {
             Answer::Full | Answer::Never => {
                 self.settle.unanswered.remove(&key);
             }
-            Answer::Short => {
+            Answer::Short | Answer::Allotted => {
                 let asked = Unanswered {
                     asked_ms: self.now_ms,
                     tried: None,
@@ -640,18 +656,37 @@ impl Core {
     /// request is forgotten once that interval passed, the peering or the
     /// method is no longer one we settle on, or it is funded in full. At
     /// most one per method of a peering, so bounded as the peerings are.
+    ///
+    /// Each method's requests are funded in the order of priority, core
+    /// peers by what they earned us and then downlinks, so that while the
+    /// scheme can spend too little for all, the peers that carry the most
+    /// are funded first; and over a hub up to each one's allotment, which
+    /// is worked out once for each hub here (spec/decisions/hold-allotment.md).
     pub(super) fn answer_late(&mut self) {
         if self.settle.unanswered.is_empty() {
             return;
         }
         let now = self.now_ms;
         let every = self.settle.request_every_ms;
-        let kept: Vec<((NodeId, SchemeId), Unanswered)> = self
+        let mut allotments = BTreeMap::new();
+        for (_, scheme) in self.settle.unanswered.keys() {
+            if !allotments.contains_key(scheme) {
+                allotments.insert(*scheme, self.hub_allotments(*scheme));
+            }
+        }
+        let mut kept: Vec<((NodeId, SchemeId), Unanswered)> = self
             .settle
             .unanswered
             .iter()
             .map(|(key, unanswered)| (*key, *unanswered))
             .collect();
+        let rank = |(node, scheme): &(NodeId, SchemeId)| {
+            allotments
+                .get(scheme)
+                .and_then(Option::as_ref)
+                .map_or(0, |of: &super::hub_allotment::Allotments| of.rank(node))
+        };
+        kept.sort_by_key(|(key, _)| (key.1, rank(key), key.0));
         for ((node, scheme), unanswered) in kept {
             let key = (node, scheme);
             if unanswered.asked_ms.saturating_add(every) <= now || !self.answers_on(node, scheme) {
@@ -669,7 +704,11 @@ impl Core {
             if spendable < self.settle.minimum || unanswered.tried == Some(spendable) {
                 continue;
             }
-            match self.fund_request(node, scheme) {
+            let allotment = allotments
+                .get(&scheme)
+                .and_then(Option::as_ref)
+                .and_then(|allotments| allotments.of(&node));
+            match self.fund_request(node, scheme, allotment) {
                 Answer::Full | Answer::Never => {
                     self.settle.unanswered.remove(&key);
                 }
@@ -681,6 +720,14 @@ impl Core {
                     let tried = (!funded).then_some(spendable);
                     if let Some(unanswered) = self.settle.unanswered.get_mut(&key) {
                         unanswered.tried = tried;
+                    }
+                }
+                // Capped by its allotment, it is tried again at the next
+                // step: what frees room under the cap, the payee taking
+                // from the hold, changes nothing the scheme can spend.
+                Answer::Allotted => {
+                    if let Some(unanswered) = self.settle.unanswered.get_mut(&key) {
+                        unanswered.tried = None;
                     }
                 }
                 Answer::OnItsWay => {}
@@ -718,8 +765,10 @@ impl Core {
     /// settlement on the method is on its way already. A request the
     /// scheme cannot fund with the least settlement funds nothing, rather
     /// than make the hub's fee for a few drops: the rest follows once it
-    /// can (spec/decisions/settle-when-funds-arrive.md).
-    fn fund_request(&mut self, node: NodeId, scheme: SchemeId) -> Answer {
+    /// can (spec/decisions/settle-when-funds-arrive.md). Over a hub whose
+    /// funds are short, the hold toward the peer goes no higher than its
+    /// `allotment` (spec/decisions/hold-allotment.md).
+    fn fund_request(&mut self, node: NodeId, scheme: SchemeId, allotment: Option<u64>) -> Answer {
         // With unlimited trust, nothing is ever settled, nor on its way.
         if self.settle.never_settles || self.unlimited(scheme) {
             return Answer::Never;
@@ -745,18 +794,22 @@ impl Core {
         if matches!(joining, Some(super::hubs::Joining::PaidIn(_))) {
             return Answer::Never;
         }
-        let Some((mut at, mut over_hub, mut amount)) = self.requested(node, scheme) else {
-            return Answer::Never;
-        };
         let paying = match joining {
             Some(super::hubs::Joining::Paying(minimum)) => Some(minimum),
             _ => None,
+        };
+        // Paying a peer in pays what we owe it, which no hold caps.
+        let allotment = allotment.filter(|_| paying.is_none());
+        let Some((mut at, mut over_hub, mut amount, mut allotted)) =
+            self.requested(node, scheme, allotment)
+        else {
+            return Answer::Never;
         };
         if let Some(minimum) = paying {
             amount = self.pay_in_amount(&at, minimum);
         }
         if amount == 0 {
-            return Answer::Full;
+            return Answer::funded(allotted);
         }
         if !self.can_settle(&node, scheme) {
             return Answer::Short;
@@ -778,22 +831,22 @@ impl Core {
             if !self.open_downlink_accounts(node, at.scheme) {
                 return Answer::Never;
             }
-            let Some(opened) = self.requested(node, scheme) else {
+            let Some(opened) = self.requested(node, scheme, allotment) else {
                 return Answer::Never;
             };
-            (at, over_hub, amount) = opened;
+            (at, over_hub, amount, allotted) = opened;
             if let Some(minimum) = paying {
                 amount = self.pay_in_amount(&at, minimum);
             }
             if amount == 0 {
-                return Answer::Full;
+                return Answer::funded(allotted);
             }
         }
         self.prepare_settlement(node, &at, amount, &state, over_hub);
         if self.settling_to(&node, scheme) < amount {
             Answer::Short
         } else {
-            Answer::Full
+            Answer::funded(allotted)
         }
     }
 
@@ -811,9 +864,19 @@ impl Core {
         }
     }
 
-    /// Where we stand with `node` on `scheme`, whether it is over a hub, and
-    /// what we would settle to it now when asked.
-    fn requested(&self, node: NodeId, scheme: SchemeId) -> Option<(Position, bool, u64)> {
+    /// Where we stand with `node` on `scheme`, whether it is over a hub,
+    /// what we would settle to it now when asked, and whether its
+    /// `allotment` made that less than the rule asks. Over a hub, a request
+    /// raises the hold toward the peer, the credit we extend it, at most
+    /// to the allotment, and by nothing less than the least settlement; a
+    /// hold above it stays, and shrinks as the peer takes from it
+    /// (spec/decisions/hold-allotment.md).
+    fn requested(
+        &self,
+        node: NodeId,
+        scheme: SchemeId,
+        allotment: Option<u64>,
+    ) -> Option<(Position, bool, u64, bool)> {
         let at = self.position(node, scheme)?;
         let over_hub = self
             .schemes
@@ -824,11 +887,19 @@ impl Core {
         } else {
             at.position
         };
-        let amount = self.whole_units(
-            &at.scheme,
-            policy::requested_amount(position, self.settle.trigger, self.settle.minimum),
-        );
-        Some((at, over_hub, amount))
+        let asked = policy::requested_amount(position, self.settle.trigger, self.settle.minimum);
+        let room = allotment
+            .filter(|_| over_hub)
+            .map(|allotment| allotment.saturating_sub(at.credit_out));
+        let (capped, allotted) = match room {
+            Some(room) if room < asked => {
+                let room = if room < self.settle.minimum { 0 } else { room };
+                (room, true)
+            }
+            _ => (asked, false),
+        };
+        let amount = self.whole_units(&at.scheme, capped);
+        Some((at, over_hub, amount, allotted))
     }
 
     /// What we pay a peer into its hub with, standing at `at` with it: what

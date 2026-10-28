@@ -61,6 +61,7 @@ import {
   GAS_CHECK_TEXT,
   givenUpText,
   holdRows,
+  holdsAllotted,
   holdsTotal,
   HUB_POLL_MS,
   hubCurrency,
@@ -337,7 +338,11 @@ function HubAccount(
   );
 }
 
-/** Holds toward peers, or from them: each peer's, and their total. */
+/**
+ * Holds toward peers, or from them: each peer's, and their total. Ours
+ * toward peers say how far a request to settle raises each, the peer's
+ * share of what the node can hold in the hub.
+ */
 function Holds(props: {
   title: string;
   empty: string;
@@ -358,6 +363,9 @@ function Holds(props: {
               <tr>
                 <th scope="col">Peer</th>
                 <th scope="col">Held</th>
+                <Show when={holdsAllotted(props.holds)}>
+                  <th scope="col">Up to</th>
+                </Show>
               </tr>
             </thead>
             <tbody>
@@ -381,6 +389,17 @@ function Holds(props: {
                     <td>
                       <Amount value={hold.amount} currency={props.currency} />
                     </td>
+                    <Show when={holdsAllotted(props.holds)}>
+                      <td>
+                        <Show when={hold.allotment !== undefined}>
+                          <Amount
+                            value={hold.allotment ?? 0n}
+                            currency={props.currency}
+                            testid={`${props.testid}-${hold.account}-allotment`}
+                          />
+                        </Show>
+                      </td>
+                    </Show>
                   </tr>
                 )}
               </For>
@@ -395,6 +414,9 @@ function Holds(props: {
                     testid={`${props.testid}-total`}
                   />
                 </td>
+                <Show when={holdsAllotted(props.holds)}>
+                  <td />
+                </Show>
               </tr>
             </tfoot>
           </table>
