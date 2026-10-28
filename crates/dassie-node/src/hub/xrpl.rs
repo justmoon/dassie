@@ -25,7 +25,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
 use super::driver::hex;
-use super::escrow::{Out, Watcher};
+use super::escrow::{Kept, Out, Unrestored, Watcher};
 use super::service::EscrowLinks;
 use crate::clock::{Clock, clock_moved};
 use crate::log::target;
@@ -58,7 +58,7 @@ type Fetched = (String, Option<Vec<u8>>);
 
 /// Follows one hub's escrow until shutdown.
 pub struct Follow {
-    /// Where the cursor is kept.
+    /// Where the cursor is kept, with the watcher's verifier's state.
     pub store: Arc<Store>,
     /// The hub.
     pub hub: HubId,
@@ -96,6 +96,7 @@ impl Follow {
             self.unl.clone(),
             Box::new(Secp256k1Signatures),
         );
+        self.restore(&mut watcher);
         let (fetches, mut fetched) = mpsc::channel(MAX_FETCHED);
         let mut backoff = BACKOFF_MIN;
         loop {
@@ -123,6 +124,32 @@ impl Follow {
                 return;
             }
             backoff = (backoff * 2).min(BACKOFF_MAX);
+        }
+    }
+
+    /// Gives the watcher back what it kept of its verifier before a
+    /// restart, if it kept anything; what does not restore is dropped, and
+    /// the verifier starts afresh.
+    fn restore(&self, watcher: &mut Watcher) {
+        let hub = hex(self.hub.0.as_bytes());
+        let kept = match self.store.hub_verifier(self.hub.0.as_bytes()) {
+            Ok(Some(kept)) => kept,
+            Ok(None) => return,
+            Err(error) => {
+                tracing::warn!(target: target::HUB, %hub, %error, "cannot read the XRPL verifier's kept lists and anchor; fetching and anchoring anew");
+                return;
+            }
+        };
+        match watcher.restore(&kept, Box::new(Secp256k1Signatures), self.clock.now_ms()) {
+            Ok(()) => {
+                tracing::info!(target: target::HUB, %hub, "the XRPL verifier's lists and anchor are taken back from before the restart");
+            }
+            Err(Unrestored::Network(network)) => {
+                tracing::warn!(target: target::HUB, %hub, network, "the XRPL verifier's kept lists and anchor are of another network; fetching and anchoring anew");
+            }
+            Err(Unrestored::Unread) => {
+                tracing::warn!(target: target::HUB, %hub, "the XRPL verifier's kept lists and anchor do not read; fetching and anchoring anew");
+            }
         }
     }
 
@@ -262,7 +289,15 @@ impl Follow {
                     self.hand_over(watcher);
                 }
                 Out::Cursor(cursor) => {
-                    if let Err(error) = self.store.set_hub_escrow(self.hub.0.as_bytes(), &cursor) {
+                    let hub = self.hub.0.as_bytes();
+                    let written = match watcher.take_kept() {
+                        None => self.store.set_hub_escrow(hub, &cursor),
+                        Some(Kept::State(state)) => {
+                            self.store.keep_hub_escrow(hub, &cursor, Some(&state))
+                        }
+                        Some(Kept::Dropped) => self.store.keep_hub_escrow(hub, &cursor, None),
+                    };
+                    if let Err(error) = written {
                         tracing::warn!(target: target::HUB, %error, "cannot record how far the escrow was followed");
                     }
                 }

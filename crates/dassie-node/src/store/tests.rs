@@ -852,6 +852,47 @@ fn a_channel_stored_with_the_mark_of_an_end_for_room_loads_without_it() {
     assert_eq!(indexes, 0);
 }
 
+// spec/areas/node.md#database, spec/areas/hubs.md#the-validator-in-the-node:
+// a database written before a hub's validator kept its verifier moves
+// forward through migration 5. Its cursor loads as it was, with nothing
+// kept of the verifier, which then starts afresh; once kept, the
+// verifier's state round-trips beside the cursor.
+#[test]
+fn an_escrow_cursor_stored_before_the_verifier_was_kept_loads_without_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let hub = [7; 32];
+    {
+        let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+        schema::prepare(&mut connection, &schema::MIGRATIONS[..4]).unwrap();
+        connection
+            .execute(
+                "INSERT INTO hub_escrow (hub, newest_ledger, newest_close_time, scanned_to)
+                 VALUES (?1, 90, 700, 80)",
+                [&hub[..]],
+            )
+            .unwrap();
+    }
+    let store = Store::open(temp.path()).unwrap();
+    assert_eq!(
+        user_version(&temp.path().join(DATABASE_FILE)),
+        SCHEMA_VERSION
+    );
+    let cursor = EscrowCursor {
+        newest_ledger: 90,
+        newest_close_time: 700,
+        scanned_to: 80,
+    };
+    assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor));
+    assert_eq!(store.hub_verifier(&hub).unwrap(), None);
+    store
+        .keep_hub_escrow(&hub, &cursor, Some(&[1, 2, 3]))
+        .unwrap();
+    drop(store);
+    let store = Store::open(temp.path()).unwrap();
+    assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor));
+    assert_eq!(store.hub_verifier(&hub).unwrap(), Some(vec![1, 2, 3]));
+}
+
 // spec/areas/node.md#database, spec/decisions/settlement-methods.md: a
 // database written before a peering's methods had a table of their own
 // moves forward through migration 2. Its peering loads as one method, on
