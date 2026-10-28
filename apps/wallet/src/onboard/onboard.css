@@ -118,14 +118,15 @@
   font-weight: 700;
 }
 
-/* A word a correction changed, lit with Sunrise for the owner to compare
-   with their copy. */
+/* A word a correction changed, for the owner to compare with their copy:
+   the only mark of it they see, so it is ringed in ink, which stands out
+   from the plate in light and at dusk. */
 .phrase li.changed {
   margin: 0 -6px;
   padding: 0 6px;
   background: var(--warning-bg);
   border-radius: 8px;
-  box-shadow: inset 0 0 0 2px var(--sun);
+  box-shadow: inset 0 0 0 2px var(--ink);
 }
 
 /* Too narrow for two columns: one, in order. */

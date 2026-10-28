@@ -45,8 +45,14 @@
   grid-area: actions;
 }
 
+/* On Daylight, as every list of small links and amounts is: Ember and
+   the green of money in read at AA there, and not on Sandstone. */
 .home-recent {
   grid-area: recent;
+  align-self: start;
+  padding: 20px 24px;
+  background: var(--surface);
+  border-radius: 26px;
 }
 
 .home .home-pointer {
@@ -227,12 +233,8 @@
   width: 36px;
   height: 36px;
   color: var(--ink);
-  background: var(--day);
-  border-radius: 50%;
-}
-
-.card .tx-av {
   background: var(--sand);
+  border-radius: 50%;
 }
 
 .tx-av-out,

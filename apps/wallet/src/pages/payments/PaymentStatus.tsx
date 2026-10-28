@@ -29,7 +29,9 @@ export function PaymentStatus(props: RouteProps): JSX.Element {
         {(payment) => <Status payment={payment()} />}
       </Show>
       <p>
-        <Link href="/payments" testid="payment-activity">All activity</Link>
+        <Link href="/payments" class="button" testid="payment-activity">
+          All activity
+        </Link>
       </p>
     </div>
   );

@@ -13,6 +13,11 @@
 @import "./pages/network/network.css";
 @import "./pages/settings/settings.css";
 
+/* Fraunces' headings set close. */
+h2 {
+  line-height: 1.25;
+}
+
 /* The screens before the wallet opens: one centered column, the lockup
    above a card. */
 .page {
