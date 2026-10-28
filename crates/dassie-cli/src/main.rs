@@ -71,23 +71,24 @@ Commands:
   setup-url         Print the link that completes setup in a browser.
   hub [status]      Show the node's account in each settlement hub it is
                     in, and the floor and ceiling the node keeps it between.
-  hub deposit <amount>
+                    The commands below name a hub by its <scheme>, the
+                    settlement scheme over it that this shows, such as
+                    hub-xrpl-testnet-xrp.
+  hub deposit <scheme> <amount>
                     Move the hub's asset, XRP or DSUSD, from the node's XRP
                     Ledger account into the hub, opening the account there
                     if it has none.
-  hub withdraw <amount>
+  hub withdraw <scheme> <amount>
                     Move the hub's asset from the hub to the node's XRP
                     Ledger account; from a DSUSD hub, once the node checked
                     its escrow has the XRP it pays fees with.
                     Either move pauses the node's own moves for an hour.
-  hub auto on|off   Let the node move funds to and from the hub by itself,
+  hub auto <scheme> on|off
+                    Let the node move funds to and from the hub by itself,
                     or not.
-  hub give-up       Give up a move the hub has not shown for long; the node
+  hub give-up <scheme>
+                    Give up a move the hub has not shown for long; the node
                     then moves nothing by itself until you act.
-                    Each of these acts on one hub:
-                      --hub <hub ID>            the hub, as `hub status`
-                                                shows it; needed only while
-                                                the node is in several
   hub found <node ID>@<host:port>...
                     Found a settlement hub with these validators, as its
                     sponsor, on the XRP Ledger network of the node's
@@ -106,12 +107,9 @@ Commands:
   hub foundings     Show each hub the node founds: which validators
                     accepted, signed and run it, and its escrow.
   hub drop <nonce>  Drop a founding.
-  hub payout        Show the payout bundles kept of a hub, and once a
+  hub payout <scheme>
+                    Show the payout bundles kept of a hub, and once a
                     quorum signed one set, its transactions to submit.
-                      --hub <hub ID>            the hub, as `hub status`
-                                                shows it (or the ID alone);
-                                                needed only while the node
-                                                is in several
   setup             Set the node up from its owner's passphrase, on the
                     node's own host, without a browser, in the realm the
                     phrase names, fixed for good (live only by the dev

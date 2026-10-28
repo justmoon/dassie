@@ -22,6 +22,7 @@ use tokio_util::sync::CancellationToken;
 use super::driver::hex;
 use super::{HubClient, HubExchangeError};
 use crate::clock::clock_moved;
+use crate::engine::EngineError;
 use crate::log::target;
 use crate::node::Node;
 use crate::store::StoreError;
@@ -251,25 +252,27 @@ pub struct PayoutStatus {
 /// Why [`payout`] has no payout to show.
 #[derive(Debug)]
 pub enum PayoutError {
-    /// No hub scheme runs.
-    NoHub,
-    /// The node is in several hubs, and the call named none.
-    Unnamed,
-    /// The node is in no hub of that ID.
-    NotFound,
+    /// The engine does not run, so no hub scheme does.
+    NoEngine,
+    /// The engine found no hub over the scheme named, or none was named.
+    Engine(EngineError),
     /// The database failed.
     Store(StoreError),
 }
 
-/// What the node holds of the payout of the hub `hub` names by its ID, or
-/// of its only hub when it names none.
+/// What the node holds of the payout of the hub over `scheme`, as the
+/// hub member's methods name a hub.
 ///
 /// # Errors
 ///
-/// No hub scheme runs, the node is in several hubs and `hub` names none,
-/// or in none of that ID; or the database failed.
-pub async fn payout(node: &Node, hub: Option<[u8; 32]>) -> Result<PayoutStatus, PayoutError> {
-    let rules = chosen(hub_rules(node).await, hub)?;
+/// The engine does not run, `scheme` is none or not a hub scheme, or the
+/// node runs no hub over it; or the database failed.
+pub async fn payout(node: &Node, scheme: String) -> Result<PayoutStatus, PayoutError> {
+    let engine = node.engine().ok_or(PayoutError::NoEngine)?;
+    let rules = engine
+        .hub_rules_of(scheme)
+        .await
+        .map_err(PayoutError::Engine)?;
     let hub = rules.id();
     let quorum = usize::try_from(dassie_hub::escrow::signer_quorum(&rules)).unwrap_or(usize::MAX);
     let rows = node
@@ -286,60 +289,4 @@ pub async fn payout(node: &Node, hub: Option<[u8; 32]>) -> Result<PayoutStatus, 
         quorum,
         ready: payouts.assembled(),
     })
-}
-
-/// The rules of the hub `hub` names among `running`, the rules of each hub
-/// the node is in: the only one when it names none.
-fn chosen(running: Vec<Rules>, hub: Option<[u8; 32]>) -> Result<Rules, PayoutError> {
-    match (hub, running.len()) {
-        (_, 0) => Err(PayoutError::NoHub),
-        (None, 1) => running.into_iter().next().ok_or(PayoutError::NoHub),
-        (None, _) => Err(PayoutError::Unnamed),
-        (Some(id), _) => running
-            .into_iter()
-            .find(|rules| *rules.id().0.as_bytes() == id)
-            .ok_or(PayoutError::NotFound),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use dassie_identity::NodeKey;
-
-    use super::*;
-    use crate::hub::config::tests::rules;
-
-    /// A hub of one validator, sponsored by the key of `sponsor`'s bytes:
-    /// each sponsor's hub has an ID of its own.
-    fn hub(sponsor: u8) -> Rules {
-        let validator = (NodeKey::from_bytes(&[1; 32]), "v.example:443".into());
-        rules(&NodeKey::from_bytes(&[sponsor; 32]), &[validator])
-    }
-
-    // The owner names the hub whose payout to show by its ID, or none while
-    // the node is in one hub only (proto/dassie/owner/v1/hub_founding.proto).
-    #[test]
-    fn a_payout_is_of_the_hub_named_or_the_only_one() {
-        let (first, second) = (hub(100), hub(101));
-        let id = |rules: &Rules| *rules.id().0.as_bytes();
-        assert_ne!(id(&first), id(&second));
-        assert!(matches!(chosen(Vec::new(), None), Err(PayoutError::NoHub)));
-        assert!(matches!(
-            chosen(Vec::new(), Some(id(&first))),
-            Err(PayoutError::NoHub)
-        ));
-        let only = chosen(vec![first.clone()], None).unwrap();
-        assert_eq!(id(&only), id(&first));
-        let both = || vec![first.clone(), second.clone()];
-        assert!(matches!(chosen(both(), None), Err(PayoutError::Unnamed)));
-        assert_eq!(id(&chosen(both(), Some(id(&second))).unwrap()), id(&second));
-        assert!(matches!(
-            chosen(both(), Some([0; 32])),
-            Err(PayoutError::NotFound)
-        ));
-        assert!(matches!(
-            chosen(vec![first.clone()], Some(id(&second))),
-            Err(PayoutError::NotFound)
-        ));
-    }
 }

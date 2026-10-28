@@ -5216,7 +5216,8 @@ fn the_owners_moves_pause_the_automatic_ones() {
     assert_eq!(deposits(&mut ledger, escrow).len(), 2, "after the pause");
 
     // Off, and kept off across a restart.
-    core.set_hub_automatic(None, false).unwrap();
+    core.set_hub_automatic(dassie_hub::member::SCHEME_ID, false)
+        .unwrap();
     core.flush();
     drop(core);
     let core = core_on(Arc::clone(&store), 10);
@@ -5224,10 +5225,10 @@ fn the_owners_moves_pause_the_automatic_ones() {
     assert!(!core.funding[&hub].automatic);
 }
 
-// spec/areas/hubs.md#in-the-node: an owner's move names its hub by its ID,
-// or none while the node is in one hub; the scheme over the hub is not
-// removed while a move of it is on its way, since the move is its
-// account's in that hub.
+// spec/areas/hubs.md#in-the-node: an owner's move names its hub by the
+// scheme over it, which it must name, even while the node is in one hub;
+// the scheme over the hub is not removed while a move of it is on its
+// way, since the move is its account's in that hub.
 #[test]
 fn an_owners_move_names_its_hub_and_holds_its_scheme() {
     let (mut ledger, _) = funded_ledger();
@@ -5237,11 +5238,22 @@ fn an_owners_move_names_its_hub_and_holds_its_scheme() {
     let statuses = core.hub_statuses();
     assert_eq!(statuses.len(), 1);
     assert_eq!(statuses[0].scheme.as_str(), dassie_hub::member::SCHEME_ID);
-    let id = statuses[0].hub_id;
     let units = dassie_xrpl::UNITS_PER_DROP;
-    let elsewhere = core.hub_deposit_to(Some([0; 32]), 3_000_000 * units);
+    let amount = 3_000_000 * units;
+    for unnamed in ["", "xrpl-testnet-xrp", "stub", "hub xrp"] {
+        let refused = core.hub_deposit_to(unnamed, amount);
+        assert!(
+            matches!(refused, Err(super::EngineError::Invalid(_))),
+            "{unnamed:?}"
+        );
+    }
+    let elsewhere = core.hub_deposit_to(dassie_hub::member::DSUSD_SCHEME_ID, amount);
     assert!(matches!(elsewhere, Err(super::EngineError::NotFound(_))));
-    let opened = core.hub_deposit_to(Some(id), 3_000_000 * units).unwrap();
+    let rules = core.hub_rules_of(dassie_hub::member::SCHEME_ID).unwrap();
+    assert_eq!(*rules.id().0.as_bytes(), statuses[0].hub_id);
+    let opened = core
+        .hub_deposit_to(dassie_hub::member::SCHEME_ID, amount)
+        .unwrap();
     assert!(opened.moving.is_some());
     let removed = core.remove_scheme(dassie_hub::member::SCHEME_ID);
     assert!(matches!(removed, Err(super::EngineError::Precondition(_))));
@@ -5429,10 +5441,11 @@ fn a_late_deposit_given_up_is_booked_once_if_credited() {
     let made = deposits(&mut ledger, escrow);
     assert_eq!(made.len(), 2, "below the floor: {made:?}");
     let amount = made[1].amount;
-    assert!(core.hub_give_up(None).is_err(), "not late yet");
+    let scheme = dassie_hub::member::SCHEME_ID;
+    assert!(core.hub_give_up(scheme).is_err(), "not late yet");
     wait_and_close(&mut core, &mut ledger, super::hub_funding::CREDIT_WAIT_MS);
     assert!(core.hub_status().unwrap().late);
-    let status = core.hub_give_up(None).unwrap();
+    let status = core.hub_give_up(scheme).unwrap();
     assert_eq!(status.moving, None);
     assert_eq!(status.given_up, Some((super::Direction::Deposit, amount)));
     for _ in 0..3 {
@@ -5454,7 +5467,7 @@ fn a_late_deposit_given_up_is_booked_once_if_credited() {
         "the late credit is a deposit, once"
     );
 
-    core.set_hub_automatic(None, true).unwrap();
+    core.set_hub_automatic(scheme, true).unwrap();
     assert_eq!(core.hub_status().unwrap().given_up, None);
     hub.account(&mut core, 100_000, opening + amount);
     wait_and_close(&mut core, &mut ledger, 4_000);

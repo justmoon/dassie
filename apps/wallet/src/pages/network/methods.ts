@@ -14,23 +14,14 @@ export interface MethodRow {
   windingDown: boolean;
 }
 
-/** The peering's methods, in the order the pair agreed them: those the node
- * lists, or the one it names for a peering it lists none for. */
+/** The peering's methods, in the order the pair agreed them. */
 export function peerMethods(peer: NetworkPeer): MethodRow[] {
-  if (peer.methods.length > 0) {
-    return peer.methods.map((method) => ({
-      scheme: method.scheme,
-      owed: method.owed,
-      withdrawn: method.withdrawn,
-      windingDown: method.windingDown,
-    }));
-  }
-  return [{
-    scheme: peer.scheme,
-    owed: peer.owed,
-    withdrawn: false,
-    windingDown: false,
-  }];
+  return peer.methods.map((method) => ({
+    scheme: method.scheme,
+    owed: method.owed,
+    withdrawn: method.withdrawn,
+    windingDown: method.windingDown,
+  }));
 }
 
 /** How a method stands, when it is not simply in use: being wound down, or

@@ -13,11 +13,12 @@ import "dassie/owner/v1/ledger.proto";
 // HubGiveUp.
 //
 // Each method but GetHubStatus acts on one hub, which its request names by
-// `hub_id`: the hub's ID as 64 hex digits, as `HubStatus.hub_id` gives it,
-// or empty while the node is in one hub only. Each fails with
-// FAILED_PRECONDITION while no settlement hub scheme runs, NOT_FOUND for a
-// hub the node is not in, and INVALID_ARGUMENT for a `hub_id` that is not
-// 64 hex digits, or empty while the node is in several hubs.
+// `scheme`, the settlement scheme over it, as `HubStatus.scheme` gives it:
+// the node is in one hub per scheme, and a scheme names its hub for as
+// long as the node runs it, while a hub's ID changes when it is founded
+// anew. It is required: each fails with INVALID_ARGUMENT for none, or for
+// one that is not a settlement hub scheme, and NOT_FOUND for a hub scheme
+// the node does not run.
 //
 // Amounts are in the hub ledger's smallest unit, as `Ledger` amounts are:
 // XRP and dollars at scale 9. A move pays whole units of the hub asset's
@@ -62,7 +63,8 @@ message HubMove {
 }
 
 message HubStatus {
-  // The hub's ID, the digest of its rules, as 64 hex digits.
+  // The hub's ID, the digest of its rules, as 64 hex digits: to tell which
+  // hub this is, never to name it in a request, which `scheme` does.
   string hub_id = 1;
   // The node's account in the hub, once the hub has said it.
   optional uint32 account = 2;
@@ -105,7 +107,8 @@ message HubStatus {
   // deposits too, counted apart.
   uint64 returned = 18;
   // The settlement scheme over the hub, which names its ledger and asset,
-  // such as `hub-xrpl-testnet-xrp`, or `hub-xrpl-rlusd` on mainnet.
+  // such as `hub-xrpl-testnet-xrp`, or `hub-xrpl-rlusd` on mainnet: what
+  // the methods that act on the hub name it by.
   string scheme = 19;
   // While the issuer of a token hub's asset freezes the hub: the stamp of
   // the hub's block from which it is frozen, as the validators last said.
@@ -137,10 +140,9 @@ message GetHubStatusResponse {
 // synced, or for more than the owner's funds there with the fee.
 message HubDepositRequest {
   uint64 amount = 1;
-  // The hub, by its ID as HubStatus.hub_id gives it; empty while the node
-  // is in one hub only. NOT_FOUND for a hub the node is not in,
-  // INVALID_ARGUMENT for none while it is in several.
-  string hub_id = 2;
+  // The hub, by the settlement scheme over it, as HubStatus.scheme gives
+  // it, such as `hub-xrpl-testnet-xrp`.
+  string scheme = 3;
 }
 
 message HubDepositResponse {
@@ -156,8 +158,8 @@ message HubDepositResponse {
 // than it can spend with the fees.
 message HubWithdrawRequest {
   uint64 amount = 1;
-  // The hub, as in HubDepositRequest.
-  string hub_id = 2;
+  // The hub, by its scheme, as in HubDepositRequest.
+  string scheme = 3;
 }
 
 message HubWithdrawResponse {
@@ -168,8 +170,8 @@ message HubWithdrawResponse {
 // the choice, per hub.
 message SetHubAutomaticRequest {
   bool automatic = 1;
-  // The hub, as in HubDepositRequest.
-  string hub_id = 2;
+  // The hub, by its scheme, as in HubDepositRequest.
+  string scheme = 3;
 }
 
 message SetHubAutomaticResponse {
@@ -181,8 +183,8 @@ message SetHubAutomaticResponse {
 // them on again or moves funds. FAILED_PRECONDITION when no move is on its way, or it is
 // not late.
 message HubGiveUpRequest {
-  // The hub, as in HubDepositRequest.
-  string hub_id = 1;
+  // The hub, by its scheme, as in HubDepositRequest.
+  string scheme = 2;
 }
 
 message HubGiveUpResponse {

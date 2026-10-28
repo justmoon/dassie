@@ -520,6 +520,12 @@ impl HubNet {
         self.rules.id()
     }
 
+    /// The scheme over it, which names it in the owner's calls.
+    #[must_use]
+    pub fn scheme(&self) -> &'static str {
+        dassie_hub::member::scheme_of(&self.rules.terms).map_or("", |(scheme, _)| scheme)
+    }
+
     /// f: the most faulty validators the hub tolerates.
     #[must_use]
     pub fn faults(&self) -> usize {

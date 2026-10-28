@@ -109,7 +109,7 @@ function pollHubs(): PolledHubs {
       try {
         next.set(
           hub.hubId,
-          await client.call("getHubPayout", { hubId: hub.hubId }),
+          await client.call("getHubPayout", { scheme: hub.scheme }),
         );
       } catch {
         // Keep what is known; the next round asks again.
@@ -437,7 +437,7 @@ function Moves(
     });
   };
   const withdraw = async (
-    request: { amount: bigint; hubId: string },
+    request: { amount: bigint; scheme: string },
     retries: number,
   ) => {
     const mine = round;
@@ -486,7 +486,7 @@ function Moves(
       setError(parseFailureText(parsed.reason, props.currency.scale));
       return;
     }
-    const request = { amount: parsed.value, hubId: id() };
+    const request = { amount: parsed.value, scheme: props.status.scheme };
     stopRetrying();
     if (direction === "withdraw") {
       await withdraw(request, 0);
@@ -518,7 +518,9 @@ function Moves(
                   testid={`hub-give-up-${id()}`}
                   disabled={busy()}
                   onConfirm={async () => {
-                    await act(() => client.call("hubGiveUp", { hubId: id() }));
+                    await act(() =>
+                      client.call("hubGiveUp", { scheme: props.status.scheme })
+                    );
                   }}
                 >
                   <p>
@@ -607,7 +609,7 @@ function Moves(
             void act(() =>
               client.call("setHubAutomatic", {
                 automatic: !props.status.automatic,
-                hubId: id(),
+                scheme: props.status.scheme,
               })
             )}
         >

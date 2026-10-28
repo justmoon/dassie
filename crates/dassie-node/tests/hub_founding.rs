@@ -413,47 +413,48 @@ async fn a_sponsor_founds_a_hub_with_four_validator_daemons() {
     second.stop().await;
     // The stall is the rules' shortest, minutes on the hub's clock, which
     // moves in steps of seconds: the views it holds time out within it.
+    let payout_of = |scheme: &str| proto::GetHubPayoutRequest {
+        scheme: scheme.into(),
+    };
     until(&clock, 5_000, async || {
         let reply = sponsor
             .ipc()
             .await
-            .call(Method::GetHubPayout(proto::GetHubPayoutRequest::default()))
+            .call(Method::GetHubPayout(payout_of(
+                dassie_hub::member::SCHEME_ID,
+            )))
             .await;
         matches!(reply, Ok(response::Method::GetHubPayout(payout)) if payout.bundles.len() == 2)
     })
     .await;
-    // The node's only hub, unnamed or named by its ID; no other.
+    // The hub named by the scheme over it, and named it must be, even while
+    // the node is in one; no other.
     let Ok(response::Method::GetHubPayout(payout)) = sponsor
         .ipc()
         .await
-        .call(Method::GetHubPayout(proto::GetHubPayoutRequest {
-            hub_id: hub.clone(),
-        }))
+        .call(Method::GetHubPayout(payout_of(
+            dassie_hub::member::SCHEME_ID,
+        )))
         .await
     else {
         panic!("no payout");
     };
-    let unnamed = sponsor
-        .ipc()
-        .await
-        .call(Method::GetHubPayout(proto::GetHubPayoutRequest::default()))
-        .await;
-    assert!(
-        matches!(&unnamed, Ok(response::Method::GetHubPayout(only)) if *only == payout),
-        "{unnamed:?}"
-    );
-    let other = sponsor
-        .ipc()
-        .await
-        .call(Method::GetHubPayout(proto::GetHubPayoutRequest {
-            hub_id: "00".repeat(32),
-        }))
-        .await;
-    assert_eq!(
-        other.unwrap_err().code(),
-        proto::ErrorCode::NotFound,
-        "a hub the node is not in"
-    );
+    for (scheme, code) in [
+        ("", proto::ErrorCode::InvalidArgument),
+        (hub.as_str(), proto::ErrorCode::InvalidArgument),
+        ("xrpl-testnet-xrp", proto::ErrorCode::InvalidArgument),
+        (
+            dassie_hub::member::DSUSD_SCHEME_ID,
+            proto::ErrorCode::NotFound,
+        ),
+    ] {
+        let refused = sponsor
+            .ipc()
+            .await
+            .call(Method::GetHubPayout(payout_of(scheme)))
+            .await;
+        assert_eq!(refused.unwrap_err().code(), code, "{scheme:?}");
+    }
     assert_eq!(payout.hub, hub);
     assert_eq!(payout.quorum, 3);
     assert_eq!(

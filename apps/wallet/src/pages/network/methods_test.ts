@@ -7,8 +7,6 @@ import { methodState, peerMethods } from "./methods.ts";
 test("every method of a peering is listed, in its order", () => {
   const peer = create(NetworkPeerSchema, {
     node: "da",
-    scheme: "hub-xrpl-testnet-xrp",
-    owed: 5n,
     methods: [
       create(PeerMethodSchema, { scheme: "hub-xrpl-testnet-xrp", owed: 5n }),
       create(PeerMethodSchema, {
@@ -25,20 +23,6 @@ test("every method of a peering is listed, in its order", () => {
       ["hub-xrpl-testnet-dsusd", -7n],
     ],
   );
-});
-
-test("a peering listed without methods shows its one", () => {
-  const peer = create(NetworkPeerSchema, {
-    node: "da",
-    scheme: "stub",
-    owed: 3n,
-  });
-  assertEquals(peerMethods(peer), [{
-    scheme: "stub",
-    owed: 3n,
-    withdrawn: false,
-    windingDown: false,
-  }]);
 });
 
 test("a method shows when it winds down or is short of room", () => {

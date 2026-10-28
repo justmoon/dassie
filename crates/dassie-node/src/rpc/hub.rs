@@ -32,29 +32,27 @@ pub(super) async fn dispatch(engine: &Engine, method: Method) -> Result<Reply, R
                 .collect(),
         }),
         Method::HubDeposit(request) => {
-            let hub = hub_id(&request.hub_id)?;
-            let status = engine.hub_deposit(hub, request.amount).await?;
+            let status = engine.hub_deposit(request.scheme, request.amount).await?;
             response::Method::HubDeposit(proto::HubDepositResponse {
                 status: Some(hub_status(&status)),
             })
         }
         Method::HubWithdraw(request) => {
-            let hub = hub_id(&request.hub_id)?;
-            let status = engine.hub_withdraw(hub, request.amount).await?;
+            let status = engine.hub_withdraw(request.scheme, request.amount).await?;
             response::Method::HubWithdraw(proto::HubWithdrawResponse {
                 status: Some(hub_status(&status)),
             })
         }
         Method::SetHubAutomatic(request) => {
-            let hub = hub_id(&request.hub_id)?;
-            let status = engine.set_hub_automatic(hub, request.automatic).await?;
+            let status = engine
+                .set_hub_automatic(request.scheme, request.automatic)
+                .await?;
             response::Method::SetHubAutomatic(proto::SetHubAutomaticResponse {
                 status: Some(hub_status(&status)),
             })
         }
         Method::HubGiveUp(request) => {
-            let hub = hub_id(&request.hub_id)?;
-            let status = engine.hub_give_up(hub).await?;
+            let status = engine.hub_give_up(request.scheme).await?;
             response::Method::HubGiveUp(proto::HubGiveUpResponse {
                 status: Some(hub_status(&status)),
             })
@@ -62,18 +60,6 @@ pub(super) async fn dispatch(engine: &Engine, method: Method) -> Result<Reply, R
         _ => return Err(RpcError::internal("not a hub method")),
     };
     Ok(Reply::Unary(reply))
-}
-
-/// The hub a request names: its ID as 64 hex digits, or none, for the
-/// node's only hub, when empty.
-fn hub_id(text: &str) -> Result<Option<[u8; 32]>, RpcError> {
-    if text.is_empty() {
-        return Ok(None);
-    }
-    let invalid = || RpcError::invalid("a hub's ID is 64 hex digits");
-    let bytes = dassie_xrpl::from_hex(text).ok_or_else(invalid)?;
-    let id: [u8; 32] = bytes.try_into().map_err(|_| invalid())?;
-    Ok(Some(id))
 }
 
 fn hub_status(status: &HubStatus) -> proto::HubStatus {
@@ -136,24 +122,5 @@ fn hold(hold: &HubHold) -> proto::HubHold {
         peer: hold.peer.map(|node| node.to_string()).unwrap_or_default(),
         account: hold.account,
         amount: hold.amount,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // A request names its hub by the ID `HubStatus.hub_id` gives, or by
-    // none for the node's only hub.
-    #[test]
-    fn a_request_names_its_hub_by_its_id_in_hex() {
-        assert_eq!(hub_id("").ok(), Some(None));
-        let id = [0xab; 32];
-        let hex: String = id.iter().map(|byte| format!("{byte:02x}")).collect();
-        assert_eq!(hub_id(&hex).ok(), Some(Some(id)));
-        assert_eq!(hub_id(&hex.to_uppercase()).ok(), Some(Some(id)));
-        for wrong in ["ab", "zz", &hex[1..], &format!("{hex}00")] {
-            assert!(hub_id(wrong).is_err(), "{wrong}");
-        }
     }
 }

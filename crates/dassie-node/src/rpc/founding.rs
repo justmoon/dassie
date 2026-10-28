@@ -51,19 +51,16 @@ pub(super) async fn dispatch(node: &Node, method: Method) -> Result<Reply, RpcEr
             })
         }
         Method::GetHubPayout(request) => {
-            let hub = hub_id(&request.hub_id)?;
-            let payout = payouts::payout(node, hub)
-                .await
-                .map_err(|error| match error {
-                    PayoutError::NoHub => {
-                        RpcError::precondition("the settlement hub scheme is not running")
-                    }
-                    PayoutError::Unnamed => {
-                        RpcError::invalid("the node is in several settlement hubs: name one")
-                    }
-                    PayoutError::NotFound => RpcError::not_found("the node is in no such hub"),
-                    PayoutError::Store(error) => RpcError::internal(error),
-                })?;
+            let payout =
+                payouts::payout(node, request.scheme)
+                    .await
+                    .map_err(|error| match error {
+                        PayoutError::NoEngine => {
+                            RpcError::precondition("the settlement hub scheme is not running")
+                        }
+                        PayoutError::Engine(error) => error.into(),
+                        PayoutError::Store(error) => RpcError::internal(error),
+                    })?;
             response::Method::GetHubPayout(payout_message(&payout))
         }
         _ => return Err(RpcError::internal("not a founding method")),
@@ -98,19 +95,6 @@ fn found_request(request: proto::FoundHubRequest) -> Result<FoundRequest, RpcErr
         funding_drops: request.escrow_funding_drops,
         xrpl: Some(request.xrpl_server).filter(|url| !url.is_empty()),
     })
-}
-
-/// The hub a request names: its ID as 64 hex digits, as
-/// `HubStatus.hub_id` gives it, or none, for the node's only hub, when
-/// empty.
-fn hub_id(text: &str) -> Result<Option<[u8; 32]>, RpcError> {
-    if text.is_empty() {
-        return Ok(None);
-    }
-    let invalid = || RpcError::invalid("a hub's ID is 64 hex digits");
-    let bytes = dassie_xrpl::from_hex(text).ok_or_else(invalid)?;
-    let id: [u8; 32] = bytes.try_into().map_err(|_| invalid())?;
-    Ok(Some(id))
 }
 
 fn nonce(text: &str) -> Result<[u8; 32], RpcError> {
@@ -211,18 +195,5 @@ mod tests {
         assert_eq!(nonce(&"ab".repeat(32)).unwrap(), [0xab; 32]);
         assert!(nonce("ab").is_err());
         assert!(nonce(&"zz".repeat(32)).is_err());
-    }
-
-    // A payout names its hub as the hub member's methods do: by the ID
-    // `HubStatus.hub_id` gives, or by none for the node's only hub.
-    #[test]
-    fn a_payout_names_its_hub_by_its_id_in_hex() {
-        assert_eq!(hub_id("").ok(), Some(None));
-        let hex = "ab".repeat(32);
-        assert_eq!(hub_id(&hex).ok(), Some(Some([0xab; 32])));
-        assert_eq!(hub_id(&hex.to_uppercase()).ok(), Some(Some([0xab; 32])));
-        for wrong in ["ab", "zz", &hex[1..], &format!("{hex}00")] {
-            assert!(hub_id(wrong).is_err(), "{wrong}");
-        }
     }
 }

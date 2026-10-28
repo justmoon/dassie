@@ -563,7 +563,8 @@ async function peersOverHub(
 ): Promise<boolean> {
   const { peers } = await node.rpc.call("listPeers", {});
   return peers.some((p) =>
-    p.node === peer.id && p.scheme === HUB_SCHEME && p.state === "peered"
+    p.node === peer.id && p.state === "peered" &&
+    p.methods.some((m) => m.scheme === HUB_SCHEME)
   );
 }
 
@@ -614,8 +615,8 @@ test(
       }, HUB_WITHIN_MS);
       // Quiet: the node's own moves off, and none on its way, so the
       // deposit below is the only one.
-      const id = (await hubOf(member)).hubId;
-      await member.rpc.call("setHubAutomatic", { hubId: id, automatic: false });
+      const { hubId: id, scheme } = await hubOf(member);
+      await member.rpc.call("setHubAutomatic", { scheme, automatic: false });
       await scenario.until(
         "nothing moving",
         async () => (await hubOf(member)).moving === undefined,

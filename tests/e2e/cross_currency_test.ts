@@ -77,7 +77,8 @@ async function peersOnStub(
 ): Promise<boolean> {
   const { peers } = await node.rpc.call("listPeers", {});
   return peers.some((p) =>
-    p.node === peer.id && p.scheme === "stub" && p.state === "peered"
+    p.node === peer.id && p.state === "peered" &&
+    p.methods.some((m) => m.scheme === "stub")
   );
 }
 
@@ -105,9 +106,9 @@ async function holdToward(
   peer: ScenarioNode,
 ): Promise<bigint> {
   const { peers } = await node.rpc.call("listPeers", {});
-  const found = peers.find((entry) =>
-    entry.node === peer.id && entry.scheme === HUB_SCHEME
-  );
+  const found = peers
+    .find((entry) => entry.node === peer.id)
+    ?.methods.find((method) => method.scheme === HUB_SCHEME);
   assert(found, `${node.name} does not peer with ${peer.name} over the hub`);
   return found.creditOut;
 }
@@ -160,7 +161,11 @@ test(
       // d1 and d3 share no scheme, so they never peer; d3 peers over the hub
       // alone.
       const { peers } = await d3.rpc.call("listPeers", {});
-      for (const peer of peers) assertEquals(peer.scheme, HUB_SCHEME);
+      for (const peer of peers) {
+        for (const method of peer.methods) {
+          assertEquals(method.scheme, HUB_SCHEME);
+        }
+      }
       assert(!peers.some((peer) => peer.node === d1.id), "d1 peers with d3");
       await d2.rpc.call("setPeerSettings", {
         settings: {

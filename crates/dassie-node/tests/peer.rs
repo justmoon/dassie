@@ -80,7 +80,8 @@ async fn check_network(node: &TestNode, own: &NodeKey, other: &NodeKey) {
     assert_eq!(peers.peers.len(), 1);
     let peer = &peers.peers[0];
     assert_eq!(peer.node, other.node_id().to_string());
-    assert_eq!(peer.scheme, "stub");
+    let schemes: Vec<&str> = peer.methods.iter().map(|m| m.scheme.as_str()).collect();
+    assert_eq!(schemes, ["stub"]);
     let Ok(response::Method::ListRoutes(routes)) = owner
         .call(Method::ListRoutes(proto::ListRoutesRequest {}))
         .await
@@ -178,11 +179,12 @@ async fn stub_balance(node: &TestNode) -> u64 {
     ledgers.ledgers[0].on_ledger_balance
 }
 
-/// The credit `node` extends its one peer.
+/// The credit `node` extends its one peer, on its one method.
 async fn credit_out(node: &TestNode) -> u64 {
     let peers = peers(node).await;
     assert_eq!(peers.len(), 1);
-    peers[0].credit_out
+    assert_eq!(peers[0].methods.len(), 1);
+    peers[0].methods[0].credit_out
 }
 
 /// The settlements `node` sent its one peer: each takes the next sequence.

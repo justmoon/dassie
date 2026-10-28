@@ -123,11 +123,11 @@ message HubPayoutBundle {
 // sign once the hub ended or stalled. FAILED_PRECONDITION while no
 // settlement hub scheme runs.
 message GetHubPayoutRequest {
-  // The hub, by its ID as HubStatus.hub_id gives it (hub_member.proto);
-  // empty while the node is in one hub only. NOT_FOUND for a hub the node
-  // is not in, INVALID_ARGUMENT for an ID that is not 64 hex digits, or
-  // for none while it is in several.
-  string hub_id = 1;
+  // The hub, by the settlement scheme over it, as HubStatus.scheme gives
+  // it (hub_member.proto), as the hub member's methods name it: required.
+  // INVALID_ARGUMENT for none, or for one that is not a settlement hub
+  // scheme; NOT_FOUND for a hub scheme the node does not run.
+  string scheme = 2;
 }
 
 message GetHubPayoutResponse {
