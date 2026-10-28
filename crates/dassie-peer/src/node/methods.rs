@@ -82,6 +82,7 @@ impl PeerNode {
             node,
             scheme,
             info: None,
+            dropped: false,
         });
         let content = Content::PeeringInfoRequest { scheme };
         let timeout = self.config.request_timeout_ms;
@@ -94,11 +95,13 @@ impl PeerNode {
     }
 
     /// The scheme of our request for a method from `node`, if one is under
-    /// way and the peering still takes one.
+    /// way, the peer dropped no method on it since, and the peering still
+    /// takes one.
     fn method_asking(&self, node: &NodeId) -> Option<SchemeId> {
         let attempt = self.peering.method_attempt.as_ref()?;
         let peering = self.table.get(node).and_then(Entry::active_peering)?;
-        (attempt.node == *node && !peering.has(attempt.scheme)).then_some(attempt.scheme)
+        (attempt.node == *node && !attempt.dropped && !peering.has(attempt.scheme))
+            .then_some(attempt.scheme)
     }
 
     /// The peer's peering info on the scheme we ask a method on: the
@@ -313,8 +316,10 @@ impl PeerNode {
     /// (spec/decisions/settlement-methods.md). A method we do not have is
     /// dropped already; if we are asking the peer for one on that scheme,
     /// the peer took it and dropped it before its acceptance reached us,
-    /// so our request ends there, and an acceptance that still arrives adds
-    /// nothing. A peering it leaves with none ends; one being ended keeps
+    /// so the acceptance, when it arrives, adds nothing. Our request still
+    /// waits for it, or for its timeout, as the answer is matched to the
+    /// request by its peer alone: one asked for after it could take it for
+    /// its own. A peering it leaves with none ends; one being ended keeps
     /// its last until it is over.
     pub(super) fn method_drop_request(&mut self, accepted: &Accepted, scheme: SchemeId) -> Reply {
         let sender = accepted.sender;
@@ -323,8 +328,10 @@ impl PeerNode {
             return Reply::refuse(409, "not peered");
         };
         if !peering.has(scheme) {
-            if self.method_asking(&sender) == Some(scheme) {
-                self.method_failed(sender);
+            if self.method_asking(&sender) == Some(scheme)
+                && let Some(attempt) = self.peering.method_attempt.as_mut()
+            {
+                attempt.dropped = true;
             }
             return ok(&[]);
         }
