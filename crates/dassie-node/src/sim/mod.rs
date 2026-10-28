@@ -1937,7 +1937,7 @@ impl Sim {
             }
             Output::Btp { link, message } => self.deliver_to_client(index, link, message),
             Output::Event(event) => self.record(index, &event),
-            Output::Trace(_) | Output::ProbeDone { .. } => {}
+            Output::Trace(_) | Output::Hub(_) | Output::ProbeDone { .. } => {}
             Output::SwapDone { id, report } => self.swaps_done.push((index, id, report)),
             Output::LedgerConnect { epoch, .. } => self.ledger_connect(index, epoch),
             Output::LedgerClose { epoch, .. } => {

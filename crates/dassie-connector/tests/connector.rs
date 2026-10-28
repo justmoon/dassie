@@ -194,6 +194,39 @@ fn a_fulfilled_packet_posts_its_transfer_with_its_trace() {
     assert_eq!(posted, [2_500]);
 }
 
+// A packet's record says what joins it to its other hops, its condition,
+// and the ledgers it came in and went out on; one refused before it
+// decoded has no condition, and one never routed no ledger out.
+#[test]
+fn a_record_names_its_condition_and_ledgers() {
+    let mut h = Harness::new(Config::DEFAULT, 0);
+    let packet = prepare(&format!("{OWN}.stream.abc"), 2_500, NOW + 20_000, [3; 32]);
+    let condition = dassie_ilp::Prepare::decode_exact(&packet)
+        .unwrap()
+        .execution_condition;
+    assert_ne!(condition, [0; 32]);
+    forwarded(h.prepare(NOW, ALICE, 41, &packet));
+    let record = *h.connector.packets_after(None).last().unwrap();
+    assert_eq!(record.condition, condition);
+    assert_eq!(record.ledger_in, Some(LedgerId::StubUsd));
+    assert_eq!(record.ledger_out, Some(LedgerId::StubUsd));
+    record.check();
+
+    let unroutable = prepare("test.nowhere", 1, NOW + 20_000, [4; 32]);
+    answered(h.prepare(NOW, ALICE, 42, &unroutable));
+    let record = *h.connector.packets_after(None).last().unwrap();
+    assert_ne!(record.condition, [0; 32]);
+    assert_eq!(record.ledger_in, Some(LedgerId::StubUsd));
+    assert_eq!((record.destination, record.ledger_out), (None, None));
+    record.check();
+
+    answered(h.prepare(NOW, ALICE, 43, b"\x0c"));
+    let record = *h.connector.packets_after(None).last().unwrap();
+    assert_eq!(record.condition, [0; 32]);
+    assert_eq!(record.ledger_out, None);
+    record.check();
+}
+
 // A wrong fulfillment is rejected with F05 at once, so the sender does not
 // wait for R00.
 #[test]

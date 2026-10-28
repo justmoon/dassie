@@ -145,8 +145,13 @@ impl Connector {
         let in_ledger = match self.source_slot(source, on) {
             Ok(in_ledger) => in_ledger,
             Err(refusal) => {
-                self.trace
-                    .push(PacketRecord::new(trace, source, "", 0, now_ms));
+                let mut record = PacketRecord::new(trace, source, "", 0, now_ms);
+                // Refused before it is read, it is still joined to its other
+                // hops by its condition, where it decodes.
+                if let Ok(prepare) = Prepare::decode_exact(packet) {
+                    record.condition = prepare.execution_condition;
+                }
+                self.trace.push(record);
                 return self.answer(now_ms, trace, &refusal, out);
             }
         };
@@ -160,13 +165,15 @@ impl Connector {
                 out,
             );
         };
-        let record = PacketRecord::new(
+        let mut record = PacketRecord::new(
             trace,
             source,
             prepare.destination.as_str(),
             prepare.amount,
             now_ms,
         );
+        record.condition = prepare.execution_condition;
+        record.ledger_in = Some(in_ledger);
         self.trace.push(record);
         if prepare.destination.has_prefix(ildcp::ADDRESS) {
             return self.ildcp(now_ms, trace, (source, in_ledger), &prepare, out);
@@ -847,6 +854,7 @@ impl Connector {
         let amount_out = route.amount_out;
         self.trace.update(trace, |record| {
             record.destination = Some(to);
+            record.ledger_out = Some(ledger);
             record.amount_out = amount_out;
             record.transfers = transfers;
         });

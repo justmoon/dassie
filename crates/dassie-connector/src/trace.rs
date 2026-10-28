@@ -5,7 +5,7 @@ use alloc::collections::VecDeque;
 use core::fmt;
 
 use dassie_ilp::ErrorCode;
-use dassie_ledger::TraceId;
+use dassie_ledger::{LedgerId, TraceId};
 
 use crate::PacketTransfers;
 use crate::endpoint::EndpointId;
@@ -34,6 +34,14 @@ pub struct PacketRecord {
     pub source: EndpointId,
     /// Where it went, if it was routed.
     pub destination: Option<EndpointId>,
+    /// The Prepare's execution condition: a hash already, and the same on
+    /// every hop, so that a packet's records on several nodes can be
+    /// joined by it. Zero for a packet refused before it decoded.
+    pub condition: [u8; 32],
+    /// The ledger it came in on: the source's slot, once known.
+    pub ledger_in: Option<LedgerId>,
+    /// The ledger it went out on, once routed.
+    pub ledger_out: Option<LedgerId>,
     destination_address: [u8; MAX_TRACED_ADDRESS],
     destination_length: u8,
     /// The amount that arrived.
@@ -71,6 +79,9 @@ impl PacketRecord {
             trace,
             source,
             destination: None,
+            condition: [0; 32],
+            ledger_in: None,
+            ledger_out: None,
             destination_address,
             destination_length: u8::try_from(length).unwrap_or(0),
             amount_in,
@@ -80,6 +91,20 @@ impl PacketRecord {
             state: PacketState::Pending,
             transfers: [None; 3],
         }
+    }
+
+    /// What every record holds to: one routed went out on a ledger, from
+    /// the one it came in on.
+    pub fn check(&self) {
+        assert_eq!(
+            self.destination.is_some(),
+            self.ledger_out.is_some(),
+            "a routed packet went out on a ledger"
+        );
+        assert!(
+            self.ledger_out.is_none() || self.ledger_in.is_some(),
+            "a packet sent on came in on a ledger"
+        );
     }
 
     /// The destination address, cut at [`MAX_TRACED_ADDRESS`] bytes.
@@ -100,6 +125,8 @@ impl fmt::Debug for PacketRecord {
             .field("trace", &self.trace)
             .field("source", &self.source)
             .field("destination", &self.destination)
+            .field("ledger_in", &self.ledger_in)
+            .field("ledger_out", &self.ledger_out)
             .field("address", &self.destination_address())
             .field("amount_in", &self.amount_in)
             .field("amount_out", &self.amount_out)
@@ -215,6 +242,9 @@ impl Trace {
             let length = u64::try_from(self.records.len() - 1).ok();
             assert_eq!(span, length, "trace order");
         }
+        for record in &self.records {
+            record.check();
+        }
     }
 }
 
@@ -239,6 +269,47 @@ mod tests {
             .map(|r| r.trace.sequence)
             .collect();
         assert_eq!(kept, [7, 8, 9, 10]);
+    }
+
+    #[test]
+    fn a_record_starts_unrouted_without_a_condition() {
+        let record = record(1);
+        assert_eq!(record.condition, [0; 32]);
+        assert_eq!((record.ledger_in, record.ledger_out), (None, None));
+        record.check();
+    }
+
+    #[test]
+    #[should_panic(expected = "a routed packet went out on a ledger")]
+    fn a_routed_record_without_its_ledger_is_caught() {
+        let mut record = record(1);
+        record.ledger_in = Some(LedgerId::StubUsd);
+        record.destination = Some(EndpointId::Btp(2));
+        record.check();
+    }
+
+    #[test]
+    fn an_update_keeps_the_record_inline() {
+        let mut trace = Trace::new(4, 4);
+        trace.push(record(1));
+        let id = TraceId {
+            epoch: 1,
+            sequence: 1,
+        };
+        trace.update(id, |record| {
+            record.condition = [9; 32];
+            record.ledger_in = Some(LedgerId::StubUsd);
+            record.ledger_out = Some(LedgerId::StubUsd);
+            record.destination = Some(EndpointId::Btp(2));
+        });
+        trace.check_invariants();
+        let _created = trace.poll_event();
+        assert!(matches!(
+            trace.poll_event(),
+            Some(TraceEvent::Packet(updated))
+                if updated.condition == [9; 32]
+                    && updated.ledger_out == Some(LedgerId::StubUsd)
+        ));
     }
 
     #[test]

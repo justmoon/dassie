@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use dassie_connector::{EndpointId, PacketRecord, PacketState, TraceEvent};
+use dassie_connector::{EndpointId, PacketState};
 use dassie_ledger::{Reference, TraceId, TransferState};
 use dassie_settlement::{Holding, LedgerStatus, PegPause, PegView};
 use tokio::sync::broadcast::error::RecvError;
@@ -13,7 +13,8 @@ use super::live::{self, Follow, KEEPALIVE, Source};
 use super::proto::{self, request::Method, response, stream_item};
 use super::{RpcError, convert};
 use crate::engine::{
-    AssetView, BalanceView, Engine, EngineError, LedgerView, RemovalBlocker, TokenView,
+    AssetView, BalanceView, Engine, EngineError, LedgerView, PacketEvent, RemovalBlocker,
+    TokenView, TracedPacket,
 };
 use crate::node::Node;
 use crate::open_payments::auth::OpError;
@@ -127,6 +128,10 @@ async fn dispatch_more(
             let _permit = permit(node)?;
             return subscribe_packets(engine, items).await;
         }
+        Method::SubscribeHubEvents(_) => {
+            let _permit = permit(node)?;
+            return super::hub::subscribe_events(engine, items).await;
+        }
         other if super::hub::is_hub(&other) => {
             return super::hub::dispatch(engine, other).await;
         }
@@ -171,8 +176,8 @@ async fn subscribe_packets(engine: &Engine, items: &Items) -> Result<Reply, RpcE
             event = events.recv() => event,
         };
         let item = match event {
-            Ok(TraceEvent::Packet(record)) => proto::packet_event::Event::Packet(packet(&record)),
-            Ok(TraceEvent::Lagged(dropped)) | Err(RecvError::Lagged(dropped)) => {
+            Ok(PacketEvent::Packet(traced)) => proto::packet_event::Event::Packet(packet(&traced)),
+            Ok(PacketEvent::Lagged(dropped)) | Err(RecvError::Lagged(dropped)) => {
                 lost += dropped;
                 continue;
             }
@@ -647,7 +652,11 @@ fn endpoint(id: EndpointId) -> String {
     id.to_string()
 }
 
-fn packet(record: &PacketRecord) -> proto::Packet {
+fn packet(traced: &TracedPacket) -> proto::Packet {
+    let record = &traced.record;
+    let node = |node: Option<dassie_identity::NodeId>| node.map(|node| node.to_string());
+    let ledger =
+        |ledger: Option<dassie_ledger::LedgerId>| ledger.map(|ledger| ledger.as_str().into());
     let (state, code) = match record.state {
         PacketState::Pending => (proto::PacketState::Pending, String::new()),
         PacketState::Fulfilled => (proto::PacketState::Fulfilled, String::new()),
@@ -665,6 +674,16 @@ fn packet(record: &PacketRecord) -> proto::Packet {
         state: state.into(),
         reject_code: code,
         transfers: record.transfers.iter().flatten().map(|id| id.0).collect(),
+        // A packet refused before it decoded has none.
+        condition: if record.condition == [0; 32] {
+            Vec::new()
+        } else {
+            record.condition.to_vec()
+        },
+        ledger_in: ledger(record.ledger_in).unwrap_or_default(),
+        ledger_out: ledger(record.ledger_out).unwrap_or_default(),
+        source_node: node(traced.source_node).unwrap_or_default(),
+        destination_node: node(traced.destination_node).unwrap_or_default(),
     }
 }
 
