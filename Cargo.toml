@@ -80,7 +80,9 @@ opt-level = 3
 # so the dependencies, where crypto and SQLite are, compile at opt-level 3.
 # The workspace's own crates compile at 1, as CI's do (nix/rust): the tests
 # run as fast as at 3 and their first build takes a third less time; at 0
-# they ran four times as long. Line tables keep file:line in backtraces.
+# they ran four times as long. dassie-identity stays at 3, through dev's
+# override above, which a named package keeps over `"*"` and this level.
+# Line tables keep file:line in backtraces.
 [profile.test]
 opt-level = 1
 debug = "line-tables-only"
