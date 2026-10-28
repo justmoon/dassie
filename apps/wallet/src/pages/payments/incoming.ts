@@ -25,6 +25,21 @@ export function incomingState(
   return BigInt(nowMs) < payment.expiresAtUnixMs ? "open" : "expired";
 }
 
+/** What it shows it received: its amount once that is paid in full, as
+ * the node counts what lands within a tolerance of it, under or over
+ * (spec/decisions/paid-within-a-tolerance.md); else what arrived. */
+export function shownReceived(
+  payment: {
+    incomingAmount?: bigint;
+    receivedAmount: bigint;
+    paidInFull: boolean;
+  },
+): bigint {
+  return payment.paidInFull && payment.incomingAmount !== undefined
+    ? payment.incomingAmount
+    : payment.receivedAmount;
+}
+
 /** Newest first; ties by ID, so the order never jumps. */
 export function newestFirst<T extends IncomingFields>(
   payments: readonly T[],

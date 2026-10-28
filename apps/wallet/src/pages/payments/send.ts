@@ -68,6 +68,17 @@ export function progress(sent: bigint, debit: bigint): number {
   return Number(permille > 1000n ? 1000n : permille);
 }
 
+/** How far a payment got, in thousandths: all the way once it completed,
+ * as one that fixes what the receiver gets completes short of its debit
+ * amount, which is the most it may take. */
+export function paymentProgress(
+  payment: { state: string; sentAmount: bigint; debitAmount: bigint },
+): number {
+  return payment.state === "completed"
+    ? 1000
+    : progress(payment.sentAmount, payment.debitAmount);
+}
+
 /** How long a quote is still good for, or that it lapsed. */
 export function lapseText(expiresAtUnixMs: bigint, nowMs: number): string {
   const left = Number(expiresAtUnixMs) - nowMs;

@@ -80,6 +80,10 @@ message IncomingPayment {
   // shared secret.
   string destination_account = 14;
   bytes shared_secret = 15;
+  // Whether what it received pays its amount in full: all of it, or all
+  // but its tolerance, under or over (spec/decisions/paid-within-a-tolerance.md).
+  // Never for one without an amount.
+  bool paid_in_full = 16;
 }
 
 // Creates an incoming payment, as the owner: to ask for a payment, or to
@@ -191,6 +195,10 @@ message OutgoingPayment {
   // known.
   string recipient_url = 18;
   string recipient_pointer = 19;
+  // Whether it fixes what it debits, sending all of it; otherwise it fixes
+  // what the receiver gets, and stops once the receiver has its receive
+  // amount.
+  bool fixed_debit = 20;
 }
 
 message ListOutgoingPaymentsRequest {
