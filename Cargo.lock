@@ -1053,6 +1053,7 @@ dependencies = [
  "dassie-kit",
  "dassie-oer",
  "hmac",
+ "num-bigint",
  "proptest",
  "serde_json",
  "sha2 0.11.1",

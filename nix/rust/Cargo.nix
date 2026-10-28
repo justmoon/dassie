@@ -3551,6 +3551,10 @@ rec {
         ];
         devDependencies = [
           {
+            name = "num-bigint";
+            packageId = "num-bigint";
+          }
+          {
             name = "proptest";
             packageId = "proptest";
           }

@@ -705,7 +705,8 @@
         "Cookies that prove a subscriber receives at its address, so a forged address never gets a feed",
         "A subscriber table bounded in all and per client",
         "When to publish: soon after the rates change, but never too often, and a heartbeat otherwise",
-        "A subscriber's side: verifies each feed and keeps only newer ones"
+        "A subscriber's side: verifies each feed and keeps only newer ones",
+        "Snapshots, which replace the feed but no node serves yet: a node's quotes per settlement method, each with a ladder of how far it holds, signed; the padded request anyone may send for one, answered within a budget; and the least a swap gets by a snapshot"
       ]
     },
     "identity": {

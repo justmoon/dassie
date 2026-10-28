@@ -408,7 +408,7 @@ fn normalize(address: SocketAddr) -> SocketAddr {
 /// Whether a feed can go to `address`: a port, and an IP that is one host's.
 /// A source that is not one is forged or broken, and a feed sent there
 /// would go to no one, or to many.
-fn is_unicast(address: SocketAddr) -> bool {
+pub(crate) fn is_unicast(address: SocketAddr) -> bool {
     let ip = address.ip().to_canonical();
     let one_host = match ip {
         IpAddr::V4(v4) => !v4.is_broadcast(),
