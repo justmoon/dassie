@@ -1,14 +1,14 @@
-//! Deterministic simulations of a client and a server
+//! Scripted scenarios of a client and a server on a simulated path
 //! (spec/areas/testing.md#deterministic-simulation,
 //! spec/decisions/tigerstyle.md). Every step checks both sides' invariants.
-//! `dassie_stream::sim::payment` is the random run: a failure names its seed,
-//! `dassie-sim run stream <seed>` replays it, and `dassie-sim run stream
-//! <from>..<to>` runs others (spec/decisions/random-seed-simulations.md).
+//! `dassie_stream::sim::payment` is the random run, the campaign's and
+//! never a test's: `dassie-sim run stream <seed>` replays a seed, and
+//! `dassie-sim run stream <from>..<to>` runs others
+//! (spec/decisions/random-seed-simulations.md).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
-use dassie_kit::sim::Outcome;
-use dassie_stream::sim::payment::{self, LOSSY, STEPS};
+use dassie_stream::sim::payment::{LOSSY, STEPS};
 use dassie_stream::sim::{Detour, Path, Side, Simulation};
 use dassie_stream::{ErrorCode, Event, MAX_FAILURES_WITHOUT_PROGRESS, Policy, Rate};
 
@@ -430,18 +430,6 @@ fn a_dearer_route_does_not_stop_a_payment() {
 #[test]
 fn a_node_that_fails_packets_does_not_stop_a_payment() {
     pay_with_detour(Detour::Unreachable, 100_000);
-}
-
-#[test]
-fn simulations_are_deterministic() {
-    // The same seed must give the same run, event for event
-    // (spec/decisions/tigerstyle.md), and runs that differ must still both
-    // finish.
-    let (first, again, other) = (payment::run(23), payment::run(23), payment::run(24));
-    assert_eq!(first.outcome, Outcome::Pass);
-    assert_eq!(other.outcome, Outcome::Pass);
-    assert_eq!(first.trace, again.trace);
-    assert_ne!(first.trace, other.trace);
 }
 
 #[test]

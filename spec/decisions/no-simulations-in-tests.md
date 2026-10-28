@@ -14,9 +14,9 @@
 
 Simulations are a development tool, and the campaign's. A developer runs one with `dassie-sim` while building a feature, to find real failure cases quickly; the campaign runs them from random seeds, outside CI. No test runs one.
 
-- **No CI test and no local test suite runs a simulation,** not on one fixed seed, not a scripted run, and not a check that a seed passes or replays the same run. `cargo test` and the checks of the flake run none.
+- **No CI test and no local test suite runs a simulation,** a run that `dassie-sim` names: not on one fixed seed, not one of its scripted runs, and not a check that a seed passes or replays the same run. `cargo test` and the checks of the flake run none. The runner's own tests run only the tripwire, which simulates nothing, to check how the runner makes runs and records them.
 - **A failure a simulation finds becomes a targeted test** before it goes into CI: one that sets up the degenerate case directly and runs the specific code in it, a unit test, a test of a crate's state machines or of engine cores on an in-memory network, leaving out the rest of the run, which is noise and not part of the repro. The fix comes with it.
-- **The simulations stay library code** in their crates' `src/sim/`, which `dassie-sim` runs. A targeted test may build on what they are built from (the in-memory network, the fake XRP Ledger, the seeded RNG), as long as it sets up its case directly and runs no more than the case needs.
+- **The simulations stay library code** in their crates' `src/sim/`, which `dassie-sim` runs. A targeted test may build on what they are built from (the in-memory network and its harness, the simulations' checks, the fake XRP Ledger, the seeded RNG), as long as it sets up its case directly and runs no more than the case needs.
 - **What a simulation judges is unchanged.** Its checks, its outcomes and how a failure is reproduced stay as they are ([Testing](../areas/testing.md#deterministic-simulation)); only the role of a test that runs it is gone.
 
 ## Accepted

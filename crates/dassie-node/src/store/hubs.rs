@@ -23,8 +23,9 @@ pub const MAX_HUB_CONSENSUS_BYTES: usize = 512 * 1024 * 1024;
 pub const MAX_HUB_LEDGER_BYTES: usize = 256 * 1024 * 1024;
 
 /// The largest state of a validator's verifier stored, with the hub's
-/// network before it: as large as an XRPL account's state may be, which
-/// keeps the same lists, manifests and anchor.
+/// network and its publishers' digest before it: as large as an XRPL
+/// account's state may be, which keeps the same lists, manifests and
+/// anchor.
 pub const MAX_HUB_VERIFIER_BYTES: usize = 256 * 1024;
 
 /// The largest payout bundle stored.

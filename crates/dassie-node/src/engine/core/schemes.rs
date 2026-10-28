@@ -492,7 +492,9 @@ fn create(
         #[cfg(test)]
         super::tests::XRP_HUB => Ok(Box::new(super::tests::HubStandIn::XRP)),
         #[cfg(test)]
-        super::tests::STUB_TWO => super::tests::StubTwo::boxed(config, balance, state),
+        id @ (super::tests::STUB_TWO | super::tests::STUB_THREE) => {
+            super::tests::StubTwo::boxed(id, config, balance, state)
+        }
         _ => Err(SchemeError::UnknownScheme),
     }
 }

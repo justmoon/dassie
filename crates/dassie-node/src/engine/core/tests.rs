@@ -282,6 +282,43 @@ fn a_stopped_scheme_is_not_peered_on() {
     assert_eq!(core.peer.schemes(), [stub]);
 }
 
+// spec/decisions/synced-before-peering.md: a hub's scheme is offered for
+// peering only once it has seen the hub's ledger, here the hub telling it
+// that it holds nothing for the node. Having seen it once, it stays offered
+// after a restart while the node hears nothing of its hub, its links down:
+// the first sync is kept with the scheme's state.
+#[test]
+fn a_hub_scheme_is_offered_once_it_synced_and_after_a_restart_unheard() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 9);
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(600, 300))
+        .unwrap();
+    let hub = scheme_id(dassie_hub::member::SCHEME_ID);
+    let mut outputs = Vec::new();
+    for second in 1..=60 {
+        core.begin_step(NOW + second * 1_000);
+        core.finish_step(&mut outputs);
+    }
+    assert!(
+        core.peer.schemes().is_empty(),
+        "offered before it saw its hub"
+    );
+    Validators::new().no_account(&mut core);
+    core.finish_step(&mut outputs);
+    assert_eq!(core.peer.schemes(), [hub], "not offered once synced");
+    core.flush();
+    drop(core);
+
+    // Restarted, it hears nothing of its hub for an hour.
+    let mut core = core_on(Arc::clone(&store), 10);
+    let start = core.now_ms();
+    for minute in 1..=60 {
+        core.begin_step(start + minute * 60_000);
+        core.finish_step(&mut outputs);
+    }
+    assert_eq!(core.peer.schemes(), [hub], "not offered after a restart");
+}
+
 /// The fake XRP Ledger, testnet or `mainnet`, its clock at the tests'
 /// [`NOW`], so that the validations a node reads of it are fresh.
 fn fake_ledger(mainnet: bool) -> dassie_xrpl::fake::FakeLedger {
@@ -1150,6 +1187,47 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
         super::downlinks::start_credit(&core.schemes, Name::new("stub").unwrap()),
         UNLIMITED_CREDIT
     );
+}
+
+// spec/areas/settlement.md#the-stub-scheme: a peering stored from when the
+// stub without a config settled kept a finite credit; the stub without a
+// config is the one with unlimited trust now, so its start raises every
+// peer's credit on its ledger to the unlimited credit, and none runs short.
+#[test]
+fn a_stored_peering_on_the_stub_without_a_config_takes_the_unlimited_credit() {
+    use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
+    use dassie_settlement::policy::{UNLIMITED_CREDIT, position, trust};
+
+    let peer = Name::new("peeraaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
+    let on = |name| AccountPath::new(LedgerId::StubUsd, name);
+    for config in ["", "{}"] {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        {
+            let mut core = core_on(Arc::clone(&store), 5);
+            add_stub(&mut core, config);
+            // As a peering stored then: a finite credit.
+            core.ledger
+                .open_peer(NOW, LedgerId::StubUsd, peer, 1_000)
+                .unwrap();
+            core.flush();
+        }
+        let core = core_on(Arc::clone(&store), 6);
+        let balance = |name| {
+            core.ledger
+                .account(core.ledger.find(&on(name)).unwrap())
+                .unwrap()
+                .balance()
+        };
+        assert_eq!(
+            trust(balance(AccountName::ContraTrust(peer))),
+            UNLIMITED_CREDIT
+        );
+        assert_eq!(
+            position(balance(AccountName::AssetsInterledger(peer))),
+            u128::from(UNLIMITED_CREDIT)
+        );
+        core.check_invariants();
+    }
 }
 
 // spec/areas/settlement.md#the-stub-scheme: on the stub with unlimited trust,
@@ -2376,6 +2454,14 @@ pub(super) const STUB_TWO: &str = "stub-two";
 /// stub's, so that two nodes running both share two hubs.
 const STUB_TWO_HUB: [u8; 32] = *b"the second stub's pretend hub..!";
 
+/// A third stub with commitments, [`StubTwo`] on the DSUSD hub's ledger
+/// and in a pretend hub of its own, for the tests of settlements on
+/// several methods whose messages are a hub's ([`stub_two_as_hub`]).
+pub(super) const STUB_THREE: &str = "stub-three";
+
+/// The pretend hub every third stub is a member of.
+const STUB_THREE_HUB: [u8; 32] = *b"the third stub's pretend hub...!";
+
 std::thread_local! {
     /// The packets any [`StubTwo`] of this thread committed to or took a
     /// commitment for. A test runs its cores on its own thread, so it
@@ -2386,6 +2472,23 @@ std::thread_local! {
     /// settlement, as a hub's scheme once its hub stalled
     /// (spec/areas/settlement.md#when-peers-cannot-pay-us).
     static STUB_TWO_UNPAYABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Whether every [`StubTwo`] of this thread, the third stub too, sends
+    /// and takes settlement messages as a hub's scheme does.
+    static STUB_TWO_AS_HUB: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Makes every [`StubTwo`] of this test, the third stub too, send and take
+/// settlement messages as a hub's scheme does, or as the stub's again: its
+/// messages book as [`dassie_hub::member::HubScheme::BOOKS_MESSAGES`] says,
+/// so the stand-in follows the real scheme, and a peer's book nothing, as
+/// the hub's `handle_settlement` books nothing.
+fn stub_two_as_hub(as_hub: bool) {
+    STUB_TWO_AS_HUB.with(|cell| cell.set(as_hub));
+}
+
+/// Whether [`StubTwo`] settles as a hub's scheme in this test.
+fn stub_two_is_hub() -> bool {
+    STUB_TWO_AS_HUB.with(std::cell::Cell::get)
 }
 
 /// Makes every [`StubTwo`] of this test unable to receive, or able again.
@@ -2405,25 +2508,51 @@ fn count_stub_two_packet() {
 
 /// The stub with commitments under another name, on a ledger of its own,
 /// the XRP hub's, whose owner book has no peg guard, and in a pretend hub
-/// of its own: what it does is the stub's.
+/// of its own: what it does is the stub's. As the third stub, the same on
+/// the DSUSD hub's ledger, in a pretend hub of its own again.
 /// Its stub is in a cell: the commitments' reads take `&self`, and the
 /// stub lends them only as `&mut`.
-pub(super) struct StubTwo(std::cell::RefCell<dassie_settlement::Stub>);
+pub(super) struct StubTwo {
+    stub: std::cell::RefCell<dassie_settlement::Stub>,
+    id: dassie_ledger::Name,
+    ledger: dassie_ledger::LedgerId,
+    hub: [u8; 32],
+}
 
 impl StubTwo {
-    /// The scheme, as the node makes it.
+    /// The scheme `id`, [`STUB_TWO`] or [`STUB_THREE`], as the node makes
+    /// it.
     pub(super) fn boxed(
+        id: &str,
         config: &str,
         checkpoint: Option<u64>,
         state: &[u8],
     ) -> Result<Box<dyn dassie_settlement::SettlementScheme>, dassie_settlement::SchemeError> {
+        use dassie_settlement::SchemeError;
         let stub = dassie_settlement::Stub::new(config, checkpoint, state)?;
-        Ok(Box::new(Self(std::cell::RefCell::new(stub))))
+        let (ledger, hub) = Self::of(id).ok_or(SchemeError::UnknownScheme)?;
+        let id = dassie_ledger::Name::new(id).map_err(|_| SchemeError::UnknownScheme)?;
+        Ok(Box::new(Self {
+            stub: std::cell::RefCell::new(stub),
+            id,
+            ledger,
+            hub,
+        }))
+    }
+
+    /// The ledger and the pretend hub of scheme `id`, if it is one of them.
+    pub(super) fn of(id: &str) -> Option<(dassie_ledger::LedgerId, [u8; 32])> {
+        use dassie_ledger::LedgerId;
+        match id {
+            STUB_TWO => Some((LedgerId::HubXrplTestnetXrp, STUB_TWO_HUB)),
+            STUB_THREE => Some((LedgerId::HubXrplTestnetDsusdUsd, STUB_THREE_HUB)),
+            _ => None,
+        }
     }
 
     /// Runs `f` on the stub.
     fn stub<R>(&self, f: impl FnOnce(&mut dassie_settlement::Stub) -> R) -> R {
-        f(&mut self.0.borrow_mut())
+        f(&mut self.stub.borrow_mut())
     }
 
     /// Runs `f` on the stub's commitments.
@@ -2435,7 +2564,7 @@ impl StubTwo {
 
 impl dassie_settlement::SettlementScheme for StubTwo {
     fn id(&self) -> dassie_ledger::Name {
-        dassie_ledger::name!(STUB_TWO)
+        self.id
     }
 
     fn can_receive(&self) -> bool {
@@ -2443,7 +2572,16 @@ impl dassie_settlement::SettlementScheme for StubTwo {
     }
 
     fn ledger(&self) -> dassie_ledger::LedgerId {
-        dassie_ledger::LedgerId::HubXrplTestnetXrp
+        self.ledger
+    }
+
+    /// As a hub's scheme's, if the test says so.
+    fn books_messages(&self) -> bool {
+        if stub_two_is_hub() {
+            dassie_hub::member::HubScheme::BOOKS_MESSAGES
+        } else {
+            true
+        }
     }
 
     fn balance(&self) -> u64 {
@@ -2536,6 +2674,10 @@ impl dassie_settlement::SettlementScheme for StubTwo {
         state: &[u8],
         effects: &mut Vec<dassie_settlement::Effect>,
     ) -> Result<(), dassie_settlement::SchemeError> {
+        // A hub's message books nothing: its hub says what arrived.
+        if stub_two_is_hub() {
+            return Ok(());
+        }
         self.stub(|stub| stub.handle_settlement(peer, amount, data, state, effects))
     }
 
@@ -2548,7 +2690,7 @@ impl dassie_settlement::SettlementScheme for StubTwo {
     }
 
     fn commitments(&mut self) -> Option<&mut dyn dassie_settlement::Commitments> {
-        self.0.get_mut().commitments()?;
+        self.stub.get_mut().commitments()?;
         Some(self)
     }
 
@@ -2644,7 +2786,7 @@ impl dassie_settlement::Commitments for StubTwo {
 
     fn membership(&self) -> Option<dassie_settlement::Membership> {
         Some(dassie_settlement::Membership {
-            hub: STUB_TWO_HUB,
+            hub: self.hub,
             // An account, as the stub's: two members without one do not
             // peer over their hub.
             account: 1,
@@ -4369,6 +4511,25 @@ fn asked_over_a_hub_a_payer_funds_its_hold() {
     assert_eq!(hub_books(&mut core, peer), (expected, expected, 0));
 }
 
+// spec/decisions/ending-a-peering.md, spec/decisions/own-fulfills.md: asked
+// again while its settlement is on its way, a payer answers with that one,
+// which is the whole answer, and makes no other: one settlement at a time.
+#[test]
+fn asked_again_while_settling_a_payer_answers_with_what_is_on_its_way() {
+    let (mut core, peer) = hub_core_with_downlink(34);
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    core.begin_step(NOW + 2_000);
+    let settling = core.settlement_requested(peer, scheme);
+    assert!(settling > 0);
+    let pending = core.ledger.pending_transfers().count();
+    assert_eq!(core.settlement_requested(peer, scheme), settling);
+    assert_eq!(core.ledger.pending_transfers().count(), pending);
+    assert_eq!(hub_books(&mut core, peer), (settling, 0, settling));
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    assert_eq!(hub_books(&mut core, peer), (settling, settling, 0));
+}
+
 // spec/areas/hubs.md#in-the-node: a payer whose hub account can spend
 // nothing funds no hold when asked: it answers that nothing is on its way,
 // and its credit and books stay as they were, so the payee's room for it
@@ -5041,6 +5202,100 @@ fn a_restart_never_pays_a_deposit_twice() {
     assert_eq!(deposits(&mut ledger, escrow).len(), 1);
 }
 
+/// A node in the hub, its opening deposit credited, makes a move into the
+/// hub while its XRPL server tells `lie`: its owner's if `owner`, else its
+/// own, below the floor. What its XRP book posted moves only once proven:
+/// not at all while the server lies, and once it is honest again, exactly
+/// as the account did on the ledger, with no hold left.
+fn moves_while_lied_to(lie: dassie_xrpl::fake::Lie, owner: bool) {
+    let (mut ledger, own) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    let units = i128::from(dassie_xrpl::UNITS_PER_DROP);
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let (posted, held) = owner_xrp(&core);
+    assert_eq!(held, 0, "{lie:?}: the opening deposit is not posted");
+    let balance = |ledger: &dassie_xrpl::fake::FakeLedger| i128::from(ledger.balance(own).unwrap());
+    let before = balance(&ledger);
+
+    ledger.set_lie(1, Some(lie));
+    if owner {
+        hub.account(&mut core, 2_000_000, opening);
+        core.hub_deposit(3_000_000 * dassie_xrpl::UNITS_PER_DROP)
+            .unwrap();
+    } else {
+        // Spent below the floor: the node moves funds in by itself.
+        hub.account(&mut core, 100_000, opening);
+    }
+    // Nothing posted, or what the ledger really did, which a lie of some
+    // answers may leave the node able to prove from the others.
+    for _ in 0..4 {
+        wait_and_close(&mut core, &mut ledger, 4_000);
+        let now = owner_xrp(&core).0;
+        let truth = posted + (balance(&ledger) - before) * units;
+        assert!(
+            now == posted || now == truth,
+            "{lie:?}: posted {now}, from {posted}, where the ledger has {truth}"
+        );
+    }
+    assert!(ledger.lies_told(lie) > 0, "{lie:?} was not told");
+    let moving = core.hub_status().unwrap().moving;
+    assert!(
+        moving.is_some_and(|moving| moving.owner == owner),
+        "{lie:?}: no move under way: {moving:?}"
+    );
+
+    ledger.set_lie(1, None);
+    for _ in 0..3 {
+        wait_and_close(&mut core, &mut ledger, 30_000);
+    }
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 2, "{lie:?}: {made:?}");
+    assert_eq!(
+        owner_xrp(&core),
+        (posted + (balance(&ledger) - before) * units, 0),
+        "{lie:?}: the books did not follow the ledger"
+    );
+}
+
+/// Each kind of lie a move into the hub draws out of the server in
+/// [`moves_while_lied_to`]; the XRPL scheme's own tests have every kind
+/// told (`dassie-xrpl`'s `a_lying_server_books_cancels_and_writes_off_nothing`).
+fn lies_a_move_draws() -> impl Iterator<Item = dassie_xrpl::fake::Lie> {
+    use dassie_xrpl::fake::Lie;
+
+    let untold = [Lie::Transaction, Lie::OldAnchor, Lie::HistoryMiddleLeftOut];
+    Lie::ALL
+        .into_iter()
+        .filter(move |lie| !untold.contains(lie))
+}
+
+// spec/areas/hubs.md#in-the-node, spec/designs/xrpl-validation.md#1-the-rule:
+// the owner moves funds into the hub while the node's XRPL server lies: a
+// lie moves nothing on the books, which follow the ledger once the server
+// is honest again.
+#[test]
+fn an_owners_move_into_the_hub_while_lied_to_moves_nothing_false() {
+    for lie in lies_a_move_draws() {
+        moves_while_lied_to(lie, true);
+    }
+}
+
+// spec/areas/hubs.md#in-the-node, spec/designs/xrpl-validation.md#1-the-rule:
+// the node moves its own funds into the hub, below its floor, while its XRPL
+// server lies: a lie moves nothing on the books, which follow the ledger
+// once the server is honest again.
+#[test]
+fn the_nodes_own_move_into_the_hub_while_lied_to_moves_nothing_false() {
+    for lie in lies_a_move_draws() {
+        moves_while_lied_to(lie, false);
+    }
+}
+
 /// What the owner holds on the hub's ledger, as the books say.
 fn hub_owner_balance(core: &Core) -> i128 {
     core.ledger_views()
@@ -5620,8 +5875,10 @@ fn an_owner_book_is_never_asked_for() {
 // spec/areas/xrpl.md#owner-books: a settlement message on an XRPL scheme,
 // as one a channel kept from when the scheme peered, is acknowledged as a
 // bare notice: it books nothing, and the channel moves on to the next.
+// What it states is reported as nothing either.
 #[test]
 fn a_settlement_message_on_an_owner_book_is_applied_and_books_nothing() {
+    use super::{Event, SettlementEvent};
     use dassie_peer::wire::{Content, SchemeId};
 
     let store = Arc::new(Store::open_in_memory().unwrap());
@@ -5664,6 +5921,18 @@ fn a_settlement_message_on_an_owner_book_is_applied_and_books_nothing() {
             String::from_utf8_lossy(&reply.body)
         );
         assert_eq!(core.peer.channel(&id).unwrap().settled_in, sequence);
+        let reported: Vec<u64> = outputs
+            .iter()
+            .filter_map(|output| match output {
+                Output::Event(Event::Settlement(SettlementEvent::PeerSettled { from, amount }))
+                    if *from == id =>
+                {
+                    Some(*amount)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(reported, [0], "taken, stating {amount}");
     }
     assert_eq!(core.ledger.next_transfer_id(), journal, "nothing booked");
     assert!(core.schemes[&xrpl].failed.is_none(), "the scheme runs on");
@@ -6166,4 +6435,9 @@ fn a_dropped_method_takes_its_slot_and_brings_it_back() {
 mod winding;
 
 mod joining;
+mod refusals;
 mod unavailable;
+
+// Our settlements on two methods of a peering, behind each other's
+// messages on its one channel.
+mod held_settlements;

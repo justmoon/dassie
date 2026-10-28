@@ -76,7 +76,8 @@
 //!
 //! - **The verifier's state across a restart.** Its UNL's lists and
 //!   manifests, whether it is UNL-blocked, and its anchor go to its host
-//!   with the cursor, after the hub's network ([`Watcher::take_kept`]):
+//!   with the cursor, after the hub's network and a digest of the
+//!   publishers it trusts ([`Watcher::take_kept`]):
 //!   once they changed, at most every [`KEEP_VERIFIER_EVERY_MS`], and at
 //!   once after a reset, so a restart never meets the chain gone as a new
 //!   reset. A restarted watcher takes them back before it connects
@@ -86,9 +87,11 @@
 //!   against it, as it may be of a chain that reset while the validator
 //!   was down, until a newer one is proven; one off its chain is a reset on
 //!   the testnet, and a fork, which stops the verifier, on any other
-//!   network. A state of another network, or one the verifier does not
-//!   read, is dropped, and the verifier starts afresh, its cursor's newest
-//!   ledger still telling a server behind, or a chain gone back; so does
+//!   network. A state of another network, or of other publishers, whose
+//!   UNL may fork from the anchor kept and stop the verifier, or one the
+//!   verifier does not read, is dropped, and the verifier starts afresh,
+//!   its cursor's newest ledger still telling a server behind, or a chain
+//!   gone back; so does
 //!   one too large to keep, which drops what the host kept before
 //!   ([`Kept::Dropped`]) rather than leave an older state to restart from.
 
@@ -325,6 +328,10 @@ pub enum Kept {
 pub enum Unrestored {
     /// It was kept on another network.
     Network(u32),
+    /// It was kept under other publishers than the verifier trusts now:
+    /// an anchor the old UNL proved may be one the new UNL forks from,
+    /// which would stop the verifier on a network that never resets.
+    Publishers,
     /// The verifier does not read it: of a version it does not read, cut
     /// short, or not what it writes.
     Unread,
@@ -659,8 +666,9 @@ impl Watcher {
     ///
     /// # Errors
     ///
-    /// Why it is not taken back, kept on another network or unread: the
-    /// verifier then starts afresh, as [`Self::new`] made it.
+    /// Why it is not taken back, kept on another network, under other
+    /// publishers, or unread: the verifier then starts afresh, as
+    /// [`Self::new`] made it.
     pub fn restore(
         &mut self,
         kept: &[u8],
@@ -671,12 +679,16 @@ impl Watcher {
             self.phase == Phase::Disconnected && self.queries.is_empty(),
             "taken back before it follows the escrow"
         );
-        let (network, state) = kept.split_first_chunk::<4>().ok_or(Unrestored::Unread)?;
+        let (network, rest) = kept.split_first_chunk::<4>().ok_or(Unrestored::Unread)?;
         let network = u32::from_be_bytes(*network);
         if network != self.network {
             return Err(Unrestored::Network(network));
         }
+        let (publishers, state) = rest.split_first_chunk::<32>().ok_or(Unrestored::Unread)?;
         let config = self.verifier.unl().config().clone();
+        if *publishers != publishers_digest(&config) {
+            return Err(Unrestored::Publishers);
+        }
         let verifier = Verifier::restore(self.network, config, signatures, state, now_ms)
             .ok_or(Unrestored::Unread)?;
         self.verifier = verifier;
@@ -1948,6 +1960,7 @@ impl Watcher {
         self.kept_changes = changes;
         self.kept_ms = Some(self.now_ms);
         let mut kept = self.network.to_be_bytes().to_vec();
+        kept.extend(publishers_digest(self.verifier.unl().config()));
         kept.extend(self.verifier.state());
         if kept.len() > MAX_HUB_VERIFIER_BYTES {
             // What the host kept before is older, and may be of a chain
@@ -1969,6 +1982,26 @@ impl Watcher {
             self.out.push_back(Out::Cursor(cursor));
         }
     }
+}
+
+/// What tells the publishers a verifier's state was kept under from
+/// others: a digest of their master keys, which alone make the UNL, in the
+/// order of their bytes, so that a changed site or order is none
+/// ([`Watcher::restore`]).
+fn publishers_digest(config: &UnlConfig) -> [u8; 32] {
+    use sha2::{Digest as _, Sha256};
+
+    let mut keys: Vec<&[u8; 33]> = (config.publishers.iter())
+        .map(|publisher| publisher.master_key.as_bytes())
+        .collect();
+    keys.sort_unstable();
+    keys.dedup();
+    let mut hash = Sha256::new();
+    hash.update(b"dassie hub verifier publishers");
+    for key in keys {
+        hash.update(key);
+    }
+    hash.finalize().into()
 }
 
 /// The keys of the escrow's objects whose history is walked: its account

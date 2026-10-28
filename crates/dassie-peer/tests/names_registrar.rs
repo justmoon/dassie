@@ -173,11 +173,12 @@ fn a_receipted_commitment_survives_a_crash() {
     assert_eq!(head.next_position, later.position + 1);
 }
 
-// spec/designs/names.md#5-holding-a-name: a name leaves the list when it
-// expires, its holder alone renews it, in its grace period too, and once
-// its grace ends unrenewed it is free.
+// spec/designs/names.md#5-holding-a-name: a renewal is answered with the
+// name's expiry, which moves only once it is near; a node that does not
+// hold the name, or a name not held, is refused. When expiry and grace
+// fall, by the registrar's clock, is the registrar's unit tests'.
 #[test]
-fn a_name_expires_unless_its_holder_renews_it() {
+fn only_its_holder_renews_a_name() {
     let mut network = Network::new(4, 2, 1, CONFIG);
     settle(&mut network, 10_000);
     let (mut alice, mut bob) = (Registrant::new(71), Registrant::new(72));
@@ -186,25 +187,12 @@ fn a_name_expires_unless_its_holder_renews_it() {
     body(&alice.unseal(&mut network, &alice_name));
     close(&mut network, &won);
     let expires = list(&mut network).0[&alice_name].expires_at_ms;
-    // Early: nothing moves.
     let renewed = decode_expiry(&body(&alice.renew(&mut network, &alice_name))).unwrap();
-    assert_eq!(renewed, expires);
+    assert_eq!(renewed, expires, "early: nothing moves");
     assert_eq!(bob.renew(&mut network, &alice_name).status, 409);
-    // In its grace: out of the list, and renewed from now.
-    until(&mut network, expires + 1);
-    assert_eq!(holder(&mut network, &alice_name), None);
-    let renewed = decode_expiry(&body(&alice.renew(&mut network, &alice_name))).unwrap();
-    assert_eq!(renewed, network.clock(0) + CONFIG.names.ttl_ms);
-    assert_eq!(holder(&mut network, &alice_name), Some(alice.id()));
-    // Unrenewed, it is freed after its grace, and someone else may have it.
-    let free_at = renewed + CONFIG.names.grace_ms;
-    until(&mut network, free_at + 1);
-    assert_eq!(alice.renew(&mut network, &alice_name).status, 409);
-    let taken = receipt(&bob.commit(&mut network, &alice_name));
-    body(&bob.unseal(&mut network, &alice_name));
-    close(&mut network, &taken);
-    assert_eq!(holder(&mut network, &alice_name), Some(bob.id()));
-    assert_eq!(network.node(0).stats().names_freed, 1);
+    assert_eq!(alice.renew(&mut network, &name("bob")).status, 409);
+    assert_eq!(network.node(0).stats().names_renewed, 0);
+    assert_eq!(list(&mut network).0[&alice_name].expires_at_ms, expires);
 }
 
 // Commitments are free, so throttled (spec/areas/network.md#names): a cap

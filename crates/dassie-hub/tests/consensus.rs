@@ -1,6 +1,6 @@
 //! Simplex scenarios, after Commonware's `consensus::simplex` tests: all
 //! online, one offline, unclean shutdowns, backfill, a slow validator, all
-//! recovering, partitions, slow and lossy links, determinism, equivocators,
+//! recovering, partitions, slow and lossy links, equivocators,
 //! conflicting and invalid votes, impersonators, outdated messages, and
 //! reconfiguration; and what Dassie adds: finality within the regional
 //! bound, safety across a restart, stalls, loading a later state, and the
@@ -187,18 +187,6 @@ fn slow_and_lossy_links() {
 }
 
 #[test]
-fn a_seed_determines_the_run() {
-    let run = |seed| {
-        let mut network = Network::new(seed, &roles(5, &[Role::Equivocate]), CONFIG);
-        network.faults = Faults::ROUGH;
-        run_for(&mut network, 3_000);
-        network.trace
-    };
-    assert_eq!(run(7), run(7));
-    assert_ne!(run(7), run(8));
-}
-
-#[test]
 fn an_equivocating_leader_is_named_and_skipped() {
     let mut network = Network::new(3, &roles(4, &[Role::Equivocate]), CONFIG);
     run_for(&mut network, 10_000);
@@ -232,9 +220,12 @@ fn a_leader_flooding_proposals_crowds_out_no_honest_block() {
     for count in [4, 7] {
         let faulty = (count - 1) / 3;
         let mut network = Network::new(9, &roles(count, &vec![Role::Flood; faulty]), CONFIG);
-        run_for(&mut network, 10_000);
+        // Some fifty views, in which each flooder leads several: at least
+        // the blocks the honest views make, a rate of one in every two
+        // hundred milliseconds.
+        run_for(&mut network, 4_000);
         assert_safe(&network);
-        assert!(network.honest_floor() >= 50, "{}", network.honest_floor());
+        assert!(network.honest_floor() >= 20, "{}", network.honest_floor());
         assert!(network.trace.iter().any(|line| line.contains("floods")));
         // Its second proposals of a view are evidence against it.
         let named = network.honest().any(|i| {
@@ -1213,6 +1204,7 @@ fn a_validator_away_while_nothing_is_final_takes_the_chain_from_others() {
 
 #[test]
 fn verifying_again_costs_at_most_the_unfinalized_chain_per_view() {
+    use dassie_hub::consensus::MAX_UNFINALIZED_HEIGHTS;
     // Faulty leaders propose to too few to notarize: those few verify a
     // block that is never notarized, and an application that keeps one
     // state lets go of what the next block builds on, so that block's
@@ -1236,7 +1228,13 @@ fn verifying_again_costs_at_most_the_unfinalized_chain_per_view() {
                 })
                 .collect();
             network.lose_every_finalize = true;
-            run_for(&mut network, 30_000);
+            // Long enough for the unfinalized chain to grow as long as it
+            // gets, and a view more: a height in each view an honest
+            // validator leads, and each view over within the advance
+            // timeout.
+            let heights = usize::try_from(MAX_UNFINALIZED_HEIGHTS + 2).unwrap();
+            let views = u64::try_from(heights * count / (count - faults)).unwrap();
+            run_for(&mut network, views * CONFIG.advance_timeout_ms);
             network.lose_every_finalize = false;
             run_for(&mut network, 3_000);
             assert_safe(&network);
@@ -1258,7 +1256,7 @@ fn verifying_again_costs_at_most_the_unfinalized_chain_per_view() {
                 "{count} validators, keeping {keep:?}: {verified} verified in {views} views, \
                  at most {most} in one view"
             );
-            assert!(most <= dassie_hub::consensus::MAX_UNFINALIZED_HEIGHTS + 2);
+            assert!(most <= MAX_UNFINALIZED_HEIGHTS + 2);
         }
     }
 }

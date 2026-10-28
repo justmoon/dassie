@@ -86,10 +86,19 @@ struct Setup {
 
 /// The watcher of `escrow` on the testnet, trusting the fake's validators.
 fn watcher(escrow: AccountId, cursor: Option<EscrowCursor>) -> Watcher {
+    watcher_trusting(escrow, cursor, fake_publishers())
+}
+
+/// The publishers of the fake ledger, as a validator's file names them.
+fn fake_publishers() -> UnlConfig {
     let xrpl = FakeLedger::new();
-    let unl = UnlConfig::for_network(TESTNET_NETWORK)
+    UnlConfig::for_network(TESTNET_NETWORK)
         .and_then(|own| own.with_override(&xrpl.publishers(LIST_SITE)))
-        .unwrap();
+        .unwrap()
+}
+
+/// [`watcher`], trusting the publishers of `unl`.
+fn watcher_trusting(escrow: AccountId, cursor: Option<EscrowCursor>, unl: UnlConfig) -> Watcher {
     Watcher::new(
         escrow,
         TESTNET_NETWORK,
@@ -909,6 +918,52 @@ fn a_lying_server_makes_it_attest_nothing_false() {
     }
 }
 
+// spec/areas/hubs.md#what-validators-attest: a watcher that caught its
+// server lying leaves it, and asks its host for a new connection, saying
+// why; on an honest server it keeps the one it has. Here a deposit reaches
+// the escrow while the server lies: every lie that makes an answer fail to
+// prove is caught. An old anchor only delays what the watcher attests, and
+// history left out hides the deposit from it without a hint to prove: it
+// waits on those, attesting nothing false
+// ([`a_lying_server_makes_it_attest_nothing_false`]).
+#[test]
+fn a_watcher_leaves_a_server_it_caught_lying() {
+    const WAITED: [Lie; 4] = [
+        Lie::OldAnchor,
+        Lie::OlderAnchor,
+        Lie::HistoryNewestLeftOut,
+        Lie::HistoryMiddleLeftOut,
+    ];
+    let scene = |lie: Option<Lie>| {
+        let mut setup = Setup::new();
+        setup.lie = lie;
+        setup.connect();
+        let escrow = setup.escrow();
+        setup.closes(3);
+        setup.xrpl.deposit_tagged(escrow, 2_000_000, Some(9));
+        setup.closes(10);
+        setup
+    };
+    let honest = scene(None);
+    assert_eq!(honest.reconnects, 0, "{:?}", honest.problems);
+    let mut kept = Vec::new();
+    for lie in Lie::ALL.into_iter().filter(|lie| !WAITED.contains(lie)) {
+        let lied = scene(Some(lie));
+        if lied.reconnects == 0 {
+            kept.push(lie);
+            continue;
+        }
+        assert!(
+            lied.problems
+                .iter()
+                .any(|problem| problem.ends_with("connecting anew")),
+            "{lie:?}: {:?}",
+            lied.problems
+        );
+    }
+    assert!(kept.is_empty(), "kept a server telling {kept:?}");
+}
+
 /// A withdrawal's Payment from the escrow at `sequence`, signed by a key
 /// of no signer list: the server refuses it, which the watcher reads as
 /// nothing.
@@ -1626,6 +1681,43 @@ fn a_verifier_kept_on_another_network_is_not_taken_back() {
     assert!(setup.watcher.following());
     assert!(setup.watcher.anchor().is_some());
     assert_eq!(tagged_deposits(&setup), vec![(7, 5_000_000)]);
+}
+
+// spec/areas/hubs.md#the-validator-in-the-node: a state kept under other
+// publishers than the validator trusts now is dropped, anchor and all, so
+// that an anchor the old UNL proved never stops the verifier where the new
+// UNL forks from it: it starts afresh, as on a first start. Publishers
+// that only moved their lists elsewhere are the same ones.
+#[test]
+fn a_verifier_kept_under_other_publishers_starts_afresh() {
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    setup.connect();
+    setup.closes(2);
+    setup.tick(KEEP_VERIFIER_EVERY_MS);
+    let anchor = setup.watcher.verifier().anchor().unwrap();
+    let kept = setup.kept.clone().expect("handed over with the cursor");
+    let escrow = setup.escrow();
+
+    let mut moved = fake_publishers();
+    for publisher in &mut moved.publishers {
+        publisher.sites = vec!["https://lists.elsewhere.test/".into()];
+    }
+    let mut watcher = watcher_trusting(escrow, setup.cursor, moved);
+    let restored = watcher.restore(&kept, Box::new(KeyedSignatures::new(SECRET)), setup.now);
+    assert_eq!(restored, Ok(()));
+    assert_eq!(
+        watcher.verifier().anchor(),
+        Some(anchor),
+        "the same publishers"
+    );
+
+    let others = UnlConfig::for_network(TESTNET_NETWORK).unwrap();
+    assert_ne!(others.publishers, fake_publishers().publishers);
+    let mut watcher = watcher_trusting(escrow, setup.cursor, others);
+    let restored = watcher.restore(&kept, Box::new(KeyedSignatures::new(SECRET)), setup.now);
+    assert_eq!(restored, Err(Unrestored::Publishers));
+    assert_eq!(watcher.verifier().anchor(), None, "afresh");
 }
 
 // spec/decisions/ledger-resets.md: a reset's anchor is handed over at

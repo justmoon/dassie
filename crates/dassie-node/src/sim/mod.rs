@@ -916,6 +916,11 @@ pub struct Sim {
     /// Pairs whose requests do not get through, from the first to the
     /// second.
     pub cut: BTreeSet<(usize, usize)>,
+    /// Pairs whose requests reach the second, whose transport refuses
+    /// them with this status before its engine sees them, as the daemon's
+    /// refuses a sender over its rate, or a body too large or too slow
+    /// (`peer_server.rs`).
+    pub transport_refusals: BTreeMap<(usize, usize), u16>,
     /// While the network is partitioned, the nodes on one side of it: no
     /// request gets from a node on one side to a node on the other.
     pub apart: BTreeSet<usize>,
@@ -1103,6 +1108,7 @@ impl Sim {
             abandoned: Vec::new(),
             outgoing: Vec::new(),
             cut: BTreeSet::new(),
+            transport_refusals: BTreeMap::new(),
             apart: BTreeSet::new(),
             credits,
             settling,
@@ -2220,6 +2226,23 @@ impl Sim {
                 if self.nodes[to].core.is_none() {
                     let delay = self.latency();
                     let result = Err(Failure::NotDelivered);
+                    self.schedule(
+                        delay,
+                        Delivery::Result {
+                            to: from,
+                            generation,
+                            id,
+                            result,
+                        },
+                    );
+                    return;
+                }
+                if let Some(&status) = self.transport_refusals.get(&(from, to)) {
+                    let delay = self.latency();
+                    let result = Ok(Response {
+                        status,
+                        body: b"refused by the transport".to_vec(),
+                    });
                     self.schedule(
                         delay,
                         Delivery::Result {

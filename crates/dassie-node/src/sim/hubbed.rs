@@ -560,7 +560,17 @@ fn form_with_newcomers(sim: &mut Sim) -> Result<(), Outcome> {
     over_hub(sim)
 }
 
-/// Joining a hub by being paid (`node-hub`, spec/designs/settlement-hubs.md#5-joining):
+/// What a seed of [`paid_in`] draws, before the run starts: its network is
+/// fixed, and the seed draws the amounts and the detail.
+#[must_use]
+pub fn describe_paid_in(_seed: u64) -> String {
+    format!(
+        "{NEWCOMER} members of a hub of 4 validators and a newcomer, paid short of the \
+         minimum, then paid in"
+    )
+}
+
+/// Joining a hub by being paid (`node-hub-paid-in`, spec/designs/settlement-hubs.md#5-joining):
 /// [`NEWCOMER`], with no account in the hub, peers with [`PAYER`], a member,
 /// over it. Paid less than the hub's minimum for a new account, it is not
 /// paid in; paid more, its payer pays it in, though both crash around the
@@ -679,7 +689,14 @@ fn check_paid_in(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
-/// Fresh keys cycled through a member (`node-hub`,
+/// What a seed of [`cycled`] draws, before the run starts: its network is
+/// fixed, and the seed draws the amounts and the detail.
+#[must_use]
+pub fn describe_cycled(_seed: u64) -> String {
+    format!("{NEWCOMER} members of a hub of 4 validators, and fresh keys cycled through one")
+}
+
+/// Fresh keys cycled through a member (`node-hub-cycled`,
 /// spec/decisions/hubs-only.md): nodes from [`NEWCOMER`] on, each with no
 /// account in the hub, peer with [`PAYER`], are paid less than the hub's
 /// minimum for a new account, try to spend more than they are owed, and go
@@ -755,63 +772,4 @@ fn script_cycled(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
             .map_err(|problem| Outcome::safety("hub-credit", problem)),
         check_losses(sim).map_err(|problem| Outcome::safety("hub-losses", problem)),
     ])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::sim::hub_checks::check_escrow_in;
-
-    // A withdrawal the escrow paid and the hub has not settled yet: the
-    // hub still owes it until a quorum attests the payment, so the escrow
-    // holds less than the hub owes, by the withdrawal and its fee, and the
-    // check takes that, whatever the node thinks of its move.
-    #[test]
-    fn a_withdrawal_paid_and_not_yet_settled_passes_the_escrow_check() {
-        let mut sim = Sim::with(3, 2, 1, BTreeMap::new(), Settling::Hub(4));
-        sim.loss_per_mille = 0;
-        assert!(
-            sim.run_until_or(START + 600_000, joined),
-            "the members did not join the hub"
-        );
-        // The owner puts enough in for the least payout, whatever the
-        // node's own moves keep there.
-        let least = sim.hub.as_deref().unwrap().rules.terms.fees.least_payout;
-        sim.run_until(sim.now + 30_000);
-        sim.step(0, |core| {
-            core.hub_deposit(2 * least * dassie_xrpl::UNITS_PER_DROP)
-                .unwrap();
-        });
-        let can_pay = |sim: &Sim| {
-            let core = sim.nodes[0].core.as_ref().unwrap();
-            core.hub_status().is_some_and(|status| {
-                status.moving.is_none() && status.balance > 2 * least * dassie_xrpl::UNITS_PER_DROP
-            })
-        };
-        assert!(
-            sim.run_until_or(sim.now + 120_000, can_pay),
-            "the deposit did not land"
-        );
-        check_escrow_in(&sim, 0).unwrap();
-        let hub = sim.hub.as_deref().unwrap();
-        let before = sim.ledger.balance(hub.escrow()).unwrap_or(0);
-        sim.step(0, |core| {
-            core.hub_withdraw(least * dassie_xrpl::UNITS_PER_DROP)
-                .unwrap();
-        });
-        let paid_unsettled = |sim: &Sim| {
-            let hub = sim.hub.as_deref().unwrap();
-            let paid = sim.ledger.balance(hub.escrow()).unwrap_or(0) < before;
-            let queued = hub
-                .ledger()
-                .is_some_and(|ledger| ledger.withdrawals().next().is_some());
-            paid && queued
-        };
-        let deadline = sim.now + 120_000;
-        while !paid_unsettled(&sim) {
-            assert!(sim.now < deadline, "the escrow never paid the withdrawal");
-            sim.run_until(sim.now + 5);
-        }
-        check_escrow_in(&sim, 0).unwrap();
-    }
 }

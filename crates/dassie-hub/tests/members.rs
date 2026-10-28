@@ -2439,6 +2439,8 @@ fn an_operation_refused_while_frozen_goes_again_after_the_thaw_and_applies_once(
 
 // spec/decisions/token-hubs.md: a frozen hub still pays claims for the
 // packets a payee took before the freeze, whose payer's claims do not come.
+// Across the freeze and the thaw, neither member loses anything on the
+// other but the fees of its own claims.
 #[test]
 fn claims_for_packets_taken_before_the_freeze_go_on() {
     let (mut world, a, b) = World::token_pair([Fault::Honest; 4], 2);
@@ -2461,6 +2463,15 @@ fn claims_for_packets_taken_before_the_freeze_go_on() {
     for i in [a, b] {
         assert_eq!(world.members[i].scheme.balance(), world.truth(i));
         assert_eq!(world.members[i].books.suspense, 0);
+    }
+    world.validators.freeze(false);
+    world.run(3_000);
+    assert!(world.validators.ledger.frozen().is_none());
+    for i in [a, b] {
+        for cause in [LossCause::PaidLate, LossCause::Cheated] {
+            assert_eq!(world.members[i].books.lost(cause), 0, "{i}: {cause:?}");
+        }
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
     }
     assert!(world.members[a].books.losses.is_empty());
 }

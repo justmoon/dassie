@@ -809,21 +809,28 @@ fn a_hold_with_funds_keeps_the_channel() {
     scheme.check_invariants();
 }
 
+// spec/areas/hubs.md#in-the-node: a settlement message over a hub is a
+// bare notice, whatever amount it states: the node neither checks nor
+// books it, and the hub says what arrived.
 #[test]
 fn the_scheme_books_nothing_on_its_own() {
     let hub = Hub::new();
     let account = hub.account();
     let mut scheme = HubScheme::new(&account, 100_000_000, None, &[]).unwrap();
+    assert!(!scheme.books_messages());
+    assert_eq!(scheme.books_messages(), HubScheme::BOOKS_MESSAGES);
     let mut effects = Vec::new();
     assert_eq!(
         scheme.deposit(5, &mut effects),
         Err(SchemeError::Unsupported)
     );
     let peer = Name::new("peer").unwrap();
-    assert_eq!(
-        scheme.handle_settlement(peer, 5, &[0; 16], &[], &mut effects),
-        Ok(())
-    );
+    for amount in [0, 5, u64::MAX] {
+        assert_eq!(
+            scheme.handle_settlement(peer, amount, &[0; 16], &[], &mut effects),
+            Ok(())
+        );
+    }
     assert_eq!(
         scheme.handle_settlement(peer, 5, &[0; 3], &[], &mut effects),
         Err(SchemeError::InvalidData)
@@ -1473,9 +1480,9 @@ fn a_scheme_state_of_version_1_reads_with_no_unread_pays() {
     let hub = Hub::new();
     let (account, scheme) = synced_scheme(&hub);
     let state = scheme.state();
-    assert_eq!(state.first(), Some(&2));
-    let (body, count) = state.split_at(state.len() - 4);
-    assert_eq!(count, [0; 4], "no unread pays");
+    assert_eq!(state.first(), Some(&3));
+    let (body, rest) = state.split_at(state.len() - 5);
+    assert_eq!(rest, [0; 5], "no unread pays, no shutdown");
     let mut old = body.to_vec();
     old[0] = 1;
     let restored = HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &old).unwrap();
@@ -2451,7 +2458,9 @@ fn the_end_of_a_long_answer_names_no_stall() {
 
 // spec/designs/settlement-hubs.md#9-shutdown: a hub shutting down takes no
 // settlement, so once an operation that touched the account failed for the
-// shutdown, the scheme can no longer receive. A hub never runs again after.
+// shutdown, the scheme can no longer receive. A hub never runs again after,
+// so the scheme keeps that with its state: a restart does not claim it can
+// receive again until the next operation fails.
 #[test]
 fn a_hub_shutting_down_cannot_receive() {
     let hub = Hub::new();
@@ -2496,4 +2505,27 @@ fn a_hub_shutting_down_cannot_receive() {
     }
     scheme.on_asset(2_000, &mut account, &mut effects);
     assert!(!scheme.can_receive(), "a hub shut down runs again");
+    // A restart.
+    let state = scheme.state();
+    let account = HubAccount::new(
+        FIRST,
+        hub.rules.clone(),
+        Arc::clone(&hub.key),
+        Destination {
+            account: [5; 20],
+            tag: None,
+        },
+        Name::new(SCHEME_ID).unwrap(),
+        &account.state(),
+    )
+    .unwrap();
+    let restarted = HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &state).unwrap();
+    assert_eq!(restarted.state(), state, "the scheme's state round-trips");
+    assert!(!restarted.can_receive(), "a restart forgot the shutdown");
+    // A state of the version before, which kept no shutdown, reads as
+    // knowing of none.
+    let mut before = state[..state.len() - 1].to_vec();
+    before[0] = 2;
+    let older = HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &before).unwrap();
+    assert!(older.can_receive());
 }

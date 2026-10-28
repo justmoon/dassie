@@ -3,11 +3,11 @@
 //! settle once the peer is close to the credit it extends, and settles half
 //! the way to its own trigger when a peer asks it. A settlement is prepared,
 //! booked as a durable pending transfer, executed once that is on disk, and
-//! announced to the peer once it executed. Incoming settlements are booked
-//! before the scheme sees them. Each settlement method of a peering does
-//! all of it on its own ledger: its own position, credit, requests and
-//! backoff, while the settlement channel, one message at a time, is the
-//! pair's (spec/decisions/settlement-methods.md).
+//! posted and announced to the peer once it executed. Incoming settlements
+//! are booked before the scheme sees them. Each settlement method of a
+//! peering does all of it on its own ledger: its own position, credit,
+//! requests and backoff, while the settlement channel, one message at a
+//! time, is the pair's (spec/decisions/settlement-methods.md).
 
 use std::collections::BTreeMap;
 
@@ -66,9 +66,14 @@ pub(super) struct Settlements {
     /// settlements on it, and how many in a row: a method whose ledger
     /// cannot pay holds up no other.
     pub backoff: BTreeMap<(NodeId, SchemeId), (u64, u32)>,
-    /// Settlements that executed while an earlier one to the same peer was
-    /// still being announced: posted and announced once that one arrives.
-    pub announce: Vec<(Name, Name)>,
+    /// The messages of our settlements, posted as they executed while an
+    /// earlier message to the same peer was on its way: each goes once the
+    /// ones before it to that peer arrived, in order. Bare notices, on
+    /// schemes whose messages book nothing: in memory, since one a restart
+    /// drops costs nothing. One whose message books waits here only if it
+    /// found the channel busy all the same, which `can_settle` keeps from
+    /// happening.
+    pub notices: Vec<Notice>,
     /// When each scheme last said it cannot settle.
     pub unavailable_warned: BTreeMap<Name, u64>,
     /// Whether this node lies that it never settles, in a simulation.
@@ -100,7 +105,7 @@ impl Settlements {
             settling: BTreeMap::new(),
             to_execute: Vec::new(),
             backoff: BTreeMap::new(),
-            announce: Vec::new(),
+            notices: Vec::new(),
             unavailable_warned: BTreeMap::new(),
             never_settles: false,
             sends_no_claims: false,
@@ -118,6 +123,20 @@ pub(super) struct Settling {
     /// Its pending transfer.
     pub transfer: TransferId,
     /// How much.
+    pub amount: u64,
+    /// What the scheme gave to send the peer.
+    pub message: Vec<u8>,
+}
+
+/// The message of one of our settlements, posted already, waiting for an
+/// earlier message to its peer to arrive.
+#[derive(Clone, Debug)]
+pub(super) struct Notice {
+    /// The peer it goes to.
+    pub peer: NodeId,
+    /// The method the settlement was on.
+    pub scheme: SchemeId,
+    /// What the settlement moved, which the message states.
     pub amount: u64,
     /// What the scheme gave to send the peer.
     pub message: Vec<u8>,
@@ -196,7 +215,7 @@ impl Core {
     }
 
     /// Checks every peer, asking those near the credit we extend to settle,
-    /// and announces settlements that waited for an earlier one.
+    /// and sends the notices that waited for an earlier message.
     pub(super) fn settlement_timers(&mut self) {
         let now = self.now_ms;
         if self.settle.at_ms > now {
@@ -209,7 +228,7 @@ impl Core {
         if self.settle.never_settles {
             return;
         }
-        self.announce_deferred();
+        self.send_notices();
     }
 
     /// Tells the peer protocol which peers our books leave short of room
@@ -593,10 +612,10 @@ impl Core {
     }
 
     /// What is on its way to `node` on `scheme`, in its ledger's units: our
-    /// settlements still pending in that ledger (prepared, executing, or
-    /// waiting to be announced), and the one announced on it that the node
-    /// has not yet acknowledged. Other schemes' are in other units, and are
-    /// not the answer.
+    /// settlements still pending in that ledger (prepared or executing),
+    /// those posted whose messages wait to go, and the one announced on it
+    /// that the node has not yet acknowledged. Other schemes' are in other
+    /// units, and are not the answer.
     fn settling_to(&self, node: &NodeId, scheme: SchemeId) -> u64 {
         let ledger = Name::new(scheme.as_str())
             .ok()
@@ -613,13 +632,20 @@ impl Core {
             })
             .map(|transfer| transfer.amount)
             .sum();
+        let waiting: u64 = self
+            .settle
+            .notices
+            .iter()
+            .filter(|notice| notice.peer == *node && notice.scheme == scheme)
+            .map(|notice| notice.amount)
+            .sum();
         let announced = self
             .peer
             .channel(node)
             .and_then(|channel| channel.outbox.as_ref())
             .filter(|outbox| outbox.scheme == scheme)
             .map_or(0, |outbox| outbox.amount);
-        pending.saturating_add(announced)
+        pending.saturating_add(waiting).saturating_add(announced)
     }
 
     /// `amount`, less what `scheme`'s ledger cannot move.
@@ -633,24 +659,55 @@ impl Core {
 
     /// Whether we may settle with `node` on its method on `scheme` now: we
     /// hold a channel with it, and no message of ours is on its way over
-    /// it, the channel being the pair's; and on that method no settlement
-    /// of ours is in progress or still pending from before a restart, and
-    /// no cancelled one holds it off (spec/decisions/settlement-methods.md).
+    /// it or waits to go, the channel being the pair's; on that method no
+    /// settlement of ours is in progress or still pending from before a
+    /// restart, and no cancelled one holds it off
+    /// (spec/decisions/settlement-methods.md). A settlement on a scheme
+    /// whose messages book is posted with its message, so it must find the
+    /// channel free once it executes: it is made only while no settlement
+    /// of ours to the node is pending on any method, and holds every other
+    /// method off until it is posted
+    /// (spec/areas/settlement.md#outgoing-settlements).
     pub(super) fn can_settle(&self, node: &NodeId, scheme: SchemeId) -> bool {
         let on = |of: &Name| of.as_str() == scheme.as_str();
+        let books = Name::new(scheme.as_str()).is_ok_and(|name| self.books_messages(name));
         self.peer.channel(node).is_some()
             && !self.peer.settling(node)
+            && !self.waiting_notices_to(node)
             && !self
                 .settle
                 .settling
                 .iter()
                 .any(|((of, _), settling)| settling.peer == *node && on(of))
             && !self.pending_settlement_to(node, scheme)
+            && !self
+                .pending_settlements_to(node)
+                .any(|of| books || self.books_messages(of))
             && self
                 .settle
                 .backoff
                 .get(&(*node, scheme))
                 .is_none_or(|(until, _)| *until <= self.now_ms)
+    }
+
+    /// Whether a `settlement` message on `scheme` books what it states, as
+    /// the stub's; one the node does not run is taken to.
+    fn books_messages(&self, scheme: Name) -> bool {
+        self.schemes
+            .get(&scheme)
+            .is_none_or(|active| active.scheme.books_messages())
+    }
+
+    /// The schemes of our settlement transfers to `node` pending in the
+    /// ledger, one for each.
+    fn pending_settlements_to<'a>(&'a self, node: &'a NodeId) -> impl Iterator<Item = Name> + 'a {
+        self.ledger
+            .pending_transfers()
+            .filter(|transfer| self.settles_to(transfer, node))
+            .filter_map(|transfer| match transfer.reference {
+                Reference::Settlement { scheme, .. } => Some(scheme),
+                _ => None,
+            })
     }
 
     /// Whether a settlement transfer to `node` on `scheme` is pending in
@@ -987,9 +1044,20 @@ impl Core {
         })
     }
 
-    /// Our settlement executed: its transfer is posted, and the peer is
-    /// told, until it has heard; both in one batch. If an earlier message
-    /// to the peer is still on its way, both wait until it arrives.
+    /// Our settlement executed: its transfer is posted at once, and the
+    /// peer is told, until it has heard. The scheme forgot the settlement
+    /// as it finalized it, so it is never left pending, for a restart to
+    /// hand back to a scheme that would cancel it as never sent. Its
+    /// message goes once the messages before it to the peer arrived, in
+    /// order: on a scheme whose messages book nothing, as a hub's, a bare
+    /// notice that may wait. On one whose messages book, it finds the
+    /// channel free and goes in the batch that posts it
+    /// ([`Self::can_settle`]); should it find the channel busy all the
+    /// same, as one pending from before a restart can when its scheme
+    /// finalizes it beside another method's message from then, it waits
+    /// as a notice does, and is reported, never stopping the node: a
+    /// restart before it goes loses it on the peer's side
+    /// (spec/areas/settlement.md#outgoing-settlements).
     // Panics only on a broken invariant: a settling transfer is pending.
     #[allow(clippy::panic)]
     pub(super) fn settlement_done(&mut self, scheme: Name, id: Name) {
@@ -997,12 +1065,10 @@ impl Core {
             self.report(SettlementEvent::UnknownExecuted { scheme, id });
             return;
         };
-        if self.peer.settling(&settling.peer) {
-            self.settle.settling.insert((scheme, id), settling);
-            if !self.settle.announce.contains(&(scheme, id)) {
-                self.settle.announce.push((scheme, id));
-            }
-            return;
+        let peer = settling.peer;
+        let waits = self.peer.settling(&peer) || self.waiting_notices_to(&peer);
+        if waits && self.books_messages(scheme) {
+            self.report(SettlementEvent::MessageWaits { peer, scheme });
         }
         // Settlements in flight are pending transfers, and the journal has
         // room once taken.
@@ -1014,28 +1080,61 @@ impl Core {
         let Some(scheme_id) = SchemeId::parse(scheme.as_str()) else {
             return;
         };
-        self.settle.backoff.remove(&(settling.peer, scheme_id));
-        let peer = settling.peer;
-        // A bare notice states no amount: the peer's ledger says what
-        // arrived.
-        let books = self
-            .schemes
-            .get(&scheme)
-            .is_none_or(|active| active.scheme.books_messages());
-        let stated = if books { settling.amount } else { 0 };
-        if let Err(error) =
-            self.peer
-                .send_settlement(self.now_ms, &peer, scheme_id, stated, settling.message)
-        {
-            self.report(SettlementEvent::AnnounceFailed { peer, error });
+        self.settle.backoff.remove(&(peer, scheme_id));
+        let notice = Notice {
+            peer,
+            scheme: scheme_id,
+            amount: settling.amount,
+            message: settling.message,
+        };
+        if waits {
+            self.settle.notices.push(notice);
+        } else {
+            self.send_notice(notice);
         }
     }
 
-    /// Posts and announces the settlements that waited for an earlier
-    /// message to arrive.
-    fn announce_deferred(&mut self) {
-        for (scheme, id) in std::mem::take(&mut self.settle.announce) {
-            self.settlement_done(scheme, id);
+    /// Whether a notice to `peer` waits to go.
+    fn waiting_notices_to(&self, peer: &NodeId) -> bool {
+        self.settle
+            .notices
+            .iter()
+            .any(|notice| notice.peer == *peer)
+    }
+
+    /// Sends the notices whose peers' channels are free, each the first
+    /// waiting for its peer, with this step's outputs; the others wait on,
+    /// in order.
+    fn send_notices(&mut self) {
+        if self.settle.notices.is_empty() {
+            return;
+        }
+        for notice in std::mem::take(&mut self.settle.notices) {
+            if self.peer.settling(&notice.peer) || self.waiting_notices_to(&notice.peer) {
+                self.settle.notices.push(notice);
+            } else {
+                self.send_notice(notice);
+            }
+        }
+        self.after_peer();
+    }
+
+    /// Sends `notice` over its peer's channel, which is free, stating the
+    /// settlement's amount: what the peer books on a scheme whose messages
+    /// book, and only what is on its way on one whose messages book
+    /// nothing, where the peer neither checks nor books it.
+    fn send_notice(&mut self, notice: Notice) {
+        let Notice {
+            peer,
+            scheme,
+            amount,
+            message,
+        } = notice;
+        if let Err(error) = self
+            .peer
+            .send_settlement(self.now_ms, &peer, scheme, amount, message)
+        {
+            self.report(SettlementEvent::AnnounceFailed { peer, error });
         }
     }
 
@@ -1146,6 +1245,9 @@ impl Core {
             .scheme
             .handle_settlement(name, amount, data, &state, &mut effects)
             .map_err(|error| refused(&error.to_string()))?;
+        // A bare notice states nothing that counts: whatever its amount
+        // says, it is taken as 0, as it books nothing.
+        let amount = if books { amount } else { 0 };
         self.report(SettlementEvent::PeerSettled { from, amount });
         self.apply_effects(scheme, ledger, &effects)
     }

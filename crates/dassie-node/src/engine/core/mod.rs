@@ -614,9 +614,9 @@ impl Core {
     pub fn deadline(&self) -> Option<u64> {
         let receiver = self.receivers.values().filter_map(Receiver::deadline).min();
         let settlement = self.peer.peers().next().map(|_| self.settle.at_ms);
-        // With no peer left, a settlement waiting to be announced keeps the
-        // settlement check due.
-        let announcing = (!self.settle.announce.is_empty()).then_some(self.settle.at_ms);
+        // With no peer left, a notice waiting to go keeps the settlement
+        // check due.
+        let announcing = (!self.settle.notices.is_empty()).then_some(self.settle.at_ms);
         [
             self.connector.poll_timeout(),
             receiver,
@@ -1003,18 +1003,18 @@ fn check_bounds(policies: &Policies) {
         policies.peer_credit <= dassie_ledger::MAX_TOTAL,
         "the credit fits the ledger"
     );
-    // A payer over a hub asked with nothing held funds half the way from
-    // this credit down to its trigger, and nothing less than the least
-    // settlement: with less credit, a request would fund nothing, and a
-    // payee would ask for ever (spec/areas/settlement.md#credit).
-    let max_packet = connector.max_packet_amount;
+    // Less, and a hub link could stop settling after one crash: its drift,
+    // up to what was in flight, would leave a payer asked, which counts this
+    // credit whatever its hold, less than the minimum to fund; and with
+    // much less, a request would fund nothing even without a crash
+    // (spec/areas/settlement.md#credit).
+    let least = dassie_settlement::policy::least_credit(
+        connector.max_packet_amount,
+        connector.max_in_flight(),
+    );
     assert!(
-        dassie_settlement::policy::requested_amount(
-            u128::from(policies.peer_credit),
-            dassie_settlement::policy::trigger(max_packet),
-            dassie_settlement::policy::minimum(max_packet),
-        ) > 0,
-        "a request to settle over a hub funds the hold"
+        policies.peer_credit >= least,
+        "the default credit survives a crash"
     );
     // A request that never arrived is asked again at the next check; one
     // whose fate is unknown, or that the peer refused, only after a request

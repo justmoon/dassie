@@ -260,11 +260,14 @@ impl Core {
                 .iter()
                 .find(|info| info.id == id.as_str())
                 .map(|info| info.ledger);
-            // The tests' second stub, which a test restarts with.
+            // The tests' second and third stubs, and their scheme on the XRP
+            // hub's ledger, which tests restart with.
             #[cfg(test)]
-            let known = known.or_else(|| {
-                (id.as_str() == super::tests::STUB_TWO).then_some(LedgerId::HubXrplTestnetXrp)
-            });
+            let known = known
+                .or_else(|| super::tests::StubTwo::of(id.as_str()).map(|(l, _)| l))
+                .or_else(|| {
+                    (id.as_str() == super::tests::XRP_HUB).then_some(LedgerId::HubXrplTestnetXrp)
+                });
             let Some(ledger) = known else {
                 return Err(format!("settlement scheme {id}: unknown to this version"));
             };
@@ -377,6 +380,9 @@ impl Core {
         if new {
             self.batch.schemes_added.push((id, config));
         }
+        if unlimited {
+            self.raise_to_unlimited(ledger);
+        }
         self.schemes.insert(
             id,
             ActiveScheme {
@@ -405,6 +411,43 @@ impl Core {
         self.add_receiver(ledger)?;
         self.add_payer(ledger)?;
         Ok(ledger)
+    }
+
+    /// Raises every peer's credit on `ledger`, a scheme's with unlimited
+    /// trust, to the unlimited credit: a peering stored from when the stub
+    /// without a config settled, and kept a finite credit, would otherwise
+    /// run short, as a new one never does
+    /// (spec/areas/settlement.md#the-stub-scheme).
+    // Panics only on a broken invariant: a peer's trust account has its
+    // `assets/interledger` beside it, which takes any credit up to the
+    // unlimited one.
+    #[allow(clippy::panic)]
+    fn raise_to_unlimited(&mut self, ledger: LedgerId) {
+        let unlimited = dassie_settlement::policy::UNLIMITED_CREDIT;
+        let short: Vec<(Name, u64)> = self
+            .ledger
+            .accounts()
+            .filter_map(|(_, account)| {
+                let path = account.path();
+                let AccountName::ContraTrust(peer) = path.name else {
+                    return None;
+                };
+                let credit = dassie_settlement::policy::trust(account.balance());
+                (path.ledger == ledger && credit < unlimited).then_some((peer, unlimited - credit))
+            })
+            .collect();
+        let now = self.now_ms();
+        for (peer, amount) in short {
+            // Each write finds the journal empty: what came before is in
+            // the batch.
+            self.take_journal();
+            if let Err(error) =
+                super::trust::raise_trust(&mut self.ledger, now, ledger, peer, amount)
+            {
+                panic!("a peer's credit could not be raised to the unlimited credit: {error}");
+            }
+        }
+        self.take_journal();
     }
 
     /// Opens the accounts of `scheme`'s ledger and books the difference
