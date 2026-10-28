@@ -124,7 +124,7 @@ export async function held(
 }
 
 /**
- * The port `node`'s discovery document names for its feed, if it names one.
+ * The port `node`'s discovery document names for its snapshot, if it names one.
  */
 export async function feedPort(
   scenario: Scenario,
@@ -144,7 +144,7 @@ export async function feedPort(
   }
 }
 
-/** Whether `node` has fresh rates for XRP and dollars, which its feed
+/** Whether `node` has fresh rates for XRP and dollars, which its snapshot
  * prices its hubs' ledgers at. */
 export async function freshRates(node: ScenarioNode): Promise<boolean> {
   const { rates } = await node.rpc.call("listLedgers", {});

@@ -9,9 +9,9 @@
  * from its owner books, and peers with d1 over the hub they share.
  *
  * d1 lacks DSUSD, so its curve takes DSUSD in at better than spot
- * (spec/areas/connector.md#inventory-pricing), and its feed says so
+ * (spec/areas/connector.md#inventory-pricing), and its snapshot says so
  * (spec/areas/rate-feed.md). `dassie market-maker`, from the e2e build,
- * reads the feed, pays DSUSD over the DSUSD hub from its DSUSD node
+ * reads the snapshot, pays DSUSD over the DSUSD hub from its DSUSD node
  * through d1, which converts it, to its XRP node over the XRP hub, and once
  * that node holds more XRP than its band, swaps it back into DSUSD through
  * the pool from its owner book (spec/areas/rate-feed.md#market-maker). So
