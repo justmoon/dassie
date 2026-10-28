@@ -140,11 +140,10 @@ fn a_payment_beyond_the_hub_waits_for_its_deposit() {
     );
     let spendable = core.owner_available(LedgerId::XrplTestnetXrp) / UNITS_PER_DROP;
     let fee = dassie_xrpl::account::MAX_FEE_DROPS;
-    let gas = 2 * super::super::hub_funding::LEAST_ESCROW_GAS_DROPS;
     assert_eq!(
         core.hub_refill(LedgerId::HubXrplTestnetXrp),
-        u128::from(spendable - fee - gas) * u128::from(UNITS_PER_DROP),
-        "a deposit the hub booked counts once, the gas kept back"
+        u128::from(spendable.saturating_sub(fee)) * u128::from(UNITS_PER_DROP),
+        "a deposit the hub booked counts once, no gas kept back without a token hub"
     );
     for step in 0.. {
         wait_and_close(&mut core, &mut ledger, 1_000);

@@ -101,6 +101,27 @@ pub const fn hub_step(max_packet: u64) -> u64 {
     hub_target(max_packet) / 10
 }
 
+/// The least a node keeps spendable in its settlement hub, whatever it
+/// keeps there in all: for each of its peerings over the hub, and for one
+/// while it has none, the most one request to settle has it fund the hold
+/// toward the peer. A payer over a hub settles as if it extended the
+/// default `credit`, with its hold counted as paid in advance, so a request
+/// takes at most what [`requested_amount`] gives at that credit, and never
+/// less than the least settlement. At most half a [`hub_step`], so that a
+/// withdrawal down to it still carries many packets' worth. Its holds
+/// toward peers count toward the [`hub_target`], so without it a node whose
+/// holds alone reach the target could withdraw what it can spend and never
+/// deposit again (spec/decisions/generous-hub-target.md).
+#[must_use]
+pub fn hub_spendable(max_packet: u64, credit: u64, peerings: u64) -> u64 {
+    let asked = requested_amount(u128::from(credit), trigger(max_packet), minimum(max_packet));
+    let each = asked.max(minimum(max_packet));
+    let peerings = if peerings == 0 { 1 } else { peerings };
+    let least = each.saturating_mul(peerings);
+    let most = hub_step(max_packet) / 2;
+    if least < most { least } else { most }
+}
+
 /// Below this, the node deposits from its own account back up to the
 /// [`hub_target`]: the target less a [`hub_step`].
 #[must_use]
@@ -258,6 +279,25 @@ mod tests {
         assert_eq!(hub_step(P), 100 * P);
         assert_eq!((hub_floor(P), hub_ceiling(P)), (900 * P, 1_100 * P));
         assert_eq!(hub_floor(P).midpoint(hub_ceiling(P)), hub_target(P));
+    }
+
+    // spec/decisions/generous-hub-target.md: whatever it keeps in its hub,
+    // a node keeps spendable, per peering over it, what one request to
+    // settle has a payer fund at the default credit of eleven packets: half
+    // the way down to the trigger, 4.75 packets; one peering's worth with
+    // none, never less than the least settlement, and at most half a step:
+    // ten peerings are covered fully.
+    #[test]
+    fn the_hub_keeps_what_requests_need_spendable() {
+        assert_eq!(hub_spendable(P, C, 0), 475 * P / 100);
+        assert_eq!(hub_spendable(P, C, 1), 475 * P / 100);
+        assert_eq!(hub_spendable(P, C, 10), 475 * P / 10);
+        assert_eq!(hub_spendable(P, C, 11), 50 * P);
+        assert_eq!(
+            hub_spendable(P, 0, 2),
+            2 * P,
+            "at least the least settlement"
+        );
     }
 
     #[test]

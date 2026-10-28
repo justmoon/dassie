@@ -51,19 +51,6 @@ fn book_fee(ledger: LedgerId) -> u64 {
     }
 }
 
-/// What the node's own deposits leave in the owner book on `ledger`, in the
-/// book asset's smallest unit: from the XRP book, the gas the account's
-/// other payments spend, a token book's fees and a token hub escrow's
-/// least gas, twice over, since a deposit may otherwise take all of it;
-/// nothing from a token's (spec/decisions/generous-hub-target.md).
-fn gas_kept(ledger: LedgerId) -> u64 {
-    if ledger.asset().code == "XRP" {
-        LEAST_ESCROW_GAS_DROPS.saturating_mul(2)
-    } else {
-        0
-    }
-}
-
 /// `smallest` of the asset of the hub of `scheme`, in its smallest unit at
 /// scale 6, for the owner to read as the command line shows it: `2.5 XRP`,
 /// `0.000001 DSUSD`. The asset is the last word of the scheme's ID
@@ -654,6 +641,12 @@ impl Core {
         let fees = terms.fees;
         let (floor, ceiling) = self.hub_limits();
         let (floor, ceiling) = (drops_up(floor), ceiling / UNITS_PER_DROP);
+        let peerings = u64::try_from(self.hub_peerings(scheme).len()).unwrap_or(u64::MAX);
+        let least_spendable = drops_up(policy::hub_spendable(
+            self.settle.max_packet,
+            self.peer_credit,
+            peerings,
+        ));
         let unfunded = active
             .asset
             .and_then(|asset| self.assets.get(&asset))
@@ -678,6 +671,7 @@ impl Core {
             unavailable,
             floor,
             ceiling,
+            least_spendable,
             opening: fees
                 .account_reserve
                 .saturating_add(fees.starting_balance)
@@ -691,7 +685,7 @@ impl Core {
                 .and_then(|book| self.book_spendable(book)),
             gas_kept: self
                 .owner_book(scheme)
-                .map_or(0, |(_, ledger)| gas_kept(ledger)),
+                .map_or(0, |(_, ledger)| self.gas_kept(ledger)),
             hub_owner: self.owner_available(active.scheme.ledger()) / UNITS_PER_DROP,
             hub_posted: self.owner_posted(active.scheme.ledger()) / UNITS_PER_DROP,
             // A hub that shut down, stalled or has not made progress
@@ -726,6 +720,25 @@ impl Core {
         Some(funds.saturating_sub(book_fee(ledger)))
     }
 
+    /// What the node's own deposits leave in the owner book on `ledger`, in
+    /// the book asset's smallest unit: from the XRP book of a network
+    /// whose token hub the node is in, the gas that hub's escrow and the
+    /// token book's payments spend, a token hub escrow's least gas twice
+    /// over, since a deposit may otherwise take all of it; nothing
+    /// otherwise, where the XRP pays for nothing else
+    /// (spec/decisions/generous-hub-target.md).
+    pub(super) fn gas_kept(&self, ledger: LedgerId) -> u64 {
+        let pays_gas = self.schemes.values().any(|active| {
+            let hub = active.scheme.ledger();
+            hub.asset().code != "XRP" && gas_book_ledger(hub) == Some(ledger)
+        });
+        if pays_gas {
+            LEAST_ESCROW_GAS_DROPS.saturating_mul(2)
+        } else {
+            0
+        }
+    }
+
     /// What the owner book can still move into the hub that books `ledger`
     /// for the owner's payments, in the ledger's units: what the book can
     /// spend, and a deposit on its way as the prices count it, held on the
@@ -750,7 +763,7 @@ impl Core {
         let spendable = self
             .book_spendable(book)
             .unwrap_or(0)
-            .saturating_sub(gas_kept(book.1));
+            .saturating_sub(self.gas_kept(book.1));
         let on_its_way: u128 = self
             .moves_on_their_way()
             .into_iter()

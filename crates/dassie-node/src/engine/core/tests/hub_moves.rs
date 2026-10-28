@@ -264,6 +264,28 @@ fn dsusd_core(ledger: &mut FakeLedger, hub: &mut Hub, balance: u64) -> Core {
     core
 }
 
+// spec/decisions/generous-hub-target.md: the node's own deposits leave
+// the gas of a token hub in the XRP book of its network, and none where the
+// node is in no token hub, whose XRP pays for nothing else.
+#[test]
+fn the_xrp_book_keeps_gas_only_for_a_token_hub() {
+    let (mut ledger, _) = super::funded_ledger();
+    let mut hub = Hub::new(DSUSD_SCHEME_ID, TESTNET.id, DSUSD);
+    let core = dsusd_core(&mut ledger, &mut hub, 1_000_000);
+    let gas = 2 * super::super::hub_funding::LEAST_ESCROW_GAS_DROPS;
+    assert_eq!(core.gas_kept(LedgerId::XrplTestnetXrp), gas);
+    assert_eq!(core.gas_kept(LedgerId::XrplXrp), 0, "another network");
+    assert_eq!(core.gas_kept(LedgerId::XrplTestnetDsusdUsd), 0, "a token's");
+
+    let mut alone = super::core(9);
+    super::add_xrpl(&mut alone, "xrpl-testnet-xrp", super::SHARED_CONFIG).unwrap();
+    super::follow_xrpl(&mut alone, &mut ledger);
+    alone
+        .add_scheme(dassie_hub::member::SCHEME_ID, super::hub_config(600, 300))
+        .unwrap();
+    assert_eq!(alone.gas_kept(LedgerId::XrplTestnetXrp), 0, "no token hub");
+}
+
 // spec/areas/hubs.md#a-frozen-hub, spec/decisions/token-hubs.md: while the
 // validators say the issuer froze a token hub's escrow, its account is no
 // longer in step and nothing moves into or out of it, the owner's moves

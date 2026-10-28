@@ -17,9 +17,12 @@
 //!   funds in the hub, and only funds truly in excess stay on the owner's
 //!   own account (spec/decisions/one-balance-per-asset.md). Our peers'
 //!   holds toward us count nowhere: they are theirs until the node takes
-//!   them, and what it takes joins the balance, which alone takes the hub
-//!   past the ceiling. The XRP book keeps back the gas the account's other
-//!   payments spend. A withdrawal is sized from what the account can still
+//!   them, and what it takes joins the balance. Whatever it keeps, the balance never stays below
+//!   what the requests to settle may ask of it at once
+//!   (`policy::hub_spendable`): a deposit brings it back, past the ceiling
+//!   if the holds keep the hub there, and a withdrawal never takes it. The
+//!   XRP book of a network whose token hub the node is in keeps back that
+//!   hub's gas. A withdrawal is sized from what the account can still
 //!   spend once the operations ahead of it executed, as the hub scheme
 //!   pays it ([`Standing::spendable`]), never from an agreed state older
 //!   than they are (spec/decisions/hub-move-races.md).
@@ -264,6 +267,9 @@ pub struct Standing {
     pub floor: u64,
     /// Above this, the node withdraws back down to the target.
     pub ceiling: u64,
+    /// The least the account keeps spendable, whatever it keeps in all: what
+    /// one request to settle from each peering over the hub may ask of it.
+    pub least_spendable: u64,
     /// What opening the account takes before anything is kept in it: its
     /// reserve and the fees of its first operations.
     pub opening: u64,
@@ -279,8 +285,8 @@ pub struct Standing {
     /// The owner's funds in the owner book of the hub's asset a deposit
     /// may take, after its fee; `None` while the book does not run synced.
     pub xrpl: Option<u64>,
-    /// What the node's own deposits leave of them: the gas the XRPL
-    /// account's other payments spend, kept in the XRP book.
+    /// What the node's own deposits leave of them: in the XRP book of a
+    /// network whose token hub the node is in, that hub's gas.
     pub gas_kept: u64,
     /// The owner's funds on the hub's ledger: what a withdrawal may take,
     /// with its fees. What the hub account holds beyond them is owed to
@@ -532,7 +538,11 @@ impl Funding {
     /// the hub counts as gone from it already: a deposit brings the rest
     /// back to the target, past the ceiling by what they need, and a
     /// withdrawal takes nothing they need
-    /// (spec/decisions/one-balance-per-asset.md). Payments the owner's
+    /// (spec/decisions/one-balance-per-asset.md). The balance never stays
+    /// below what the requests to settle may ask of it at once
+    /// ([`Standing::least_spendable`]): a deposit brings it back, past the
+    /// ceiling if the holds toward peers keep the hub there, and a
+    /// withdrawal leaves it. Payments the owner's
     /// funds in the hub cannot cover are not held back by the owner's
     /// pause, but then the deposit fills no more than the floor and what
     /// they need, so it undoes nothing the owner moved. A deposit takes
@@ -558,26 +568,36 @@ impl Funding {
             return opening(standing).filter(|_| !backing_off(Direction::Deposit));
         };
         let middle = standing.floor.midpoint(standing.ceiling);
-        if held.kept < standing.floor.saturating_add(promised) || deficit > 0 {
+        // What the balance lacks of what the requests to settle may ask of
+        // it at once, with what the payments need: the holds toward peers
+        // count toward the target, so they may keep the hub at the floor or
+        // past the ceiling with next to nothing spendable.
+        let short = standing
+            .least_spendable
+            .saturating_add(promised)
+            .saturating_sub(held.balance);
+        let low = held.kept < standing.floor.saturating_add(promised);
+        if low || deficit > 0 || short > 0 {
             if backing_off(Direction::Deposit) {
                 return None;
             }
+            let needed = deficit.max(short);
             let target = if paused { standing.floor } else { middle };
             let room = standing
                 .ceiling
                 .saturating_add(promised)
                 .saturating_sub(held.kept)
-                .max(deficit);
+                .max(needed);
             let drops = target
                 .saturating_add(promised)
                 .saturating_sub(held.kept)
-                .max(deficit)
+                .max(needed)
                 .min(room)
                 .min(standing.xrpl?.saturating_sub(standing.gas_kept));
             // A deposit is worth its fees from a largest packet on, but
-            // one a payment waits for goes however small.
-            let least = if deficit > 0 {
-                deficit.min(standing.least_deposit)
+            // one a payment or a request waits for goes however small.
+            let least = if needed > 0 {
+                needed.min(standing.least_deposit)
             } else {
                 standing.least_deposit
             };
@@ -763,19 +783,23 @@ impl Funding {
 /// down to `middle`, if it is at least what the hub pays out: never more
 /// than the account can spend when it executes, as the hub scheme pays it
 /// ([`Standing::spendable`], which the agreed state may not show yet, and
-/// never more than that state's balance), less what the owner's payments
-/// need and its fees; nor than the owner's funds in the hub, less what the
-/// payments need and its fees.
+/// never more than that state's balance), less what the requests to settle
+/// may ask of it, what the owner's payments need and its fees; nor than the
+/// owner's funds in the hub, less what the payments need and its fees.
 fn withdrawal(held: &Held, standing: &Standing, middle: u64) -> Option<Planned> {
     let promised = standing.promised;
     let fees = standing.withdrawal_fees;
     let spendable = standing.spendable.min(held.balance);
-    let spare = spendable.saturating_sub(promised).saturating_sub(fees).min(
-        standing
-            .hub_owner
-            .saturating_sub(promised)
-            .saturating_sub(fees),
-    );
+    let spare = spendable
+        .saturating_sub(promised)
+        .saturating_sub(standing.least_spendable)
+        .saturating_sub(fees)
+        .min(
+            standing
+                .hub_owner
+                .saturating_sub(promised)
+                .saturating_sub(fees),
+        );
     let drops = held
         .kept
         .saturating_sub(promised)
@@ -785,8 +809,12 @@ fn withdrawal(held: &Held, standing: &Standing, middle: u64) -> Option<Planned> 
         return None;
     }
     assert!(
-        drops.saturating_add(fees).saturating_add(promised) <= spendable,
-        "a withdrawal leaves what the payments need"
+        drops
+            .saturating_add(fees)
+            .saturating_add(promised)
+            .saturating_add(standing.least_spendable)
+            <= spendable,
+        "a withdrawal leaves what the requests and the payments need"
     );
     assert!(
         held.kept.saturating_sub(drops) >= middle.saturating_add(promised),
@@ -832,6 +860,7 @@ mod tests {
             unavailable: false,
             floor: 400_000,
             ceiling: 10_000_000,
+            least_spendable: 0,
             opening: 2_001_000,
             least_payout: 1_000_000,
             ledger_fee: 100,
@@ -961,6 +990,32 @@ mod tests {
             None,
             "less than the hub pays out"
         );
+    }
+
+    // spec/decisions/generous-hub-target.md: holds toward peers count
+    // toward the target, so they may keep the hub past the ceiling with
+    // next to nothing spendable. The node then deposits what the requests
+    // to settle may ask, past the ceiling, and withdraws nothing of it.
+    #[test]
+    fn what_requests_need_stays_spendable() {
+        let funding = Funding::new(0, 4_000);
+        let held = |balance, kept| Standing {
+            least_spendable: 475_000,
+            ..standing(balance, kept)
+        };
+        let short = funding.due(1, &held(5_000, 30_000_000)).unwrap();
+        assert_eq!(short.direction, Direction::Deposit);
+        assert_eq!(short.drops, 470_000, "past the ceiling, what requests need");
+        assert_eq!(funding.due(1, &held(475_000, 30_000_000)), None);
+        let high = funding.due(1, &held(1_500_000, 30_000_000)).unwrap();
+        assert_eq!(high.direction, Direction::Withdraw);
+        assert_eq!(
+            high.drops,
+            1_500_000 - 475_000 - 110,
+            "what requests need stays"
+        );
+        let between = funding.due(1, &held(100_000, 5_000_000)).unwrap();
+        assert_eq!(between.drops, 375_000, "at the target, what requests need");
     }
 
     // The first deposit opens the account once the hub says it has none,
