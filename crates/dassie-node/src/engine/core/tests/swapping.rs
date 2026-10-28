@@ -10,7 +10,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use dassie_feed::FEED_VALIDITY_MS;
+use dassie_feed::{FEED_VALIDITY_MS, MethodTag, Ratio, method_tag};
 use dassie_ilp::ErrorCode;
 use dassie_ledger::{LedgerId, Name};
 
@@ -343,5 +343,108 @@ fn the_owner_swaps_at_a_rate() {
             ..swap
         };
         sim.step(0, |core| assert!(core.start_owner_swap(9, other).is_err()));
+    }
+}
+
+/// `a / b` in lowest terms.
+fn reduced(a: u128, b: u128) -> (u128, u128) {
+    let (mut x, mut y) = (a, b);
+    while y != 0 {
+        (x, y) = (y, x % y);
+    }
+    (a / x, b / x)
+}
+
+/// The rate the first step of `snapshot`'s walk from `from` to `to`
+/// promises, exactly, as an owner names one: the bid less the first drop,
+/// times one less it again, over the ask (spec/areas/rate-feed.md#reading-a-snapshot).
+fn first_step_rate(snapshot: &dassie_feed::Snapshot, from: MethodTag, to: MethodTag) -> (u64, u64) {
+    let (bid, ask) = (
+        snapshot.method(from).unwrap().bid,
+        snapshot.method(to).unwrap().ask,
+    );
+    let keep = u128::from(10_000 - snapshot.grid_bp[0]);
+    let (mut numerator, mut denominator) = (
+        u128::from(bid.mantissa()) * keep * keep,
+        u128::from(ask.mantissa()) * 100_000_000,
+    );
+    let shift = bid.exponent() - ask.exponent();
+    if shift >= 0 {
+        numerator <<= shift;
+    } else {
+        denominator <<= -shift;
+    }
+    let (numerator, denominator) = reduced(numerator, denominator);
+    (
+        u64::try_from(numerator).unwrap(),
+        u64::try_from(denominator).unwrap(),
+    )
+}
+
+// An owner's swap at exactly the rate the peer's snapshot promises meets
+// an F08 and goes on in smaller packets until all of it is paid. Each
+// packet's minimum is its size at the owner's rate, rounded up, a unit
+// above what the snapshot promises it, rounded down, but no more than the
+// peer's own price gives. Node 0 takes packets larger than the connectors
+// pass, so that the F08 names exactly the most that does.
+#[test]
+fn an_owner_swap_at_the_promised_rate_goes_on_after_an_f08() {
+    let largest = crate::node::Policies::DEFAULT.connector.max_packet_amount;
+    for seed in SEEDS {
+        let mut sim = pair(seed);
+        sim.step(1, |core| {
+            let settings = PeerSettings {
+                swapping: false,
+                ..core.peer_settings()
+            };
+            core.set_peer_settings(settings).unwrap();
+        });
+        sim.step(0, |core| core.settle.max_packet = 2 * largest);
+        let one = key(1).node_id();
+        let has_snapshot = |sim: &Sim| sim.core(0).peer_snapshot(&one).is_some();
+        assert!(
+            sim.run_until_or(sim.now + 60_000, has_snapshot),
+            "seed {seed}"
+        );
+        let snapshot = sim.core(0).peer_snapshot(&one).unwrap().clone();
+        let (from, to) = (method_tag(STUB_TWO), method_tag("stub"));
+        let rate = first_step_rate(&snapshot, from, to);
+        // Within the first step, all of it at its rate: the largest packet
+        // and a quarter, too much for a rounding to take.
+        let amount = largest + largest / 4;
+        let promised = snapshot.swap_at_least(from, to, Ratio::new(rate.0, rate.1).unwrap());
+        assert!(
+            promised.unwrap().amount_in >= amount,
+            "seed {seed}: {promised:?}"
+        );
+        // Exactly: a rate any higher gets nothing.
+        let dearer = Ratio::new(rate.0 + 1, rate.1).unwrap();
+        let dearer = snapshot.swap_at_least(from, to, dearer);
+        assert_eq!(dearer.map(|swap| swap.amount_in), Some(0), "seed {seed}");
+        let before = holds(&sim, 0);
+        let swap = OwnerSwap {
+            peer: one,
+            pay_on: HUB,
+            back_on: USD,
+            amount,
+            rate,
+        };
+        sim.step(0, |core| core.start_owner_swap(7, swap).unwrap());
+        let done = |sim: &Sim| !sim.swaps_done.is_empty();
+        assert!(sim.run_until_or(sim.now + 200_000, done), "seed {seed}");
+        let (node, id, report) = sim.swaps_done[0];
+        assert_eq!((node, id), (0, 7));
+        let stats = stats(&sim, 0);
+        assert!(stats.too_large > 0, "seed {seed}: no F08, {stats:?}");
+        assert_eq!(report.ended, SwapEnd::Done, "seed {seed}: {report:?}");
+        assert_eq!(report.paid, swap.amount, "seed {seed}: {report:?}");
+        let (paid, received) = (u128::from(report.paid), u128::from(report.received));
+        assert!(
+            received * u128::from(rate.1) >= paid * u128::from(rate.0),
+            "seed {seed}: {report:?}"
+        );
+        let after = holds(&sim, 0);
+        assert_eq!(after.0 - before.0, report.received, "seed {seed}");
+        assert_eq!(before.1 - after.1, report.paid, "seed {seed}");
     }
 }
