@@ -6,8 +6,10 @@
  */
 
 import { assertEquals } from "@std/assert";
+import { fromBinary } from "@bufbuild/protobuf";
 import { loginSecret } from "@dassie/wasm";
 import { loginRequest } from "@dassie/rpc/auth";
+import { type ServerMessage, ServerMessageSchema } from "@dassie/rpc/proto";
 import type { ScenarioNode } from "@dassie/dev/scenario";
 import type { ElementHandle, Page } from "puppeteer-core";
 
@@ -133,4 +135,60 @@ export async function type(
   const input = await element(page, testid);
   await input.evaluate((node) => ((node as HTMLInputElement).value = ""));
   await input.type(value);
+}
+
+/** Where the page keeps what {@linkcode followRpc} saw. */
+const SEEN = "__dassieE2eRpcSeen";
+
+/**
+ * From now on, keeps each message the page's open RPC sockets bring, once
+ * the page has handled it, for {@linkcode handled}: the socket's own
+ * handler runs first, and what it changed is drawn by the time the test
+ * next looks, in a task of its own. A socket the page opens later is not
+ * followed.
+ */
+export async function followRpc(page: Page): Promise<void> {
+  const prototype = await page.evaluateHandle(() => WebSocket.prototype);
+  const sockets = await page.queryObjects(prototype);
+  await page.evaluate(
+    (sockets: WebSocket[], key: string) => {
+      const scope = globalThis as unknown as Record<string, number[][]>;
+      const seen = scope[key] ??= [];
+      for (const socket of sockets) {
+        const handle = socket.onmessage;
+        if (!handle) continue;
+        socket.onmessage = function (event: MessageEvent) {
+          handle.call(this, event);
+          if (event.data instanceof ArrayBuffer) {
+            seen.push([...new Uint8Array(event.data)]);
+          }
+        };
+      }
+    },
+    sockets,
+    SEEN,
+  );
+  await sockets.dispose();
+  await prototype.dispose();
+}
+
+/**
+ * Waits until the page has handled a message from the node for which
+ * `check` holds, among those {@linkcode followRpc} kept since the last
+ * look.
+ */
+export async function handled(
+  page: Page,
+  what: string,
+  check: (message: ServerMessage) => boolean,
+): Promise<void> {
+  await until(page, what, async () => {
+    const frames = await page.evaluate((key: string) => {
+      const scope = globalThis as unknown as Record<string, number[][]>;
+      return (scope[key] ?? []).splice(0);
+    }, SEEN);
+    return frames.some((frame) =>
+      check(fromBinary(ServerMessageSchema, Uint8Array.from(frame)))
+    );
+  }, (found) => found);
 }

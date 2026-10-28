@@ -41,6 +41,11 @@ message NetworkNode {
   // How many more core peers it takes, as its link state says, if it says:
   // a core node does (spec/decisions/promotion-to-core.md).
   optional uint32 free_core = 19;
+  // While the cooldown after a peering's end by an owner, or for room,
+  // keeps the two apart (spec/areas/network.md#termination): when it ends.
+  // Until then neither asks the other and each refuses the other's
+  // requests. 0 when none holds.
+  int64 refused_until_unix_ms = 20;
 }
 
 enum PeerState {

@@ -291,10 +291,11 @@ test("a third-party client pays from one node to another with consent", {
       ]),
     );
 
-    // 3. The client continues, quotes, and pays.
-    await new Promise((resolve) =>
-      setTimeout(resolve, (pending.continue.wait ?? 0) * 1_000)
-    );
+    // 3. The client continues, quotes, and pays. The owner decided before
+    // the app had the owner back, so it continues at once: the grant's
+    // `wait` paces asking about a grant still waiting for the owner. A
+    // quote needs a route to d2, which d1 has once the two peered.
+    await scenario.until("the nodes peer", () => scenario.converged());
     const grant = await op.grant.continue({
       url: pending.continue.uri,
       accessToken: pending.continue.access_token.value,
@@ -416,9 +417,6 @@ test("a third-party client pays from one node to another with consent", {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     assertEquals(app.finished[1]?.get("result"), "grant_rejected");
-    await new Promise((resolve) =>
-      setTimeout(resolve, (again.continue.wait ?? 0) * 1_000)
-    );
     assertEquals(
       await status(op.grant.continue({
         url: again.continue.uri,

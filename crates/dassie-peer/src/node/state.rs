@@ -73,6 +73,10 @@ pub struct NodeView {
     pub banned: bool,
     /// Its registration with us, if it expires: when.
     pub registered_until_ms: Option<u64>,
+    /// While the cooldown after an owner's end, or one for room, keeps us
+    /// apart: when it ends. Until then neither asks the other, and each
+    /// refuses the other's requests.
+    pub refused_until_ms: Option<u64>,
     /// How far our peering with it has come.
     pub peer_status: PeerStatus,
     /// How many hops away it is, if reachable: 0 for ourselves.
@@ -452,6 +456,8 @@ impl PeerNode {
                 advertise: entry.advertise,
                 banned: self.bans.contains(id),
                 registered_until_ms: entry.registration.as_ref().map(|r| r.expires_ms),
+                refused_until_ms: (entry.refuse_until_ms > self.now_ms)
+                    .then_some(entry.refuse_until_ms),
                 peer_status: match &entry.peer {
                     PeerState::None => PeerStatus::None,
                     PeerState::Requesting { .. } => PeerStatus::Requesting,

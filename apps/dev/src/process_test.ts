@@ -1,5 +1,5 @@
 import { test } from "node:test";
-import { assert, assertEquals } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import { ChildProcess, MAX_LINE_BYTES, TAIL_LINES } from "./process.ts";
 
 test("output comes line by line, and only the tail is kept", async () => {
@@ -25,15 +25,16 @@ test("a long line is cut", async () => {
 });
 
 test("a process that ignores SIGTERM is killed", async () => {
+  // It says "ready" once the trap is set.
+  const { promise: ready, resolve } = Promise.withResolvers<void>();
   const child = new ChildProcess("stubborn", "sh", {
     args: ["-c", "trap '' TERM; echo ready; sleep 30"],
+    onLine: (_, line) => {
+      if (line === "ready") resolve();
+    },
   });
-  // Wait until the trap is set.
-  for (let i = 0; i < 100 && child.tail() === ""; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  const started = Date.now();
+  await ready;
+  // Killed, not ended by its own sleep: 128 + SIGKILL.
   const { code } = await child.stop(200);
-  assert(Date.now() - started < 5_000);
   assertEquals(code, 137);
 });
