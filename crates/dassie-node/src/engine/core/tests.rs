@@ -2305,10 +2305,19 @@ fn the_owner_sees_a_downlinks_promotion() {
     peer_as_downlink(&mut core, &downlink, NOW + 1_000);
     let view = |core: &Core| {
         let network = core.network();
-        network.peers.into_iter().find(|peer| peer.id == id).unwrap()
+        network
+            .peers
+            .into_iter()
+            .find(|peer| peer.id == id)
+            .unwrap()
     };
     assert!(view(&core).promotion.is_none(), "no URL, no candidate");
-    send_link_state(&mut core, &downlink, NOW + 2_000, Some("https://d.example:4443"));
+    send_link_state(
+        &mut core,
+        &downlink,
+        NOW + 2_000,
+        Some("https://d.example:4443"),
+    );
     step_with_list(&mut core, NOW + 3_000, &[]);
     let (promotion, pending) = view(&core).promotion.expect("a candidate");
     assert_eq!(promotion.room_packets, 0);
