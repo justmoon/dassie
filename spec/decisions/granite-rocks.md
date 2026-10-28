@@ -18,7 +18,7 @@
 - **Flat faces, hard corners, joints.** A rock's outline is straight lines whose corners are cut short, never rounded; tops are flat or tilted slabs, never domes. Each rock shows its joints: a crack across a face, or the rim of light where one block rests on another.
 - **Stacked.** A kopje is two or more blocks: a broad base and smaller blocks on it. Only a far kopje, too small for its parts to show, is a single slab, and then a low and wide one.
 - **Bigger than the dassies.** A block on which a dassie sits or lies is at least three times the dassie's length, and a dassie lying down lies on a ledge or toward one end, never on the crown of a small rock.
-- **Rules on the brand page, drawn by hand.** The brand page states these rules where it shows the rocks, in its palette and its graphic language, with the four things that make a shape read as droppings, so whoever draws a rock knows what to stay clear of. Every drawing with rocks is drawn again to them; the mark keeps its own rules.
+- **Rules on the brand page, drawn by hand.** The brand page states these rules where it shows the rocks, in its palette and its graphic language, with the four things that make a shape read as droppings, so whoever draws a rock knows what to stay clear of. Every drawing with rocks is drawn again to them; the mark keeps its own rules. The node circles, whose rock is drawn from each node's ID, follow the same rules in their code once they are built.
 
 ## Accepted
 
