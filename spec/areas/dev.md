@@ -25,7 +25,7 @@ mkcert's local CA makes every certificate, so a browser that trusts the CA (`mkc
 
 ## Nodes
 
-Each node is the real binary with its own data directory, socket and ports, and dev timings (`crates/dassie-node/src/env.rs`): the peer protocol's timers, and a dollar token's peg guard on the same rule in seconds ([XRPL](xrpl.md#the-peg-guard)). Dev nodes serve the wallet's watch build instead of the embedded one. A node that does not start, cannot be set up or exits on its own stops the scenario and is shown failed with the end of its output.
+Each node is the real binary with its own data directory, socket and ports, and dev timings (`crates/dassie-node/src/env.rs`): the peer protocol's timers, and a dollar token's peg guard on the same rule in seconds ([XRPL](xrpl.md#the-peg-guard)). Dev nodes serve the wallet's watch build instead of the embedded one. A scenario starts and sets up its nodes all at once, since nothing in one node's start waits for another's: a node whose bootstrap nodes are not up yet reaches them once they are. A node that does not start, cannot be set up or exits on its own stops the scenario, once every other start has ended, and is shown failed with the end of its output.
 
 ### Setting nodes up
 

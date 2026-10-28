@@ -295,9 +295,15 @@ export class Scenario {
           });
         }
       }
-      for (let index = 0; index < def.schemes.length; index++) {
-        await scenario.#startNode(index);
-      }
+      // All at once: nothing in one node's start waits for another's, and
+      // a node that finds its bootstrap nodes not up yet tries again. Each
+      // takes its place in `nodes` by its index before its first wait, and
+      // every start ends before a failure stops the rest.
+      const starts = await Promise.allSettled(
+        def.schemes.map((_, index) => scenario.#startNode(index)),
+      );
+      const failed = starts.find((start) => start.status === "rejected");
+      if (failed) throw failed.reason;
       // Mainnet has no faucet: each account is funded as an owner funds
       // it, before its token's line can exist, and before a sponsor can
       // fund a hub's escrow from it.
