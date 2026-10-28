@@ -259,10 +259,9 @@ pub struct HubScheme {
     now_ms: u64,
     /// The hub is shutting down or ended: an operation that touched the
     /// account failed for it. A hub never runs again after, so it stays
-    /// set; not kept with the books, so a restart learns it again, from
-    /// the next such failure, or from the validators once the hub ended
-    /// ([`HubAccount::stalled`]).
-    shut_down: bool,
+    /// set, and is kept with the books: a restart does not wait for the
+    /// next such failure to stop claiming it can receive.
+    pub(super) shut_down: bool,
     /// The hub stalled or ended, as its validators last told the account.
     stalled: bool,
 }
