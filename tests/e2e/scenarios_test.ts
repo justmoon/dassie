@@ -4,7 +4,7 @@
  * keep peerings and balances. Their nodes run the stub with unlimited
  * trust (spec/areas/settlement.md#the-stub-scheme): peers on it never run
  * out of room and settle nothing, so each payment, several times the
- * default credit line, gets through without a settlement, the stubs never
+ * default credit, gets through without a settlement, the stubs never
  * move, and each node's books owe its peers what its owner spent.
  *
  * Every node is the real binary. Payments are the JavaScript reference
@@ -46,8 +46,8 @@ async function trusting(scenario: Scenario): Promise<typeof WebSocket> {
 
 /**
  * A client of `from` pays `PAYMENT` to the receiver of `to`: on the stub
- * with unlimited trust, every peer extends the other room at once, so
- * nobody pays in advance.
+ * with unlimited trust, every peer extends the other the unlimited credit,
+ * so nothing is settled first.
  */
 async function pay(scenario: Scenario, from: ScenarioNode, to: ScenarioNode) {
   await scenario.until("quiet", () => quiet(scenario));

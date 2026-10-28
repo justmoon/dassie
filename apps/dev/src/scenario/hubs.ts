@@ -199,17 +199,6 @@ export function sponsors(def: ScenarioDef): number[] {
   return [...new Set(hubsOf(def).map((hub) => hub.sponsor))];
 }
 
-/** Whether an XRP Ledger scheme's `config` makes it an owner book, which
- * peers with nobody (spec/areas/xrpl.md#owner-books). */
-function ownerBookOnly(config: string | undefined): boolean {
-  if (config === undefined) return false;
-  try {
-    return (JSON.parse(config) as { peers?: unknown }).peers === false;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * What is wrong with `def`'s `hubs`, if anything; its one `hub` is
  * `invalidHub`'s to check. Each hub has as many validators as a hub is
@@ -221,9 +210,9 @@ function ownerBookOnly(config: string | undefined): boolean {
  * in its pool. A member runs its hubs' schemes and the owner
  * books they fund from, the book of XRP among them, and nothing else, so
  * it peers over hubs alone; no other node runs a hub's scheme, whose
- * config is the founded hub's rules, never the scenario's; nodes added
- * later run what a member does; and every owner book a member runs peers
- * with nobody.
+ * config is the founded hub's rules, never the scenario's; and nodes
+ * added later run what a member does. Every owner book a member runs peers
+ * with nobody, whatever its config (spec/areas/xrpl.md#owner-books).
  */
 export function invalidHubs(def: ScenarioDef): string | undefined {
   if (def.hubs === undefined) return undefined;
@@ -306,12 +295,6 @@ export function invalidHubs(def: ScenarioDef): string | undefined {
   for (const scheme of schemes) {
     if (def.configs?.[scheme] !== undefined) {
       return `${scheme}'s config is the founded hub's rules`;
-    }
-  }
-  const books = new Set([xrpBook, ...hubs.map(hubOwnerBook)]);
-  for (const book of books) {
-    if (!ownerBookOnly(def.configs?.[book])) {
-      return `${book} peers: its config must say "peers": false`;
     }
   }
   return undefined;

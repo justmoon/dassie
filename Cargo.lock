@@ -1328,7 +1328,6 @@ dependencies = [
  "ed25519-dalek",
  "k256",
  "proptest",
- "rand_core",
  "ripemd",
  "serde_json",
  "sha2 0.11.1",

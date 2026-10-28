@@ -131,14 +131,13 @@ impl Opening<'_> {
     }
 }
 
-/// The credit a downlink's new accounts start with on `scheme`, as the
-/// scheme has it for a peer that did not ask
-/// ([`ActiveScheme::start_credit`]), and none on a scheme the node does
-/// not run.
+/// The credit a downlink's new accounts start with on `scheme`, as for
+/// any peer on it ([`ActiveScheme::start_credit`]), and none on a scheme
+/// the node does not run.
 pub(super) fn start_credit(schemes: &BTreeMap<Name, ActiveScheme>, scheme: Name) -> u64 {
     schemes
         .get(&scheme)
-        .map_or(0, |active| active.start_credit(0))
+        .map_or(0, |active| active.start_credit())
 }
 
 /// Opens a downlink's accounts for the first packet that moves money to it.

@@ -367,18 +367,23 @@ pub trait SettlementScheme: Send {
     /// requests on it as for a scheme it does not run
     /// (spec/areas/settlement.md#owner-books). It never changes while the
     /// scheme runs.
+    ///
+    /// The peer half of the interface (the peering steps, preparing and
+    /// executing a settlement) answers by default as an owner book does:
+    /// no peering info, and every peering step and settlement refused. A
+    /// scheme that peers overrides each of them.
     fn peers(&self) -> bool {
         true
     }
 
     /// Whether a peer's settlement can reach us on the underlying ledger
-    /// now. While it cannot, as while an issuer has frozen our line deep,
-    /// frozen its token globally or charges a transfer fee no peer pays, the
-    /// node asks no peer on the scheme to
-    /// settle, counts a peer's time short of room toward withdrawing it but
-    /// never toward ending the peering, and leaves the scheme out of its
-    /// link state (spec/areas/settlement.md#when-peers-cannot-pay-us). The
-    /// scheme stays synced meanwhile: it still sees its ledger.
+    /// now. While it cannot, as once a settlement hub is shutting down,
+    /// stalled or ended, the node asks no peer on the scheme to settle,
+    /// counts a peer's time short of room toward withdrawing it but never
+    /// toward ending the peering, leaves the scheme out of its link state,
+    /// and drops its methods once it could not receive for as long as a
+    /// silent peer is kept (spec/areas/settlement.md#when-peers-cannot-pay-us).
+    /// Only a scheme that peers is asked.
     fn can_receive(&self) -> bool {
         true
     }
@@ -453,21 +458,28 @@ pub trait SettlementScheme: Send {
         let _ = (now_ms, asset, effects);
     }
 
-    /// What a node that wants to peer with us needs to know.
-    fn peering_info(&self, out: &mut Vec<u8>);
+    /// What a node that wants to peer with us needs to know. None by
+    /// default, as an owner book gives.
+    fn peering_info(&self, out: &mut Vec<u8>) {
+        out.clear();
+    }
 
     /// Builds our peering request to `peer`, given its peering info. Keeps
     /// nothing of `peer`: the attempt may still fail.
     ///
     /// # Errors
     ///
-    /// If the info is invalid.
+    /// If the info is invalid; [`SchemeError::Unsupported`] by default, as
+    /// an owner book peers with no one.
     fn create_peering_request(
         &mut self,
         peer: Name,
         peering_info: &[u8],
         out: &mut Vec<u8>,
-    ) -> Result<(), SchemeError>;
+    ) -> Result<(), SchemeError> {
+        let _ = (peer, peering_info, out);
+        Err(SchemeError::Unsupported)
+    }
 
     /// Accepts or refuses `peer`'s request. Returns the peer's scheme
     /// state, and keeps nothing of `peer` until
@@ -476,8 +488,12 @@ pub trait SettlementScheme: Send {
     ///
     /// # Errors
     ///
-    /// If the request is refused.
-    fn accept_peering_request(&mut self, peer: Name, data: &[u8]) -> Result<Vec<u8>, SchemeError>;
+    /// If the request is refused; [`SchemeError::Unsupported`] by default,
+    /// as an owner book peers with no one.
+    fn accept_peering_request(&mut self, peer: Name, data: &[u8]) -> Result<Vec<u8>, SchemeError> {
+        let _ = (peer, data);
+        Err(SchemeError::Unsupported)
+    }
 
     /// Completes our request after `peer` accepted it, from the peering
     /// info it gave us. Returns the peer's scheme state, and keeps nothing
@@ -485,12 +501,16 @@ pub trait SettlementScheme: Send {
     ///
     /// # Errors
     ///
-    /// If the peering info is invalid.
+    /// If the peering info is invalid; [`SchemeError::Unsupported`] by
+    /// default, as an owner book peers with no one.
     fn finalize_peering_request(
         &mut self,
         peer: Name,
         peering_info: &[u8],
-    ) -> Result<Vec<u8>, SchemeError>;
+    ) -> Result<Vec<u8>, SchemeError> {
+        let _ = (peer, peering_info);
+        Err(SchemeError::Unsupported)
+    }
 
     /// The peering with `peer` is made: its accounts are open, and `state`
     /// is what [`accept_peering_request`](Self::accept_peering_request) or
@@ -525,7 +545,8 @@ pub trait SettlementScheme: Send {
     ///
     /// # Errors
     ///
-    /// If the scheme cannot settle now.
+    /// If the scheme cannot settle now; [`SchemeError::Unsupported`] by
+    /// default, as an owner book settles with no one.
     fn prepare_settlement(
         &mut self,
         rng: &mut dyn CryptoRng,
@@ -533,7 +554,10 @@ pub trait SettlementScheme: Send {
         peer: Name,
         amount: u64,
         peer_state: &[u8],
-    ) -> Result<PreparedSettlement, SchemeError>;
+    ) -> Result<PreparedSettlement, SchemeError> {
+        let _ = (rng, asset, peer, amount, peer_state);
+        Err(SchemeError::Unsupported)
+    }
 
     /// Forgets a settlement prepared and never executed: the node could
     /// not book it. It is never sent.
@@ -550,13 +574,18 @@ pub trait SettlementScheme: Send {
 
     /// Executes a prepared settlement. Reports the outcome as
     /// [`Effect::Finalize`] or [`Effect::Cancel`], now or later. The node
-    /// calls it only once the settlement's pending transfer is on disk.
+    /// calls it only once the settlement's pending transfer is on disk. By
+    /// default, as an owner book, which prepares none, it cancels it: one
+    /// the node asks for anyway can never apply.
     fn execute_settlement(
         &mut self,
         asset: Option<&mut dyn ExternalAsset>,
         settlement: Name,
         effects: &mut Vec<Effect>,
-    );
+    ) {
+        let _ = asset;
+        effects.push(Effect::Cancel { settlement });
+    }
 
     /// Settles the outcome of settlements whose pending transfers survived
     /// a restart, given by ID and amount, at activation: each gets

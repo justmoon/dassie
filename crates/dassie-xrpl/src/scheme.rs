@@ -37,10 +37,9 @@ use core::marker::PhantomData;
 
 use dassie_ledger::{LedgerId, Name};
 use dassie_settlement::{
-    AssetId, Effect, ExternalAsset, LedgerStatus, OwnerPayment, OwnerPaymentState,
-    PreparedSettlement, ReconcileCause, SchemeError, SettlementScheme,
+    AssetId, Effect, ExternalAsset, LedgerStatus, OwnerPayment, OwnerPaymentState, ReconcileCause,
+    SchemeError, SettlementScheme,
 };
-use rand_core::CryptoRng;
 use serde_json::Value;
 
 use crate::UNITS_PER_DROP;
@@ -142,10 +141,10 @@ pub(crate) fn owner_memos(payment: &OwnerPayment) -> Result<Vec<Memo>, SchemeErr
 }
 
 /// What an XRPL scheme's config says: nothing that changes it
-/// (spec/areas/xrpl.md#owner-books). It may say `"peers"`, a boolean,
-/// which a node read when the XRPL schemes peered: it is read still, so a
-/// config that says it loads, and it has no effect, since every XRPL
-/// scheme is an owner book. The account it books has a config of its own
+/// (spec/areas/xrpl.md#owner-books). Nothing writes one but empty. It may
+/// say `"peers"`, a boolean, which a stored config may still say: it is
+/// read, so that config loads, and has no effect, since every XRPL scheme
+/// is an owner book. The account it books has a config of its own
 /// ([`crate::account::Config`]), set apart from any scheme's
 /// (spec/areas/settlement.md#external-assets).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -641,58 +640,6 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
             self.tell(item, effects);
         }
         self.f.caught_up(account, self.id(), effects);
-    }
-
-    /// None: it peers with no one.
-    fn peering_info(&self, out: &mut Vec<u8>) {
-        out.clear();
-    }
-
-    fn create_peering_request(
-        &mut self,
-        _peer: Name,
-        _peering_info: &[u8],
-        _out: &mut Vec<u8>,
-    ) -> Result<(), SchemeError> {
-        Err(SchemeError::Unsupported)
-    }
-
-    fn accept_peering_request(
-        &mut self,
-        _peer: Name,
-        _data: &[u8],
-    ) -> Result<Vec<u8>, SchemeError> {
-        Err(SchemeError::Unsupported)
-    }
-
-    fn finalize_peering_request(
-        &mut self,
-        _peer: Name,
-        _peering_info: &[u8],
-    ) -> Result<Vec<u8>, SchemeError> {
-        Err(SchemeError::Unsupported)
-    }
-
-    fn prepare_settlement(
-        &mut self,
-        _rng: &mut dyn CryptoRng,
-        _asset: Option<&mut dyn ExternalAsset>,
-        _peer: Name,
-        _amount: u64,
-        _peer_state: &[u8],
-    ) -> Result<PreparedSettlement, SchemeError> {
-        Err(SchemeError::Unsupported)
-    }
-
-    /// It prepares none, so none is executed: one the node asks for anyway
-    /// can never apply.
-    fn execute_settlement(
-        &mut self,
-        _asset: Option<&mut dyn ExternalAsset>,
-        settlement: Name,
-        effects: &mut Vec<Effect>,
-    ) {
-        effects.push(Effect::Cancel { settlement });
     }
 
     fn reconcile(

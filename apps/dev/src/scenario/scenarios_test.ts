@@ -16,7 +16,6 @@ import {
   MAX_NODES,
   micros,
   minted,
-  OWNER_BOOK,
   peripheryOf,
   poolDrops,
   resumes,
@@ -144,17 +143,17 @@ test("the market maker's scenario with two targets: both nodes pinned to both", 
   );
 });
 
-// spec/roadmap.md#hubs-only: no scenario that runs settles directly. Each
-// of its schemes is the stub with unlimited trust, which never settles, an
-// XRP Ledger scheme as an owner book, which peers with nobody, or a hub's,
-// whose ID names it so (spec/decisions/hub-scheme-names.md).
+// spec/decisions/hubs-only.md: no scenario that runs settles directly.
+// Each of its schemes is a hub's, whose ID names it so
+// (spec/decisions/hub-scheme-names.md), the stub with unlimited trust,
+// which never settles, or an XRP Ledger scheme, an owner book whatever its
+// config, which peers with nobody (spec/areas/xrpl.md#owner-books).
 test("no scenario that runs settles directly", () => {
   const settlesNot = (def: ScenarioDef, scheme: string) =>
     scheme.startsWith("hub-") ||
     (scheme === "stub" && def.configs?.stub === UNLIMITED_STUB) ||
-    (XRPL_SCHEMES.includes(scheme) && def.configs?.[scheme] === OWNER_BOOK);
+    XRPL_SCHEMES.includes(scheme);
   assertEquals(JSON.parse(UNLIMITED_STUB), { trust: "unlimited" });
-  assertEquals(JSON.parse(OWNER_BOOK), { peers: false });
   for (const def of SCENARIOS) {
     for (const schemes of [...def.schemes, def.addedSchemes]) {
       for (const scheme of schemes) {
@@ -273,10 +272,7 @@ test("cross-currency: the unlimited stub, a hub, and a node in both", () => {
     ["stub", HUB_OWNER_BOOK, HUB_SCHEME],
     [HUB_OWNER_BOOK, HUB_SCHEME],
   ]);
-  assertEquals(def.configs, {
-    stub: UNLIMITED_STUB,
-    [HUB_OWNER_BOOK]: OWNER_BOOK,
-  });
+  assertEquals(def.configs, { stub: UNLIMITED_STUB });
   assertEquals(
     def.schemes.map((_, index) => validates(def, index)),
     [false, false, false, true, true, true, true],
@@ -389,7 +385,6 @@ test("a hub's nodes are checked before the scenario starts", () => {
     schemes: [book, [], [], [], member, member],
     addedSchemes: member,
     bootstrap: [4, 5],
-    configs: { [HUB_OWNER_BOOK]: `{"peers": false}` },
     hub: { validators: [0, 1, 2, 3], sponsor: 0, members: [4, 5] },
   };
   assertEquals(invalidHub(base), undefined);
@@ -452,13 +447,11 @@ test("a hub's nodes are checked before the scenario starts", () => {
   );
   const configs = (these: Record<string, string> | undefined) =>
     invalid({ ...base, configs: these });
-  const peers = `xrpl-testnet-xrp peers: its config must say "peers": false`;
-  assertEquals(configs(undefined), peers);
-  assertEquals(configs({ [HUB_OWNER_BOOK]: "" }), peers);
-  assertEquals(configs({ [HUB_OWNER_BOOK]: `{"peers": true}` }), peers);
-  assertEquals(configs({ [HUB_OWNER_BOOK]: "{" }), peers);
+  // The owner book peers with nobody, whatever its config.
+  assertEquals(configs({ [HUB_OWNER_BOOK]: "" }), undefined);
+  assertEquals(configs({ [HUB_OWNER_BOOK]: `{"peers": true}` }), undefined);
   assertEquals(
-    configs({ ...base.configs, [HUB_SCHEME]: hubConfig("00") }),
+    configs({ [HUB_SCHEME]: hubConfig("00") }),
     "hub-xrpl-testnet-xrp's config is the founded hub's rules",
   );
   // The periphery's checks come first.

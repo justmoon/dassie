@@ -28,9 +28,6 @@ dassie=/opt/dassie/current/bin/dassie
 xrpl_server=wss://s.altnet.rippletest.net:51233
 dsusd_issuer=rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M
 
-# An XRP Ledger scheme's config as an owner book, which peers with nobody.
-book='{"peers":false}'
-
 # setup <node> <dassie setup's flags>…
 setup() {
   node=$1
@@ -40,11 +37,11 @@ setup() {
 }
 
 setup xrp \
-  --scheme "xrpl-testnet-xrp=$book" \
+  --scheme xrpl-testnet-xrp \
   --scheme hub-xrpl-testnet-xrp
 setup dsusd \
-  --scheme "xrpl-testnet-xrp=$book" \
-  --scheme "xrpl-testnet-dsusd=$book" \
+  --scheme xrpl-testnet-xrp \
+  --scheme xrpl-testnet-dsusd \
   --scheme hub-xrpl-testnet-dsusd
 
 umask 077

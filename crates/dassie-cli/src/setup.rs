@@ -112,10 +112,6 @@ impl DefaultHub {
         }
     }
 }
-/// The owner book's config when `dassie setup` adds it for the hub: a book
-/// that peers with nobody, since peers settle only over hubs
-/// (spec/decisions/hubs-only.md).
-const OWNER_BOOK_CONFIG: &str = r#"{"peers":false}"#;
 
 /// What `dassie setup` was asked to do.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -427,7 +423,7 @@ fn hub_plan(hub: DefaultHub, schemes: &[proto::SettlementSchemeInfo]) -> HubPlan
             if !listed(hub.book).is_some_and(|book| book.active) {
                 steps.push(Scheme {
                     id: hub.book.to_owned(),
-                    config: OWNER_BOOK_CONFIG.to_owned(),
+                    config: String::new(),
                 });
             }
             steps.push(Scheme {
@@ -969,7 +965,7 @@ mod tests {
             );
             assert_eq!(
                 plan(&[listed(book, false), listed(hub, false)]),
-                HubPlan::Join(vec![scheme(book, r#"{"peers":false}"#), scheme(hub, "")])
+                HubPlan::Join(vec![scheme(book, ""), scheme(hub, "")])
             );
             assert_eq!(
                 plan(&[listed(book, true), listed(hub, false)]),
@@ -1014,8 +1010,6 @@ mod tests {
                 assert_eq!(ledger, node, "{id}");
             }
         }
-        let config: serde_json::Value = serde_json::from_str(OWNER_BOOK_CONFIG).unwrap();
-        assert_eq!(config, serde_json::json!({ "peers": false }));
     }
 
     #[test]
