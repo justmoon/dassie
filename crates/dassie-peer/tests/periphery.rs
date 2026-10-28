@@ -17,7 +17,8 @@ use dassie_oer::Decode;
 use dassie_peer::sim::{Arriving, Network, START, key};
 use dassie_peer::wire::{
     Content, EXTENSION_PERIPHERY, Entry, InvalidNodeInfo, LinkStateResponse, NodeInfo,
-    PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SignedNodeInfo, sign_node_info,
+    PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SettlementOffer, SignedNodeInfo,
+    sign_node_info,
 };
 use dassie_peer::{Config, Event, Sources};
 
@@ -38,11 +39,12 @@ fn request(_: &Network, from: &Arc<IdentityKey>, _: usize, content: &Content<'_>
 
 /// A link state of `key` at `url`, with `extensions`.
 fn link_state(key: &IdentityKey, sequence: u64, url: &str, extensions: &[u16]) -> Vec<u8> {
-    let entries = core::iter::once(Entry::Scheme(stub()))
-        .chain(extensions.iter().map(|kind| Entry::Extension {
+    let entries = extensions
+        .iter()
+        .map(|kind| Entry::Extension {
             kind: *kind,
             value: &[],
-        }))
+        })
         .collect();
     let info = NodeInfo {
         sequence,
@@ -50,6 +52,10 @@ fn link_state(key: &IdentityKey, sequence: u64, url: &str, extensions: &[u16]) -
         alias: "",
         public_key: *key.public_key().as_bytes(),
         slh_dsa_public_key: *key.identity().slh_dsa().as_bytes(),
+        settlement: vec![SettlementOffer {
+            scheme: stub(),
+            details: &[],
+        }],
         entries,
     };
     sign_node_info(key, &info)
@@ -221,7 +227,6 @@ fn a_core_node_that_becomes_periphery_ends_its_downlinks() {
                 url: None,
                 alias: String::new(),
                 feed_port: None,
-                hub: None,
             },
         );
     });
@@ -879,7 +884,6 @@ fn downlinks_ended_by_a_node_turning_periphery_leave_a_full_table() {
                 url: None,
                 alias: String::new(),
                 feed_port: None,
-                hub: None,
             },
         );
     });

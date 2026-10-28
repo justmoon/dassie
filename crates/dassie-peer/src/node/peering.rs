@@ -19,8 +19,8 @@ use crate::table::{
     backoff,
 };
 use crate::wire::{
-    Content, Endpoint, PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SignedNodeInfo,
-    decode_octets,
+    Content, Endpoint, HubDetails, PeeringRequest, PeeringResponse, RefusalReason, SchemeId,
+    SignedNodeInfo, decode_octets,
 };
 
 /// The peering side of the node's state.
@@ -134,7 +134,7 @@ impl PeerNode {
                     && entry.link.as_ref().is_some_and(|link| {
                         link.is_fresh(now, stale, future)
                             && self.may_ask(id, link)
-                            && link.schemes.iter().any(|s| self.schemes.contains(s))
+                            && link.schemes().any(|s| self.offer_on(s).is_some())
                     })
             })
             .map(|(_, entry)| entry.peering_at_ms)
@@ -156,7 +156,7 @@ impl PeerNode {
             })
             .count();
         self.peering.attempt.is_none()
-            && !self.schemes.is_empty()
+            && !self.offers.is_empty()
             && self.own_link_bytes().is_some()
             && outbound < self.max_outbound()
             && self.core_peers().count() < self.max_core_peers()
@@ -263,77 +263,77 @@ impl PeerNode {
         best.get(index).map(|(_, id, scheme)| (*id, *scheme))
     }
 
-    /// The schemes a peering with the node of `link` settles on, in order
-    /// (spec/decisions/settlement-methods.md): each hub both nodes are in and
-    /// take new peers over, then each other scheme both run whose peers
-    /// trust each other without limit, the test stub's. A scheme that is
-    /// neither over a hub nor of unlimited trust would settle directly, so
-    /// it is never a method (spec/decisions/hubs-only.md). The first is the
-    /// one to ask for a peering on, and each of the others a further method
-    /// of it. A hub scheme without a shared hub would leave each side
-    /// without the other's account
+    /// The schemes a peering with the node of `link` settles on, in the
+    /// order of our offers (spec/decisions/settlement-methods.md): each
+    /// scheme both offer, as we read its offer
+    /// ([`Self::their_offers`]), over a hub both are in, one of them at
+    /// least with an account in it, or, on a scheme not over a hub, one
+    /// whose peers trust each other without limit, the test stub's. A scheme
+    /// that is neither over a hub nor of unlimited trust would settle
+    /// directly, so it is never a method (spec/decisions/hubs-only.md). The
+    /// first is the one to ask for a peering on, and each of the others a
+    /// further method of it. A hub scheme without a shared hub would leave
+    /// each side without the other's account
     /// (spec/designs/settlement-hubs.md#11-choosing-a-hub). At most one per
-    /// scheme we peer on, so at most [`MAX_METHODS`](crate::MAX_METHODS).
+    /// scheme we offer, so at most [`MAX_METHODS`](crate::MAX_METHODS).
     pub(crate) fn methods_with(&self, hooks: &dyn PeeringHooks, link: &LinkState) -> Vec<SchemeId> {
-        // In the other node's order, as before hubs, each scheme once: the
-        // list is the other node's, which may repeat a scheme, so the bound
-        // comes from our own schemes.
-        let mut common: Vec<SchemeId> = Vec::with_capacity(self.schemes.len());
-        for scheme in &link.schemes {
-            if self.schemes.contains(scheme) && !common.contains(scheme) {
-                common.push(*scheme);
-            }
-        }
-        let mut methods = self.shared_hubs(hooks, link, common.iter().copied());
-        methods.extend(
-            common.iter().copied().filter(|scheme| {
-                !hooks.uses_commitments(*scheme) && hooks.trusts_unlimited(*scheme)
-            }),
-        );
+        let theirs = self.their_offers(link);
+        let methods: Vec<SchemeId> = self
+            .offers
+            .iter()
+            .filter(|own| {
+                let Some((_, their_hub)) = theirs.iter().find(|(scheme, _)| *scheme == own.scheme)
+                else {
+                    return false;
+                };
+                match (own.hub, their_hub) {
+                    (Some(ours), Some(theirs)) => {
+                        hooks.uses_commitments(own.scheme) && shares_hub(&ours, theirs)
+                    }
+                    (None, None) => {
+                        !hooks.uses_commitments(own.scheme) && hooks.trusts_unlimited(own.scheme)
+                    }
+                    _ => false,
+                }
+            })
+            .map(|own| own.scheme)
+            .collect();
         assert!(methods.len() <= crate::MAX_METHODS, "a method per scheme");
         methods
     }
 
-    /// The hub schemes among `common` over a hub we share with the node of
-    /// `link`, both taking new peers over it, and one of us at least with
-    /// an account in it: two without one could never pay each other in
-    /// (spec/designs/settlement-hubs.md#5-joining), so such a pair peers on
-    /// another scheme both run, if any. Where both list their hubs,
-    /// each scheme both list over the same hub; otherwise only the hub the
-    /// hub extension names, which is the list's first, over the first hub
-    /// scheme both run, as a node that reads no list sees it
-    /// (spec/areas/peer-protocol.md#link-states).
-    fn shared_hubs(
-        &self,
-        hooks: &dyn PeeringHooks,
-        link: &LinkState,
-        common: impl Iterator<Item = SchemeId>,
-    ) -> Vec<SchemeId> {
-        let mut over_hub = common.filter(|scheme| hooks.uses_commitments(*scheme));
-        if !self.own_hubs.is_empty() && !link.hubs.is_empty() {
-            let listed = |hubs: &[crate::wire::HubListing], scheme: SchemeId| {
-                hubs.iter()
-                    .find(|listing| listing.scheme == scheme)
-                    .map(|listing| listing.membership)
+    /// The offers of the node of `link` on schemes we offer, as we read
+    /// them (spec/areas/peer-protocol.md#settlement-offers), in its order:
+    /// each scheme's details read as our offer on it says, the hub's on a
+    /// scheme we offer over a hub and none on any other. An offer whose
+    /// details are not that, or whose hub an offer we took before names, is
+    /// taken as absent, and an offer on a scheme we do not offer is passed
+    /// over, unread: we would not peer on it.
+    fn their_offers(&self, link: &LinkState) -> Vec<(SchemeId, Option<HubDetails>)> {
+        let mut taken: Vec<(SchemeId, Option<HubDetails>)> = Vec::with_capacity(self.offers.len());
+        for offered in &link.offers {
+            let Some(own) = self.offer_on(offered.scheme) else {
+                continue;
             };
-            return over_hub
-                .filter(|scheme| {
-                    matches!(
-                        (listed(&self.own_hubs, *scheme), listed(&link.hubs, *scheme)),
-                        (Some(own), Some(theirs)) if shares_hub(&own, &theirs)
-                    )
-                })
-                .collect();
+            let read = if own.hub.is_some() {
+                match HubDetails::decode_exact(&offered.details) {
+                    Ok(hub)
+                        if !taken
+                            .iter()
+                            .any(|(_, other)| other.is_some_and(|o| o.hub_id == hub.hub_id)) =>
+                    {
+                        Some(Some(hub))
+                    }
+                    _ => None,
+                }
+            } else {
+                offered.details.is_empty().then_some(None)
+            };
+            if let Some(hub) = read {
+                taken.push((offered.scheme, hub));
+            }
         }
-        let shared = matches!(
-            (self.own_info.hub, link.hub),
-            (Some(own), Some(theirs)) if shares_hub(&own, &theirs)
-        );
-        if shared {
-            over_hub.next().into_iter().collect()
-        } else {
-            Vec::new()
-        }
+        taken
     }
 
     fn start_peering(&mut self, hooks: &mut dyn PeeringHooks, node: NodeId, scheme: SchemeId) {
@@ -647,7 +647,7 @@ impl PeerNode {
             .get(sender)
             .and_then(Entry::peering)
             .is_some_and(|peering| peering.has(request.scheme));
-        if !repeat && (!self.schemes.contains(&request.scheme) || !hooks.speaks(request.scheme)) {
+        if !repeat && (self.offer_on(request.scheme).is_none() || !hooks.speaks(request.scheme)) {
             return Err(RefusalReason::UnsupportedScheme);
         }
         // A scheme neither over a hub nor of unlimited trust would settle
@@ -792,14 +792,10 @@ fn refused(reason: RefusalReason) -> Reply {
     ok(&PeeringResponse::Refused(reason).to_vec())
 }
 
-/// Whether a peering may settle over the hub `own` and `theirs` name: the
-/// same hub, both taking new peers over it, and one at least with an
-/// account in it, so that it can pay the other in
-/// (spec/designs/settlement-hubs.md#5-joining).
-fn shares_hub(own: &crate::wire::HubMembership, theirs: &crate::wire::HubMembership) -> bool {
-    use crate::wire::HubMembership;
+/// Whether a peering may settle over the hubs `own` and `theirs` name: the
+/// same hub, and one at least with an account in it, so that it can pay
+/// the other in (spec/designs/settlement-hubs.md#5-joining).
+fn shares_hub(own: &HubDetails, theirs: &HubDetails) -> bool {
     own.hub_id == theirs.hub_id
-        && own.takes_peers
-        && theirs.takes_peers
-        && (own.account != HubMembership::NO_ACCOUNT || theirs.account != HubMembership::NO_ACCOUNT)
+        && (own.account != HubDetails::NO_ACCOUNT || theirs.account != HubDetails::NO_ACCOUNT)
 }

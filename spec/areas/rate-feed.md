@@ -110,7 +110,7 @@ The feed has a UDP socket of its own, apart from QUIC's: its datagrams are not Q
 A subscriber needs the feed's port and the node's key; it takes the host from the node's URL.
 
 - **The discovery document,** `/.well-known/dassie/node`, names the port, as `feedPort`, on a core node with a feed, beside the node's ID and key ([HTTP](http.md#the-nodes-discovery-document)). `dassie market-maker` reads it there.
-- **The link state** names it too, in extension type 4 ([Peer protocol](peer-protocol.md#link-states)), so a node or tool that reads link states finds every core node's feed without asking each one. Only a node with a URL names one, at its URL's host.
+- **The link state** names it too, in extension type 3 ([Peer protocol](peer-protocol.md#link-states)), so a node or tool that reads link states finds every core node's feed without asking each one. Only a node with a URL names one, at its URL's host.
 - Neither names a port the node does not serve: a node without the socket, or without a URL, leaves `feedPort` out and issues its link state without the extension.
 
 ## Market maker

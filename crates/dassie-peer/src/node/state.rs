@@ -45,7 +45,7 @@ pub struct NodeView {
     pub public_key: Option<PublicKey>,
     /// The neighbors its link state advertises, sorted.
     pub neighbors: Vec<NodeId>,
-    /// The settlement schemes its link state lists.
+    /// The settlement schemes its link state offers, in its order.
     pub schemes: Vec<SchemeId>,
     /// Its link state's sequence.
     pub sequence: Option<u64>,
@@ -427,7 +427,7 @@ impl PeerNode {
                 schemes: entry
                     .link
                     .as_ref()
-                    .map(|link| link.schemes.clone())
+                    .map(|link| link.schemes().collect())
                     .unwrap_or_default(),
                 sequence: entry.link.as_ref().map(|link| link.sequence),
                 sources: entry.sources,

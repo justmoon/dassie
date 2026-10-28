@@ -752,7 +752,6 @@ impl Node {
             url,
             alias: config.alias.as_str().to_owned(),
             feed_port,
-            hub: None,
         }
     }
 

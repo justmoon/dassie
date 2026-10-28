@@ -10,7 +10,9 @@ use std::sync::Arc;
 use dassie_identity::IdentityKey;
 use dassie_oer::Decode;
 use dassie_peer::sim::{Arriving, Network, key};
-use dassie_peer::wire::{Content, Entry, NodeInfo, SchemeId, SignedNodeInfo, sign_node_info};
+use dassie_peer::wire::{
+    Content, NodeInfo, SchemeId, SettlementOffer, SignedNodeInfo, sign_node_info,
+};
 use dassie_peer::{Config, Event};
 
 fn settle(network: &mut Network, ms: u64) {
@@ -41,7 +43,11 @@ fn registration(network: &Network, from: &Arc<IdentityKey>, url: &str, to: usize
         alias: "",
         public_key: *from.public_key().as_bytes(),
         slh_dsa_public_key: *from.identity().slh_dsa().as_bytes(),
-        entries: vec![Entry::Scheme(SchemeId::parse("stub").unwrap())],
+        settlement: vec![SettlementOffer {
+            scheme: SchemeId::parse("stub").unwrap(),
+            details: &[],
+        }],
+        entries: Vec::new(),
     };
     let signed = sign_node_info(from, &info);
     let content = Content::Registration(SignedNodeInfo::decode_exact(&signed).unwrap());

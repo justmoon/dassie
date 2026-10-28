@@ -14,9 +14,14 @@
 use std::sync::Arc;
 
 use dassie_identity::{IdentityKey, NodeId};
-use dassie_peer::sim::{Arriving, Network, SECOND, STUB, key, scheme, url};
-use dassie_peer::wire::{Content, HubMembership, SchemeId};
-use dassie_peer::{Config, Event, Inbound, InboundId, OwnInfo, Reply};
+use dassie_kit::sim::SeededRng;
+use dassie_oer::{Decode, Encode};
+use dassie_peer::sim::{Arriving, Network, SECOND, START, STUB, StubHooks, key, scheme};
+use dassie_peer::wire::{Content, HubDetails, NodeInfo, SchemeId, SettlementOffer, sign_node_info};
+use dassie_peer::{
+    Config, Event, Inbound, InboundId, Offer, Output, OwnInfo, PeerNode, Reply, Sources, Stored,
+    StoredNode,
+};
 
 /// A Prepare, as far as the peer protocol reads one.
 const PREPARE: &[u8] = &[12, 1, 0];
@@ -304,7 +309,7 @@ fn an_empty_reply_gives_no_claim() {
 
 /// Two nodes whose only scheme is over a hub, each a member of `hubs[i]`,
 /// after a while to find each other.
-fn over_hubs(seed: u64, hubs: [Option<HubMembership>; 2]) -> (Network, NodeId, NodeId) {
+fn over_hubs(seed: u64, hubs: [Option<HubDetails>; 2]) -> (Network, NodeId, NodeId) {
     over_hubs_with(seed, hubs, false)
 }
 
@@ -312,7 +317,7 @@ fn over_hubs(seed: u64, hubs: [Option<HubMembership>; 2]) -> (Network, NodeId, N
 /// too if `second`.
 fn over_hubs_with(
     seed: u64,
-    hubs: [Option<HubMembership>; 2],
+    hubs: [Option<HubDetails>; 2],
     second: bool,
 ) -> (Network, NodeId, NodeId) {
     let mut network = Network::new(seed, 2, 1, Config::DEV);
@@ -321,34 +326,25 @@ fn over_hubs_with(
         if second {
             network.set_running(index, scheme(SECOND), true);
         }
-        let now = network.clock(index);
-        let info = OwnInfo {
-            url: Some(url(index)),
-            alias: format!("n{index}"),
-            feed_port: None,
-            hub,
-        };
-        network.node_mut(index).set_own_info(now, info);
+        network.set_hub(index, hub);
     }
     let (a, b) = (*network.node(0).own(), *network.node(1).own());
     settle(&mut network, 60_000);
     (network, a, b)
 }
 
-fn member(hub: u8, takes_peers: bool) -> Option<HubMembership> {
-    Some(HubMembership {
+fn member(hub: u8) -> Option<HubDetails> {
+    Some(HubDetails {
         hub_id: [hub; 32],
         account: 1,
-        takes_peers,
     })
 }
 
 /// A member of `hub` the hub has no account for yet, to be paid in.
-fn newcomer(hub: u8) -> Option<HubMembership> {
-    Some(HubMembership {
+fn newcomer(hub: u8) -> Option<HubDetails> {
+    Some(HubDetails {
         hub_id: [hub; 32],
-        account: HubMembership::NO_ACCOUNT,
-        takes_peers: true,
+        account: HubDetails::NO_ACCOUNT,
     })
 }
 
@@ -368,7 +364,7 @@ fn methods(network: &Network, index: usize, peer: &NodeId) -> Vec<SchemeId> {
 // and peer on another scheme both run instead.
 #[test]
 fn two_members_without_an_account_peer_on_another_scheme() {
-    let (network, a, b) = over_hubs(7, [member(1, true), newcomer(1)]);
+    let (network, a, b) = over_hubs(7, [member(1), newcomer(1)]);
     assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
     assert_eq!(methods(&network, 1, &a), [scheme(STUB)]);
     let (network, a, b) = over_hubs(7, [newcomer(1), newcomer(1)]);
@@ -380,21 +376,147 @@ fn two_members_without_an_account_peer_on_another_scheme() {
 }
 
 // A scheme over a hub is asked for only by a node that shares the hub with
-// the other, which takes peers there
+// the other, which offers the scheme over it
 // (spec/designs/settlement-hubs.md#11-choosing-a-hub): without, neither
-// would find the other's account.
+// would find the other's account. A node that takes no peers over its hub
+// offers no scheme over it.
 #[test]
 fn a_hub_scheme_is_chosen_only_for_a_shared_hub() {
-    let (network, a, b) = over_hubs(7, [member(1, true), member(1, true)]);
+    let (network, a, b) = over_hubs(7, [member(1), member(1)]);
     assert!(network.node(0).peering_of(&b).is_some());
     assert!(network.node(1).peering_of(&a).is_some());
-    for hubs in [
-        [member(1, true), member(2, true)],
-        [member(1, true), None],
-        [member(1, true), member(1, false)],
-    ] {
+    for hubs in [[member(1), member(2)], [member(1), None]] {
         let (network, a, b) = over_hubs(7, hubs);
         assert!(network.node(0).peering_of(&b).is_none(), "{hubs:?}");
         assert!(network.node(1).peering_of(&a).is_none(), "{hubs:?}");
     }
+}
+
+/// Offers of another node: each scheme with its details.
+type Theirs<'a> = &'a [(SchemeId, Vec<u8>)];
+
+/// Details of the hub of bytes `hub`, with `account`.
+fn details(hub: u8, account: u32) -> Vec<u8> {
+    HubDetails {
+        hub_id: [hub; 32],
+        account,
+    }
+    .to_vec()
+}
+
+/// The scheme a node offering `own` first asks a node offering `theirs` to
+/// peer on, if it asks at all: the first of the methods it reads from the
+/// other's offers. The stub's peerings are over a hub, and the second
+/// scheme's too if `second_over_hub`.
+fn first_asked(own: Vec<Offer>, theirs: Theirs<'_>, second_over_hub: bool) -> Option<SchemeId> {
+    let other = IdentityKey::from_bytes(&[92; 32]);
+    let info = NodeInfo {
+        sequence: START,
+        url: "https://other.test",
+        alias: "",
+        public_key: *other.public_key().as_bytes(),
+        slh_dsa_public_key: *other.identity().slh_dsa().as_bytes(),
+        settlement: theirs
+            .iter()
+            .map(|(scheme, details)| SettlementOffer {
+                scheme: *scheme,
+                details,
+            })
+            .collect(),
+        entries: Vec::new(),
+    };
+    let stored = Stored {
+        nodes: vec![StoredNode {
+            id: other.node_id(),
+            link_state: Some(sign_node_info(&other, &info)),
+            sources: Sources::MAJORITY,
+            first_seen_ms: START,
+            registration: None,
+            peering: None,
+            termination: None,
+        }],
+        ..Stored::default()
+    };
+    let mut node = PeerNode::new(
+        Config::DEV,
+        key(0),
+        OwnInfo {
+            url: Some("https://n0.test".into()),
+            alias: String::new(),
+            feed_port: None,
+        },
+        Vec::new(),
+        stored,
+        Box::new(SeededRng::new(78)),
+        START,
+    );
+    node.set_offers(START, own);
+    let mut hooks = StubHooks {
+        commitments: true,
+        second_over_hub,
+        ..StubHooks::default()
+    };
+    let mut now = START;
+    while now < START + 600_000 {
+        node.handle_timeout(now, &mut hooks);
+        while let Some(output) = node.poll_output() {
+            if let Output::Request(request) = output
+                && request.to == other.node_id()
+                && let Ok(Content::PeeringInfoRequest { scheme }) =
+                    Content::decode_exact(&request.body)
+            {
+                return Some(scheme);
+            }
+        }
+        now = node.poll_timeout().unwrap_or(now + 1_000).max(now + 1);
+    }
+    None
+}
+
+// spec/areas/peer-protocol.md#settlement-offers: a node reads another's
+// offer on a scheme it offers itself by its own offer's kind: over a hub,
+// the hub's details, which must name the hub it is in; on the stub, none.
+// An offer whose details are not that is taken as absent, as is one whose
+// scheme an earlier offer names, or whose hub an earlier offer it took
+// names; an offer on a scheme it does not offer is passed over. It asks on
+// the first scheme left, in its own order.
+#[test]
+fn offers_are_read_by_the_schemes_a_node_offers() {
+    let (stub, second) = (scheme(STUB), scheme(SECOND));
+    let hub = |hub: u8, account: u32| HubDetails {
+        hub_id: [hub; 32],
+        account,
+    };
+    let own = vec![Offer::over_hub(stub, hub(1, 1)), Offer::plain(second)];
+    let other_hub = SchemeId::parse("hub-other").unwrap();
+    let cases: [(Theirs<'_>, Option<SchemeId>); 10] = [
+        (&[(stub, details(1, 2))], Some(stub)),
+        (&[(stub, details(1, 0))], Some(stub)),
+        (&[(stub, details(2, 2))], None),
+        (&[(stub, details(1, 2)[..35].to_vec())], None),
+        (&[(stub, Vec::new())], None),
+        (&[(stub, Vec::new()), (stub, details(1, 2))], None),
+        (
+            &[(other_hub, details(1, 2)), (stub, details(1, 2))],
+            Some(stub),
+        ),
+        (&[(second, vec![1])], None),
+        (&[(second, Vec::new())], Some(second)),
+        (&[(second, Vec::new()), (stub, details(1, 2))], Some(stub)),
+    ];
+    for (theirs, asked) in cases {
+        assert_eq!(first_asked(own.clone(), theirs, false), asked, "{theirs:?}");
+    }
+    // Two without an account: neither could pay the other in.
+    let newcomer = vec![Offer::over_hub(stub, hub(1, HubDetails::NO_ACCOUNT))];
+    assert_eq!(first_asked(newcomer, &[(stub, details(1, 0))], false), None);
+    // Over two hubs: an offer naming a hub an earlier one named is absent.
+    let two_hubs = vec![
+        Offer::over_hub(stub, hub(1, 1)),
+        Offer::over_hub(second, hub(2, 1)),
+    ];
+    let theirs = [(second, details(2, 2))];
+    assert_eq!(first_asked(two_hubs.clone(), &theirs, true), Some(second));
+    let theirs = [(stub, details(2, 2)), (second, details(2, 2))];
+    assert_eq!(first_asked(two_hubs, &theirs, true), None);
 }

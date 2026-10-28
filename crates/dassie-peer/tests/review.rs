@@ -10,7 +10,7 @@ use dassie_kit::sim::SeededRng;
 use dassie_oer::Decode;
 use dassie_peer::sim::{Arriving, Network, START, key, url};
 use dassie_peer::wire::{
-    Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, SchemeId, SignedNodeInfo,
+    Content, NodeInfo, PeeringRequest, PeeringResponse, SchemeId, SettlementOffer, SignedNodeInfo,
     sign_node_info,
 };
 use dassie_peer::{Config, OwnInfo, PeerNode, Stored};
@@ -50,7 +50,11 @@ fn state(key: &IdentityKey, sequence: u64, url: &str) -> Vec<u8> {
         alias: "",
         public_key: *key.public_key().as_bytes(),
         slh_dsa_public_key: *key.identity().slh_dsa().as_bytes(),
-        entries: vec![Entry::Scheme(stub())],
+        settlement: vec![SettlementOffer {
+            scheme: stub(),
+            details: &[],
+        }],
+        entries: Vec::new(),
     };
     sign_node_info(key, &info)
 }
@@ -252,7 +256,7 @@ fn a_repeat_is_answered_on_a_scheme_no_longer_peered_on() {
     let mut network = Network::new(16, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
     let now = network.clock(0);
-    network.node_mut(0).set_schemes(now, Vec::new());
+    network.node_mut(0).set_offers(now, Vec::new());
     let body = peering_request(&network, &key(1), 0, network.clock(0));
     let reply = network.inbound(0, &body);
     assert_eq!(reply.status, 200);
@@ -310,7 +314,6 @@ fn an_own_url_too_long_is_no_url() {
             url: Some(url),
             alias: String::new(),
             feed_port: None,
-            hub: None,
         },
         Vec::new(),
         Stored::default(),

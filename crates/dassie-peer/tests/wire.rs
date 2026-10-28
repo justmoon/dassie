@@ -19,13 +19,13 @@ use dassie_identity::{IdentityKey, NodeId, PublicKey, Signature};
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::{Commitment, MAX_NAME_BYTES, Name, Salt};
 use dassie_peer::wire::{
-    Content, EXTENSION_HUB, EXTENSION_HUBS, Entry, HubList, HubListing, HubMembership,
-    InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_HUBS, MAX_NAME_LIST,
-    MAX_NAME_LIST_BYTES, MAX_URL_BYTES, MethodResponse, NameHolding, NameListResponse, NameReceipt,
-    NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse, RefusalReason, SchemeId,
-    SignedNodeInfo, TerminationReason, decode_expiry, decode_hash, decode_octets, decode_settling,
-    encode_expiry, encode_octets, encode_settling, hub_list_bytes, is_valid_url, peek_kind,
-    sign_node_info,
+    Content, EXTENSION_FEED, EXTENSION_PERIPHERY, EXTENSION_POST_QUANTUM, Entry, HubDetails,
+    InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_NAME_LIST,
+    MAX_NAME_LIST_BYTES, MAX_OFFER_DETAILS, MAX_OFFERS, MAX_URL_BYTES, MethodResponse, NameHolding,
+    NameListResponse, NameReceipt, NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse,
+    RefusalReason, SchemeId, SettlementOffer, SignedNodeInfo, TerminationReason, decode_expiry,
+    decode_hash, decode_octets, decode_settling, encode_expiry, encode_octets, encode_settling,
+    is_valid_url, peek_kind, sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -99,7 +99,8 @@ fn stub() -> SchemeId {
     SchemeId::parse("stub").unwrap()
 }
 
-/// Node A's info as in the v0 vector: the same fields, but its ID.
+/// Node A's info as in the v0 vector: the same fields, but its ID, and its
+/// scheme offered in the settlement list rather than listed as an entry.
 fn info_a() -> NodeInfo<'static> {
     NodeInfo {
         sequence: 1_700_000_000_000,
@@ -107,17 +108,22 @@ fn info_a() -> NodeInfo<'static> {
         alias: "Node A",
         public_key: *node_a().public_key().as_bytes(),
         slh_dsa_public_key: *node_a().identity().slh_dsa().as_bytes(),
-        entries: vec![Entry::Neighbor(node_b().node_id()), Entry::Scheme(stub())],
+        settlement: vec![SettlementOffer {
+            scheme: stub(),
+            details: &[],
+        }],
+        entries: vec![Entry::Neighbor(node_b().node_id())],
     }
 }
 
 // The node-info layout is v0's, with each node ID as its 24 bytes, but
-// without the node's own ID, which derives from the keys sent instead, and
-// with the SLH-DSA key's 32 bytes after the Ed25519 key, under a new OID,
-// so that an info signed under another layout cannot pass as a link state
-// of this one.
+// without the node's own ID, which derives from the keys sent instead,
+// with the SLH-DSA key's 32 bytes after the Ed25519 key, and with the
+// schemes in a list of offers after the keys rather than among the
+// entries, under a new OID, so that an info signed under another layout
+// cannot pass as a link state of this one.
 #[test]
-fn node_info_is_the_v0_layout_without_the_id() {
+fn node_info_is_the_v0_layout_without_the_id_and_with_offers() {
     assert!(NodeInfo::decode_exact(&vector("nodeInfo")).is_err());
     let v0 = with_v1_ids(&vector("nodeInfo"));
     let v1 = info_a().to_vec();
@@ -128,18 +134,27 @@ fn node_info_is_the_v0_layout_without_the_id() {
     assert_eq!(v1[13], 0x06);
     assert_eq!(v1[..13], v0[..13]);
     assert_eq!(v0[14..14 + id.len()], id[..]);
-    // v0 after its ID, up to the end of the key, then the SLH-DSA key, then
-    // the rest of v0.
-    let after_id = &v0[14 + id.len()..];
-    let key_end = after_id
-        .windows(32)
-        .position(|window| window == key.as_bytes())
-        .unwrap()
-        + 32;
-    let mut expected = after_id[..key_end].to_vec();
-    expected.extend(slh_dsa.as_bytes());
-    expected.extend(&after_id[key_end..]);
-    assert_eq!(v1[14..], expected[..]);
+    // v0's entries: a neighbor, `neighbor [0]`, and a scheme,
+    // `settlementScheme [1]`, two of them.
+    let neighbor = [&[0x80][..], &node_b().node_id().to_bytes()].concat();
+    let entries = [&[0x01, 0x02][..], &neighbor, &[0x81, 0x04], b"stub"].concat();
+    assert!(v0.ends_with(&entries));
+    let fields = &v0[14 + id.len()..v0.len() - entries.len()];
+    assert!(fields.ends_with(key.as_bytes()));
+    // v1: the fields up to the Ed25519 key, the SLH-DSA key, the one offer,
+    // on `stub` with no details, and the one entry left, the neighbor.
+    let offers = [&[0x01, 0x01, 0x04][..], b"stub", &[0x00]].concat();
+    let expected = [
+        &v0[..13],
+        &[0x06],
+        fields,
+        slh_dsa.as_bytes(),
+        &offers,
+        &[0x01, 0x01],
+        &neighbor,
+    ]
+    .concat();
+    assert_eq!(v1, expected);
     assert!(NodeInfo::decode_exact(&v0).is_err());
 }
 
@@ -168,7 +183,15 @@ fn signed_node_info_round_trips_and_verifies() {
         signed.info.neighbors().collect::<Vec<_>>(),
         [node_b().node_id()]
     );
-    assert_eq!(signed.info.schemes().collect::<Vec<_>>(), [stub()]);
+    assert_eq!(
+        signed
+            .info
+            .settlement
+            .iter()
+            .map(|offer| offer.scheme)
+            .collect::<Vec<_>>(),
+        [stub()]
+    );
 }
 
 #[test]
@@ -271,12 +294,12 @@ fn a_request_is_its_content() {
 fn v1_encodings_are_pinned() {
     // The content alone: who sent it is the connection's, and which
     // version its ALPN.
-    assert_eq!(to_hex(&Content::NodeListRequest.to_vec()), "87");
+    assert_eq!(to_hex(&Content::NodeListRequest.to_vec()), "86");
     assert!(Content::decode_exact(&[]).is_err(), "no content");
     assert_eq!(to_hex(&PeeringResponse::Accepted.to_vec()), "80");
     assert_eq!(
         to_hex(&PeeringResponse::Refused(RefusalReason::Capacity).to_vec()),
-        "8104"
+        "8103"
     );
 }
 
@@ -315,7 +338,7 @@ fn link_state_requests_and_answers_are_bounded() {
     );
 }
 
-// Settlements carry their sequence, and tag 10 is `peeringTermination`
+// Settlements carry their sequence, and tag 9 is `peeringTermination`
 // (spec/areas/peer-protocol.md#message-set).
 #[test]
 fn settlements_and_terminations_are_pinned() {
@@ -331,29 +354,28 @@ fn settlements_and_terminations_are_pinned() {
          0ab0001ab0000000000000007"
     );
     let termination = Content::PeeringTermination(TerminationReason::Owner);
-    assert_eq!(to_hex(&termination.to_vec()), "8a01");
+    assert_eq!(to_hex(&termination.to_vec()), "8901");
     assert_eq!(
-        Content::decode_exact(&[0x8a, 0x03]).unwrap(),
+        Content::decode_exact(&[0x89, 0x03]).unwrap(),
         Content::PeeringTermination(TerminationReason::NotPeered)
     );
     // Unknown reasons read as unspecified.
     assert_eq!(
-        Content::decode_exact(&[0x8a, 0x63]).unwrap(),
+        Content::decode_exact(&[0x89, 0x63]).unwrap(),
         Content::PeeringTermination(TerminationReason::Unspecified)
     );
-    assert_eq!(Kind::from_tag(10), Some(Kind::PeeringTermination));
+    assert_eq!(Kind::from_tag(9), Some(Kind::PeeringTermination));
     // spec/decisions/own-fulfills.md: a settlement request names its scheme
     // alone.
     let request = Content::SettlementRequest {
         scheme: SchemeId::parse("stub").unwrap(),
     };
-    assert_eq!(to_hex(&request.to_vec()), "8b0473747562");
-    assert_eq!(Kind::from_tag(11), Some(Kind::SettlementRequest));
-    assert!(Content::decode_exact(&[0x8b]).is_err());
-    assert!(Content::decode_exact(&[0x8c]).is_err());
+    assert_eq!(to_hex(&request.to_vec()), "8a0473747562");
+    assert_eq!(Kind::from_tag(10), Some(Kind::SettlementRequest));
+    assert!(Content::decode_exact(&[0x8a]).is_err());
     assert_eq!(
         to_hex(&PeeringResponse::Refused(RefusalReason::Terminating).to_vec()),
-        "8109"
+        "8108"
     );
 }
 
@@ -382,9 +404,14 @@ proptest! {
     }
 }
 
-/// Node A's info with an entry of every kind, signed.
+/// Node A's info with an offer over a hub and an entry of every kind,
+/// signed.
 fn signed_full() -> Vec<u8> {
     let mut info = info_a();
+    info.settlement.push(SettlementOffer {
+        scheme: SchemeId::parse("hub-xrp").unwrap(),
+        details: &[0x11; HubDetails::ENCODED_BYTES],
+    });
     info.entries.push(Entry::Extension {
         kind: 1,
         value: &[7; 40],
@@ -626,25 +653,113 @@ fn a_settlement_requests_answer_is_the_amount_on_its_way() {
     assert!(decode_settling(&[1, 2, 3]).is_err());
 }
 
-// Tag 5 is reserved: no message has it, so a node refuses it as malformed,
-// whatever follows it.
+// spec/areas/peer-protocol.md#versions: `dassie/2` numbers its messages
+// from 0 without gaps, and a tag past the last is no message, so a node
+// refuses it as malformed, whatever follows it.
 #[test]
-fn tag_5_is_no_message() {
-    assert_eq!(Kind::from_tag(5), None);
-    assert!(Content::decode_exact(&[0x85]).is_err());
-    assert!(Content::decode_exact(&[0x85, 4, b's', b't', b'u', b'b', 1, 0]).is_err());
-}
-
-// Tag 12 is reserved, as `hubPacket`, which `methodPacket` replaced, had
-// it: no message has it, so a node refuses one as malformed
-// (spec/areas/peer-protocol.md#versions).
-#[test]
-fn tag_12_is_no_message() {
-    assert_eq!(Kind::from_tag(12), None);
-    assert!(Content::decode_exact(&[0x8c]).is_err());
-    assert!(Content::decode_exact(&hex("8c00000007010c02abab")).is_err());
+fn message_tags_have_no_gaps() {
+    for tag in 0..u64::try_from(KINDS).unwrap() {
+        assert_eq!(Kind::from_tag(tag).unwrap().tag(), tag);
+    }
+    let past = u64::try_from(KINDS).unwrap();
+    assert_eq!(Kind::from_tag(past), None);
+    assert!(Content::decode_exact(&[0x80 | u8::try_from(past).unwrap()]).is_err());
+    assert!(Content::decode_exact(&hex("9300000007010c02abab")).is_err());
     assert!(Kind::MethodPacket.carries_packet() && Kind::InterledgerPacket.carries_packet());
     assert!(!Kind::Settlement.carries_packet());
+}
+
+/// A signed link state of node A with these settlement offers.
+fn with_offers(offers: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut info = info_a();
+    info.settlement = offers
+        .iter()
+        .map(|(scheme, details)| SettlementOffer {
+            scheme: SchemeId::parse(scheme).unwrap(),
+            details,
+        })
+        .collect();
+    sign_node_info(node_a(), &info)
+}
+
+// spec/areas/peer-protocol.md#settlement-offers: an offer is its scheme
+// and the scheme's details, in their canonical OER; over a hub, the hub's
+// ID and the node's account in it, nothing else.
+#[test]
+fn offers_and_hub_details_are_pinned() {
+    let hub = HubDetails {
+        hub_id: [0x11; 32],
+        account: 0x0102_0304,
+    };
+    let details = hub.to_vec();
+    assert_eq!(details.len(), HubDetails::ENCODED_BYTES);
+    assert_eq!(to_hex(&details), format!("{}01020304", "11".repeat(32)));
+    assert_eq!(HubDetails::decode_exact(&details), Ok(hub));
+    let offer = SettlementOffer {
+        scheme: SchemeId::parse("hub-a").unwrap(),
+        details: &details,
+    };
+    assert_eq!(
+        to_hex(&offer.to_vec()),
+        format!("056875622d6124{}01020304", "11".repeat(32))
+    );
+    let stub_offer = SettlementOffer {
+        scheme: stub(),
+        details: &[],
+    };
+    assert_eq!(to_hex(&stub_offer.to_vec()), "047374756200");
+    // Short or long details are no hub's.
+    for broken in [&details[..35], &[details.as_slice(), &[0]].concat(), &[]] {
+        assert!(HubDetails::decode_exact(broken).is_err());
+    }
+    // Offers of any scheme and details within the bounds are kept as they
+    // came, and the link state verifies: what the details say is for a
+    // node that knows the scheme to read.
+    let bytes = with_offers(&[("hub-a", &details), ("other", &[1, 2, 3]), ("hub-a", &[])]);
+    let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
+    assert!(signed.verify().is_ok());
+    assert_eq!(signed.info.settlement.len(), 3);
+    assert_eq!(signed.info.settlement[1].details, [1, 2, 3]);
+    assert_eq!(signed.info.to_vec(), signed.signed);
+}
+
+// spec/areas/peer-protocol.md#settlement-offers: every node decodes the
+// same bounds, `MAX_OFFERS` offers of at most `MAX_OFFER_DETAILS` bytes of
+// details each; a link state past either is malformed.
+#[test]
+fn offers_are_bounded() {
+    let longest = vec![0xab; MAX_OFFER_DETAILS];
+    let bytes = with_offers(&[("other", &longest)]);
+    assert!(SignedNodeInfo::decode_exact(&bytes).is_ok());
+    // An offer one byte past: `other`, then the details' length, 257, and
+    // the details.
+    let mut too_long = [&[0x05][..], b"other", &[0x82, 0x01, 0x01]].concat();
+    too_long.extend([0xab; MAX_OFFER_DETAILS + 1]);
+    assert!(SettlementOffer::decode_exact(&too_long).is_err());
+    too_long[8] = 0x00;
+    too_long.pop();
+    assert!(SettlementOffer::decode_exact(&too_long).is_ok());
+    let names: Vec<String> = (0..=MAX_OFFERS).map(|n| format!("s{n}")).collect();
+    let most: Vec<(&str, &[u8])> = names[..MAX_OFFERS]
+        .iter()
+        .map(|name| (name.as_str(), &[][..]))
+        .collect();
+    assert!(SignedNodeInfo::decode_exact(&with_offers(&most)).is_ok());
+    let too_many: Vec<(&str, &[u8])> = names.iter().map(|name| (name.as_str(), &[][..])).collect();
+    assert!(SignedNodeInfo::decode_exact(&with_offers(&too_many)).is_err());
+}
+
+// spec/areas/peer-protocol.md#link-states: an entry is a neighbor (tag 0)
+// or an extension (tag 1), and a link state with any other is malformed.
+#[test]
+fn entries_are_neighbors_and_extensions() {
+    let mut info = info_a().to_vec();
+    // The last entry, the neighbor, with tag 2 in place of 0.
+    let at = info.len() - 1 - dassie_identity::NODE_ID_BYTES;
+    assert_eq!(info[at], 0x80);
+    assert!(NodeInfo::decode_exact(&info).is_ok());
+    info[at] = 0x82;
+    assert!(NodeInfo::decode_exact(&info).is_err());
 }
 
 /// A signed link state of node A with these extensions.
@@ -658,77 +773,32 @@ fn with_extensions(extensions: &[(u16, &[u8])]) -> Vec<u8> {
     sign_node_info(node_a(), &info)
 }
 
-// spec/areas/peer-protocol.md#link-states: extension type 5 names the hub a
-// node is a member of, in canonical OER; a value that is not one names none,
-// and the link state still verifies.
-#[test]
-fn the_hub_extension_is_pinned_and_read_strictly() {
-    let membership = HubMembership {
-        hub_id: [0x11; 32],
-        account: 0x0102_0304,
-        takes_peers: true,
-    };
-    let value = membership.to_vec();
-    assert_eq!(value.len(), HubMembership::ENCODED_BYTES);
-    assert_eq!(to_hex(&value), format!("{}01020304ff", "11".repeat(32)));
-    assert_eq!(HubMembership::decode_exact(&value), Ok(membership));
-    let bytes = with_extensions(&[(EXTENSION_HUB, &value)]);
-    let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
-    assert!(signed.verify().is_ok());
-    assert_eq!(signed.info.hub(), Some(membership));
-    let closed = HubMembership {
-        takes_peers: false,
-        ..membership
-    };
-    assert_eq!(closed.to_vec().last(), Some(&0x00));
-
-    // Not canonical, short or long: no hub, and still a valid link state.
-    let mut not_canonical = value.clone();
-    *not_canonical.last_mut().unwrap() = 0x01;
-    let short = &value[..36];
-    let mut long = value.clone();
-    long.push(0);
-    for broken in [&not_canonical[..], short, &long[..], &[]] {
-        let bytes = with_extensions(&[(EXTENSION_HUB, broken)]);
-        let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
-        assert!(signed.verify().is_ok());
-        assert_eq!(signed.info.hub(), None);
-    }
-    // The first hub extension is the one read.
-    let bytes = with_extensions(&[(EXTENSION_HUB, short), (EXTENSION_HUB, &value)]);
-    let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
-    assert_eq!(signed.info.hub(), None);
-    let full = signed_full();
-    assert_eq!(
-        SignedNodeInfo::decode_exact(&full).unwrap().info.hub(),
-        None
-    );
-}
-
-/// The longest hub list a node lists: [`dassie_peer::MAX_OWN_HUBS`] hubs on
-/// the first of `schemes`, at the largest accounts.
-fn largest_hub_list(schemes: &[SchemeId]) -> HubList {
-    let hubs = HubList(
-        schemes[..dassie_peer::MAX_OWN_HUBS]
-            .iter()
-            .zip(0u8..)
-            .map(|(scheme, n)| HubListing {
-                scheme: *scheme,
-                membership: HubMembership {
-                    hub_id: [n; 32],
+/// The largest offers a node makes: `MAX_SCHEMES` of them at the longest
+/// scheme IDs, the first `MAX_OWN_HUBS` over hubs, at the largest accounts,
+/// and the others with no details, as the stub's.
+fn largest_offers() -> Vec<dassie_peer::Offer> {
+    let offers: Vec<dassie_peer::Offer> = (0..dassie_peer::MAX_SCHEMES)
+        .map(|n| {
+            let text = format!("{n:02}{}", "a".repeat(dassie_peer::wire::MAX_SCHEME_ID - 2));
+            let scheme = SchemeId::parse(&text).unwrap();
+            if n < dassie_peer::MAX_OWN_HUBS {
+                let hub = HubDetails {
+                    hub_id: [u8::try_from(n).unwrap(); 32],
                     account: u32::MAX,
-                    takes_peers: true,
-                },
-            })
-            .collect(),
-    );
-    assert!(hubs.is_valid());
-    hubs
+                };
+                dassie_peer::Offer::over_hub(scheme, hub)
+            } else {
+                dassie_peer::Offer::plain(scheme)
+            }
+        })
+        .collect();
+    assert!(dassie_peer::offers_keep_the_rules(&offers));
+    offers
 }
 
 // spec/areas/peer-protocol.md#link-states: the bound a node checks its own
 // link state against holds for the largest it can sign, at the longest URL,
-// alias and scheme IDs, with every extension; and the default
+// alias and scheme IDs, with every offer and extension; and the default
 // configuration's link state fits what every node decodes.
 #[test]
 fn the_largest_own_link_state_fits_its_bound() {
@@ -739,32 +809,27 @@ fn the_largest_own_link_state_fits_its_bound() {
     let ids: Vec<NodeId> = (0..neighbors)
         .map(|n| IdentityKey::from_bytes(&[u8::try_from(n).unwrap() + 8; 32]).node_id())
         .collect();
-    let schemes: Vec<SchemeId> = (0..dassie_peer::MAX_SCHEMES)
-        .map(|n| {
-            let text = format!("{n:02}{}", "a".repeat(dassie_peer::wire::MAX_SCHEME_ID - 2));
-            SchemeId::parse(&text).unwrap()
-        })
-        .collect();
-    let hubs = largest_hub_list(&schemes);
-    let hub = hubs.0[0].membership.to_vec();
-    let hubs = hubs.to_vec();
-    assert_eq!(hubs.len(), hub_list_bytes(dassie_peer::MAX_OWN_HUBS));
+    let offers = largest_offers();
+    let details: Vec<Vec<u8>> = offers.iter().map(dassie_peer::Offer::details).collect();
     let port = 4433u16.to_be_bytes();
-    let extensions: [(u16, &[u8]); 3] = [
-        (dassie_peer::wire::EXTENSION_FEED, &port),
-        (EXTENSION_HUB, &hub),
-        (EXTENSION_HUBS, &hubs),
-    ];
+    let extensions: [(u16, &[u8]); 1] = [(dassie_peer::wire::EXTENSION_FEED, &port)];
     let info = NodeInfo {
         sequence: u64::MAX,
         url: &url,
         alias: &alias,
         public_key: *key.public_key().as_bytes(),
         slh_dsa_public_key: *key.identity().slh_dsa().as_bytes(),
+        settlement: offers
+            .iter()
+            .zip(&details)
+            .map(|(offer, details)| SettlementOffer {
+                scheme: offer.scheme,
+                details,
+            })
+            .collect(),
         entries: ids
             .iter()
             .map(|id| Entry::Neighbor(*id))
-            .chain(schemes.iter().map(|id| Entry::Scheme(*id)))
             .chain(
                 extensions
                     .iter()
@@ -775,8 +840,9 @@ fn the_largest_own_link_state_fits_its_bound() {
     let bound = dassie_peer::wire::max_node_info_bytes(
         neighbors,
         dassie_peer::MAX_SCHEMES,
+        details.iter().map(Vec::len).sum(),
         extensions.len(),
-        port.len() + hub.len() + hubs.len(),
+        port.len(),
     );
     assert!(
         info.encoded_len() <= bound,
@@ -812,8 +878,8 @@ fn name_list() -> NameListResponse {
     ]))
 }
 
-// spec/areas/peer-protocol.md#message-set: the name messages are tags 13
-// to 17. Committing, unsealing and renewing change state and need
+// spec/areas/peer-protocol.md#message-set: the name messages are tags 11
+// to 15. Committing, unsealing and renewing change state and need
 // authentication; the list requests only read.
 #[test]
 fn name_messages_are_pinned() {
@@ -824,26 +890,26 @@ fn name_messages_are_pinned() {
     };
     let renew = Content::NameRenew(name("alice"));
     let pinned = [
-        (commit, format!("8d{}", "ab".repeat(32))),
-        (unseal, format!("8e05616c696365{}", "07".repeat(32))),
-        (renew, "8f05616c696365".to_owned()),
-        (Content::NameListHashRequest, "90".to_owned()),
-        (Content::NameListRequest, "91".to_owned()),
+        (commit, format!("8b{}", "ab".repeat(32))),
+        (unseal, format!("8c05616c696365{}", "07".repeat(32))),
+        (renew, "8d05616c696365".to_owned()),
+        (Content::NameListHashRequest, "8e".to_owned()),
+        (Content::NameListRequest, "8f".to_owned()),
     ];
-    for (tag, (content, hex)) in (13..).zip(pinned) {
+    for (tag, (content, hex)) in (11..).zip(pinned) {
         assert_eq!(to_hex(&content.to_vec()), hex);
         assert_eq!(Content::decode_exact(&content.to_vec()).unwrap(), content);
         assert_eq!(Kind::from_tag(tag), Some(content.kind()));
         assert_eq!(content.kind().tag(), tag);
     }
-    assert_eq!(Kind::from_tag(18), Some(Kind::MethodPacket));
+    assert_eq!(Kind::from_tag(16), Some(Kind::MethodPacket));
     for kind in [Kind::NameCommit, Kind::NameUnseal, Kind::NameRenew] {
         assert!(!kind.is_read_only());
     }
     for kind in [Kind::NameListHashRequest, Kind::NameListRequest] {
         assert!(kind.is_read_only());
     }
-    for kind in (13..=17).filter_map(Kind::from_tag) {
+    for kind in (11..=15).filter_map(Kind::from_tag) {
         assert!(!kind.carries_packet());
     }
 }
@@ -852,18 +918,18 @@ fn name_messages_are_pinned() {
 // syntax (spec/designs/names.md#7-names), whether or not it is reserved.
 #[test]
 fn name_messages_are_bounded() {
-    let commit = hex(&format!("8d{}", "ab".repeat(32)));
+    let commit = hex(&format!("8b{}", "ab".repeat(32)));
     assert!(Content::decode_exact(&commit[..32]).is_err());
     let mut long = commit.clone();
     long.push(0xab);
     assert!(Content::decode_exact(&long).is_err());
-    let unseal = hex(&format!("8e05616c696365{}", "07".repeat(32)));
+    let unseal = hex(&format!("8c05616c696365{}", "07".repeat(32)));
     assert!(Content::decode_exact(&unseal[..unseal.len() - 1]).is_err());
     let mut long = unseal.clone();
     long.push(7);
     assert!(Content::decode_exact(&long).is_err());
     let renew = |text: &str| {
-        let mut bytes = vec![0x8f, u8::try_from(text.len()).unwrap()];
+        let mut bytes = vec![0x8d, u8::try_from(text.len()).unwrap()];
         bytes.extend(text.as_bytes());
         Content::decode_exact(&bytes).map(|content| content.to_vec())
     };
@@ -965,7 +1031,7 @@ fn name_answers_are_pinned_and_bounded() {
 }
 
 // spec/areas/peer-protocol.md#message-set: the settlement-method messages
-// are tags 18 to 20 (spec/decisions/settlement-methods.md). Each changes
+// are tags 16 to 18 (spec/decisions/settlement-methods.md). Each changes
 // state, or moves money, and needs authentication; a `methodPacket`
 // carries a Prepare, with a commitment that is empty on a method not over a
 // hub, and bounded.
@@ -977,22 +1043,22 @@ fn settlement_method_messages_are_pinned_and_bounded() {
         packet: &[0x0c],
         commitment: &[0xab, 0xab],
     };
-    assert_eq!(to_hex(&packet.to_vec()), "92000000070473747562010c02abab");
+    assert_eq!(to_hex(&packet.to_vec()), "90000000070473747562010c02abab");
     let direct = Content::MethodPacket {
         request_id: 7,
         scheme: stub(),
         packet: &[0x0c],
         commitment: &[],
     };
-    assert_eq!(to_hex(&direct.to_vec()), "92000000070473747562010c00");
+    assert_eq!(to_hex(&direct.to_vec()), "90000000070473747562010c00");
     let add = Content::MethodAdd {
         scheme: stub(),
         data: &[0xab],
     };
-    assert_eq!(to_hex(&add.to_vec()), "93047374756201ab");
+    assert_eq!(to_hex(&add.to_vec()), "91047374756201ab");
     let drop = Content::MethodDrop { scheme: stub() };
-    assert_eq!(to_hex(&drop.to_vec()), "940473747562");
-    for (tag, content) in [(18, &packet), (19, &add), (20, &drop)] {
+    assert_eq!(to_hex(&drop.to_vec()), "920473747562");
+    for (tag, content) in [(16, &packet), (17, &add), (18, &drop)] {
         assert_eq!(
             Content::decode_exact(&content.to_vec()).as_ref(),
             Ok(content)
@@ -1003,8 +1069,8 @@ fn settlement_method_messages_are_pinned_and_bounded() {
         assert_eq!(kind.carries_packet(), kind == Kind::MethodPacket);
     }
     assert_eq!(Content::decode_exact(&direct.to_vec()).unwrap(), direct);
-    assert_eq!(Kind::from_tag(21), None);
-    assert!(Content::decode_exact(&[0x95]).is_err());
+    assert_eq!(Kind::from_tag(19), None);
+    assert!(Content::decode_exact(&[0x93]).is_err());
 
     // A commitment past the bound is malformed; one at it is not.
     let at_bound = Content::MethodPacket {
@@ -1033,16 +1099,16 @@ fn method_answers_are_pinned() {
     let accepted = MethodResponse::Accepted;
     assert_eq!(to_hex(&accepted.to_vec()), "80");
     let refused = MethodResponse::Refused(RefusalReason::Capacity);
-    assert_eq!(to_hex(&refused.to_vec()), "8104");
+    assert_eq!(to_hex(&refused.to_vec()), "8103");
     for response in [accepted, refused] {
         assert_eq!(
             MethodResponse::decode_exact(&response.to_vec()),
             Ok(response)
         );
     }
-    // Unknown reasons, and the reserved 3, read as unspecified; unknown
-    // tags are malformed.
-    for code in [0x03, 0x63] {
+    // Unknown reasons, past the last, read as unspecified; unknown tags are
+    // malformed.
+    for code in [0x09, 0x63] {
         assert_eq!(
             MethodResponse::decode_exact(&[0x81, code]),
             Ok(MethodResponse::Refused(RefusalReason::Unspecified))
@@ -1051,141 +1117,29 @@ fn method_answers_are_pinned() {
     assert!(MethodResponse::decode_exact(&[0x82, 0x00]).is_err());
 }
 
-// spec/areas/peer-protocol.md#link-states: extension type 6 is reserved.
-// No node issues it, and a link state that carries one, empty or not, still
-// verifies and keeps it, as one of an unknown type.
+// spec/areas/peer-protocol.md#link-states: `dassie/2` numbers its
+// extension types from 1 without gaps, and keeps one of a type it does not
+// know, empty or not, as it came: the link state still verifies.
 #[test]
-fn extension_6_is_reserved() {
-    for value in [&[][..], &[0][..]] {
-        let bytes = with_extensions(&[(6, value)]);
-        let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
-        assert!(signed.verify().is_ok());
-        assert!(
-            signed
-                .info
-                .entries
-                .contains(&Entry::Extension { kind: 6, value })
-        );
-    }
-}
-
-fn listing(scheme: &str, hub: u8, account: u32, takes_peers: bool) -> HubListing {
-    HubListing {
-        scheme: SchemeId::parse(scheme).unwrap(),
-        membership: HubMembership {
-            hub_id: [hub; 32],
-            account,
-            takes_peers,
-        },
-    }
-}
-
-// spec/areas/peer-protocol.md#link-states: extension type 7 lists a node's
-// hubs, each with its scheme, in canonical OER; a list that is empty, too
-// long, or names a scheme or a hub twice names none, and the link state
-// still verifies. The hub extension, type 5, is read as before, beside it.
-#[test]
-fn the_hub_list_is_pinned_and_read_strictly() {
-    let first = listing("hub-a", 0x11, 0x0102_0304, true);
-    let second = listing("hub-b", 0x22, 5, false);
-    let list = HubList(vec![first, second]);
-    let value = list.to_vec();
+fn extension_types_have_no_gaps_and_unknown_ones_are_kept() {
     assert_eq!(
-        to_hex(&value),
-        format!(
-            "0102056875622d61{}01020304ff056875622d62{}0000000500",
-            "11".repeat(32),
-            "22".repeat(32)
-        )
+        [EXTENSION_POST_QUANTUM, EXTENSION_PERIPHERY, EXTENSION_FEED],
+        [1, 2, 3]
     );
-    assert_eq!(HubList::decode_exact(&value), Ok(list.clone()));
-    let hub = first.membership.to_vec();
-    let bytes = with_extensions(&[(EXTENSION_HUB, &hub), (EXTENSION_HUBS, &value)]);
-    let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
-    assert!(signed.verify().is_ok());
-    assert_eq!(signed.info.hubs(), [first, second]);
-    assert_eq!(signed.info.hub(), Some(first.membership));
-    // A node of a version before lists names its hub alone.
-    let bytes = with_extensions(&[(EXTENSION_HUB, &hub)]);
-    let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
-    assert_eq!(signed.info.hubs(), []);
-    assert_eq!(signed.info.hub(), Some(first.membership));
-
-    // Broken lists name none, and leave the hub extension as it is.
-    let same_scheme = listing("hub-a", 0x22, 5, false);
-    let same_hub = listing("hub-b", 0x11, 5, false);
-    let too_many = HubList(
-        (0..=MAX_HUBS)
-            .map(|n| listing(&format!("hub-{n}"), u8::try_from(n).unwrap(), 1, true))
-            .collect(),
-    );
-    let mut not_canonical = value.clone();
-    *not_canonical.last_mut().unwrap() = 0x01;
-    let mut trailing = value.clone();
-    trailing.push(0);
-    let broken = [
-        HubList(vec![]).to_vec(),
-        HubList(vec![first, same_scheme]).to_vec(),
-        HubList(vec![first, same_hub]).to_vec(),
-        too_many.to_vec(),
-        not_canonical,
-        trailing,
-        value[..value.len() - 1].to_vec(),
-        vec![],
-    ];
-    for broken in &broken {
-        assert!(HubList::decode_exact(broken).is_err());
-        let bytes = with_extensions(&[(EXTENSION_HUB, &hub), (EXTENSION_HUBS, broken)]);
-        let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
-        assert!(signed.verify().is_ok());
-        assert_eq!(signed.info.hubs(), []);
-        assert_eq!(signed.info.hub(), Some(first.membership));
-    }
-    // The first hub list is the one read.
-    let bytes = with_extensions(&[
-        (EXTENSION_HUB, &hub),
-        (EXTENSION_HUBS, &broken[0]),
-        (EXTENSION_HUBS, &value),
-    ]);
-    let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
-    assert_eq!(signed.info.hubs(), []);
-    // A list of MAX_HUBS is read.
-    let most = HubList(too_many.0[..MAX_HUBS].to_vec());
-    assert_eq!(HubList::decode_exact(&most.to_vec()), Ok(most));
-}
-
-// spec/areas/peer-protocol.md#link-states: a hub list whose first is not
-// exactly the hub extension's names no hubs, so that nodes that read lists
-// and nodes that do not never see a different first hub.
-#[test]
-fn a_hub_list_names_the_hub_extensions_hub_first() {
-    let first = listing("hub-a", 0x11, 0x0102_0304, true);
-    let second = listing("hub-b", 0x22, 5, false);
-    let value = HubList(vec![first, second]).to_vec();
-    // Without the hub extension, with another hub in it, with the same hub
-    // but another membership, or with the list's second in it.
-    let not_taking = HubMembership {
-        takes_peers: false,
-        ..first.membership
-    }
-    .to_vec();
-    let other_hub = HubMembership {
-        hub_id: [0x33; 32],
-        ..first.membership
-    }
-    .to_vec();
-    let second_hub = second.membership.to_vec();
-    let disagreeing: [&[(u16, &[u8])]; 4] = [
-        &[(EXTENSION_HUBS, &value)],
-        &[(EXTENSION_HUB, &other_hub), (EXTENSION_HUBS, &value)],
-        &[(EXTENSION_HUB, &not_taking), (EXTENSION_HUBS, &value)],
-        &[(EXTENSION_HUB, &second_hub), (EXTENSION_HUBS, &value)],
-    ];
-    for extensions in disagreeing {
-        let bytes = with_extensions(extensions);
-        let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
-        assert!(signed.verify().is_ok());
-        assert_eq!(signed.info.hubs(), []);
+    for kind in [EXTENSION_POST_QUANTUM, 4, 7, u16::MAX] {
+        for value in [&[][..], &[0][..], &[0x11; 37][..]] {
+            let bytes = with_extensions(&[(kind, value)]);
+            let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
+            assert!(signed.verify().is_ok());
+            assert!(
+                signed
+                    .info
+                    .entries
+                    .contains(&Entry::Extension { kind, value })
+            );
+            assert!(!signed.info.is_periphery());
+            assert_eq!(signed.info.feed_port(), None);
+        }
     }
 }
 
@@ -1210,36 +1164,31 @@ proptest! {
         }
     }
 
-    // A list decodes when, and only when, it keeps its rules, and then
-    // encodes to the bytes it came from. Half the lists name each scheme and
-    // hub once, so that valid lists of every length up to MAX_HUBS occur;
-    // the others draw them from few enough that some repeat.
+    // A link state with any offers decodes when, and only when, they are
+    // within the bounds, and then encodes to the bytes it came from, kept as
+    // they came whatever their schemes and details say. Details past their
+    // bound cannot be written: `offers_are_bounded` reads them.
     #[test]
-    fn hub_lists_are_read_by_their_rules(
-        listings in proptest::collection::vec(
-            (0..=MAX_HUBS, 0..=MAX_HUBS, any::<u32>(), any::<bool>()),
-            0..=MAX_HUBS + 1,
+    fn offers_round_trip_within_their_bounds(
+        offers in proptest::collection::vec(
+            ("[a-z0-9-]{2,64}", proptest::collection::vec(any::<u8>(), 0..64)),
+            0..=MAX_OFFERS + 1,
         ),
-        distinct in any::<bool>(),
     ) {
-        let list = HubList(
-            listings
-                .iter()
-                .enumerate()
-                .map(|(index, (scheme, hub, account, takes))| {
-                    let (scheme, hub) = if distinct { (index, index) } else { (*scheme, *hub) };
-                    listing(&format!("hub-{scheme}"), u8::try_from(hub).unwrap(), *account, *takes)
-                })
-                .collect(),
-        );
-        let bytes = list.to_vec();
-        prop_assert_eq!(bytes.len(), list.encoded_len());
-        match HubList::decode_exact(&bytes) {
-            Ok(decoded) => {
-                prop_assert!(list.is_valid());
-                prop_assert_eq!(decoded, list);
+        let offers: Vec<(&str, &[u8])> = offers
+            .iter()
+            .map(|(scheme, details)| (scheme.as_str(), details.as_slice()))
+            .collect();
+        let bytes = with_offers(&offers);
+        let within = offers.len() <= MAX_OFFERS;
+        match SignedNodeInfo::decode_exact(&bytes) {
+            Ok(signed) => {
+                prop_assert!(within);
+                prop_assert_eq!(signed.info.settlement.len(), offers.len());
+                prop_assert_eq!(signed.info.to_vec(), signed.signed);
             }
-            Err(_) => prop_assert!(!list.is_valid()),
+            // Past the bounds, or past the bytes every node decodes.
+            Err(_) => prop_assert!(!within || bytes.len() > dassie_peer::wire::MAX_NODE_INFO_BYTES),
         }
     }
 }

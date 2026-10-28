@@ -5,38 +5,42 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
-use dassie_oer::{Decode, Encode};
+use dassie_oer::Decode;
 
-use super::{MAX_OWN_HUBS, MAX_SCHEMES, PeerNode, Problem, Purpose};
+use super::{MAX_OWN_HUBS, MAX_SCHEMES, PeerNode, Problem, Purpose, offers_keep_the_rules};
 use crate::config::Config;
 use crate::table::{LinkState, Sources, backoff};
 use crate::wire::{
-    Content, EXTENSION_FEED, EXTENSION_HUB, EXTENSION_HUBS, EXTENSION_PERIPHERY, Entry, HubList,
-    HubMembership, InvalidNodeInfo, LinkStateResponse, MAX_ENTRIES, MAX_NODE_INFO_BYTES, NodeInfo,
-    SignedNodeInfo, TerminationReason, hub_list_bytes, max_node_info_bytes, sign_node_info,
+    Content, EXTENSION_FEED, EXTENSION_PERIPHERY, Entry, HubDetails, InvalidNodeInfo,
+    LinkStateResponse, MAX_ENTRIES, MAX_NODE_INFO_BYTES, MAX_OFFERS, NodeInfo, SettlementOffer,
+    SignedNodeInfo, TerminationReason, max_node_info_bytes, sign_node_info,
 };
 
 /// The routes are recomputed at least this often, as link states go stale.
 const ROUTES_PERIOD_MS: u64 = 60_000;
 
 /// Most extensions our own link state carries: the periphery one or a
-/// feed port, a hub and a hub list ([`PeerNode::own_extensions`]).
-const MAX_OWN_EXTENSIONS: usize = 3;
+/// feed port ([`PeerNode::own_extensions`]).
+const MAX_OWN_EXTENSIONS: usize = 1;
 
-/// Most bytes their values take together: a feed port, a hub and a list of
-/// [`MAX_OWN_HUBS`] hubs, at the longest scheme IDs; the periphery one is
-/// empty.
-const MAX_OWN_EXTENSION_BYTES: usize =
-    2 + HubMembership::ENCODED_BYTES + hub_list_bytes(MAX_OWN_HUBS);
+/// Most bytes their values take together: a feed port; the periphery one
+/// is empty.
+const MAX_OWN_EXTENSION_BYTES: usize = 2;
+
+/// Most bytes the details of our own offers take together: a hub's on each
+/// of [`MAX_OWN_HUBS`] schemes over a hub, and none on any other.
+const MAX_OWN_DETAILS_BYTES: usize = MAX_OWN_HUBS * HubDetails::ENCODED_BYTES;
 
 /// Whether our own link state, listing at most `neighbors` neighbors,
-/// always fits what every node decodes: in entries and in bytes, with
-/// every scheme, extension and the longest URL and alias it may carry.
+/// always fits what every node decodes: in entries, offers and bytes, with
+/// every offer, extension and the longest URL and alias it may carry.
 pub(crate) const fn own_link_state_fits(neighbors: usize) -> bool {
-    neighbors + MAX_SCHEMES + MAX_OWN_EXTENSIONS <= MAX_ENTRIES
+    neighbors + MAX_OWN_EXTENSIONS <= MAX_ENTRIES
+        && MAX_SCHEMES <= MAX_OFFERS
         && max_node_info_bytes(
             neighbors,
             MAX_SCHEMES,
+            MAX_OWN_DETAILS_BYTES,
             MAX_OWN_EXTENSIONS,
             MAX_OWN_EXTENSION_BYTES,
         ) <= MAX_NODE_INFO_BYTES
@@ -287,20 +291,19 @@ impl PeerNode {
         };
         let neighbors = self.own_neighbors(periphery);
         let extensions = self.own_extensions(periphery);
-        assert!(
-            extensions.len() <= MAX_OWN_EXTENSIONS
-                && extensions
-                    .iter()
-                    .map(|(_, value)| value.len())
-                    .sum::<usize>()
-                    <= MAX_OWN_EXTENSION_BYTES
-                && self.schemes.len() <= MAX_SCHEMES,
-            "our own link state within its bounds"
-        );
+        let details = self.own_details();
+        let settlement = self
+            .offers
+            .iter()
+            .zip(&details)
+            .map(|(offer, details)| SettlementOffer {
+                scheme: offer.scheme,
+                details,
+            })
+            .collect();
         let entries = neighbors
             .iter()
             .map(|id| Entry::Neighbor(*id))
-            .chain(self.schemes.iter().map(|id| Entry::Scheme(*id)))
             .chain(
                 extensions
                     .iter()
@@ -313,6 +316,7 @@ impl PeerNode {
             alias: &self.own_info.alias,
             public_key: *self.key.public_key().as_bytes(),
             slh_dsa_public_key: *self.key.identity().slh_dsa().as_bytes(),
+            settlement,
             entries,
         };
         let bytes = sign_node_info(&self.key, &info);
@@ -353,8 +357,21 @@ impl PeerNode {
         neighbors
     }
 
+    /// The details of our offers, in their order, within what our link
+    /// state budgets for them ([`own_link_state_fits`]).
+    fn own_details(&self) -> Vec<Vec<u8>> {
+        let details: Vec<Vec<u8>> = self.offers.iter().map(super::Offer::details).collect();
+        assert!(
+            offers_keep_the_rules(&self.offers)
+                && details.iter().map(Vec::len).sum::<usize>() <= MAX_OWN_DETAILS_BYTES,
+            "our own offers within their bounds"
+        );
+        details
+    }
+
     /// The extensions our link state carries, in order, each a type and
-    /// its value.
+    /// its value, within what our link state budgets for them
+    /// ([`own_link_state_fits`]).
     fn own_extensions(&self, periphery: bool) -> Vec<(u16, Vec<u8>)> {
         let mut extensions = Vec::new();
         if periphery {
@@ -365,14 +382,11 @@ impl PeerNode {
         if let Some(port) = self.own_info.feed_port.filter(|_| !periphery) {
             extensions.push((EXTENSION_FEED, port.to_be_bytes().to_vec()));
         }
-        // The first hub alone, for nodes that read no list; then the list,
-        // when we know each hub's scheme.
-        if let Some(hub) = &self.own_info.hub {
-            extensions.push((EXTENSION_HUB, hub.to_vec()));
-        }
-        if !self.own_hubs.is_empty() {
-            extensions.push((EXTENSION_HUBS, HubList(self.own_hubs.clone()).to_vec()));
-        }
+        let bytes: usize = extensions.iter().map(|(_, value)| value.len()).sum();
+        assert!(
+            extensions.len() <= MAX_OWN_EXTENSIONS && bytes <= MAX_OWN_EXTENSION_BYTES,
+            "our own extensions within their bounds"
+        );
         extensions
     }
 

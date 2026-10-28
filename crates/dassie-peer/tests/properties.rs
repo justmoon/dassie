@@ -14,7 +14,8 @@ use dassie_identity::{IdentityKey, NodeId};
 use dassie_oer::Decode;
 use dassie_peer::sim::{Arriving, Network, forger, key, url};
 use dassie_peer::wire::{
-    Content, Entry, NodeInfo, SchemeId, SignedNodeInfo, TerminationReason, sign_node_info,
+    Content, Entry, NodeInfo, SchemeId, SettlementOffer, SignedNodeInfo, TerminationReason,
+    sign_node_info,
 };
 use dassie_peer::{Config, Failure, InboundId, Output, PeerNode, Request, Response};
 use proptest::prelude::*;
@@ -66,7 +67,11 @@ impl Sender {
             alias: "",
             public_key: *self.key.public_key().as_bytes(),
             slh_dsa_public_key: *self.key.identity().slh_dsa().as_bytes(),
-            entries: vec![Entry::Neighbor(key(0).node_id()), Entry::Scheme(stub())],
+            settlement: vec![SettlementOffer {
+                scheme: stub(),
+                details: &[],
+            }],
+            entries: vec![Entry::Neighbor(key(0).node_id())],
         };
         sign_node_info(&self.key, &info)
     }

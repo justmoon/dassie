@@ -190,7 +190,6 @@ fn started(sim: &Sim, index: usize) -> crate::engine::Core {
             url: None,
             alias: String::new(),
             feed_port: None,
-            hub: None,
         },
         bootstrap: Vec::new(),
         uplinks: Vec::new(),

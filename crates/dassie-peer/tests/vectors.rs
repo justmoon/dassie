@@ -76,9 +76,8 @@ fn every_message_is_pinned() {
     assert_eq!(pinned, vectors::messages());
     assert_eq!(
         pinned.len(),
-        inputs::KINDS - vectors::RESERVED.len() + 2,
-        "one per kind, but the reserved tags, a methodPacket without commitment and a \
-         settlement over a hub"
+        inputs::KINDS + 2,
+        "one per kind, a methodPacket without commitment and a settlement over a hub"
     );
     for bytes in pinned.values() {
         let content = Content::decode_exact(bytes).unwrap();

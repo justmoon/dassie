@@ -15,8 +15,8 @@ use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Writer, o
 
 pub use content::{Content, PeeringRequest, TerminationReason};
 pub use node_info::{
-    Entry, HubList, HubListing, HubMembership, InvalidNodeInfo, NodeInfo, SignedNodeInfo,
-    hub_list_bytes, max_node_info_bytes, sign_node_info,
+    Entry, HubDetails, InvalidNodeInfo, NodeInfo, SettlementOffer, SignedNodeInfo,
+    max_node_info_bytes, sign_node_info,
 };
 pub use response::{
     LinkStateResponse, MethodResponse, NameHolding, NameListResponse, NameReceipt,
@@ -42,8 +42,21 @@ pub const MAX_URL_BYTES: usize = 256;
 /// Most bytes in a link state's alias.
 pub const MAX_ALIAS_BYTES: usize = 64;
 
-/// Most entries in a link state.
+/// Most entries in a link state: its neighbors and extensions.
 pub const MAX_ENTRIES: usize = 64;
+
+/// Most settlement offers in a link state
+/// (spec/areas/peer-protocol.md#settlement-offers): a bound of the
+/// protocol, which every node decodes, above the schemes a node of this
+/// release peers on, so that a later release may offer more without a new
+/// version.
+pub const MAX_OFFERS: usize = 32;
+
+/// Most bytes of an offer's details: what a scheme says of itself in a
+/// link state. A hub's take [`HubDetails::ENCODED_BYTES`]; the bound leaves
+/// room for schemes of later releases, such as one that settles directly,
+/// to say more without a new version.
+pub const MAX_OFFER_DETAILS: usize = 256;
 
 /// Most bytes of a signed node info, the part the signature covers.
 pub const MAX_NODE_INFO_BYTES: usize = 4096;
@@ -51,41 +64,23 @@ pub const MAX_NODE_INFO_BYTES: usize = 4096;
 /// Most bytes in a link-state extension's value.
 pub const MAX_EXTENSION_BYTES: usize = 2048;
 
+/// The link-state extension kept for a post-quantum signing key that the
+/// node's SLH-DSA key vouches for (spec/decisions/post-quantum-node-id.md).
+/// No node issues it yet, and a node that reads one ignores it, as one of an
+/// unknown type.
+pub const EXTENSION_POST_QUANTUM: u16 = 1;
+
 /// The link-state extension that says a node is a periphery node: it has
 /// no URL, dials out to its uplinks and is reached only over the
 /// connections it opened (spec/areas/peer-protocol.md#link-states). Its
-/// value is empty. Only with it may a link state's URL be empty. Type 1 is
-/// kept for a post-quantum signing key that the node's SLH-DSA key vouches
-/// for (spec/decisions/post-quantum-node-id.md), and types 2 and 6 are
-/// reserved: no
-/// extension has them, so that no node reads either as one. Type 6 was
-/// to say that a node has settlement methods, which every node of this
-/// version has (spec/areas/peer-protocol.md#versions).
-pub const EXTENSION_PERIPHERY: u16 = 3;
+/// value is empty. Only with it may a link state's URL be empty.
+pub const EXTENSION_PERIPHERY: u16 = 2;
 
 /// The link-state extension that names the UDP port of a core node's rate
 /// feed, at its URL's host (spec/areas/rate-feed.md#finding-a-feed). Its
 /// value is the port, a `UInt16`, never 0. A node without a feed, and a
 /// periphery node, which has no URL, leave it out.
-pub const EXTENSION_FEED: u16 = 4;
-
-/// The link-state extension that says which settlement hub a node is a
-/// member of (spec/designs/settlement-hubs.md#11-choosing-a-hub): a
-/// [`HubMembership`] in canonical OER. A node in no hub leaves it out.
-pub const EXTENSION_HUB: u16 = 5;
-
-/// The link-state extension that lists the settlement hubs a node is a
-/// member of, each with the scheme it settles on, and so its asset: a
-/// [`HubList`] in canonical OER (spec/areas/peer-protocol.md#link-states).
-/// A node that lists its hubs names them all here, however many; the hub
-/// extension ([`EXTENSION_HUB`]) keeps naming the list's first, for nodes
-/// that read only that one.
-pub const EXTENSION_HUBS: u16 = 7;
-
-/// Most hubs a hub list ([`EXTENSION_HUBS`]) names: one per scheme, so it
-/// is a bound of the protocol, which every node decodes, well above the
-/// hubs a node joins.
-pub const MAX_HUBS: usize = 16;
+pub const EXTENSION_FEED: u16 = 3;
 
 /// Most bytes in the commitment a `methodPacket` carries with its Prepare
 /// on a method over a hub: a signature and what it covers, well within
@@ -112,7 +107,8 @@ pub const MAX_NAME_LIST_BYTES: usize = size::quantity(MAX_NAME_LIST)
     + MAX_NAME_LIST
         * (size::prefixed(crate::names::MAX_NAME_BYTES) + dassie_identity::NODE_ID_BYTES + 8);
 
-/// The kinds of message, by their CHOICE tag.
+/// The kinds of message, by their CHOICE tag: `dassie/2` numbers its own,
+/// from 0 without gaps (spec/areas/peer-protocol.md#versions).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
     /// `peeringRequest [0]`.
@@ -123,38 +119,35 @@ pub enum Kind {
     InterledgerPacket,
     /// `linkStateRequest [3]`.
     LinkStateRequest,
-    /// `settlement [4]`. Tag 5 follows it unused: it is reserved, and never
-    /// given to a message, so that no node reads it as one.
+    /// `settlement [4]`.
     Settlement,
-    /// `nodeListHashRequest [6]`.
+    /// `nodeListHashRequest [5]`.
     NodeListHashRequest,
-    /// `nodeListRequest [7]`.
+    /// `nodeListRequest [6]`.
     NodeListRequest,
-    /// `registration [8]`.
+    /// `registration [7]`.
     Registration,
-    /// `peeringInfoRequest [9]`.
+    /// `peeringInfoRequest [8]`.
     PeeringInfoRequest,
-    /// `peeringTermination [10]`.
+    /// `peeringTermination [9]`.
     PeeringTermination,
-    /// `settlementRequest [11]`. Tag 12 follows it unused: it was
-    /// `hubPacket`, which `methodPacket` replaced, and is reserved, never
-    /// given to another message.
+    /// `settlementRequest [10]`.
     SettlementRequest,
-    /// `nameCommit [13]`.
+    /// `nameCommit [11]`.
     NameCommit,
-    /// `nameUnseal [14]`.
+    /// `nameUnseal [12]`.
     NameUnseal,
-    /// `nameRenew [15]`.
+    /// `nameRenew [13]`.
     NameRenew,
-    /// `nameListHashRequest [16]`.
+    /// `nameListHashRequest [14]`.
     NameListHashRequest,
-    /// `nameListRequest [17]`.
+    /// `nameListRequest [15]`.
     NameListRequest,
-    /// `methodPacket [18]`.
+    /// `methodPacket [16]`.
     MethodPacket,
-    /// `methodAdd [19]`.
+    /// `methodAdd [17]`.
     MethodAdd,
-    /// `methodDrop [20]`.
+    /// `methodDrop [18]`.
     MethodDrop,
 }
 
@@ -168,20 +161,20 @@ impl Kind {
             2 => Self::InterledgerPacket,
             3 => Self::LinkStateRequest,
             4 => Self::Settlement,
-            6 => Self::NodeListHashRequest,
-            7 => Self::NodeListRequest,
-            8 => Self::Registration,
-            9 => Self::PeeringInfoRequest,
-            10 => Self::PeeringTermination,
-            11 => Self::SettlementRequest,
-            13 => Self::NameCommit,
-            14 => Self::NameUnseal,
-            15 => Self::NameRenew,
-            16 => Self::NameListHashRequest,
-            17 => Self::NameListRequest,
-            18 => Self::MethodPacket,
-            19 => Self::MethodAdd,
-            20 => Self::MethodDrop,
+            5 => Self::NodeListHashRequest,
+            6 => Self::NodeListRequest,
+            7 => Self::Registration,
+            8 => Self::PeeringInfoRequest,
+            9 => Self::PeeringTermination,
+            10 => Self::SettlementRequest,
+            11 => Self::NameCommit,
+            12 => Self::NameUnseal,
+            13 => Self::NameRenew,
+            14 => Self::NameListHashRequest,
+            15 => Self::NameListRequest,
+            16 => Self::MethodPacket,
+            17 => Self::MethodAdd,
+            18 => Self::MethodDrop,
             _ => return None,
         })
     }
@@ -195,20 +188,20 @@ impl Kind {
             Self::InterledgerPacket => 2,
             Self::LinkStateRequest => 3,
             Self::Settlement => 4,
-            Self::NodeListHashRequest => 6,
-            Self::NodeListRequest => 7,
-            Self::Registration => 8,
-            Self::PeeringInfoRequest => 9,
-            Self::PeeringTermination => 10,
-            Self::SettlementRequest => 11,
-            Self::NameCommit => 13,
-            Self::NameUnseal => 14,
-            Self::NameRenew => 15,
-            Self::NameListHashRequest => 16,
-            Self::NameListRequest => 17,
-            Self::MethodPacket => 18,
-            Self::MethodAdd => 19,
-            Self::MethodDrop => 20,
+            Self::NodeListHashRequest => 5,
+            Self::NodeListRequest => 6,
+            Self::Registration => 7,
+            Self::PeeringInfoRequest => 8,
+            Self::PeeringTermination => 9,
+            Self::SettlementRequest => 10,
+            Self::NameCommit => 11,
+            Self::NameUnseal => 12,
+            Self::NameRenew => 13,
+            Self::NameListHashRequest => 14,
+            Self::NameListRequest => 15,
+            Self::MethodPacket => 16,
+            Self::MethodAdd => 17,
+            Self::MethodDrop => 18,
         }
     }
 

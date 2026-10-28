@@ -16,10 +16,13 @@ use dassie_kit::sim::SeededRng;
 use dassie_oer::{Decode, Encode};
 use dassie_peer::sim::{Arriving, Network, START, endpoint, forger, key, url};
 use dassie_peer::wire::{
-    Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason, SchemeId,
-    SignedNodeInfo, TerminationReason, sign_node_info,
+    Content, Entry, HubDetails, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason, SchemeId,
+    SettlementOffer, SignedNodeInfo, TerminationReason, sign_node_info,
 };
-use dassie_peer::{Config, Event, OwnInfo, PeerNode, PeerStatus, RegisterError, Sources, Stored};
+use dassie_peer::{
+    Config, Event, MAX_OWN_HUBS, MAX_SCHEMES, Offer, OwnInfo, PeerNode, PeerStatus, RegisterError,
+    Sources, Stored, offers_keep_the_rules,
+};
 
 fn settle(network: &mut Network, ms: u64) {
     let until = network.now + ms;
@@ -38,7 +41,11 @@ fn link_state(key: &IdentityKey, sequence: u64, url: &str) -> Vec<u8> {
         alias: "",
         public_key: *key.public_key().as_bytes(),
         slh_dsa_public_key: *key.identity().slh_dsa().as_bytes(),
-        entries: vec![Entry::Scheme(SchemeId::parse("stub").unwrap())],
+        settlement: vec![SettlementOffer {
+            scheme: SchemeId::parse("stub").unwrap(),
+            details: &[],
+        }],
+        entries: Vec::new(),
     };
     sign_node_info(key, &info)
 }
@@ -74,7 +81,7 @@ fn two_nodes_register_peer_and_route() {
 fn a_newcomer_learns_the_only_bootstrap_nodes_link_state() {
     let stub = SchemeId::parse("stub").unwrap();
     let mut network = Network::new(1, 2, 1, Config::DEFAULT);
-    network.act(1, |node, now| node.set_schemes(now, Vec::new()));
+    network.act(1, |node, now| node.set_offers(now, Vec::new()));
     while network.node(1).registration_status()[0]
         .registered_ms
         .is_none()
@@ -92,7 +99,9 @@ fn a_newcomer_learns_the_only_bootstrap_nodes_link_state() {
     // Its scheme syncs, and its new link state is lost on the way to the
     // bootstrap node.
     network.cut_one_way.insert((1, 0));
-    network.act(1, |node, now| node.set_schemes(now, vec![stub]));
+    network.act(1, |node, now| {
+        node.set_offers(now, vec![Offer::plain(stub)])
+    });
     settle(&mut network, Config::DEFAULT.issue_debounce_ms + 1_000);
     network.cut_one_way.clear();
     assert!(held(&network).is_empty(), "the push was lost");
@@ -253,7 +262,6 @@ fn our_sequence_survives_restarts_and_clock_rollback() {
                 url: Some(url(0)),
                 alias: String::new(),
                 feed_port: None,
-                hub: None,
             },
             Vec::new(),
             Stored {
@@ -450,7 +458,6 @@ fn core_node(own: &Arc<IdentityKey>, boot: &IdentityKey) -> PeerNode {
             url: Some(url(0)),
             alias: String::new(),
             feed_port: None,
-            hub: None,
         },
         vec![dassie_peer::Bootstrap {
             id: boot.node_id(),
@@ -530,7 +537,6 @@ fn with_feed(own: &Arc<IdentityKey>, boot: &IdentityKey, feed_port: Option<u16>)
             url: Some(url(0)),
             alias: String::new(),
             feed_port,
-            hub: None,
         },
         vec![dassie_peer::Bootstrap {
             id: boot.node_id(),
@@ -557,138 +563,105 @@ fn a_core_node_names_its_feed_port_in_its_link_state() {
     assert_eq!(state.info.feed_port(), None);
 }
 
-// A member of a settlement hub names it in its link state, its account and
-// whether it takes new peers over it with it; a node in no hub names none
-// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
-#[test]
-fn a_hub_member_names_its_hub_in_its_link_state() {
-    let (own, boot) = (key(0), key(1));
-    let membership = dassie_peer::wire::HubMembership {
-        hub_id: [0x42; 32],
-        account: 7,
-        takes_peers: true,
-    };
-    let mut node = with_feed(&own, &boot, Some(7768));
-    node.set_own_info(
-        START,
-        OwnInfo {
-            url: Some(url(0)),
-            alias: String::new(),
-            feed_port: Some(7768),
-            hub: Some(membership),
+/// An offer on `scheme` over the hub of bytes `hub`, whose account there
+/// is `hub` too.
+fn hub_offer(scheme: &str, hub: u8) -> Offer {
+    Offer::over_hub(
+        SchemeId::parse(scheme).unwrap(),
+        HubDetails {
+            hub_id: [hub; 32],
+            account: u32::from(hub),
         },
-    );
+    )
+}
+
+// A node offers each scheme it takes peers on in its link state's
+// settlement list, in its order, each with its details: over a hub, the hub
+// and its account there; on the stub, none. A node that takes peers on
+// none offers none, and no extension says anything of hubs
+// (spec/areas/peer-protocol.md#settlement-offers).
+#[test]
+fn a_node_offers_its_schemes_in_its_link_state() {
+    let (own, boot) = (key(0), key(1));
+    let offers = vec![
+        hub_offer("hub-xrp", 1),
+        Offer::plain(SchemeId::parse("stub").unwrap()),
+        hub_offer("hub-usd", 2),
+    ];
+    let mut node = with_feed(&own, &boot, Some(7768));
+    node.set_offers(START, offers.clone());
+    assert_eq!(node.offers(), offers);
     let bytes = own_link_state(node);
     let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
     assert!(state.verify().is_ok());
-    assert_eq!(state.info.hub(), Some(membership));
+    let listed: Vec<(SchemeId, Vec<u8>)> = state
+        .info
+        .settlement
+        .iter()
+        .map(|offer| (offer.scheme, offer.details.to_vec()))
+        .collect();
+    let expected: Vec<(SchemeId, Vec<u8>)> = offers
+        .iter()
+        .map(|offer| (offer.scheme, offer.details()))
+        .collect();
+    assert_eq!(listed, expected);
+    assert_eq!(
+        HubDetails::decode_exact(state.info.settlement[0].details),
+        Ok(offers[0].hub.unwrap())
+    );
+    assert!(state.info.settlement[1].details.is_empty());
     assert_eq!(state.info.feed_port(), Some(7768));
+    assert_eq!(state.info.entries.len(), 1, "the feed port alone");
+
     let bytes = own_link_state(with_feed(&own, &boot, None));
     let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
-    assert_eq!(state.info.hub(), None);
+    assert!(state.info.settlement.is_empty());
+    assert!(state.info.entries.is_empty());
 }
 
-// spec/areas/peer-protocol.md#link-states: the first hub, set through the
-// own info with another membership, is changed in the list, which stays.
+// A node's own list offers no scheme twice, no hub twice, and at most
+// `MAX_OWN_HUBS` schemes over hubs, one per asset
+// (spec/areas/peer-protocol.md#settlement-offers); setting one that does
+// not is a bug of the node's.
 #[test]
-fn the_first_hub_changes_in_the_list_through_the_own_info() {
-    use dassie_peer::wire::{HubListing, HubMembership};
-    let (own, boot) = (key(0), key(1));
-    let listing = |scheme: &str, hub: u8| HubListing {
-        scheme: SchemeId::parse(scheme).unwrap(),
-        membership: HubMembership {
-            hub_id: [hub; 32],
-            account: u32::from(hub),
-            takes_peers: true,
-        },
-    };
-    let hubs = vec![listing("hub-xrp", 1), listing("hub-usd", 2)];
-    let mut node = with_feed(&own, &boot, None);
-    node.set_own_hubs(START, hubs.clone());
-    let closed = HubMembership {
-        takes_peers: false,
-        ..hubs[0].membership
-    };
-    let info = node.own_info().clone();
-    node.set_own_info(
-        START,
-        OwnInfo {
-            hub: Some(closed),
-            ..info
-        },
+fn a_nodes_own_offers_keep_the_rules() {
+    let stub = Offer::plain(SchemeId::parse("stub").unwrap());
+    assert!(offers_keep_the_rules(&[]));
+    assert!(offers_keep_the_rules(&[
+        hub_offer("hub-xrp", 1),
+        hub_offer("hub-usd", 2),
+        stub
+    ]));
+    assert!(!offers_keep_the_rules(&[stub, stub]), "a scheme twice");
+    assert!(
+        !offers_keep_the_rules(&[hub_offer("hub-xrp", 1), hub_offer("hub-xrp", 2)]),
+        "a scheme twice, over two hubs"
     );
-    let mut changed = hubs;
-    changed[0].membership = closed;
-    assert_eq!(node.own_hubs(), changed);
-    let state = own_link_state(node);
-    let state = SignedNodeInfo::decode_exact(&state).unwrap();
-    assert_eq!(state.info.hubs(), changed);
-    assert_eq!(state.info.hub(), Some(closed));
+    assert!(
+        !offers_keep_the_rules(&[hub_offer("hub-xrp", 1), hub_offer("hub-usd", 1)]),
+        "a hub twice"
+    );
+    let hubs: Vec<Offer> = (0..=MAX_OWN_HUBS)
+        .map(|n| hub_offer(&format!("hub-{n}"), u8::try_from(n).unwrap()))
+        .collect();
+    assert!(offers_keep_the_rules(&hubs[..MAX_OWN_HUBS]));
+    assert!(!offers_keep_the_rules(&hubs), "too many hubs");
+    let schemes: Vec<Offer> = (0..=MAX_SCHEMES)
+        .map(|n| Offer::plain(SchemeId::parse(&format!("stub-{n}")).unwrap()))
+        .collect();
+    assert!(offers_keep_the_rules(&schemes[..MAX_SCHEMES]));
+    assert!(!offers_keep_the_rules(&schemes), "too many schemes");
 }
 
-// A member of several hubs lists each with its scheme, and names the first
-// alone too, for nodes that read no list; a hub set in its own info other than
-// the first of them replaces them, named alone, as before lists
-// (spec/areas/peer-protocol.md#link-states).
 #[test]
-fn a_member_of_several_hubs_lists_them_in_its_link_state() {
-    use dassie_peer::wire::{HubListing, HubMembership};
+#[should_panic(expected = "our offers keep the rules")]
+fn offers_that_break_the_rules_are_never_set() {
     let (own, boot) = (key(0), key(1));
-    let listing = |scheme: &str, hub: u8| HubListing {
-        scheme: SchemeId::parse(scheme).unwrap(),
-        membership: HubMembership {
-            hub_id: [hub; 32],
-            account: u32::from(hub),
-            takes_peers: true,
-        },
-    };
-    let hubs = vec![listing("hub-xrp", 1), listing("hub-usd", 2)];
     let mut node = with_feed(&own, &boot, None);
-    node.set_own_hubs(START, hubs.clone());
-    assert_eq!(node.own_hubs(), hubs);
-    assert_eq!(node.own_info().hub, Some(hubs[0].membership));
-    // Setting the first again through the own info keeps the list.
-    let info = node.own_info().clone();
-    node.set_own_info(
+    node.set_offers(
         START,
-        OwnInfo {
-            alias: "a".into(),
-            ..info
-        },
+        vec![hub_offer("hub-xrp", 1), hub_offer("hub-usd", 1)],
     );
-    assert_eq!(node.own_hubs(), hubs);
-    let bytes = own_link_state(node);
-    let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
-    assert!(state.verify().is_ok());
-    assert_eq!(state.info.hubs(), hubs);
-    assert_eq!(state.info.hub(), Some(hubs[0].membership));
-
-    // Another hub through the own info: named alone, without a list.
-    let mut node = with_feed(&own, &boot, None);
-    node.set_own_hubs(START, hubs.clone());
-    let other = listing("hub-xrp", 3).membership;
-    let info = node.own_info().clone();
-    node.set_own_info(
-        START,
-        OwnInfo {
-            hub: Some(other),
-            ..info
-        },
-    );
-    assert_eq!(node.own_hubs(), []);
-    let state = own_link_state(node);
-    let state = SignedNodeInfo::decode_exact(&state).unwrap();
-    assert_eq!(state.info.hubs(), []);
-    assert_eq!(state.info.hub(), Some(other));
-
-    // No hubs: neither extension.
-    let mut node = with_feed(&own, &boot, None);
-    node.set_own_hubs(START, hubs);
-    node.set_own_hubs(START, Vec::new());
-    assert_eq!(node.own_info().hub, None);
-    let state = own_link_state(node);
-    let state = SignedNodeInfo::decode_exact(&state).unwrap();
-    assert_eq!((state.info.hubs(), state.info.hub()), (Vec::new(), None));
 }
 
 // A feed is at the URL's host: a node without a URL, a periphery node,
@@ -700,7 +673,6 @@ fn only_a_node_with_a_url_names_a_feed_port() {
             url,
             alias: String::new(),
             feed_port,
-            hub: None,
         }
         .checked()
         .feed_port
@@ -720,6 +692,7 @@ fn feed_link_state(key: &IdentityKey, value: &[u8]) -> Vec<u8> {
         alias: "",
         public_key: *key.public_key().as_bytes(),
         slh_dsa_public_key: *key.identity().slh_dsa().as_bytes(),
+        settlement: Vec::new(),
         entries: vec![Entry::Extension {
             kind: dassie_peer::wire::EXTENSION_FEED,
             value,

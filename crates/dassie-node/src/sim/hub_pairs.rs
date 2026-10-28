@@ -551,7 +551,7 @@ fn check_removing(sim: &Sim, index: usize, ledger: LedgerId) -> Result<(), Strin
 
 /// Every member of the hub of `failed` that still runs its scheme, all but
 /// `remover`, can no longer receive over it once it stalled
-/// (spec/decisions/settlement-methods.md): its own link state lists the
+/// (spec/decisions/settlement-methods.md): its own link state offers the
 /// scheme no more, so it is offered to no peer, and its methods on it are
 /// dropped once they could not receive for as long as a silent peer is
 /// kept, which is longer than the run.
@@ -567,7 +567,7 @@ fn check_failed(sim: &Sim, failed: LedgerId, remover: usize) -> Result<(), Strin
     Ok(())
 }
 
-/// Whether node `index`'s own link state lists `scheme`: whether it
+/// Whether node `index`'s own link state offers `scheme`: whether it
 /// offers peerings on it.
 fn offers(sim: &Sim, index: usize, scheme: dassie_peer::wire::SchemeId) -> bool {
     let network = sim.core(index).network();
