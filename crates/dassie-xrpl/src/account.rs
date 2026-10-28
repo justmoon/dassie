@@ -1053,24 +1053,24 @@ impl XrplAccount {
             .is_some_and(|taken| taken.saturating_add(FRESH_ANCHOR_MS) >= self.now_ms)
     }
 
-    /// A transaction a scheme asked to sign was refused: not now. A scheme
-    /// that decided to pay while the anchor was stale gets a round at once,
-    /// and the account anchors on every ledger for [`PAYING_MS`], so that
-    /// the scheme asked again signs from a fresh anchor.
-    fn refused(&mut self) -> SchemeError {
-        if self.is_synced() && !self.anchor_fresh() {
-            self.settle_until(self.now_ms.saturating_add(PAYING_MS));
-            self.want_fresh();
-        }
+    /// A transaction a scheme asked to sign, which the account could sign
+    /// but for its stale anchor, was refused: not now. The scheme that
+    /// decided to pay gets a round at once, and the account anchors on
+    /// every ledger for [`PAYING_MS`], so that the scheme asked again
+    /// signs from a fresh anchor. A transaction refused for anything else,
+    /// such as no XRP for its fee, keeps the account no hotter.
+    fn stale(&mut self) -> SchemeError {
+        self.settle_until(self.now_ms.saturating_add(PAYING_MS));
+        self.want_fresh();
         SchemeError::Unavailable
     }
 
     /// Whether `scheme` may sign a transaction now that pays `drops` of
-    /// XRP and `fee`, and may take `reserve` more: only from a fresh anchor
-    /// ([`FRESH_ANCHOR_MS`]), so that its last ledger is never already
-    /// past. A payment asked from a stale one is refused
-    /// ([`refused`](Self::refused)), and asked again once the round it
-    /// starts took a fresh one.
+    /// XRP and `fee`, and may take `reserve` more, as the anchor says. It
+    /// signs only from a fresh anchor besides ([`FRESH_ANCHOR_MS`]), so that
+    /// its last ledger is never already past: one it could sign but for a
+    /// stale anchor is refused ([`stale`](Self::stale)), and asked again once
+    /// the round that starts took a fresh one.
     fn can_sign(&self, scheme: Name, drops: u64, fee: u64, reserve: u64) -> bool {
         let xrp = self.network.xrp_scheme;
         let gas = if scheme == xrp {
@@ -1086,7 +1086,6 @@ impl XrplAccount {
         // in flight.
         let reading = self.parked.iter().any(|p| p.scheme == scheme) || self.told_own(scheme);
         self.is_synced()
-            && self.anchor_fresh()
             && !reading
             && self.sequence < u32::MAX
             && self.in_flight.len() < MAX_IN_FLIGHT
@@ -1119,7 +1118,10 @@ impl XrplAccount {
     ) -> Result<[u8; 32], SchemeError> {
         let fee = self.fee();
         if drops == 0 || !self.can_sign(scheme, drops, fee, 0) {
-            return Err(self.refused());
+            return Err(SchemeError::Unavailable);
+        }
+        if !self.anchor_fresh() {
+            return Err(self.stale());
         }
         let payment = Payment {
             account: self.account(),
@@ -1168,7 +1170,10 @@ impl XrplAccount {
             || !self.line_holds(scheme, &amount)
             || !self.can_sign(scheme, 0, fee, 0)
         {
-            return Err(self.refused());
+            return Err(SchemeError::Unavailable);
+        }
+        if !self.anchor_fresh() {
+            return Err(self.stale());
         }
         let payment = Payment {
             account: self.account(),
@@ -1251,7 +1256,10 @@ impl XrplAccount {
             .is_some_and(|view| view.ours.reserve);
         let reserve = if holds_reserve { 0 } else { self.reserve_inc };
         if !limit.is_valid() || !self.can_sign(scheme, 0, fee, reserve) {
-            return Err(self.refused());
+            return Err(SchemeError::Unavailable);
+        }
+        if !self.anchor_fresh() {
+            return Err(self.stale());
         }
         let trust_set = TrustSet {
             account,

@@ -351,6 +351,13 @@ async fn a_sponsor_founds_a_hub_with_four_validator_daemons() {
         proto::ErrorCode::InvalidArgument,
         "too little to create the escrow"
     );
+    // A minute in which the sponsor's XRP book waits for nothing: it
+    // anchors on demand, its anchor stale when the escrow is funded
+    // (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
+    for _ in 0..240 {
+        clock.advance(250);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     // The shortest stall the rules allow, so that the hub stalls within
     // the test once validators are gone.
     let terms = serde_json::json!({ "timers": { "stall": dassie_hub::consensus::MIN_STALL_MS } });
@@ -369,12 +376,22 @@ async fn a_sponsor_founds_a_hub_with_four_validator_daemons() {
     assert_eq!(started.stage(), proto::HubFoundingStage::Accepting);
 
     // Every validator accepts, signs, runs the hub; the escrow is funded
-    // from the sponsor's account, set up, and checked by a quorum.
+    // from the sponsor's idle account, set up, and checked by a quorum,
+    // the owner shown no problem on the way: the book's account reads its
+    // ledger anew before it pays, which the node waits for.
+    let mut problems = Vec::new();
     until(&clock, 250, async || {
         let status = founding(&sponsor).await;
+        if !status.problem.is_empty() && !problems.contains(&status.problem) {
+            problems.push(status.problem.clone());
+        }
         status.stage() == proto::HubFoundingStage::Founded
     })
     .await;
+    assert!(
+        !problems.iter().any(|problem| problem.contains("fund")),
+        "{problems:?}"
+    );
     let founded = founding(&sponsor).await;
     assert!(
         founded.escrow_funded && founded.escrow_set_up,

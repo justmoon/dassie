@@ -29,9 +29,10 @@
 //! than its own; when a payment needs a fresher anchor than the newest
 //! ([`FRESH_ANCHOR_MS`]); when a pool or a balance is read; when the
 //! faucet answered; and on the heartbeat ([`HEARTBEAT_MS`]). So an idle
-//! account anchors a few times an hour, while a settlement is credited in
-//! as many ledgers as when every ledger was anchored, whether or not the
-//! server tells of it.
+//! account anchors a few times an hour, or once a minute while a token's
+//! peg guard reads its pool, while a settlement is credited in as many
+//! ledgers as when every ledger was anchored, whether or not the server
+//! tells of it.
 //!
 //! **What a server can do.** An answer that does not prove is a lie: it is
 //! counted by kind, and the account connects anew after a while

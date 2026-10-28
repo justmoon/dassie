@@ -1056,6 +1056,45 @@ impl Core {
         ready
     }
 
+    /// Whether the account of the owner book `book` could sign a payment
+    /// now, as far as its view of its ledger goes, once told a payment out
+    /// of it is near ([`settling_on`](Self::settling_on)): not only while
+    /// it runs synced and reads its ledger anew, which takes a round. A book
+    /// that does not run, or whose account is not synced, is no wait: the
+    /// payment then answers why it cannot be made.
+    fn book_ready(&mut self, book: Option<(Name, LedgerId)>) -> bool {
+        let synced = book
+            .and_then(|(book, _)| self.schemes.get(&book))
+            .filter(|active| active.failed.is_none())
+            .and_then(|active| active.asset)
+            .and_then(|asset| self.assets.get(&asset))
+            .is_some_and(|asset| asset.asset.status() == LedgerStatus::Synced);
+        !synced || self.settling_on(book)
+    }
+
+    /// Whether the XRP book that founds a hub's escrow
+    /// ([`pay_from_xrpl`](Self::pay_from_xrpl)) could pay now, or reads its
+    /// ledger anew first: the engine waits for it, a bounded while, so that
+    /// a payment out of an idle book is no refusal
+    /// (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
+    pub fn founding_book_ready(&mut self) -> bool {
+        let book = self.founding_book();
+        self.book_ready(book)
+    }
+
+    /// Whether the owner book of the hub of `scheme` could pay an owner's
+    /// deposit into it now ([`hub_deposit_to`](Self::hub_deposit_to)), or
+    /// reads its ledger anew first, as
+    /// [`founding_book_ready`](Self::founding_book_ready). A hub the owner
+    /// cannot name is no wait: the deposit answers why.
+    pub fn hub_deposit_ready(&mut self, scheme: &str) -> bool {
+        let Ok(scheme) = self.chosen_hub(scheme) else {
+            return true;
+        };
+        let book = self.owner_book(scheme);
+        self.book_ready(book)
+    }
+
     /// Has the account of the XRP owner book on the network of the hub of
     /// `scheme` read the XRP of `account`, proven, and sends what it asks
     /// of its ledger.
