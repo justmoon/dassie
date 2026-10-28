@@ -581,6 +581,7 @@
         "A cap on money in flight on each method of a peer, which bounds what a crash loses, and no new packets from a peer it cannot answer",
         "Exchange between currencies, with fees and a spread, at a rate moved from spot by what the owner holds of each asset, a hub's ledger counted with the owner book that funds it, once the packet and those in flight have moved it, so that payments bring a skewed node back toward balance and no round trip gains, and nothing to or from a ledger whose scheme is paused",
         "The same pricing on every ledger with a currency, a settlement hub's as much as an owner book's, and, for a packet that cannot keep its ledger, a ranking of the ledgers it could convert to by what it gets there relative to spot",
+        "Quotes for peers that swap with the node: a bid and an ask per settlement method, each with a ladder of how far a swap goes before its price falls by each drop of a grid, made from the price table so that they never promise more than the curve gives",
         "A spending cap per BTP token",
         "A packet trace for the debug pages",
         "Waiting for a settlement hub's decision before rejecting a packet that went to a peer on a method over the hub"
@@ -706,7 +707,7 @@
         "A subscriber table bounded in all and per client",
         "When to publish: soon after the rates change, but never too often, and a heartbeat otherwise",
         "A subscriber's side: verifies each feed and keeps only newer ones",
-        "Snapshots, which replace the feed but no node serves yet: a node's quotes per settlement method, each with a ladder of how far it holds, signed; the padded request anyone may send for one, answered within a budget; and the least a swap gets by a snapshot"
+        "Snapshots, which replace the feed but no node serves yet: a node's quotes per settlement method, each with a ladder of how far it holds, signed; the padded request anyone may send for one, answered within a budget; and the least a swap, and each of its packets, gets by a snapshot"
       ]
     },
     "identity": {

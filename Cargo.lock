@@ -1016,6 +1016,7 @@ name = "dassie-connector"
 version = "0.2.9"
 dependencies = [
  "dassie-connector",
+ "dassie-feed",
  "dassie-ilp",
  "dassie-kit",
  "dassie-ledger",

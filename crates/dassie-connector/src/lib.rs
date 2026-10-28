@@ -44,6 +44,7 @@ mod connector;
 mod endpoint;
 mod fx;
 pub mod pricing;
+pub mod quotes;
 #[cfg(feature = "sim")]
 pub mod sim;
 mod trace;
@@ -59,6 +60,10 @@ pub use endpoint::{EndpointError, EndpointId, MAX_SLOTS, SlotError, SlotView};
 pub use fx::{RATE_PRECISION, Rates, convert, convert_at};
 pub use pricing::{
     BestOutput, Holding, Holdings, Inventory, Price, PriceError, PriceTable, Pricing,
+};
+pub use quotes::{
+    DEFAULT_GRID_PPM, MAX_GRID_LEVELS, QUOTE_PRECISION, QUOTE_TOLERANCE_PPB, Quote, Quotes, Side,
+    grid_is_valid,
 };
 pub use trace::{MAX_TRACED_ADDRESS, PacketRecord, PacketState, TraceEvent};
 
