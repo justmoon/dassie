@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dassie_connector::{Connector, EndpointId};
-use dassie_identity::NodeId;
+use dassie_identity::{NodeId, PublicKey};
 use dassie_ilp::ErrorCode;
 use dassie_ledger::{AccountName, AccountPath, Ledger, LedgerId, Name};
 use dassie_peer::wire::{RefusalReason, SchemeId, TerminationReason};
@@ -36,6 +36,9 @@ pub(super) struct Hooks<'a> {
     /// The accounts opened for downlinks, and the downlinks the node keeps
     /// room for (spec/decisions/account-budgets.md).
     pub downlinks: &'a Downlinks,
+    /// The owner's peer settings: whether the node offers swaps, and
+    /// swaps (spec/decisions/peer-swaps.md).
+    pub settings: PeerSettings,
 }
 
 impl Hooks<'_> {
@@ -486,6 +489,22 @@ impl PeeringHooks for Hooks<'_> {
             .any(|active| active.scheme.keeps_channel(peer));
         !pending && !unseen && !kept
     }
+
+    fn offers_swaps(&self) -> bool {
+        self.settings.offer_swaps
+    }
+
+    fn wants_snapshots(&self, _: NodeId, peering: &dassie_peer::Peering) -> bool {
+        self.settings.swapping
+            && super::snapshots::spans_two_ledgers(peering.schemes(), self.schemes)
+    }
+
+    // A snapshot's signature, and that it is newer than the one held, are
+    // `dassie-feed`'s to check, once its snapshot exists: until then every
+    // one is kept, the last to arrive.
+    fn takes_snapshot(&self, _: NodeId, _: &PublicKey, _: &[u8], _: Option<&[u8]>) -> bool {
+        true
+    }
 }
 
 impl Hooks<'_> {
@@ -682,6 +701,7 @@ impl Core {
             assets: &self.assets,
             store: &self.store,
             downlinks: &self.downlinks,
+            settings: self.peer_settings,
         };
         f(&mut self.peer, &mut hooks, now)
     }

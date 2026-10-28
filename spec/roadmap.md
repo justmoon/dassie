@@ -170,7 +170,6 @@ A core node's holdings drift, and only market makers bring them back. [peer-swap
 
 - **Left to build:**
   - the snapshot in the node, from the connector's quotes and ladders ([Connector](areas/connector.md#quotes-and-ladders)): which methods it names, made at most once per change, cached, and answered to requests on the feed's socket ([Rate feed](areas/rate-feed.md#requests)), in place of the feed, whose subscription, cookies and subscriber table then leave `dassie-feed` and the market maker;
-  - the subscription and the snapshot as messages of the peer protocol's version 2;
   - the node's swaps: with whom, how much and when, from its subscriptions and its own curve and costs, backing off on T04 and T05; the two owner settings, targets for a periphery node, and a swap the owner asks for, in the owner's contract and the wallet;
   - `dassie market-maker` on one node, and the market maker's VM with one node ([Market maker VM](areas/market-maker-vm.md)).
 - **Done when:** in an end-to-end test, two core nodes skewed opposite ways in two assets, peered over both assets' hubs, swap until neither's quotes clear the other's costs, and both end closer to their targets; a market maker with one node trades through a target; and a reader never gets less than a snapshot it acted on promised.

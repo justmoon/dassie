@@ -30,6 +30,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     MIGRATION_5,
     MIGRATION_6,
     MIGRATION_7,
+    MIGRATION_8,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -785,6 +786,16 @@ CREATE TABLE funds_kept (
 ) STRICT, WITHOUT ROWID;
 ";
 
+/// Migration 8: whether the node offers swaps to its peers, and swaps
+/// with them (spec/decisions/peer-swaps.md): both on, as for a new node.
+const MIGRATION_8: &str = "
+ALTER TABLE peer_settings ADD COLUMN offer_swaps INTEGER NOT NULL DEFAULT 1
+  CHECK (offer_swaps IN (0, 1));
+
+ALTER TABLE peer_settings ADD COLUMN swapping INTEGER NOT NULL DEFAULT 1
+  CHECK (swapping IN (0, 1));
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1246,6 +1257,8 @@ pub const TABLES: &[Table] = &[
             ("connector_fee_ppm", "INTEGER", true, false),
             ("fx_spread_ppm", "INTEGER", true, false),
             ("rebalance_ppm", "INTEGER", true, false),
+            ("offer_swaps", "INTEGER", true, false),
+            ("swapping", "INTEGER", true, false),
         ],
     },
     Table {

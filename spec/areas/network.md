@@ -2,7 +2,7 @@
 
 How Dassie nodes find each other and stay connected: the node table, link states and how they spread, membership through bootstrap nodes, names, peering and its lifecycle, bans, and routing. The messages these use are in [Peer protocol](peer-protocol.md).
 
-**Paths:** `crates/dassie-peer/src/node/`, `crates/dassie-peer/src/names/registrar.rs`, `crates/dassie-peer/src/names/holders.rs`, `crates/dassie-peer/src/names/registrant.rs`, `crates/dassie-peer/src/table.rs`, `crates/dassie-peer/src/routing.rs`, `crates/dassie-peer/src/channel.rs`, `crates/dassie-peer/src/persist.rs`, `crates/dassie-peer/src/config.rs` (every timer and bound, with the dev values), `crates/dassie-peer/src/hooks.rs`, `crates/dassie-node/src/env.rs` (bootstrap list)
+**Paths:** `crates/dassie-peer/src/node/`, `crates/dassie-peer/src/names/registrar.rs`, `crates/dassie-peer/src/names/holders.rs`, `crates/dassie-peer/src/names/registrant.rs`, `crates/dassie-peer/src/table.rs`, `crates/dassie-peer/src/routing.rs`, `crates/dassie-peer/src/channel.rs`, `crates/dassie-peer/src/persist.rs`, `crates/dassie-peer/src/config.rs` (every timer and bound, with the dev values), `crates/dassie-peer/src/hooks.rs`, `crates/dassie-node/src/env.rs` (bootstrap list), `crates/dassie-node/src/engine/core/snapshots.rs` (pushing snapshots)
 **Read with:** [Peer protocol](peer-protocol.md), [Settlement](settlement.md), [Connector](connector.md), [Identity](identity.md), [Node](node.md)
 
 ## The peer node
@@ -185,6 +185,17 @@ A peering's methods are the schemes it settles on, each with what the scheme kee
 ### Roles
 
 A peering has the node that asked and the node that accepted; when requests cross, the lower node ID's request wins, so the lower ID is the node that asked ([Asking and answering](#asking-and-answering)). The roles decide nothing about credit: over a hub each side's credit is its hold toward the other, which starts at nothing on both ([Settlement](settlement.md#credit)), and a node without an account in the hub is paid into it whichever of them asked ([hubs-only](../decisions/hubs-only.md)).
+
+### Snapshot subscriptions
+
+A node prices a swap with a peer by the peer's snapshot: its quotes at one moment, signed by its node key ([peer-swaps](../decisions/peer-swaps.md)). Peers subscribe to each other's over the peer protocol (`subscription` and `snapshot`, [Peer protocol](peer-protocol.md#message-set)), and keep them in `crates/dassie-peer/src/node/snapshots.rs`. A snapshot is opaque there: the node makes its own, and judges a peer's.
+
+- **Bounded by the peerings.** A subscription needs an active peering, and ends, on both sides, when the peering begins to end. So a node keeps at most one subscriber and one subscription per peering, and one snapshot per peer it subscribes to. None of it is persisted.
+- **Who takes subscribers.** A node that offers swaps: its owner's setting says so (`offer_swaps`, on by default), and it is a core node, since a periphery node forwards nothing. It takes every active peer, downlinks included, as often as it asks, and refuses with `noSwaps` otherwise. Once its owner turns swaps off, it forgets its subscribers at the next check, and they subscribe again in vain.
+- **What a subscriber gets.** The node's current snapshot at once, then each push: the engine takes its snapshot from a source (`SnapshotSource`) at every step, and pushes it to every subscriber on the rate feed's schedule, at most once per interval while it changes and a heartbeat otherwise ([Rate feed](rate-feed.md#publishing)). A node with no snapshot to give pushes nothing. At most one push to a subscriber is in flight; one still in flight skips a push, and none is sent again, since the next supersedes it. A subscriber that answers a push with 409, not peered or not subscribed, is one no more.
+- **Whom a node subscribes to.** Every active peer that is not its downlink, while its owner lets it swap (`swapping`, on by default) and the peering has methods on two ledgers or more of schemes that run, so that there is something to swap between (`PeeringHooks::wants_snapshots`). It looks every `SUBSCRIPTION_CHECK_MS` while it has an active peering. One no longer wanted is told the node unsubscribes, and its snapshot is forgotten; if that message is lost, the node's 409 to the peer's next push ends it.
+- **What it keeps.** The latest snapshot each peer pushed that the node takes (`PeeringHooks::takes_snapshot`): checking its signature, and that it is newer than the one kept, since pushes may arrive out of order, is the snapshot's reader's, in `dassie-feed`. A push may overtake the acceptance of the subscription it follows, and is taken then too.
+- **Silence and refusals.** A publisher that restarted has forgotten its subscribers, so a subscription that brings nothing for `SUBSCRIPTION_SILENCE_MS`, three of the feed's heartbeats, subscribes again. A refusal with `noSwaps` waits `SUBSCRIPTION_REFUSED_MS`, since an owner may turn swaps on, and forgets the peer's snapshot; any other refusal or failure waits `SUBSCRIPTION_RETRY_MS` (`crates/dassie-peer/src/node/snapshots.rs`).
 
 ## Lifecycle
 

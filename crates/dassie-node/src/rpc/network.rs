@@ -100,11 +100,15 @@ async fn set_peer_settings(
     let settings = request
         .settings
         .ok_or_else(|| RpcError::invalid("settings are required"))?;
+    // The contract does not carry the swap settings yet: they stay as they
+    // are.
+    let current = engine.peer_settings().await?;
     engine
         .set_peer_settings(PeerSettings {
             connector_fee_ppm: settings.connector_fee_ppm,
             fx_spread_ppm: settings.fx_spread_ppm,
             rebalance_ppm: settings.rebalance_ppm,
+            ..current
         })
         .await?;
     Ok(response::Method::SetPeerSettings(

@@ -28,6 +28,7 @@ mod peers;
 mod probes;
 mod schemes;
 mod settlement;
+mod snapshots;
 mod swaps;
 mod tokens;
 mod trust;
@@ -71,6 +72,7 @@ pub use probes::{
 };
 pub use schemes::{AssetView, LedgerEvent, SCHEMES, offered};
 pub use settlement::Lie;
+pub use snapshots::{NoSnapshots, SnapshotSource};
 pub use swaps::{
     MAX_SWAP_OUTCOMES, NewSwap, SWAP_DATA_LENGTH, SWAP_DATA_VERSION, SwapOutcome, SwapSent,
 };
@@ -397,6 +399,9 @@ pub struct Core {
     /// owner book of its asset, by the scheme over the hub: at most
     /// `dassie_peer::MAX_OWN_HUBS`.
     funding: BTreeMap<Name, hub_funding::Funding>,
+    /// Pushing the node's snapshots to the peers subscribed to them
+    /// (spec/areas/network.md#snapshot-subscriptions).
+    publishing: snapshots::Publishing,
 }
 
 /// The exchange rates, and the price table the connector charges transit and
@@ -538,6 +543,7 @@ impl Core {
             sweeps: Sweeps::DUE,
             events: Events::new(),
             funding: BTreeMap::new(),
+            publishing: snapshots::Publishing::new(),
         };
         core.restore()?;
         Ok(core)
@@ -637,6 +643,7 @@ impl Core {
             self.schemes_deadline(),
             self.removals_deadline(),
             self.funding_deadline(),
+            self.snapshot_deadline(),
             self.work_left(),
         ]
         .into_iter()
@@ -663,6 +670,7 @@ impl Core {
     /// step is done.
     fn finish_round(&mut self, out: &mut Vec<Output>) -> bool {
         self.peer_timers();
+        self.publish_snapshot();
         self.scheme_timers();
         let checked_at = self.settle.at_ms;
         self.settlement_timers();

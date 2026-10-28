@@ -17,6 +17,7 @@ mod hub_moves;
 mod pricing;
 mod removal;
 mod slots;
+mod snapshots;
 
 const NOW: u64 = 1_800_000_000_000;
 
@@ -822,6 +823,8 @@ fn peer_settings_are_checked_and_kept() {
         connector_fee_ppm: 1_000,
         fx_spread_ppm: 2_000,
         rebalance_ppm: 30_000,
+        offer_swaps: false,
+        swapping: false,
     };
     core.set_peer_settings(settings).unwrap();
     core.flush();
