@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How people reach your node: by its hostname, or by its node ID at dassiepay.net, and by a short name it holds there. Names are free on the testnet, and the earliest commitment wins."
+    />
+    <title>Names and addresses · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Names and addresses</h1>
+      <p class="lede">
+        Your node has an address for the network and names for people. This
+        page explains which is which, how a node without a domain of its own
+        gets one, and how short names are shared out fairly.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="addresses">Your node's addresses</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Address</th>
+              <th>Looks like</th>
+              <th>Used by</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Node ID</td>
+              <td>39 characters of <code>a</code>–<code>z</code> and <code>2</code>–<code>7</code></td>
+              <td>Everything: it is who your node is</td>
+            </tr>
+            <tr>
+              <td>Interledger address</td>
+              <td><code>test.das.&lt;node ID&gt;</code></td>
+              <td>Nodes, to route packets</td>
+            </tr>
+            <tr>
+              <td>Wallet address</td>
+              <td><code>https://&lt;name&gt;/pay/xrp</code></td>
+              <td>Other wallets and apps, through Open Payments</td>
+            </tr>
+            <tr>
+              <td>Payment pointer</td>
+              <td><code>$&lt;name&gt;</code></td>
+              <td>People, as a short way to write the default wallet address</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Your node has one wallet address per asset it holds, such as
+        <code>/pay/xrp</code> and <code>/pay/dsusd</code>. The payment
+        pointer names the default one: the asset you chose, or the first one
+        your node runs. The <code>&lt;name&gt;</code> in both is one of your
+        node's names on the web, below.
+      </p>
+      <p>
+        Your node ID comes from your
+        <a href="/docs/concepts/phrase/">recovery phrase</a>, so the same
+        phrase always gives the same ID, and the same addresses.
+      </p>
+
+      <h2 id="with-a-hostname">A node with a hostname</h2>
+      <p>
+        A node you set up with a domain name, such as
+        <code>node.example.com</code>, answers under that name alone:
+        <code>$node.example.com</code>, or
+        <code>https://node.example.com/pay/xrp</code>. It needs nothing else,
+        and it does not answer under names it may hold elsewhere. Changing
+        its hostname changes how other wallets know it.
+      </p>
+
+      <h2 id="default-name">Your default name</h2>
+      <p>
+        A node without a hostname, such as the desktop app, is reached
+        through a <a href="/docs/concepts/core-and-periphery/">front door</a>.
+        At the default one, its name is its node ID under
+        <code>dassiepay.net</code>:
+      </p>
+      <pre><code>$&lt;node ID&gt;.dassiepay.net
+https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code></pre>
+      <p>
+        It needs no registration: any node has it, from the moment it has
+        its key. It reaches your node only while your node keeps its
+        connection to that front door, and the wallet warns you when it does
+        not. Typed into a browser, the name shows a short page from the front
+        door, saying whose node it is.
+      </p>
+      <p class="not-yet">
+        Dassie names no default relay yet, so this name reaches your node
+        only when <code>DASSIE_RELAY</code> holds the entry of the
+        <code>dassiepay.net</code> front door.
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      </p>
+      <p>
+        This first name is your node's main name: the one your wallet shows,
+        and the one your node uses when it pays other wallets. Short names
+        your node holds come and go; the main name does not.
+      </p>
+      <p>
+        To be reached at another front door instead, set
+        <code>DASSIE_RELAY</code> to that front door's entry (its node ID,
+        URL and keys, which its operator finds in its log) and add your
+        node's name there to <code>DASSIE_PUBLIC_NAMES</code>, a
+        comma-separated list. A node keeps one relay, so your
+        <code>dassiepay.net</code> name then no longer reaches your node, and
+        the wallet warns you about it. The formats are on
+        <a href="/docs/reference/environment/">Environment variables</a>. Your node
+        answers only to the names it knows are its own, and refuses any
+        other, so no one passing requests on can make it answer under a name
+        you did not choose.
+      </p>
+      <p class="not-yet">
+        Your own domain pointed at a front door, and the testnet's names
+        moving under <code>test.dassiepay.net</code> so that
+        <code>dassiepay.net</code> is kept for real money, are not there yet.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+
+      <h2 id="short-names">Short names</h2>
+      <p>
+        A node ID is hard to say out loud. So your node can hold a
+        <strong>name</strong>, such as <code>kai</code>, and be reached at
+        <code>$kai.dassiepay.net</code> too. You register it on the wallet's
+        Names page, and your node does the rest:
+        <a href="/docs/wallet/names/">Choose a name</a>.
+      </p>
+      <ul>
+        <li>
+          A name is 3 to 32 characters: lowercase letters, digits and
+          hyphens, not starting or ending with a hyphen, and without two
+          hyphens in its third and fourth places. A name is always shorter
+          than a node ID, so the two never mix.
+        </li>
+        <li>
+          A few names are reserved, such as <code>admin</code>,
+          <code>api</code> and <code>dassie</code>.
+        </li>
+        <li>
+          A name is granted an hour after you register it, at the earliest,
+          and is yours for a year. Your node renews it by itself in its last
+          month. If it lapses, it stays yours alone for another month, then
+          it is free.
+        </li>
+        <li>A node holds at most a few names at a time.</li>
+      </ul>
+
+      <h2 id="registrars">Who keeps the list</h2>
+      <p>
+        Names are kept by <strong>registrars</strong>: the bootstrap nodes
+        your node is configured with. Each keeps its own list of names and
+        who holds them, and serves it to anyone who asks.
+      </p>
+      <p class="not-yet">
+        The list of bootstrap nodes built into Dassie is empty for now, so a
+        node has no registrars and can hold no names unless
+        <code>DASSIE_BOOTSTRAP_NODES</code> names them. See
+        <a href="/docs/concepts/network/">Joining the network</a> and
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>.
+      </p>
+      <p>
+        A name's holder is the node that enough of the registrars list for it:
+        three of four, when there are four. Every node, and every front door,
+        reads the lists itself and comes to the same answer. One registrar
+        that lies, or shows different lists to different nodes, cannot give
+        a name two holders. When too few lists are fresh, a node keeps the
+        holders it had rather than lose names to a registrar that is down.
+      </p>
+
+      <h2 id="no-sniping">Why a name can't be sniped</h2>
+      <p>
+        If you simply asked for a name, someone watching could see it and ask
+        first. So registering takes two steps.
+      </p>
+      <ol class="steps">
+        <li>
+          <strong>Commit.</strong> Your node sends every registrar a sealed
+          commitment: the name, mixed with a random salt and your node ID, so
+          nobody can read it. Each registrar notes it in its log, in order,
+          and answers with a receipt.
+        </li>
+        <li>
+          <strong>Unseal.</strong> Only once it holds a receipt from every
+          registrar does your node reveal the name and the salt.
+        </li>
+        <li>
+          <strong>Decide.</strong> The earliest commitment to a name in each
+          registrar's log wins. Someone who learns the name from your
+          unsealing is too late: their commitment comes after yours.
+        </li>
+      </ol>
+      <p>
+        Two nodes that commit to the same name at nearly the same moment can
+        split the registrars, so that no one has enough of them. A registrar
+        then lets the name go after a while, and it can be registered again.
+        A registrar that is down holds up new names until it is back.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/names-by-earliest-commitment.md">Why it works this way</a>
+      </p>
+
+      <h2 id="free-for-now">Free, for now</h2>
+      <p>
+        Names cost nothing today, and the registrars only limit how fast
+        anyone can register. That is fine on the testnet, whose names may be
+        reset at any time. With real money, free names would go for good to
+        whoever came first, so a node in the live realm takes no part in
+        names.
+      </p>
+      <p class="not-yet">
+        Registration fees, and with them names for real money, are not there
+        yet. <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/public-domains.md">Why these domains</a>
+        and the full rules, in
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/network.md#names">the spec</a>
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

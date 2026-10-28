@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How money moves through the network: many small packets, each paid or refused hop by hop, inside a STREAM connection."
+    />
+    <title>How a payment travels · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>How a payment travels</h1>
+      <p class="lede">
+        A payment in Dassie is not one transfer. It is many small packets,
+        each passed from node to node and either paid or refused on the way.
+        This page follows them from your node to the person you pay.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="three-packets">Three kinds of packet</h2>
+      <p>
+        Dassie speaks <a href="https://interledger.org">Interledger</a>, and
+        every payment travels in Interledger packets. There are three kinds.
+      </p>
+      <ul>
+        <li>
+          <strong>Prepare</strong> asks the next node to pass some money on.
+          It carries an amount, the address it is for, a time it expires, and
+          a lock: the SHA-256 hash of a 32-byte secret. In effect it says:
+          "I will pay you this much if you show me the secret that opens this
+          lock before this time."
+        </li>
+        <li>
+          <strong>Fulfill</strong> is the answer that carries the secret.
+          Whoever holds it can prove the packet arrived.
+        </li>
+        <li>
+          <strong>Reject</strong> is the answer that says no. It carries a
+          code and the address of the node that refused. A code starting with
+          F means the packet will never get through as it is, T means try
+          again later, and R means it ran short on the way, most often of
+          time.
+          <a href="/docs/build/errors/">Error codes</a> lists the ones
+          Dassie sends.
+        </li>
+      </ul>
+      <p>
+        Only the two ends of a payment can make the secret. The nodes in
+        between cannot make one up, so a Fulfill is proof that the packet
+        reached the person you pay.
+      </p>
+
+      <h2 id="many-packets">One payment, many packets</h2>
+      <p>
+        Your node does not send the whole amount in one packet. It uses
+        STREAM, the Interledger protocol that splits a payment into packets,
+        encrypts what travels in them, and has the receiver report what
+        arrived. Each payment gets a STREAM connection of its own.
+      </p>
+      <ol class="steps">
+        <li>
+          <strong>You ask to pay.</strong> The other wallet hands your node
+          what it needs to reach the receiver, usually through Open Payments:
+          an address and a secret the two ends share.
+        </li>
+        <li>
+          <strong>Your node quotes.</strong> It sends a few probes, packets the
+          receiver refuses on purpose, to measure how much arrives at the
+          other end. That shows you the rate and the fees before any money
+          moves.
+        </li>
+        <li>
+          <strong>Your node sends.</strong> It keeps several packets in flight
+          at once, sends faster while they get through and slows down when
+          they are refused. Every packet must deliver at least the rate of
+          the quote, or it fails.
+        </li>
+        <li>
+          <strong>The receiver reports back.</strong> Every answer from the
+          receiver, Fulfill or Reject, tells your node how much the receiver
+          has taken so far and how much more it will take. A refusal from a
+          node along the way says only why it refused.
+        </li>
+        <li>
+          <strong>The payment ends</strong> once the receiver has what it
+          asked for, within a tiny tolerance for rounding, or once your node
+          has sent the amount you set, or at the payment's deadline. It ends
+          only once none of its packets is still in flight, so what it says
+          it sent is final.
+        </li>
+      </ol>
+      <p>
+        A refused packet costs nothing but time: its money goes again in a
+        later packet, which may take another path. Small packets keep what
+        any one node can lose small, and many of them spread a payment over
+        many paths.
+      </p>
+
+      <h2 id="hop-by-hop">Hop by hop</h2>
+      <p>
+        Between your node and the receiver's are the peers in between, each
+        of them someone else's node. A packet goes like this.
+      </p>
+      <ol class="steps">
+        <li>
+          Your node sends a Prepare to one of its peers. In its books, the
+          amount is now pending: set aside, not yet gone.
+        </li>
+        <li>
+          The peer checks the packet: that it has not expired, is not too
+          large, fits what you may owe it, and still carries money after its
+          fee. Then it books pending transfers of its own and sends a Prepare
+          on to the next node, expiring a little earlier than the one it
+          took, so the answer has time to come back.
+        </li>
+        <li>
+          This repeats until the packet reaches the receiver's node, whose
+          STREAM receiver takes it if it belongs to a payment that is still
+          open, and answers with a Fulfill.
+        </li>
+        <li>
+          The Fulfill travels back the way the Prepare came. As it passes,
+          each node posts its pending transfers: now the money has moved, in
+          that node's books.
+        </li>
+        <li>
+          A Reject, or no answer before the packet expires, voids them
+          instead. Nothing moved.
+        </li>
+      </ol>
+      <p>
+        Each node keeps its own books and decides from them alone. It never
+        waits for its neighbors to agree, and a Fulfill it booked stays
+        booked, whatever happens upstream.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/own-books.md">Why it works this way</a>
+        and why a Fulfill is final:
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/own-fulfills.md">own Fulfills</a>
+      </p>
+
+      <h3>Which way a packet goes</h3>
+      <p>
+        A node picks each packet's next hop among the peers that lead toward
+        its destination, drawn at random and weighted by the fees each has
+        earned it lately, with a small share of draws spread evenly so that
+        new peers get a chance. Nothing ties a payment to one path. A node
+        never sends a packet back to the peer it came from.
+      </p>
+
+      <h3>Fees and conversion</h3>
+      <p>
+        A node charges a fee only on what passes from one peer to another.
+        Your own node never charges you for your own payments. Fees round
+        down, so a packet too small to carry one passes free.
+      </p>
+      <p>
+        Where a packet arrives in one asset and leaves in another, such as
+        XRP in and test dollars out, the node in the middle converts it at
+        its own rates. Your own packets never convert at your node: a
+        payment leaves on the ledger you pay from.
+        <a href="/docs/concepts/rates/">Exchange rates</a> says how a node
+        prices that.
+      </p>
+
+      <h2 id="limits">Limits along the way</h2>
+      <p>
+        Each node protects itself with a few limits. When a packet hits one,
+        it is refused, and STREAM adjusts.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Limit</th>
+              <th>What it bounds</th>
+              <th>When a packet hits it</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>The largest packet</td>
+              <td>The most one packet may carry</td>
+              <td>F08, with the most it takes, and the sender makes its packets smaller</td>
+            </tr>
+            <tr>
+              <td>Money in flight</td>
+              <td>
+                What packets in flight with one peer carry, each way: two and a
+                half of the largest packets
+              </td>
+              <td>T05, and the sender backs off</td>
+            </tr>
+            <tr>
+              <td>Room</td>
+              <td>What a peer may owe the node: the credit it gives that peer</td>
+              <td>T04, and the sender backs off until the peers settle</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The cap on money in flight is there because a node that crashes with
+        packets in flight never learns which of them were paid. Each one can
+        leave two peers' books apart by its amount, so the cap bounds what a
+        crash can cost.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/packets-in-flight.md">Why it works this way</a>
+      </p>
+
+      <h2 id="settling-up">Settling up</h2>
+      <p>
+        Packets move money in the nodes' books, not on a ledger. After a
+        while one peer owes another. Before what it owes reaches the credit
+        it was given, the peer it owes asks it to settle, and it pays through
+        the settlement hub the two share. How that works is on
+        <a href="/docs/concepts/hubs/">Settlement hubs</a>, and how peers
+        find each other and how much they let each other owe is on
+        <a href="/docs/concepts/peers/">Peers and holds</a>.
+      </p>
+
+      <h2 id="watch-it">Watch it happen</h2>
+      <p>
+        The <a href="/tools/stream-toy/">STREAM Toy</a> runs a payment across
+        a simulated network in your browser, packet by packet, with Dassie's
+        own STREAM code. To send and receive STREAM payments from your own
+        app, read <a href="/docs/build/stream/">STREAM on Dassie</a>.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/connector.md">The connector in the spec</a>
+        and <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/stream.md">STREAM in the spec</a>
+        hold every rule
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

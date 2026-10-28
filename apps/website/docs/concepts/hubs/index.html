@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Peers settle only through hubs: a few validators keep a shared ledger backed by one escrow, and what your node sets aside there for a peer is the credit it gives."
+    />
+    <title>Settlement hubs · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Settlement hubs</h1>
+      <p class="lede">
+        Packets move money in the nodes' books. Settlement hubs are where
+        peers pay what they owe each other for real. This page explains what
+        a hub is, why Dassie settles only through hubs, and what happens to
+        your money there.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="what-a-hub-is">What a hub is</h2>
+      <p>
+        A settlement hub is a small shared ledger for one asset, kept by a
+        few validators, which are Dassie nodes too. Together they hold every
+        member's money in one escrow account on the XRP Ledger, which none of
+        them controls alone: a withdrawal needs the signatures of more than
+        two thirds of them.
+      </p>
+      <ul>
+        <li>
+          <strong>Members</strong> are ordinary nodes, yours among them. Each
+          has an account in the hub, opened with a deposit to the escrow or by
+          a peer paying it in.
+        </li>
+        <li>
+          <strong>Validators</strong> agree on every operation in the hub, in
+          order, block by block. A hub of four validators keeps working with
+          one of them down or misbehaving. They sit close to each other on
+          the network, within a few tens of milliseconds, so that a block is
+          final soon after it is proposed. Members can be anywhere.
+        </li>
+        <li>
+          <strong>The escrow</strong> is one account on the XRP Ledger that
+          holds what the hub owes its members. Validators credit a deposit
+          only once they have proven it in a ledger the XRP Ledger's own
+          validators signed, never on a server's word.
+        </li>
+      </ul>
+      <p>
+        On the test network there are two kinds of hub, one per asset:
+        <code>hub-xrpl-testnet-xrp</code> holds XRP, and
+        <code>hub-xrpl-testnet-dsusd</code> holds DSUSD, Dassie's test
+        dollar. Each name is the settlement scheme your node runs to be a
+        member. Your node is in at most one hub per asset, and can be in a
+        hub of each.
+        <a href="/docs/reference/schemes/">Schemes and hubs</a> lists them
+        all.
+      </p>
+      <p class="not-yet">
+        Dassie is built to carry a default hub for each asset, founded by
+        boot1 with the four bootstrap nodes as its validators, and to join it
+        unless you choose another. Dassie has no default hub built in yet, so a node joins a hub only when you add its scheme with the
+        hub's rules.
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      </p>
+
+      <h2 id="why-only-hubs">Why only hubs</h2>
+      <p>
+        Two peers could settle directly, each paying the other on the XRP
+        Ledger. But then settling is up to the one who owes. A peer can always
+        walk away with what it owes, so every direct peering is a loan
+        without security, and a newcomer could run up debts with every peer
+        and vanish, again and again under new keys.
+      </p>
+      <p>
+        In a hub, the money that backs a peering is already set aside, and
+        the peer you pay can take it whether or not you cooperate. So
+        Dassie settles only through hubs. Two nodes peer only if they share
+        a hub, and every hub they share is a way they settle, one per asset.
+        Nothing falls back to settling directly.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hubs-only.md">Why it works this way</a>
+        and what it gives up
+      </p>
+
+      <h2 id="holds">Holds: the money behind a peering</h2>
+      <p>
+        Your node does not ask the hub to move money for every packet. It
+        sets money aside instead.
+      </p>
+      <ol class="steps">
+        <li>
+          For each peer it pays over a hub, your node keeps a
+          <strong>hold</strong> in the hub: part of its balance there, set
+          aside for that peer.
+        </li>
+        <li>
+          With every Prepare it sends that peer, your node signs a
+          <strong>commitment</strong>: a promise the hub honors if the peer
+          shows the packet's fulfillment in time.
+        </li>
+        <li>
+          When the peer's Fulfill comes back, your node answers with a
+          <strong>claim</strong>: a signed running total of what it owes the
+          peer.
+        </li>
+        <li>
+          The peer takes its money from the hold with the claim, or with the
+          commitment and the fulfillment if your node never sent the claim.
+          It does not need your node's help either way.
+        </li>
+      </ol>
+      <p>
+        The hub never sees the packets. It sees only what members take from
+        holds, put into them, and move in or out.
+      </p>
+      <p>
+        <strong>The hold is the credit.</strong> The credit your node gives
+        a peer is its own hold toward that peer: money set aside, all of it
+        and nothing more. The peer can take from it what your node owes it,
+        and never more, so a peer can cost you at most that hold and the
+        packets in flight beyond it. A hold starts at nothing. When a peer
+        asks your node to settle, your node puts more into its hold toward
+        that peer. The other way round, what a peer can send through your
+        node is bounded by its own hold toward you.
+      </p>
+      <p>
+        <a href="/docs/concepts/peers/">Peers and holds</a> says how peers
+        find each other and when they ask to settle.
+      </p>
+
+      <h2 id="joining">Joining a hub</h2>
+      <p>A node gets its account in a hub in one of two ways.</p>
+      <ul>
+        <li>
+          <strong>By a deposit.</strong> Your node pays the escrow from its
+          own account on the XRP Ledger, with destination tag 0 and a memo
+          that names the new account's key. The hub opens the account, locks
+          its reserve, and keeps the rest as its balance. Later deposits name
+          the account by its number, as the destination tag, and can come
+          from any wallet. While you keep received money in the hub, your
+          wallet's Receive page shows the escrow and your tag.
+        </li>
+        <li>
+          <strong>By being paid in.</strong> A node with no account yet can
+          still peer with a member that has one. It takes that peer's
+          packets on what the peer owes it, and spends only that, through
+          the same peer. Once the peer owes it the hub's minimum for a new
+          account, the peer pays it in: the hub opens the new account with
+          what is owed. Until then, the newcomer risks what it is owed, up
+          to that minimum, if the peer goes away.
+        </li>
+      </ul>
+      <p>
+        A new account first names where its money goes if the hub ever
+        shuts down: your node's own account on the XRP Ledger, the one your
+        recovery phrase derives.
+      </p>
+
+      <h2 id="your-funds">Your funds in a hub</h2>
+      <p>
+        Your node moves money between its own account on the XRP Ledger and
+        the hub by itself, to keep the hub account between two marks, both
+        counted in largest packets:
+      </p>
+      <ul>
+        <li>
+          <strong>The floor</strong> is what its holds need: enough to answer
+          a request to settle from each peer at once. Below it, your node
+          deposits back up to halfway.
+        </li>
+        <li>
+          <strong>The ceiling</strong> bounds what it keeps in the hub. What
+          you receive arrives in the hub and stays there by default, ready to
+          spend. If you choose to keep received money on your own account
+          instead, your node withdraws what is above the ceiling, back down
+          to halfway.
+        </li>
+      </ul>
+      <p>
+        You can move money yourself too, in the wallet's Hubs page or with
+        <code>dassie hub</code>. A move of yours pauses your node's own moves
+        for a while, so it does not undo yours. A move that is late, sent
+        but not yet seen on the other side, is never sent again by itself;
+        you look, and decide.
+        <a href="/docs/wallet/hubs/">Your hubs</a> walks through it.
+      </p>
+      <pre><code><span class="prompt">$</span>dassie hub status</code></pre>
+      <p class="not-yet">
+        Setting the floor and the ceiling yourself, closing your account in
+        a hub, and being in more than one hub of an asset are not there yet.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+
+      <h2 id="when-a-hub-fails">When a hub fails</h2>
+      <p>A hub can end in two ways.</p>
+      <ul>
+        <li>
+          <strong>Shutdown.</strong> The validators vote to close it, or one
+          of them has been gone for days and was not replaced. The hub stops
+          taking new holds and transfers, gives payees a notice period to
+          take what holds owe them, and then pays every account out to the
+          address it named.
+        </li>
+        <li>
+          <strong>Stall.</strong> Too many validators are gone for the hub to
+          agree on anything. The others declare it stalled and sign a payout
+          from the last block that became final. There is no notice period,
+          so a payee loses what it had not yet taken from a hold. A payout
+          needs signatures from more than two thirds of the validators, and
+          may wait until enough of them come back.
+        </li>
+      </ul>
+      <p>
+        Either way, your node stops settling over that hub at once, on every
+        peering. Peerings keep their other hubs, of other assets, and a
+        peering left with none ends. Until you are in a working hub of that
+        asset again, your node is cut off in it. Dassie chooses to pause
+        rather than to fall back on unsecured credit: a peering that waits is
+        better than one that can lose money.
+      </p>
+      <p>
+        A hub of a dollar token has one more case. The token's issuer can
+        freeze the escrow's balance. While it does, the hub is frozen: your
+        node sends nothing over it until the thaw, and keeps what is waiting.
+      </p>
+
+      <h2 id="what-it-costs">What it costs</h2>
+      <ul>
+        <li>
+          Reserves: your account locks one while it is open, and each hold
+          locks a small one of its own.
+        </li>
+        <li>The hub's fees, which its rules set, flat and capped.</li>
+        <li>
+          The XRP Ledger's fees for moving money into the hub and out of it.
+        </li>
+        <li>
+          Trust in the validators, with what you keep in the hub. That is why
+          your node keeps it between the floor and the ceiling, so a failing
+          hub costs you little.
+        </li>
+      </ul>
+      <p>
+        To run a hub, see
+        <a href="/docs/services/hub-validator/">Validate a settlement hub</a>
+        and <a href="/docs/services/found-a-hub/">Found a hub</a>.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/settlement-hubs.md">Why it works this way</a>
+        and the full design, in
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/designs/settlement-hubs.md">settlement hubs</a>
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

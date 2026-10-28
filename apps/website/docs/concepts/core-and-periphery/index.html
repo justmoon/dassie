@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="A node with a hostname forwards payments for others. One without, like the desktop app, connects out to core nodes and is reached through them and a relay."
+    />
+    <title>Core and periphery · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Core and periphery</h1>
+      <p class="lede">
+        Not every node can be reached from the internet. Dassie has a place
+        for both kinds: nodes with a public address form the core, and nodes
+        without one join at the edge, as the periphery. This page explains
+        how a periphery node connects, how others reach it, and what the
+        machines in between can see.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="two-kinds">Two kinds of node</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th>Core node</th>
+              <th>Periphery node</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>What makes it one</td>
+              <td>A hostname: a server with a public IP and a domain name</td>
+              <td>No hostname, such as the desktop app on your computer</td>
+            </tr>
+            <tr>
+              <td>Who it connects to</td>
+              <td>Other core nodes, and the periphery nodes that ask it</td>
+              <td>Core nodes only, which it dials itself</td>
+            </tr>
+            <tr>
+              <td>Forwards payments for others</td>
+              <td>Yes</td>
+              <td>No, only its own</td>
+            </tr>
+            <tr>
+              <td>In the node list</td>
+              <td>Yes, once registered with the bootstrap nodes</td>
+              <td>No</td>
+            </tr>
+            <tr>
+              <td>Needs open ports</td>
+              <td>Yes: TCP 80 and 443, UDP 443</td>
+              <td>No</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A periphery node always dials out, so it works behind a home router
+        or a firewall, with no port forwarding. It never connects to another
+        periphery node. Setting a hostname makes a node core; clearing it
+        makes it periphery again.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/core-and-periphery.md">Why it works this way</a>
+      </p>
+
+      <h2 id="uplinks">Uplinks and child addresses</h2>
+      <p>
+        A periphery node finds core nodes in the node list and peers with a
+        few of them. These are its <strong>uplinks</strong>. Each one gives it
+        an address beneath its own: if an uplink is
+        <code>test.das.</code> followed by the uplink's node ID, your node is
+        reached at that address followed by a dot and your node ID. The
+        uplink passes on whatever arrives for that address.
+      </p>
+      <p class="not-yet">
+        The list of bootstrap nodes built into Dassie is empty for now, so a
+        node has no node list and finds no uplinks unless
+        <code>DASSIE_BOOTSTRAP_NODES</code> names the bootstrap nodes. See
+        <a href="/docs/concepts/network/">Joining the network</a> and
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>.
+      </p>
+      <ul>
+        <li>
+          Your node's payments go out through its uplinks, and reach whatever
+          they reach.
+        </li>
+        <li>
+          Payments to your node come in through the uplink its payment
+          request names, one it is connected to at the time.
+        </li>
+        <li>
+          Your uplinks never list your node as a neighbor, and no route in
+          the network leads to it directly: only its uplinks know it is
+          there.
+        </li>
+      </ul>
+      <p>
+        You can pin a periphery node to particular uplinks with
+        <code>DASSIE_UPLINKS</code>, a comma-separated list of node IDs. A
+        market maker's nodes do that, so they trade through the core node
+        whose rates they watch. See
+        <a href="/docs/reference/environment/">Environment variables</a>.
+      </p>
+      <p>
+        A periphery node does not need an account in a settlement hub before
+        it can be paid. Its uplink pays it in once it owes it enough to open
+        one, as <a href="/docs/concepts/hubs/">Settlement hubs</a> explains.
+        On a core node, periphery nodes that have never paid it hold at most
+        half of the places it keeps for periphery nodes, so new keys made for
+        nothing cannot crowd out the ones that pay.
+      </p>
+
+      <h2 id="quic">One kind of link: QUIC</h2>
+      <p>
+        Every link between two nodes is a QUIC connection, over UDP. Each side
+        proves its node key in the handshake, and the other checks it
+        against the node ID. Either side can open streams on a connection,
+        so your uplink sends to your node over the connection your node
+        opened.
+      </p>
+      <p>
+        Some networks block UDP. There, a periphery node carries the same
+        QUIC packets over a WebSocket to the core node's HTTPS port, at
+        <code>/quic</code>. It tries UDP first and the WebSocket a moment
+        later, and keeps whichever connects first. It goes through an HTTP
+        proxy if <code>HTTPS_PROXY</code> names one. The QUIC inside still
+        proves each node's key, so whatever sits between sees only
+        ciphertext. A core node always uses UDP.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/quic-over-websocket.md">Why it works this way</a>
+      </p>
+
+      <h2 id="relays-and-front-doors">Relays and front doors</h2>
+      <p>
+        Wallets and apps that want to pay your node speak Open Payments, over
+        HTTPS. A periphery node has no address they can reach, so they reach
+        it through someone else.
+      </p>
+      <ul>
+        <li>
+          <strong>A relay</strong> passes streams to the nodes connected to
+          it. Every core node relays for its downlinks, and your node can
+          keep a connection to one relay of its choice, even one it does not
+          peer with. <code>DASSIE_RELAY</code> takes the relay's entry, as
+          in the list of bootstrap nodes: its node ID, URL and keys, which a
+          front door's operator finds in its log. The format is on
+          <a href="/docs/reference/environment/">Environment variables</a>.
+        </li>
+        <li>
+          <strong>A front door</strong> is a relay that also answers on the
+          web. It takes Open Payments requests at a name under its domain
+          and passes them through to the node. The project runs one for
+          <code>dassiepay.net</code>, where a node is reached at its node ID,
+          such as <code>https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code>.
+          Anyone can run another:
+          <a href="/docs/services/front-door/">Run a front door</a>.
+        </li>
+      </ul>
+      <p>
+        Dassie is built so that a node without a hostname keeps a connection
+        to the <code>dassiepay.net</code> front door by default, and is
+        reached at its default name with no setup. To use another front door instead,
+        set <code>DASSIE_RELAY</code> to its entry. To keep no relay at all, set
+        <code>DASSIE_RELAY</code> empty: your node then still pays and is
+        paid through its uplinks, but no other wallet can reach it at a
+        name.
+        <code>dassie status</code> and the wallet show which relay your node
+        keeps and whether it is connected.
+      </p>
+      <p class="not-yet">
+        Dassie names no default relay yet, so a node keeps one only
+        when <code>DASSIE_RELAY</code> holds its entry.
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why there is a default relay</a>
+      </p>
+
+      <h2 id="what-a-front-door-sees">What dassiepay.net can see</h2>
+      <p>
+        A front door answers on the web for your node, so it sees more than
+        a relay does. Here is what the <code>dassiepay.net</code> front door,
+        or any other, can and cannot see.
+      </p>
+      <ul>
+        <li>
+          <strong>It sees which nodes are online,</strong> from which address,
+          and since when.
+        </li>
+        <li>
+          <strong>It reads the Open Payments requests and answers</strong> it
+          passes on, including the secret a payer uses to pay one of your
+          payment requests. That is the nature of answering HTTPS for
+          someone.
+        </li>
+        <li>
+          <strong>It cannot answer for your node to anyone who checks.</strong>
+          Your node signs every Open Payments answer with its node key.
+          Dassie nodes that pay you at <code>dassiepay.net</code> check that
+          signature against your node ID, so a front door cannot fake an
+          answer to them. A client that does not check trusts the front
+          door.
+        </li>
+        <li>
+          <strong>It never sees your wallet.</strong> A front door passes on
+          Open Payments and nothing else, and your wallet is never served
+          through a relay or a front door.
+        </li>
+        <li>
+          <strong>It cannot put anything of your node's in front of a
+          browser:</strong> it passes on only JSON, sets no cookies, and the
+          one page it serves at a name, which says whose node it is, is its
+          own.
+        </li>
+      </ul>
+      <p>
+        If you would rather not use it, give your node a hostname, name
+        another front door, or keep no relay.
+      </p>
+
+      <h2 id="not-yet">What is not there yet</h2>
+      <p class="not-yet">
+        Every node starting at the edge and being promoted into the core,
+        finding a node's relays through records others keep, apps on your
+        phone that reach your node through a relay, and your own domain in
+        front of a front door are not there yet.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p>
+        To run a node on a server without a public IP, see
+        <a href="/docs/node/periphery/">A server without a public IP</a>. For
+        the desktop app, see
+        <a href="/docs/desktop/reach/">How others reach you</a>.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

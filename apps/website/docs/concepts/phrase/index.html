@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Twenty words that are your node and its funds: they name their realm, fix small mistakes, and stay with you. Only a key derived from them reaches the node."
+    />
+    <title>Your recovery phrase · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Your recovery phrase</h1>
+      <p class="lede">
+        Your recovery phrase is twenty words. Every key that names your node
+        or holds its funds comes from them, so they are your only backup of who your node is and of
+        the keys to its funds. This page explains what is in the words and
+        where they go.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="twenty-words">Twenty words</h2>
+      <p>
+        The words come from the BIP-39 English list that many wallets use,
+        but the phrase is Dassie's own, and only Dassie reads it. A phrase of
+        12 or 24 words from another wallet is refused as one.
+      </p>
+      <p>Its twenty words hold four things:</p>
+      <ul>
+        <li>
+          <strong>Its kind,</strong> which says the phrase's layout and its
+          realm: test or live.
+        </li>
+        <li>
+          <strong>When it was made,</strong> to the hour. The wallet shows the
+          date with a new phrase, as in <code>Generated 2026-02-19</code>.
+        </li>
+        <li>
+          <strong>A secret</strong> of 128 random bits, which everything else
+          derives from.
+        </li>
+        <li>
+          <strong>Six check words,</strong> which let Dassie find and fix
+          mistakes.
+        </li>
+      </ul>
+      <p>
+        The wallet shows a new phrase in two numbered columns of ten, the way
+        a metal backup plate lays them out, with the first four letters of
+        each word in bold: those four letters are all a plate keeps, and all
+        Dassie needs. Then it asks you to type one of the words back.
+        <a href="/docs/wallet/backup/">Back up your phrase</a> walks through
+        it.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/phrase-format.md">Why it works this way</a>
+        rather than as a BIP-39 phrase
+      </p>
+
+      <h2 id="test-or-live">Test or live</h2>
+      <p>
+        A phrase names its realm, and the realm goes into every key. The same
+        secret is one node in the test realm and a different node in the live
+        realm, with different accounts, so a phrase you test with never puts
+        real money behind the same keys. A node refuses a phrase of the other
+        realm, at setup and at login.
+      </p>
+      <p>
+        Dassie takes test money only, so every node runs in the test realm,
+        and every phrase your wallet makes is a test phrase.
+      </p>
+
+      <h2 id="mistakes">Mistakes it forgives</h2>
+      <p>
+        When you enter your phrase, you can type each word whole or just its
+        first four letters, in any case. The wallet shows what each word reads
+        as while you type, and flags a word that is not on the list.
+      </p>
+      <ul>
+        <li>
+          If you cannot read a word, mark it as unreadable, or type
+          <code>?</code> in its place.
+        </li>
+        <li>
+          The check words fix up to two wrong words. With words marked
+          unreadable, they fix those too, as long as twice the wrong words
+          plus the unreadable ones come to five or fewer. Past that, the phrase
+          is refused as too damaged.
+        </li>
+        <li>
+          A phrase is never fixed behind your back. The wallet shows the
+          corrected words, marked, and takes the phrase only once you
+          confirm them.
+        </li>
+      </ul>
+      <p>
+        A phrase says when it was made, so a phrase dated more than a day
+        after the reader's clock is refused, with its date. Most often the
+        reader's clock is behind; set it right and try again.
+      </p>
+
+      <h2 id="what-the-node-gets">What your node gets</h2>
+      <p>The words stay with you. Your node never sees them.</p>
+      <ol class="steps">
+        <li>
+          At setup, your browser turns the phrase into your node's key, with
+          the same code the node runs, compiled to WebAssembly.
+        </li>
+        <li>
+          It sends the node that key, and nothing else of the phrase. The
+          node keeps the key in its database, so it can sign and settle on
+          its own.
+        </li>
+        <li>
+          When you log in later, your browser derives a proof from the phrase
+          and sends only that.
+        </li>
+      </ol>
+      <p>
+        The phrase is never stored, in the browser or anywhere else. In the
+        desktop app, the same happens in its window.
+      </p>
+
+      <h2 id="what-it-recovers">What it recovers</h2>
+      <p>
+        Every secret that names your node or holds its funds derives from
+        the phrase: your node's key and node
+        ID, its accounts on the XRP Ledger, its accounts in settlement hubs,
+        the key other wallets know it by, and the secrets its payment
+        requests use. So the same phrase, entered again on a new install,
+        gives the same node ID and the same accounts on the XRP Ledger, with
+        the funds in them.
+      </p>
+      <p>
+        What the phrase does not hold is what your node learned while it
+        ran: its books, what peers owe it and it owes them, its settings.
+        Those live in its database.
+        <a href="/docs/node/backup/">Back up and move a node</a> covers that.
+      </p>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Anyone with your phrase is your node, and
+          can move its funds. Keep it on paper or metal, offline. Nobody from
+          Dassie will ever ask for it.
+        </p>
+      </aside>
+
+      <h2 id="two-keys">One node ID over two keys</h2>
+      <p>
+        Your node has two public keys. Its Ed25519 key signs everything it
+        signs today. Beside it is an SLH-DSA key, a kind of key that quantum
+        computers are not expected to break, which signs nothing yet.
+      </p>
+      <p>
+        Your node ID is a hash of both keys, written as 39 characters of
+        lowercase letters and the digits 2 to 7: the name your node goes by in its addresses, its
+        DNS name and its logs. Because the ID commits to the second key, your
+        node can one day prove it is still itself with that key, should
+        Ed25519 stop being safe, and keep its ID, its names and its place
+        with its peers.
+      </p>
+      <p class="not-yet">
+        Proving a node's identity with its SLH-DSA key is not there yet.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/post-quantum-node-id.md">Why it works this way</a>
+      </p>
+
+      <h2 id="headless">A node nobody logs in to</h2>
+      <p>
+        Some nodes have no browser in their setup: a server you set up by
+        script, or a market maker's nodes. For those, and only those, the
+        phrase lives in a file on the node's own host, and
+        <code>dassie setup</code> does what the browser would.
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file phrase.txt</code></pre>
+      <ul>
+        <li>
+          It reads the phrase once, derives the node key, and wipes the
+          phrase from memory. Still only the key reaches the node.
+        </li>
+        <li>
+          It takes the realm from the phrase, and is refused by a node set up
+          with another phrase or in the other realm.
+        </li>
+        <li>
+          With no one there to confirm a correction, it refuses a phrase that
+          needs one, and names the positions of the words, never the words.
+          It refuses a phrase dated more than a day after the host's clock,
+          so make sure the clock is set before you run it.
+        </li>
+      </ul>
+      <p>
+        The file stays where you put it, and anyone who can read it holds your
+        node, so keep it readable by you alone.
+        <a href="/docs/node/headless/">Headless setup</a> has the steps.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/headless-setup.md">Why this exception exists</a>
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>
