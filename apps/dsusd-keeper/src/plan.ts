@@ -32,21 +32,23 @@ export type Config = {
   bandPpm: bigint;
 };
 
-/** What a run may still spend: faucet requests, DSUSD minted, and
- * withdrawals. Each run starts with `BUDGET`. */
+/** What a window of time may still spend, across its runs: faucet
+ * requests, DSUSD minted, and withdrawals. Each window starts with
+ * `BUDGET` (src/follow.ts). */
 export type Budget = {
   faucetCalls: number;
   mintMicros: bigint;
   withdrawals: number;
 };
 
-/** One run's budget: a faucet request for each account and one for depth;
- * far more DSUSD than a run at the default depth mints, so that a ticker
- * or a pool misread can cost a bounded amount at most; and one withdrawal,
- * which is all a run needs while the keeper is the pool's main liquidity
- * provider. A keeper with a small share would otherwise withdraw again and
- * again within a run, each time selling the rest of its XRP in the pool
- * to the other providers; once a run, the failed runs show it instead. */
+/** One window's budget, what one run had when the keeper ran every five
+ * minutes: a faucet request for each account and one for depth; far more
+ * DSUSD than a window at the default depth mints, so that a ticker or a
+ * pool misread can cost a bounded amount at most; and one withdrawal,
+ * which is all a window needs while the keeper is the pool's main
+ * liquidity provider. A keeper with a small share would otherwise withdraw
+ * again and again, each time selling the rest of its XRP in the pool to
+ * the other providers; once a window, the stuck runs show it instead. */
 export const BUDGET: Budget = {
   faucetCalls: 3,
   mintMicros: 100_000n * 1_000_000n,
@@ -134,13 +136,13 @@ export function nextStep(
     }
     if (budget.mintMicros > 0n) return mint(toTarget.micros - held, budget);
     if (held > 0n) return { kind: "raise", micros: held };
-    return { kind: "stuck", reason: "the run's DSUSD to mint is spent" };
+    return { kind: "stuck", reason: "the window's DSUSD to mint is spent" };
   }
   if (toTarget.side === "high") {
     const cap = withdrawCap(pool);
     const micros = toTarget.micros < cap ? toTarget.micros : cap;
     if (micros > 0n && budget.withdrawals > 0) return { kind: "lower", micros };
-    // The keeper's share cannot lower it further in this run. Depth and
+    // The keeper's share cannot lower it further in this window. Depth and
     // the burn below still go on, and then the run is stuck.
   }
 
@@ -183,7 +185,7 @@ function fund(account: "issuer" | "keeper", budget: Budget): Step {
     return {
       kind: "stuck",
       reason:
-        `the ${account} needs XRP and the run's faucet requests are spent`,
+        `the ${account} needs XRP and the window's faucet requests are spent`,
     };
   }
   return { kind: "fund", account };
@@ -192,7 +194,7 @@ function fund(account: "issuer" | "keeper", budget: Budget): Step {
 function mint(micros: bigint, budget: Budget): Step {
   const capped = micros < budget.mintMicros ? micros : budget.mintMicros;
   if (capped <= 0n) {
-    return { kind: "stuck", reason: "the run's DSUSD to mint is spent" };
+    return { kind: "stuck", reason: "the window's DSUSD to mint is spent" };
   }
   return { kind: "mint", micros: capped };
 }

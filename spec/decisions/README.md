@@ -38,6 +38,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [hub-waits-end-at-the-event](hub-waits-end-at-the-event.md) | A validator checks an escrow, and a member looks up a peer's account, when what it waits for happens; the poll stays as the fallback | hubs, peer-protocol |
 | [hubs-only](hubs-only.md) | Peers settle only over settlement hubs | designs/settlement-hubs, settlement, network, xrpl, testing |
 | [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (transfer fees not built) | xrpl, settlement, connector |
+| [keeper-follows-the-pool](keeper-follows-the-pool.md) | The DSUSD keeper follows the pool, and reprices after each trade | dsusd-keeper, xrpl |
 | [lazy-downlink-accounts](lazy-downlink-accounts.md) | A downlink's accounts open once value first moves with it, in room kept for it while its channel is open | network, settlement, connector, ledger |
 | [ledger-resets](ledger-resets.md) | A ledger below the newest seen is a reset only on the testnet, and only once its UNL validates it (the UNL's part, the network's constant as the gate and a proven absence not built) | xrpl, designs/xrpl-validation |
 | [mainnet-schemes](mainnet-schemes.md) | Mainnet has schemes of its own, and a ledger runs only in its node's realm (a live node without the test network's defaults not built) | xrpl, settlement, ledger, node, identity |

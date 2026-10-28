@@ -6,8 +6,8 @@
 #
 # It installs Git, jq and Nix as the simulation campaign's VMs do
 # (scripts/sim-campaign/startup.sh), clones the repository, and installs
-# and starts the keeper's timer, which runs the keeper (vm/run.sh) every
-# few minutes from a fresh checkout of `main`. The toolchain is Node and
+# and starts the keeper's timer, which starts the keeper (vm/run.sh)
+# whenever it is not running, from a fresh checkout of `main`. The toolchain is Node and
 # pnpm of the flake's nixpkgs, as CI's lockfile check takes them.
 set -eu
 # GCE runs this without a home, which Nix's installer, Nix and Git need.

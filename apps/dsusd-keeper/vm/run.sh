@@ -1,9 +1,10 @@
 #!/bin/sh
-# One run of the DSUSD keeper on its VM (spec/areas/dsusd-keeper.md#its-vm),
-# from the repository's root, as dassie-dsusd-keeper.service starts it.
+# The DSUSD keeper on its VM (spec/areas/dsusd-keeper.md#its-vm), from the
+# repository's root, as dassie-dsusd-keeper.service starts it: it follows
+# the pool for an hour.
 #
 # It reads the issuer's and the keeper's seeds from Secret Manager with the
-# VM's service account, into this run's environment only: they never touch
+# VM's service account, into this process's environment only: they never touch
 # the disk. Then it installs the keeper's one dependency from the lockfile
 # and runs it, with Node and pnpm of the flake's nixpkgs.
 set -eu

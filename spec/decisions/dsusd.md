@@ -18,9 +18,9 @@
 
 ## Accepted
 
-- **DSUSD is worth what the keeper says.** Between runs, within its band and within the pool's trading fee, the pool is off the market, and a trade against a stale price costs test XRP only.
+- **DSUSD is worth what the keeper says.** Within its band and the pool's trading fee, and for the few ledgers after a trade until the keeper brings the pool back ([keeper-follows-the-pool](keeper-follows-the-pool.md)), the pool is off the market, and a trade against a stale price costs test XRP only.
 - **The issuer's seed sits on a VM,** and whoever has it can mint DSUSD. On the testnet that costs nothing real; the seed lives in a secret only the keeper's account can read.
-- **A provider other than the keeper can hold most of the pool.** The keeper then cannot lower the price far alone, and says so in its runs; a withdrawal sells the keeper's share of the pool's XRP to the other providers, so it withdraws once a run at most.
+- **A provider other than the keeper can hold most of the pool.** The keeper then cannot lower the price far alone, and says so; a withdrawal sells the keeper's share of the pool's XRP to the other providers, so it withdraws once a window at most.
 - **A testnet reset takes the issuer, the keeper and the pool,** and with them every DSUSD. The keeper makes them again, at the same addresses, from the same seeds.
 
 ## Rejected
