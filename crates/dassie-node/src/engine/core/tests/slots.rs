@@ -335,6 +335,39 @@ fn weights_stay_per_peer_and_ledger() {
     assert!(earned(&sim, HUB) > 0, "no weight in the hub");
 }
 
+// spec/areas/hubs.md#in-the-node, spec/decisions/settlement-methods.md: what
+// a peer can cost a node on a method is bounded by the holds on that
+// method's hub. While a payment in dollars and one in XRP cross node 1 in
+// opposite directions, each on its own method, the credit node 1 extends
+// each neighbor on each method is, after every step, its hold toward it on
+// that method's hub and its settlements to it there on their way, never
+// what the other method holds.
+#[test]
+fn each_methods_credit_is_its_own_hubs_holds() {
+    let mut sim = line(58, false);
+    pay(&mut sim, (0, USD), (2, USD), 1_000_000, 1_000_000);
+    pay(&mut sim, (2, HUB), (0, HUB), 1_000_000, 1_000_000);
+    assert_eq!(ended(&mut sim, 0), (OutgoingState::Completed, 1_000_000));
+    assert_eq!(ended(&mut sim, 1), (OutgoingState::Completed, 1_000_000));
+    for peer in [0, 2] {
+        let other = key(peer).node_id();
+        let name = Name::new(other.as_str()).unwrap();
+        for scheme in ["stub", STUB_TWO] {
+            let id = Name::new(scheme).unwrap();
+            let core = sim.nodes[1].core.as_mut().unwrap();
+            let (credit, _, settling) = core.hub_books(id, other).unwrap();
+            let toward = core.with_commitments(id, |c| c.holds(name).toward);
+            assert!(credit > 0, "node 1 extends node {peer} nothing on {scheme}");
+            assert_eq!(
+                Some(credit),
+                toward.map(|toward| toward + settling),
+                "node 1's credit to node {peer} on {scheme}"
+            );
+        }
+    }
+    crate::sim::checks::check_hub_credit(&sim).unwrap();
+}
+
 // A method dropped while a packet is in flight on it, and added again
 // before the packet resolves, takes its slot back with the packet, last, as
 // the peering then lists the method; every check of the endpoints holds

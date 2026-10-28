@@ -343,16 +343,27 @@ fn a_settlement_on_a_scheme_removed_does_not_hold_the_channel() {
     );
 }
 
-// spec/decisions/settlement-methods.md: a method on a scheme that cannot
-// receive is dropped at once, without collecting, once it has not been
-// able to for as long as a silent peer is kept; the peering stays on the
-// other.
+// spec/decisions/settlement-methods.md: a scheme that cannot receive, as
+// one over a hub that stalled, is offered to no peer, and its method takes
+// no packet; the method is dropped at once, without collecting, once it has
+// not been able to for as long as a silent peer is kept; the peering stays
+// on the other.
 #[test]
 fn a_method_that_cannot_receive_is_dropped_after_a_silent_peers_time() {
     let mut sim = pair(54, true);
     stub_two_unpayable(true);
+    let two = scheme_id(STUB_TWO);
     for index in 0..2 {
-        sim.step(index, super::super::Core::update_peer_schemes);
+        let other = key(1 - index).node_id();
+        sim.step(index, |core| {
+            core.update_peer_schemes();
+            assert!(
+                !core.peer.schemes().contains(&two),
+                "node {index} offers it"
+            );
+            assert!(!core.method_available(&other, two), "node {index}");
+            assert!(core.method_available(&other, scheme_id("stub")));
+        });
     }
     let start = sim.now;
     sim.run_until(start + PEER.peer_dead_ms - 10_000);

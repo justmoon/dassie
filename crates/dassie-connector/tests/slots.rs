@@ -460,3 +460,61 @@ fn a_conversion_past_the_largest_packet_gets_f08() {
     }
     panic!("no packet sized by the F08s got through");
 }
+
+// spec/decisions/settlement-methods.md, spec/decisions/token-hubs.md: a
+// ledger whose conversions are halted, as a dollar token's hub off its peg,
+// still carries the packets that keep it: one in on its method goes on, on
+// that ledger, needing no rate. Only a packet that would convert to or from
+// it is refused.
+#[test]
+fn a_halted_ledger_still_carries_the_packets_that_keep_it() {
+    let mut h = harness(Config::DEFAULT);
+    // A fourth peer, on USD alone: a packet in on XRP to it converts.
+    h.add_peer(4, "dfour", TRUST, 0);
+    h.connector
+        .set_routes([
+            (FAR, &[ONE, TWO][..]),
+            ("test.das.dfour", &[EndpointId::Peer(4)][..]),
+        ])
+        .unwrap();
+    // Built without XRP, as the node builds it while XRP's guard pauses it.
+    let inventories: Vec<_> = LedgerId::ALL
+        .into_iter()
+        .filter(|ledger| *ledger != XRP)
+        .filter_map(|ledger| h.inventory(ledger))
+        .collect();
+    let max_age_ms = h.connector.config().max_rate_age_ms;
+    let mut prices =
+        dassie_connector::PriceTable::build(&h.rates, &inventories, h.pricing, NOW, max_age_ms);
+    prices.halt(XRP);
+    let send_halted = |h: &mut Harness, request_id: u32, destination: &str| {
+        let packet = prepare(destination, 1_000, NOW + 20_000, [1; 32]);
+        let outcome = h.connector.handle_prepare_with(
+            NOW,
+            (SOURCE, request_id),
+            Some(XRP),
+            &packet,
+            &mut h.ledger,
+            &prices,
+            &mut dassie_connector::OpensNone,
+            0,
+            &mut h.buffer,
+        );
+        h.check();
+        outcome
+    };
+    match send_halted(&mut h, 1, FAR) {
+        Outcome::Forward(sent) => {
+            let amount = decode_prepare(&h.buffer[..sent.length]).amount;
+            assert_eq!((sent.ledger, amount), (XRP, 1_000));
+        }
+        other => panic!("refused on the ledger it came in on: {other:?}"),
+    }
+    match send_halted(&mut h, 2, "test.das.dfour") {
+        Outcome::Respond(length) => {
+            let (code, _) = h.reject_written(length);
+            assert_ne!(code, ErrorCode::T04_INSUFFICIENT_LIQUIDITY, "{code:?}");
+        }
+        other => panic!("converted off a halted ledger: {other:?}"),
+    }
+}

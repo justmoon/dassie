@@ -260,9 +260,14 @@ impl Core {
                 .iter()
                 .find(|info| info.id == id.as_str())
                 .map(|info| info.ledger);
-            // The tests' second and third stubs, which a test restarts with.
+            // The tests' second and third stubs, and their scheme on the XRP
+            // hub's ledger, which tests restart with.
             #[cfg(test)]
-            let known = known.or_else(|| super::tests::StubTwo::of(id.as_str()).map(|(l, _)| l));
+            let known = known
+                .or_else(|| super::tests::StubTwo::of(id.as_str()).map(|(l, _)| l))
+                .or_else(|| {
+                    (id.as_str() == super::tests::XRP_HUB).then_some(LedgerId::HubXrplTestnetXrp)
+                });
             let Some(ledger) = known else {
                 return Err(format!("settlement scheme {id}: unknown to this version"));
             };
