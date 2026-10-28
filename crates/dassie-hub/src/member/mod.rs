@@ -30,7 +30,7 @@ mod resync;
 pub mod scheme;
 mod state;
 
-pub use account::{FIRST, HubAccount, News, Purpose};
+pub use account::{ACCOUNT_ID, HubAccount, News, Purpose};
 pub use mainnet::{DEFAULT_MAINNET_VALIDATORS, ListedValidator, check_default_hub};
 pub use mirror::HoldMirror;
 pub use payout::{Payouts, Taken};
@@ -107,27 +107,29 @@ pub const DEFAULT_MAINNET_HUB: Option<&str> = None;
 /// not start.
 pub const DEFAULT_MAINNET_RLUSD_HUB: Option<&str> = None;
 
-/// The account a node's account in the hub of scheme `scheme` is, as an
-/// external asset: on the XRP Ledger testnet, [`FIRST`] in its XRP hub and
-/// the next in its DSUSD hub; on mainnet, a hub account of the live realm's
-/// kind, the first in its XRP hub and the next in its RLUSD hub, so that a
-/// mainnet account's ID says it holds real money. A node is in one hub per
-/// asset (spec/decisions/hubs-only.md), so the scheme names the account;
-/// its key is derived for the hub it is in ([`member_key`]), so the number
-/// is only its place among the node's accounts. `None` for a scheme that is
-/// no hub's.
+/// The ID of a node's account in the hub of scheme `scheme`, as an
+/// external asset: the scheme's ID, with no number, such as
+/// `hub-xrpl-testnet-xrp` (spec/decisions/hub-scheme-names.md). A node is
+/// in one hub per asset (spec/decisions/hubs-only.md) and has one account
+/// in each, whose key is derived for the hub ([`member_key`]), so the
+/// scheme alone names the account. `None` for a scheme that is no hub's.
 #[must_use]
 pub fn account_id(scheme: &str) -> Option<dassie_settlement::AssetId> {
-    use dassie_settlement::AssetKind;
-
-    let (kind, index) = match scheme {
-        SCHEME_ID => (FIRST.kind, FIRST.index),
-        DSUSD_SCHEME_ID => (FIRST.kind, FIRST.index + 1),
-        MAINNET_SCHEME_ID => (AssetKind::HubAccount, 0),
-        RLUSD_SCHEME_ID => (AssetKind::HubAccount, 1),
-        _ => return None,
-    };
-    Some(dassie_settlement::AssetId { kind, index })
+    let hubs = [
+        SCHEME_ID,
+        DSUSD_SCHEME_ID,
+        MAINNET_SCHEME_ID,
+        RLUSD_SCHEME_ID,
+    ];
+    if !hubs.contains(&scheme) {
+        return None;
+    }
+    let id = dassie_settlement::AssetId::parse(scheme);
+    assert!(
+        id.is_some_and(|id| id.index().is_none()),
+        "each hub scheme names a kind of external asset with no number"
+    );
+    id
 }
 
 use dassie_identity::{NodeKey, NodeSecret};

@@ -83,7 +83,10 @@ impl Network {
         match kind {
             AssetKind::XrplTestnetAccount => Some(&TESTNET),
             AssetKind::XrplAccount => Some(&MAINNET),
-            AssetKind::HubTestnetAccount | AssetKind::HubAccount => None,
+            AssetKind::HubXrplTestnetXrp
+            | AssetKind::HubXrplTestnetDsusd
+            | AssetKind::HubXrplXrp
+            | AssetKind::HubXrplRlusd => None,
         }
     }
 
@@ -91,10 +94,7 @@ impl Network {
     /// `node/xrpl/<id>/account/0` (spec/areas/identity.md#seed-paths).
     #[must_use]
     pub const fn first(&self) -> AssetId {
-        AssetId {
-            kind: self.asset_kind,
-            index: 0,
-        }
+        AssetId::numbered(self.asset_kind, 0)
     }
 
     /// Whether its chain may start again from a new genesis
@@ -116,7 +116,7 @@ mod tests {
     fn no_two_networks_share_what_tells_them_apart() {
         for (index, network) in NETWORKS.iter().enumerate() {
             assert_eq!(Network::of(network.asset_kind), Some(*network));
-            assert_eq!(network.first().kind, network.asset_kind);
+            assert_eq!(network.first().kind(), network.asset_kind);
             assert!(network.server.starts_with("wss://"));
             assert!(network.wrong_network.contains(network.name));
             assert!(network.id <= 1024, "the account signs no NetworkID");
@@ -130,8 +130,14 @@ mod tests {
         }
         assert!(TESTNET.resets() && TESTNET.faucet.is_some());
         assert!(!MAINNET.resets() && MAINNET.faucet.is_none());
-        assert_eq!(Network::of(AssetKind::HubTestnetAccount), None);
-        assert_eq!(Network::of(AssetKind::HubAccount), None);
+        for hub in [
+            AssetKind::HubXrplTestnetXrp,
+            AssetKind::HubXrplTestnetDsusd,
+            AssetKind::HubXrplXrp,
+            AssetKind::HubXrplRlusd,
+        ] {
+            assert_eq!(Network::of(hub), None);
+        }
     }
 
     // The network's XRP scheme books on its realm's ledger of XRP, whose

@@ -257,8 +257,11 @@ fn hub_rules(config: &str) -> Result<dassie_hub::Rules, SchemeError> {
 /// [`EngineError::Invalid`] for a state of another hub, or of none.
 fn check_hub_state(asset: AssetId, config: &str, state: &[u8]) -> Result<(), EngineError> {
     let hub_account = matches!(
-        asset.kind,
-        AssetKind::HubTestnetAccount | AssetKind::HubAccount
+        asset.kind(),
+        AssetKind::HubXrplTestnetXrp
+            | AssetKind::HubXrplTestnetDsusd
+            | AssetKind::HubXrplXrp
+            | AssetKind::HubXrplRlusd
     );
     if !hub_account || state.is_empty() {
         return Ok(());
@@ -370,7 +373,7 @@ pub(super) fn own_xrpl_account(
 /// the owner apart from any scheme's (spec/areas/settlement.md#external-assets).
 const fn configured_alone(asset: AssetId) -> bool {
     matches!(
-        asset.kind,
+        asset.kind(),
         AssetKind::XrplTestnetAccount | AssetKind::XrplAccount
     )
 }
@@ -384,8 +387,8 @@ const fn configured_alone(asset: AssetId) -> bool {
 ///
 /// [`EngineError::Invalid`] for another asset, or a config it refuses.
 fn checked_asset_config(asset: AssetId, config: &str) -> Result<String, EngineError> {
-    let network = dassie_xrpl::network::Network::of(asset.kind)
-        .filter(|_| asset.index == 0)
+    let network = dassie_xrpl::network::Network::of(asset.kind())
+        .filter(|_| asset.index() == Some(0))
         .ok_or_else(|| EngineError::Invalid("no external asset the owner configures".into()))?;
     let invalid = |error: SchemeError| EngineError::Invalid(error.to_string());
     let config = config.trim();
@@ -426,11 +429,11 @@ fn create_asset(
     state: &[u8],
     (key, window_ms): (&NodeKey, u64),
 ) -> Result<Box<dyn ExternalAsset>, SchemeError> {
-    match (id.kind, id.index) {
-        (AssetKind::XrplTestnetAccount | AssetKind::XrplAccount, 0) => {
+    match (id.kind(), id.index()) {
+        (AssetKind::XrplTestnetAccount | AssetKind::XrplAccount, Some(index @ 0)) => {
             let network =
-                dassie_xrpl::network::Network::of(id.kind).ok_or(SchemeError::UnknownScheme)?;
-            let entropy = key.xrpl_account_entropy(network.id, id.index);
+                dassie_xrpl::network::Network::of(id.kind()).ok_or(SchemeError::UnknownScheme)?;
+            let entropy = key.xrpl_account_entropy(network.id, index);
             Ok(Box::new(XrplAccount::new(
                 id,
                 &schemes_on(id),
@@ -439,9 +442,13 @@ fn create_asset(
                 state,
             )?))
         }
-        (AssetKind::HubTestnetAccount | AssetKind::HubAccount, _) => {
-            create_hub_account(id, config, state, (key, window_ms))
-        }
+        (
+            AssetKind::HubXrplTestnetXrp
+            | AssetKind::HubXrplTestnetDsusd
+            | AssetKind::HubXrplXrp
+            | AssetKind::HubXrplRlusd,
+            None,
+        ) => create_hub_account(id, config, state, (key, window_ms)),
         _ => Err(SchemeError::UnknownScheme),
     }
 }
@@ -785,7 +792,7 @@ impl Core {
         let asset = AssetId::parse(id)
             .ok_or_else(|| EngineError::Invalid("unknown external asset".into()))?;
         let config = checked_asset_config(asset, config)?;
-        let realm = dassie_xrpl::network::Network::of(asset.kind).map(|network| network.realm);
+        let realm = dassie_xrpl::network::Network::of(asset.kind()).map(|network| network.realm);
         if realm != Some(super::ledger_realm(self.realm)) {
             return Err(EngineError::Precondition(
                 "the account is of another realm than the node's".into(),
@@ -1354,7 +1361,15 @@ mod tests {
             assert_eq!(account.account(), wallet.account());
         }
         for info in SCHEMES {
-            let network = asset_of(info.id).and_then(|asset| Network::of(asset.kind));
+            let network = asset_of(info.id).and_then(|asset| Network::of(asset.kind()));
+            // A hub scheme's account is named by the scheme
+            // (spec/decisions/hub-scheme-names.md).
+            assert_eq!(
+                info.id.starts_with("hub-"),
+                asset_of(info.id).is_some_and(|asset| asset.to_string() == info.id),
+                "{}",
+                info.id
+            );
             match network {
                 Some(network) => assert_eq!(network.realm, info.ledger.realm(), "{}", info.id),
                 None => assert!(!info.id.starts_with("xrpl"), "{}", info.id),
@@ -1366,10 +1381,7 @@ mod tests {
                 info.id
             );
         }
-        let further = AssetId {
-            kind: AssetKind::XrplAccount,
-            index: 1,
-        };
+        let further = AssetId::numbered(AssetKind::XrplAccount, 1);
         assert!(matches!(
             create_asset(further, "", &[], (&key, 0)),
             Err(SchemeError::UnknownScheme)
@@ -1469,10 +1481,11 @@ mod tests {
     }
 
     // spec/decisions/hub-scheme-names.md: each hub scheme settles through
-    // an account of its own, and joins only a hub whose asset names it:
-    // rules of a DSUSD hub given to the XRP hub's scheme, or the other way
-    // round, are an invalid config. The DSUSD hub's scheme books on its own
-    // ledger.
+    // an account of its own, which the scheme's ID names, so a node in two
+    // hubs has two accounts of distinct IDs, and it joins only a hub whose
+    // asset names it: rules of a DSUSD hub given to the XRP hub's scheme, or
+    // the other way round, are an invalid config. The DSUSD hub's scheme
+    // books on its own ledger.
     #[test]
     fn each_hub_scheme_joins_only_a_hub_of_its_asset() {
         use dassie_hub::member::{DSUSD_SCHEME_ID, SCHEME_ID};
@@ -1483,7 +1496,7 @@ mod tests {
         let dsusd = dsusd_hub_config();
         let xrp_account = asset_of(SCHEME_ID).unwrap();
         let dsusd_account = asset_of(DSUSD_SCHEME_ID).unwrap();
-        assert_eq!(xrp_account, dassie_hub::member::FIRST);
+        assert_eq!(xrp_account, dassie_hub::member::ACCOUNT_ID);
         assert_ne!(xrp_account, dsusd_account, "an account per hub");
         assert_eq!(
             schemes_on(dsusd_account),
@@ -1503,12 +1516,9 @@ mod tests {
             create_hub_account(dsusd_account, "", &[], (&key, window)),
             Err(SchemeError::InvalidConfig)
         ));
-        let further = AssetId {
-            kind: AssetKind::HubTestnetAccount,
-            index: 2,
-        };
+        // An XRPL account is no hub's.
         assert!(matches!(
-            create_hub_account(further, &xrp, &[], (&key, window)),
+            create_hub_account(dassie_xrpl::account::FIRST, &xrp, &[], (&key, window)),
             Err(SchemeError::UnknownScheme)
         ));
         let scheme = create(
@@ -1548,7 +1558,7 @@ mod tests {
 
     // spec/decisions/hub-scheme-names.md: on mainnet, `hub-xrpl-xrp` joins
     // only a mainnet hub of XRP and `hub-xrpl-rlusd` only one of RLUSD, each
-    // through an account of the live realm's kind of its own, and books on
+    // through an account of its own that its ID names, and books on
     // its live ledger. A testnet hub's rules given to a mainnet scheme, or a
     // mainnet hub's to a testnet scheme, are an invalid config, so a hub's
     // terms are on the network of its scheme's realm. While no mainnet hub
@@ -1576,7 +1586,8 @@ mod tests {
         let mut accounts = Vec::new();
         for (id, config, other, ledger) in schemes {
             let account = asset_of(id).unwrap();
-            assert_eq!(account.kind, AssetKind::HubAccount, "{id}");
+            assert_eq!(account.to_string(), id);
+            assert_eq!(account.index(), None, "{id}");
             assert_eq!(schemes_on(account), [Name::new(id).unwrap()]);
             accounts.push(account);
             let made = create_hub_account(account, config, &[], (&key, window)).unwrap();

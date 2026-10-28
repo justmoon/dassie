@@ -29,12 +29,17 @@ pub enum AssetKind {
     /// An account on the XRP Ledger mainnet
     /// (spec/decisions/mainnet-schemes.md).
     XrplAccount,
-    /// An account in a settlement hub on the XRP Ledger testnet
+    /// The node's account in its hub of XRP on the XRP Ledger testnet
     /// (spec/designs/settlement-hubs.md).
-    HubTestnetAccount,
-    /// An account in a settlement hub on the XRP Ledger mainnet: real
-    /// money (spec/decisions/hub-scheme-names.md).
-    HubAccount,
+    HubXrplTestnetXrp,
+    /// The node's account in its hub of DSUSD on the XRP Ledger testnet.
+    HubXrplTestnetDsusd,
+    /// The node's account in its hub of XRP on the XRP Ledger mainnet:
+    /// real money (spec/decisions/hub-scheme-names.md).
+    HubXrplXrp,
+    /// The node's account in its hub of RLUSD on the XRP Ledger mainnet:
+    /// real money.
+    HubXrplRlusd,
 }
 
 impl AssetKind {
@@ -42,62 +47,134 @@ impl AssetKind {
     pub const ALL: &'static [Self] = &[
         Self::XrplTestnetAccount,
         Self::XrplAccount,
-        Self::HubTestnetAccount,
-        Self::HubAccount,
+        Self::HubXrplTestnetXrp,
+        Self::HubXrplTestnetDsusd,
+        Self::HubXrplXrp,
+        Self::HubXrplRlusd,
     ];
 
-    /// Its name, as IDs and the database write it.
+    /// Its name, as IDs and the database write it. A hub account's is the
+    /// ID of the scheme over its hub (spec/decisions/hub-scheme-names.md).
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::XrplTestnetAccount => "xrpl-testnet-account",
             Self::XrplAccount => "xrpl-account",
-            Self::HubTestnetAccount => "hub-testnet-account",
-            Self::HubAccount => "hub-account",
+            Self::HubXrplTestnetXrp => "hub-xrpl-testnet-xrp",
+            Self::HubXrplTestnetDsusd => "hub-xrpl-testnet-dsusd",
+            Self::HubXrplXrp => "hub-xrpl-xrp",
+            Self::HubXrplRlusd => "hub-xrpl-rlusd",
+        }
+    }
+
+    /// Whether the node may hold several of this kind, each with a number
+    /// of its own: an XRPL account, numbered by the index of its seed path.
+    /// Of any other kind it holds one at most, as it is in one hub per
+    /// asset (spec/decisions/hubs-only.md), so the kind alone names it.
+    #[must_use]
+    pub const fn numbered(self) -> bool {
+        match self {
+            Self::XrplTestnetAccount | Self::XrplAccount => true,
+            Self::HubXrplTestnetXrp
+            | Self::HubXrplTestnetDsusd
+            | Self::HubXrplXrp
+            | Self::HubXrplRlusd => false,
         }
     }
 }
 
-/// An external asset's ID: its kind, and its number among the node's of
-/// that kind. Written `<kind>/<index>`, such as `xrpl-testnet-account/0`.
+/// An external asset's ID: its kind, and for a numbered kind its number
+/// among the node's of that kind. Written `<kind>/<index>` for a numbered
+/// kind, such as `xrpl-testnet-account/0`, and `<kind>` alone for any
+/// other, such as `hub-xrpl-testnet-xrp`. No kind's name holds a `/`, so
+/// each text names one ID at most.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AssetId {
     /// What it is.
-    pub kind: AssetKind,
-    /// Which of the node's of that kind: the first is 0. Only the first of
-    /// each kind is built; the number is kept, in every stored ID and the
-    /// owner's config of the asset, so that a further account of a kind,
-    /// which a new seed path would derive, takes an ID of its own without
-    /// renaming the first's (spec/areas/settlement.md#external-assets).
-    pub index: u16,
+    kind: AssetKind,
+    /// Which of the node's of that kind, for a numbered kind: the first is
+    /// 0; `None` for any other. Only the first of each numbered kind is
+    /// built; the number is kept, in every stored ID and the owner's config
+    /// of the asset, so that a further account of a kind, which a new seed
+    /// path would derive, takes an ID of its own without renaming the
+    /// first's (spec/areas/settlement.md#external-assets).
+    index: Option<u16>,
 }
 
 impl AssetId {
+    /// The node's asset numbered `index` of `kind`.
+    ///
+    /// # Panics
+    ///
+    /// If `kind` is not numbered.
+    #[must_use]
+    pub const fn numbered(kind: AssetKind, index: u16) -> Self {
+        assert!(
+            kind.numbered(),
+            "a kind the node holds one of has no number"
+        );
+        Self {
+            kind,
+            index: Some(index),
+        }
+    }
+
+    /// The node's one asset of `kind`.
+    ///
+    /// # Panics
+    ///
+    /// If `kind` is numbered.
+    #[must_use]
+    pub const fn sole(kind: AssetKind) -> Self {
+        assert!(!kind.numbered(), "a numbered kind needs a number");
+        Self { kind, index: None }
+    }
+
+    /// What it is.
+    #[must_use]
+    pub const fn kind(self) -> AssetKind {
+        self.kind
+    }
+
+    /// Which of the node's of its kind, for a numbered kind; `None` for
+    /// any other.
+    #[must_use]
+    pub const fn index(self) -> Option<u16> {
+        self.index
+    }
+
     /// The ID written as `text`, if it is one.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
-        let (kind, index) = text.split_once('/')?;
+        let (kind, index) = match text.split_once('/') {
+            Some((kind, index)) => (kind, Some(index)),
+            None => (text, None),
+        };
         let kind = AssetKind::ALL
             .iter()
             .copied()
             .find(|candidate| candidate.as_str() == kind)?;
+        let Some(index) = index else {
+            return (!kind.numbered()).then(|| Self::sole(kind));
+        };
         // One way to write each number: no sign, no leading zero.
-        if index.is_empty()
+        if !kind.numbered()
+            || index.is_empty()
             || !index.bytes().all(|byte| byte.is_ascii_digit())
             || (index.len() > 1 && index.starts_with('0'))
         {
             return None;
         }
-        Some(Self {
-            kind,
-            index: index.parse().ok()?,
-        })
+        Some(Self::numbered(kind, index.parse().ok()?))
     }
 }
 
 impl fmt::Display for AssetId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/{}", self.kind.as_str(), self.index)
+        match self.index {
+            Some(index) => write!(f, "{}/{index}", self.kind.as_str()),
+            None => f.write_str(self.kind.as_str()),
+        }
     }
 }
 
@@ -360,28 +437,25 @@ pub trait ExternalAsset: Send + Any {
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
     use alloc::string::ToString;
+    use alloc::vec;
 
     use super::*;
 
+    // spec/areas/settlement.md#external-assets: an XRPL account's ID is its
+    // kind and its number, and each is written one way.
     #[test]
-    fn ids_are_written_one_way() {
-        let first = AssetId {
-            kind: AssetKind::XrplTestnetAccount,
-            index: 0,
-        };
+    fn numbered_ids_are_written_one_way() {
+        let first = AssetId::numbered(AssetKind::XrplTestnetAccount, 0);
         assert_eq!(first.to_string(), "xrpl-testnet-account/0");
         assert_eq!(AssetId::parse("xrpl-testnet-account/0"), Some(first));
         assert_eq!(
-            AssetId::parse("xrpl-testnet-account/65535").map(|id| id.index),
+            AssetId::parse("xrpl-testnet-account/65535").and_then(AssetId::index),
             Some(u16::MAX)
         );
-        for kind in AssetKind::ALL.iter().copied() {
-            let id = AssetId { kind, index: 0 };
-            assert_eq!(AssetId::parse(&id.to_string()), Some(id));
-        }
         assert_eq!(
-            AssetId::parse("xrpl-account/0").map(|id| id.kind),
+            AssetId::parse("xrpl-account/0").map(AssetId::kind),
             Some(AssetKind::XrplAccount)
         );
         for wrong in [
@@ -397,5 +471,78 @@ mod tests {
         ] {
             assert_eq!(AssetId::parse(wrong), None, "{wrong}");
         }
+    }
+
+    // spec/decisions/hub-scheme-names.md: a hub account's ID is the ID of
+    // the scheme over its hub, with no number; the IDs from before, of a
+    // kind and a number, are no IDs.
+    #[test]
+    fn a_hub_accounts_id_is_its_schemes() {
+        for (kind, text) in [
+            (AssetKind::HubXrplTestnetXrp, "hub-xrpl-testnet-xrp"),
+            (AssetKind::HubXrplTestnetDsusd, "hub-xrpl-testnet-dsusd"),
+            (AssetKind::HubXrplXrp, "hub-xrpl-xrp"),
+            (AssetKind::HubXrplRlusd, "hub-xrpl-rlusd"),
+        ] {
+            let id = AssetId::sole(kind);
+            assert_eq!(id.to_string(), text);
+            assert_eq!(AssetId::parse(text), Some(id));
+            assert_eq!(id.index(), None);
+            for wrong in [format!("{text}/0"), format!("{text}/1"), format!("{text}/")] {
+                assert_eq!(AssetId::parse(&wrong), None, "{wrong}");
+            }
+        }
+        for old in [
+            "hub-testnet-account/0",
+            "hub-testnet-account/1",
+            "hub-account/0",
+            "hub-account/1",
+            "hub-testnet-account",
+            "hub-account",
+        ] {
+            assert_eq!(AssetId::parse(old), None, "{old}");
+        }
+    }
+
+    // Every kind's IDs read back as written, no two kinds' meet, and the
+    // longest fits the store's bound on an asset's ID (64 bytes).
+    #[test]
+    fn every_id_reads_back_as_written() {
+        for (at, kind) in AssetKind::ALL.iter().copied().enumerate() {
+            assert!(!kind.as_str().contains('/'), "{kind:?}");
+            assert!(
+                AssetKind::ALL[at + 1..]
+                    .iter()
+                    .all(|other| other.as_str() != kind.as_str()),
+                "{kind:?}"
+            );
+            let ids = if kind.numbered() {
+                vec![
+                    AssetId::numbered(kind, 0),
+                    AssetId::numbered(kind, u16::MAX),
+                ]
+            } else {
+                vec![AssetId::sole(kind)]
+            };
+            for id in ids {
+                let text = id.to_string();
+                assert_eq!(AssetId::parse(&text), Some(id));
+                assert_eq!(id.kind(), kind);
+                assert_eq!(id.index().is_some(), kind.numbered());
+                assert!(text.len() <= 64, "{text}");
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "has no number")]
+    fn a_sole_kind_takes_no_number() {
+        let _ = AssetId::numbered(AssetKind::HubXrplTestnetXrp, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "needs a number")]
+    fn a_numbered_kind_needs_one() {
+        let _ = AssetId::sole(AssetKind::XrplTestnetAccount);
     }
 }

@@ -663,7 +663,7 @@ impl XrplAccount {
             schemes.len() <= MAX_SCHEMES,
             "more schemes on an account than there may be"
         );
-        let network = Network::of(id.kind).ok_or(SchemeError::UnknownScheme)?;
+        let network = Network::of(id.kind()).ok_or(SchemeError::UnknownScheme)?;
         let config = Config::parse_on(config, network)?;
         let mut account = Self {
             id,
@@ -2511,7 +2511,11 @@ impl ExternalAsset for XrplAccount {
             walk.check_invariants();
         }
         assert!(self.followers.len() <= MAX_SCHEMES);
-        assert_eq!(Network::of(self.id.kind), Some(self.network), "its kind's");
+        assert_eq!(
+            Network::of(self.id.kind()),
+            Some(self.network),
+            "its kind's"
+        );
         assert!(
             self.stopped.iter().all(|scheme| self.schemes.contains(scheme)
                 && !self.followers.contains_key(scheme)),
