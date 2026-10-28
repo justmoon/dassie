@@ -43,7 +43,7 @@
 - *A sun beside the main kopje, or off its axis:* the lookout stands clear on the sky, but the sun then lights a corner of the scene rather than the kopje it is about, and the scene no longer has the mark's picture of a dassie on its rock in front of the sun.
 - *A sun whose edge meets the lookout's head, as the Terracotta scenes have it:* a tangent reads as the two touching, and neither stands apart.
 - *A face turned from the sun, a step darker, always on the same side:* with the sun behind, a rock left of it would be dark on the side that faces the sun.
-- *The end toward the sun lighter and the end away darker:* light from behind wraps around both ends of a block, and it is the middle of its face, turned to the viewer, that gets the least.
+- *One end lighter and the other darker on a block under the sun:* there the light from behind wraps around both ends alike, and it is the middle of the face, turned to the viewer, that gets the least.
 - *The same band of shade along the bottom of every block, wherever it stands:* a block off to the sun's side is shaded most on its far end, which the light from behind does not reach, and a band there says the light comes from above.
 - *An even band of shade along the bottom, or a shade that rises to a point:* a band is as dark at the ends as in the middle, and a point, clean or uneven, draws a shape the boulder does not have; a shade that follows the block's top says what the rock is.
 - *Ink rocks, as the mark's:* the mark has one dassie and one rock, parted by a rim of light. A scene's many ink dassies on ink rocks melt into one dark band, and the scene no longer shows ledgers apart from the nodes on them.
