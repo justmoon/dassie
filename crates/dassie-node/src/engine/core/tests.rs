@@ -2377,8 +2377,8 @@ pub(super) const STUB_TWO: &str = "stub-two";
 const STUB_TWO_HUB: [u8; 32] = *b"the second stub's pretend hub..!";
 
 /// A third stub with commitments, [`StubTwo`] on the DSUSD hub's ledger
-/// and in a pretend hub of its own, for the tests of a peering with two
-/// methods whose messages book nothing, as hubs' do.
+/// and in a pretend hub of its own, for the tests of settlements on
+/// several methods whose messages are a hub's ([`stub_two_as_hub`]).
 pub(super) const STUB_THREE: &str = "stub-three";
 
 /// The pretend hub every third stub is a member of.
@@ -2395,20 +2395,22 @@ std::thread_local! {
     /// (spec/areas/settlement.md#when-peers-cannot-pay-us).
     static STUB_TWO_UNPAYABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// Whether every [`StubTwo`] of this thread, the third stub too, sends
-    /// bare notices, as a hub's scheme does: its messages book nothing,
-    /// and a peer's book nothing either.
-    static STUB_TWO_BARE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// and takes settlement messages as a hub's scheme does.
+    static STUB_TWO_AS_HUB: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Makes every [`StubTwo`] of this test, the third stub too, send bare
-/// notices that book nothing, as a hub's scheme does, or book again.
-fn stub_two_bare(bare: bool) {
-    STUB_TWO_BARE.with(|cell| cell.set(bare));
+/// Makes every [`StubTwo`] of this test, the third stub too, send and take
+/// settlement messages as a hub's scheme does, or as the stub's again: its
+/// messages book as [`dassie_hub::member::HubScheme::BOOKS_MESSAGES`] says,
+/// so the stand-in follows the real scheme, and a peer's book nothing, as
+/// the hub's `handle_settlement` books nothing.
+fn stub_two_as_hub(as_hub: bool) {
+    STUB_TWO_AS_HUB.with(|cell| cell.set(as_hub));
 }
 
-/// Whether [`StubTwo`] sends bare notices in this test.
-fn stub_two_is_bare() -> bool {
-    STUB_TWO_BARE.with(std::cell::Cell::get)
+/// Whether [`StubTwo`] settles as a hub's scheme in this test.
+fn stub_two_is_hub() -> bool {
+    STUB_TWO_AS_HUB.with(std::cell::Cell::get)
 }
 
 /// Makes every [`StubTwo`] of this test unable to receive, or able again.
@@ -2495,9 +2497,13 @@ impl dassie_settlement::SettlementScheme for StubTwo {
         self.ledger
     }
 
-    /// Bare notices, as a hub's, if the test says so.
+    /// As a hub's scheme's, if the test says so.
     fn books_messages(&self) -> bool {
-        !stub_two_is_bare()
+        if stub_two_is_hub() {
+            dassie_hub::member::HubScheme::BOOKS_MESSAGES
+        } else {
+            true
+        }
     }
 
     fn balance(&self) -> u64 {
@@ -2590,9 +2596,8 @@ impl dassie_settlement::SettlementScheme for StubTwo {
         state: &[u8],
         effects: &mut Vec<dassie_settlement::Effect>,
     ) -> Result<(), dassie_settlement::SchemeError> {
-        // A bare notice books nothing, as a hub's: its hub says what
-        // arrived.
-        if stub_two_is_bare() {
+        // A hub's message books nothing: its hub says what arrived.
+        if stub_two_is_hub() {
             return Ok(());
         }
         self.stub(|stub| stub.handle_settlement(peer, amount, data, state, effects))

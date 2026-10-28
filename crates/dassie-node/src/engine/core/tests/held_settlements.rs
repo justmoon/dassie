@@ -5,7 +5,9 @@
 //! engine core whose channel with the peer is in its database, running the
 //! stub with commitments, whose messages book what they state, and the
 //! second and third stubs, which pretend to be two more hubs and here send
-//! bare notices that book nothing, as hubs' do.
+//! and take settlement messages as the hub's scheme does: bare notices
+//! that book nothing, as `HubScheme::BOOKS_MESSAGES` says, which a test
+//! checks against the real scheme.
 
 use std::sync::Arc;
 
@@ -14,9 +16,11 @@ use dassie_ledger::{AccountName, AccountPath, LedgerId, Name, Reference, Transfe
 use dassie_peer::wire::{Endpoint, Kind};
 use dassie_peer::{Channel, Outgoing, PeerBatch, Response, StoredChannel};
 
-use super::super::Core;
 use super::super::settlement::Settling;
-use super::{NOW, STUB_THREE, STUB_TWO, StubTwo, add_stub, core_on, scheme_id, stub_two_bare};
+use super::super::{Core, Event, SettlementEvent};
+use super::{
+    NOW, STUB_THREE, STUB_TWO, StubTwo, add_stub, core_on, hub_config, scheme_id, stub_two_as_hub,
+};
 use crate::engine::Output;
 use crate::node::Policies;
 use crate::store::{LedgerBatch, Store};
@@ -155,6 +159,13 @@ fn step_and_acknowledge(core: &mut Core, now: u64) -> Option<(String, u64)> {
     let mut outputs = Vec::new();
     core.begin_step(now);
     core.finish_step(&mut outputs);
+    acknowledge(core, outputs, now)
+}
+
+/// Answers our settlement message to the peer in `outputs`, if one went,
+/// at `now`, as the peer would once it applied it. Returns that message's
+/// scheme and sequence.
+fn acknowledge(core: &mut Core, outputs: Vec<Output>, now: u64) -> Option<(String, u64)> {
     let id = outputs.into_iter().find_map(|output| match output {
         Output::PeerRequest(request)
             if request.to == peer() && request.kind == Kind::Settlement =>
@@ -194,7 +205,7 @@ fn on_its_way(core: &Core) -> Option<(String, u64)> {
 // is still the one before.
 #[test]
 fn a_settlement_finalized_behind_another_message_survives_a_restart() {
-    stub_two_bare(true);
+    stub_two_as_hub(true);
     let store = store_with_channel(Some(STUB_TWO));
     let before = {
         let mut core = node(&store, 5);
@@ -226,7 +237,7 @@ fn a_settlement_finalized_behind_another_message_survives_a_restart() {
 // executed, one at a time, each once the one before it was acknowledged.
 #[test]
 fn notices_behind_another_message_follow_it_in_order() {
-    stub_two_bare(true);
+    stub_two_as_hub(true);
     let store = store_with_channel(Some("stub"));
     let mut core = node(&store, 7);
     settle(&mut core, STUB_TWO);
@@ -242,7 +253,12 @@ fn notices_behind_another_message_follow_it_in_order() {
     for scheme in [STUB_TWO, STUB_THREE] {
         let (booked, holds) = held(&core, scheme);
         assert_eq!(booked, i128::from(holds), "on {scheme}");
+        // Posted, its notice waiting: on its way, which is the answer to a
+        // request to settle on its method.
+        let on = scheme_id(scheme);
+        assert_eq!(core.settlement_requested(peer(), on), AMOUNT, "on {scheme}");
     }
+    assert_eq!(core.ledger.pending_transfers().count(), 0, "settled again");
     let mut sent = Vec::new();
     while !core.settle.notices.is_empty() {
         assert!(sent.len() < 2, "a notice went twice");
@@ -263,7 +279,7 @@ fn notices_behind_another_message_follow_it_in_order() {
 // only such a one: over the other hubs, settling goes on.
 #[test]
 fn a_settlement_whose_message_books_waits_for_the_channel() {
-    stub_two_bare(true);
+    stub_two_as_hub(true);
     let (stub, two, three) = (
         scheme_id("stub"),
         scheme_id(STUB_TWO),
@@ -287,4 +303,87 @@ fn a_settlement_whose_message_books_waits_for_the_channel() {
         "settles where the message books beside another settlement"
     );
     assert!(core.can_settle(&peer(), two), "one hub held up another");
+}
+
+// spec/areas/hubs.md#in-the-node, spec/areas/settlement.md#incoming-settlements:
+// the pretend hubs here send and take settlement messages as the real hub
+// scheme does, which a core running it reports: its messages book nothing.
+// So a peer's notice over a hub is taken whatever amount it states, even
+// one the books could never take, and books nothing: the hub says what
+// arrived.
+#[test]
+fn the_pretend_hubs_messages_are_the_hub_schemes() {
+    stub_two_as_hub(true);
+    let books = |core: &Core, scheme: &str| {
+        core.schemes[&Name::new(scheme).unwrap()]
+            .scheme
+            .books_messages()
+    };
+    // The second stub serves the XRP hub's ledger, which the hub scheme
+    // books on: one core runs them, another the real scheme.
+    let pretending = node(&store_with_channel(None), 11);
+    let mut core = core_on(Arc::new(Store::open_in_memory().unwrap()), 12);
+    let hub = dassie_hub::member::SCHEME_ID;
+    core.add_scheme(hub, hub_config(600, 300)).unwrap();
+    assert!(!books(&core, hub), "a hub's message books");
+    for scheme in [STUB_TWO, STUB_THREE] {
+        assert_eq!(books(&pretending, scheme), books(&core, hub), "on {scheme}");
+    }
+    assert!(books(&pretending, "stub"));
+    core.begin_step(NOW + 1);
+    let transfers = core.ledger.next_transfer_id();
+    for amount in [0, AMOUNT, dassie_ledger::MAX_TOTAL + 1, u64::MAX] {
+        core.incoming_settlement(peer(), scheme_id(hub), amount, &[0; 16])
+            .unwrap();
+    }
+    assert_eq!(core.ledger.next_transfer_id(), transfers, "booked");
+    core.finish_step(&mut Vec::new());
+}
+
+// spec/areas/settlement.md#outgoing-settlements: a settlement whose message
+// books that finds the channel busy all the same, as one pending from
+// before a restart can when its scheme finalizes it beside another
+// method's message from then, does not stop the node. It is posted, and reported; its message waits, and goes in
+// order, stating what it booked, once the one before it arrived. A crash
+// before then restarts cleanly, with nothing pending.
+#[test]
+fn a_settlement_whose_message_books_behind_another_message_does_not_stop_the_node() {
+    stub_two_as_hub(true);
+    let store = store_with_channel(Some(STUB_TWO));
+    let mut core = node(&store, 12);
+    settle(&mut core, "stub");
+    let mut outputs = Vec::new();
+    core.begin_step(NOW + 1);
+    core.finish_step(&mut outputs);
+    assert!(outputs.iter().any(|output| matches!(
+        output,
+        Output::Event(Event::Settlement(SettlementEvent::MessageWaits { scheme, .. }))
+            if scheme.as_str() == "stub"
+    )));
+    assert_eq!(core.ledger.pending_transfers().count(), 0, "not posted");
+    let (booked, holds) = held(&core, "stub");
+    assert_eq!(booked, i128::from(holds));
+    assert_eq!(core.settle.notices.len(), 1);
+    // The crash, before the message went: what is not on disk is gone.
+    let restarted = core_on(Arc::clone(&store), 13);
+    assert_eq!(restarted.ledger.pending_transfers().count(), 0);
+    assert!(restarted.settle.notices.is_empty());
+    assert_eq!(on_its_way(&restarted), Some((STUB_TWO.into(), 1)));
+    restarted.check_invariants();
+    drop(restarted);
+    // Without one, it goes once the one before it arrived.
+    let mut now = NOW + 1;
+    assert_eq!(
+        acknowledge(&mut core, outputs, now),
+        Some((STUB_TWO.into(), 1))
+    );
+    now += Policies::DEFAULT.settlement_interval_ms;
+    core.begin_step(now);
+    core.finish_step(&mut Vec::new());
+    let outbox = core.peer.channel(&peer()).unwrap().outbox.as_ref().unwrap();
+    assert_eq!(
+        (outbox.scheme.as_str(), outbox.sequence, outbox.amount),
+        ("stub", 2, AMOUNT)
+    );
+    assert!(core.settle.notices.is_empty());
 }
