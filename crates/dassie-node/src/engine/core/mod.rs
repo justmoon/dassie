@@ -14,6 +14,7 @@
 
 mod downlinks;
 mod events;
+mod hub_events;
 mod hub_funding;
 mod hub_moves;
 mod hubs;
@@ -54,6 +55,10 @@ use dassie_stream::BUFFER_LENGTH;
 
 pub use events::{
     BtpEvent, EngineEvent, Event, MAX_EVENTS, PaymentEvent, PeerEvent, SettlementEvent, Severity,
+};
+pub use hub_events::{
+    HubAccountState, HubEvent, HubEventKind, HubMoveEvent, HubOperation, HubPromise,
+    HubStreamEvent, MoveStage, Role,
 };
 pub use hub_funding::{Direction, Move};
 /// The simulation's oracle prices each asset whole by the node's own
@@ -166,6 +171,29 @@ pub enum Outbound {
     Close,
 }
 
+/// A packet as the trace records it, with the node of each of its
+/// endpoints that is a peer's: the connector knows a peer only by the
+/// node's number for the peering.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TracedPacket {
+    /// The record.
+    pub record: PacketRecord,
+    /// The peer it came from, if it came from one.
+    pub source_node: Option<dassie_identity::NodeId>,
+    /// The peer it went to, if it went to one.
+    pub destination_node: Option<dassie_identity::NodeId>,
+}
+
+/// A change in the trace, for live subscribers.
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PacketEvent {
+    /// A packet arrived, or was resolved: its record as it is now.
+    Packet(TracedPacket),
+    /// Events were dropped because nobody polled: this many.
+    Lagged(u64),
+}
+
 /// What a step hands its driver, once the step's changes are persisted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Output {
@@ -178,7 +206,9 @@ pub enum Output {
         message: Outbound,
     },
     /// A packet as the trace records it, for subscribers.
-    Trace(TraceEvent),
+    Trace(PacketEvent),
+    /// What the node saw of a settlement hub, for subscribers.
+    Hub(HubStreamEvent),
     /// What the core reports, for the log (spec/decisions/tigerstyle.md).
     Event(Event),
     /// A peer request to send.
@@ -394,6 +424,8 @@ pub struct Core {
     peer_endpoints: BTreeMap<dassie_identity::NodeId, u64>,
     endpoint_peers: BTreeMap<u64, dassie_identity::NodeId>,
     next_peer_endpoint: u64,
+    /// What the node sees of its hubs, while someone listens.
+    hub_tap: hub_events::HubTap,
     /// The realm: `test` or `g` in nodes' addresses, and the realm of the
     /// only ledgers the node runs.
     realm: Realm,
@@ -573,6 +605,7 @@ impl Core {
             peer_endpoints: BTreeMap::new(),
             endpoint_peers: BTreeMap::new(),
             next_peer_endpoint: 0,
+            hub_tap: hub_events::HubTap::default(),
             realm: parts.realm,
             live: parts.live,
             peer_credit: policies.peer_credit,
@@ -761,7 +794,13 @@ impl Core {
     fn hand_over(&mut self, out: &mut Vec<Output>) {
         out.extend(self.events.take().map(Output::Event));
         while let Some(event) = self.connector.poll_event() {
-            out.push(Output::Trace(event));
+            out.push(Output::Trace(match event {
+                TraceEvent::Packet(record) => PacketEvent::Packet(self.traced(record)),
+                TraceEvent::Lagged(dropped) => PacketEvent::Lagged(dropped),
+            }));
+        }
+        while let Some(event) = self.hub_tap.poll() {
+            out.push(Output::Hub(event));
         }
         out.append(&mut self.outputs_peer);
         out.extend(
@@ -1041,6 +1080,29 @@ impl Core {
             .take(limit)
             .copied()
             .collect()
+    }
+
+    /// [`packets`](Self::packets), with their peers' nodes.
+    pub fn traced_packets(&self, after: Option<TraceId>, limit: usize) -> Vec<TracedPacket> {
+        self.connector
+            .packets_after(after)
+            .take(limit)
+            .map(|record| self.traced(*record))
+            .collect()
+    }
+
+    /// `record`, with the node of each of its endpoints that is a peer's,
+    /// as far as the node still knows it.
+    fn traced(&self, record: PacketRecord) -> TracedPacket {
+        let node = |endpoint: Option<dassie_connector::EndpointId>| match endpoint {
+            Some(dassie_connector::EndpointId::Peer(id)) => self.endpoint_peers.get(&id).copied(),
+            _ => None,
+        };
+        TracedPacket {
+            record,
+            source_node: node(Some(record.source)),
+            destination_node: node(record.destination),
+        }
     }
 }
 

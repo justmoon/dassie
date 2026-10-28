@@ -11,9 +11,9 @@ import "dassie/owner/v1/ledger.proto";
 // mainnet (spec/areas/hubs.md#in-the-node). The contract has no services:
 // these methods are numbered in `Request` and `Response`
 // (transport.proto) with the rest: GetHubStatus, HubDeposit, HubWithdraw,
-// SetHubAutomatic and HubGiveUp.
+// SetHubAutomatic, HubGiveUp and SubscribeHubEvents.
 //
-// Each method but GetHubStatus acts on one hub, which its request names by
+// Each method but GetHubStatus and SubscribeHubEvents acts on one hub, which its request names by
 // `scheme`, the settlement scheme over it, as `HubStatus.scheme` gives it:
 // the node is in one hub per scheme, and a scheme names its hub for as
 // long as the node runs it, while a hub's ID changes when it is founded
@@ -190,4 +190,206 @@ message HubGiveUpRequest {
 
 message HubGiveUpResponse {
   HubStatus status = 1;
+}
+
+// Streams what the node sees of each settlement hub it is in, as it sees
+// it, for debugging and for watching a network: what its account in the hub
+// read, in the order it read it, the commitments and claims of its packets
+// over the hub, and its own moves between the owner book and the hub. An
+// event stream (spec/areas/rpc.md#live-streams): nothing is replayed, the
+// node makes the events only while someone listens, and a subscriber that
+// falls behind is told how many it missed by `lagged`. RESOURCE_EXHAUSTED
+// when too many are subscribed.
+//
+// Unlike the rest of this file, amounts here are the hub's own, at six
+// decimals: drops of XRP, or millionths of a token.
+message SubscribeHubEventsRequest {}
+
+message HubEvent {
+  // The hub, by the settlement scheme over it, as `HubStatus.scheme` gives
+  // it; empty for `lagged`.
+  string scheme = 1;
+  // When the node saw it, by its own clock.
+  int64 observed_at_unix_ms = 2;
+  oneof event {
+    // This many events were dropped because the subscriber fell behind.
+    // The first item, and one at least every minute, has 0: the stream is
+    // live.
+    uint64 lagged = 3;
+    // A final block, up to which the account read everything that touched
+    // it.
+    HubBlock block = 4;
+    // An operation that touched the account, in a final block.
+    HubOperation operation = 5;
+    // The account as of a block through which it read everything.
+    HubAccountState account = 6;
+    // The hub has no account for the node's key.
+    HubUnfunded unfunded = 7;
+    // A hold's reduction took effect: `amount` went back to its payer.
+    HubHoldReduced reduced = 8;
+    // What claims took and waited in a hold was paid to its payee.
+    HubClaimsPaid claims_paid = 9;
+    // The validators no longer keep what touched the account since it
+    // last read, so it read its holds anew as of a block.
+    HubResynced resynced = 10;
+    // An operation of ours the hub refused for good.
+    HubDropped dropped = 11;
+    // A packet's commitment: ours as the payer, signed with our Prepare, or
+    // a peer's as the payee, accepted with its Prepare.
+    HubCommitment commitment = 12;
+    // A claim in the reply to a Fulfill: ours as the payer, sent, or a
+    // peer's as the payee, taken.
+    HubClaim claim = 13;
+    // A move of the node's between the owner book and the hub.
+    HubMoveEvent move = 14;
+  }
+}
+
+message HubBlock {
+  uint64 height = 1;
+  // Its timestamp, by the hub's clock.
+  int64 timestamp_unix_ms = 2;
+}
+
+message HubOperation {
+  // The block it was in.
+  uint64 height = 1;
+  int64 timestamp_unix_ms = 2;
+  // What it is, as the hub's log names it, such as "hold-open",
+  // "hold-fund", "hold-reduce", "hold-release", "claim", "redeem", "pay",
+  // "transfer", "withdraw", "close", "set-disbursal" or "dispute".
+  string kind = 3;
+  // The account that signed it, and the sequence it used.
+  uint32 signer = 4;
+  uint64 sequence = 5;
+  // The hold it acts on or opened; 0 if none.
+  uint64 hold = 6;
+  // The other account it pays, opened or closes to; 0 if none.
+  uint32 peer_account = 7;
+  // What it moves: the amount it names; T for a redeem; what the
+  // commitments of a claim add up to; 0 for the rest.
+  uint64 amount = 8;
+  // "applied", "failed" (it paid its fee and used its sequence) or
+  // "refused" (it paid nothing).
+  string outcome = 9;
+  // Why it failed or was refused, such as "Funds"; empty if applied.
+  string reason = 10;
+  uint64 fee = 11;
+  // Why we submitted it, if it is ours, such as "settle:<ID>",
+  // "redeem:<hold>", "claim:<hold>", "dispute:<hold>", "disbursal" or
+  // "withdraw"; empty if it is not.
+  string purpose = 12;
+}
+
+message HubAccountState {
+  // The block it is as of.
+  uint64 height = 1;
+  // The account's number; 0 until the node knows it.
+  uint32 number = 2;
+  uint64 balance = 3;
+  uint64 reserve = 4;
+  // The sequence its next operation carries.
+  uint64 sequence = 5;
+  // Everything deposits credited it, and withdrawals that came back.
+  uint64 deposited = 6;
+  // Everything its withdrawals took, ledger fees included.
+  uint64 withdrawn = 7;
+  // What withdrawals that came back credited it.
+  uint64 returned = 8;
+  bool closing = 9;
+}
+
+message HubUnfunded {}
+
+message HubHoldReduced {
+  uint64 hold = 1;
+  uint64 amount = 2;
+}
+
+message HubClaimsPaid {
+  uint64 hold = 1;
+  // How many commitments' sequences it paid above the last redeemed W, and
+  // the first and last of them.
+  uint32 count = 2;
+  uint64 first_sequence = 3;
+  uint64 last_sequence = 4;
+  // Whether it paid what waited unlisted, having read the hold anew.
+  bool unlisted = 5;
+}
+
+message HubResynced {
+  uint64 height = 1;
+  int64 timestamp_unix_ms = 2;
+  // How many holds it mirrored before.
+  uint32 holds_before = 3;
+  // The purpose of the operation of ours that used its sequence in between,
+  // whose fate is not known yet, as in `HubOperation.purpose`; empty if
+  // none.
+  string unread = 4;
+}
+
+message HubDropped {
+  // As in `HubOperation.purpose`.
+  string purpose = 1;
+}
+
+// Which side of a packet over a hub the node is on.
+enum HubRole {
+  HUB_ROLE_UNSPECIFIED = 0;
+  // It pays: it signs commitments and claims.
+  HUB_ROLE_PAYER = 1;
+  // It is paid: it takes them.
+  HUB_ROLE_PAYEE = 2;
+}
+
+message HubCommitment {
+  HubRole role = 1;
+  // The peer's node ID.
+  string peer = 2;
+  uint64 hold = 3;
+  uint64 sequence = 4;
+  // The packet's amount in the hub's unit, rounded up.
+  uint64 amount = 5;
+  // The Prepare's execution condition, as `Packet.condition` has it: the
+  // same on every hop.
+  bytes condition = 6;
+  // The Prepare's expiry less the hub's margin.
+  int64 expiry_unix_ms = 7;
+}
+
+message HubClaim {
+  HubRole role = 1;
+  // The peer's node ID.
+  string peer = 2;
+  uint64 hold = 3;
+  // T: everything owed on the hold so far.
+  uint64 total = 4;
+  // W: the commitment sequence up to which T covers every fulfilled
+  // packet.
+  uint64 through = 5;
+}
+
+message HubMoveEvent {
+  Stage stage = 1;
+  HubMove.Direction direction = 2;
+  uint64 amount = 3;
+  // Its payment's ID with the scheme of the side it leaves: the owner
+  // book's for a deposit, the hub scheme's for a withdrawal.
+  string payment = 4;
+  // Whether the owner asked for it, rather than the node.
+  bool by_owner = 5;
+
+  enum Stage {
+    STAGE_UNSPECIFIED = 0;
+    // Its payment went out.
+    STAGE_STARTED = 1;
+    // The hub account's counters show it.
+    STAGE_DONE = 2;
+    // The side it leaves says its payment moved nothing.
+    STAGE_FAILED = 3;
+    // On its way for long; the node waits, and pays nothing again.
+    STAGE_LATE = 4;
+    // The owner gave it up.
+    STAGE_GIVEN_UP = 5;
+  }
 }

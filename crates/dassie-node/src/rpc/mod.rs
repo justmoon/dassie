@@ -54,6 +54,7 @@ pub const fn is_live(method: &proto::request::Method) -> bool {
         method,
         Method::SubscribeLedgers(_)
             | Method::SubscribePackets(_)
+            | Method::SubscribeHubEvents(_)
             | Method::SubscribeTransfers(_)
             | Method::SubscribeNodes(_)
             | Method::SubscribeRoutes(_)

@@ -12,7 +12,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/hub_member.proto.
  */
 export const file_dassie_owner_v1_hub_member: GenFile = /*@__PURE__*/
-  fileDesc("CiBkYXNzaWUvb3duZXIvdjEvaHViX21lbWJlci5wcm90bxIPZGFzc2llLm93bmVyLnYxIjgKB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBCKYAgoHSHViTW92ZRI1CglkaXJlY3Rpb24YASABKA4yIi5kYXNzaWUub3duZXIudjEuSHViTW92ZS5EaXJlY3Rpb24SDgoGYW1vdW50GAIgASgEEhAKCGJ5X293bmVyGAMgASgIEhcKD3NlbnRfYXRfdW5peF9tcxgEIAEoAxIfChJhcHBsaWVkX2F0X3VuaXhfbXMYBSABKANIAIgBARIMCgRsYXRlGAYgASgIIlUKCURpcmVjdGlvbhIZChVESVJFQ1RJT05fVU5TUEVDSUZJRUQQABIVChFESVJFQ1RJT05fREVQT1NJVBABEhYKEkRJUkVDVElPTl9XSVRIRFJBVxACQhUKE19hcHBsaWVkX2F0X3VuaXhfbXMi+gQKCUh1YlN0YXR1cxIOCgZodWJfaWQYASABKAkSFAoHYWNjb3VudBgCIAEoDUgAiAEBEjUKCmNvbm5lY3Rpb24YAyABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIPCgdiYWxhbmNlGAQgASgEEg8KB3Jlc2VydmUYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIoCgZwYXlpbmcYCCADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBIoCgZ0YWtpbmcYCSADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBINCgVmbG9vchgKIAEoBBIPCgdjZWlsaW5nGAsgASgEEhEKCWF1dG9tYXRpYxgMIAEoCBIhChRwYXVzZWRfdW50aWxfdW5peF9tcxgNIAEoA0gBiAEBEigKBm1vdmluZxgOIAEoCzIYLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlEhIKCnZhbGlkYXRvcnMYDyABKA0SHAoUdmFsaWRhdG9yc19hbnN3ZXJpbmcYECABKA0SKgoIZ2l2ZW5fdXAYESABKAsyGC5kYXNzaWUub3duZXIudjEuSHViTW92ZRIQCghyZXR1cm5lZBgSIAEoBBIOCgZzY2hlbWUYEyABKAkSIQoUZnJvemVuX3NpbmNlX3VuaXhfbXMYFCABKANIAogBARITCgtlc2Nyb3dfaGVsZBgVIAEoCEIKCghfYWNjb3VudEIXChVfcGF1c2VkX3VudGlsX3VuaXhfbXNCFwoVX2Zyb3plbl9zaW5jZV91bml4X21zIhUKE0dldEh1YlN0YXR1c1JlcXVlc3QiQAoUR2V0SHViU3RhdHVzUmVzcG9uc2USKAoEaHVicxgBIAMoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiMwoRSHViRGVwb3NpdFJlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBnNjaGVtZRgDIAEoCSJAChJIdWJEZXBvc2l0UmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyI0ChJIdWJXaXRoZHJhd1JlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBnNjaGVtZRgDIAEoCSJBChNIdWJXaXRoZHJhd1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiOwoWU2V0SHViQXV0b21hdGljUmVxdWVzdBIRCglhdXRvbWF0aWMYASABKAgSDgoGc2NoZW1lGAMgASgJIkUKF1NldEh1YkF1dG9tYXRpY1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiIgoQSHViR2l2ZVVwUmVxdWVzdBIOCgZzY2hlbWUYAiABKAkiPwoRSHViR2l2ZVVwUmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1c2IGcHJvdG8z", [file_dassie_owner_v1_ledger]);
+  fileDesc("CiBkYXNzaWUvb3duZXIvdjEvaHViX21lbWJlci5wcm90bxIPZGFzc2llLm93bmVyLnYxIjgKB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBCKYAgoHSHViTW92ZRI1CglkaXJlY3Rpb24YASABKA4yIi5kYXNzaWUub3duZXIudjEuSHViTW92ZS5EaXJlY3Rpb24SDgoGYW1vdW50GAIgASgEEhAKCGJ5X293bmVyGAMgASgIEhcKD3NlbnRfYXRfdW5peF9tcxgEIAEoAxIfChJhcHBsaWVkX2F0X3VuaXhfbXMYBSABKANIAIgBARIMCgRsYXRlGAYgASgIIlUKCURpcmVjdGlvbhIZChVESVJFQ1RJT05fVU5TUEVDSUZJRUQQABIVChFESVJFQ1RJT05fREVQT1NJVBABEhYKEkRJUkVDVElPTl9XSVRIRFJBVxACQhUKE19hcHBsaWVkX2F0X3VuaXhfbXMi+gQKCUh1YlN0YXR1cxIOCgZodWJfaWQYASABKAkSFAoHYWNjb3VudBgCIAEoDUgAiAEBEjUKCmNvbm5lY3Rpb24YAyABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIPCgdiYWxhbmNlGAQgASgEEg8KB3Jlc2VydmUYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIoCgZwYXlpbmcYCCADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBIoCgZ0YWtpbmcYCSADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBINCgVmbG9vchgKIAEoBBIPCgdjZWlsaW5nGAsgASgEEhEKCWF1dG9tYXRpYxgMIAEoCBIhChRwYXVzZWRfdW50aWxfdW5peF9tcxgNIAEoA0gBiAEBEigKBm1vdmluZxgOIAEoCzIYLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlEhIKCnZhbGlkYXRvcnMYDyABKA0SHAoUdmFsaWRhdG9yc19hbnN3ZXJpbmcYECABKA0SKgoIZ2l2ZW5fdXAYESABKAsyGC5kYXNzaWUub3duZXIudjEuSHViTW92ZRIQCghyZXR1cm5lZBgSIAEoBBIOCgZzY2hlbWUYEyABKAkSIQoUZnJvemVuX3NpbmNlX3VuaXhfbXMYFCABKANIAogBARITCgtlc2Nyb3dfaGVsZBgVIAEoCEIKCghfYWNjb3VudEIXChVfcGF1c2VkX3VudGlsX3VuaXhfbXNCFwoVX2Zyb3plbl9zaW5jZV91bml4X21zIhUKE0dldEh1YlN0YXR1c1JlcXVlc3QiQAoUR2V0SHViU3RhdHVzUmVzcG9uc2USKAoEaHVicxgBIAMoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiMwoRSHViRGVwb3NpdFJlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBnNjaGVtZRgDIAEoCSJAChJIdWJEZXBvc2l0UmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyI0ChJIdWJXaXRoZHJhd1JlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBnNjaGVtZRgDIAEoCSJBChNIdWJXaXRoZHJhd1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiOwoWU2V0SHViQXV0b21hdGljUmVxdWVzdBIRCglhdXRvbWF0aWMYASABKAgSDgoGc2NoZW1lGAMgASgJIkUKF1NldEh1YkF1dG9tYXRpY1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiIgoQSHViR2l2ZVVwUmVxdWVzdBIOCgZzY2hlbWUYAiABKAkiPwoRSHViR2l2ZVVwUmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyIbChlTdWJzY3JpYmVIdWJFdmVudHNSZXF1ZXN0IvcECghIdWJFdmVudBIOCgZzY2hlbWUYASABKAkSGwoTb2JzZXJ2ZWRfYXRfdW5peF9tcxgCIAEoAxIQCgZsYWdnZWQYAyABKARIABIqCgVibG9jaxgEIAEoCzIZLmRhc3NpZS5vd25lci52MS5IdWJCbG9ja0gAEjIKCW9wZXJhdGlvbhgFIAEoCzIdLmRhc3NpZS5vd25lci52MS5IdWJPcGVyYXRpb25IABIzCgdhY2NvdW50GAYgASgLMiAuZGFzc2llLm93bmVyLnYxLkh1YkFjY291bnRTdGF0ZUgAEjAKCHVuZnVuZGVkGAcgASgLMhwuZGFzc2llLm93bmVyLnYxLkh1YlVuZnVuZGVkSAASMgoHcmVkdWNlZBgIIAEoCzIfLmRhc3NpZS5vd25lci52MS5IdWJIb2xkUmVkdWNlZEgAEjUKC2NsYWltc19wYWlkGAkgASgLMh4uZGFzc2llLm93bmVyLnYxLkh1YkNsYWltc1BhaWRIABIwCghyZXN5bmNlZBgKIAEoCzIcLmRhc3NpZS5vd25lci52MS5IdWJSZXN5bmNlZEgAEi4KB2Ryb3BwZWQYCyABKAsyGy5kYXNzaWUub3duZXIudjEuSHViRHJvcHBlZEgAEjQKCmNvbW1pdG1lbnQYDCABKAsyHi5kYXNzaWUub3duZXIudjEuSHViQ29tbWl0bWVudEgAEioKBWNsYWltGA0gASgLMhkuZGFzc2llLm93bmVyLnYxLkh1YkNsYWltSAASLQoEbW92ZRgOIAEoCzIdLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlRXZlbnRIAEIHCgVldmVudCI1CghIdWJCbG9jaxIOCgZoZWlnaHQYASABKAQSGQoRdGltZXN0YW1wX3VuaXhfbXMYAiABKAMi3AEKDEh1Yk9wZXJhdGlvbhIOCgZoZWlnaHQYASABKAQSGQoRdGltZXN0YW1wX3VuaXhfbXMYAiABKAMSDAoEa2luZBgDIAEoCRIOCgZzaWduZXIYBCABKA0SEAoIc2VxdWVuY2UYBSABKAQSDAoEaG9sZBgGIAEoBBIUCgxwZWVyX2FjY291bnQYByABKA0SDgoGYW1vdW50GAggASgEEg8KB291dGNvbWUYCSABKAkSDgoGcmVhc29uGAogASgJEgsKA2ZlZRgLIAEoBBIPCgdwdXJwb3NlGAwgASgJIq4BCg9IdWJBY2NvdW50U3RhdGUSDgoGaGVpZ2h0GAEgASgEEg4KBm51bWJlchgCIAEoDRIPCgdiYWxhbmNlGAMgASgEEg8KB3Jlc2VydmUYBCABKAQSEAoIc2VxdWVuY2UYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIQCghyZXR1cm5lZBgIIAEoBBIPCgdjbG9zaW5nGAkgASgIIg0KC0h1YlVuZnVuZGVkIi4KDkh1YkhvbGRSZWR1Y2VkEgwKBGhvbGQYASABKAQSDgoGYW1vdW50GAIgASgEIm0KDUh1YkNsYWltc1BhaWQSDAoEaG9sZBgBIAEoBBINCgVjb3VudBgCIAEoDRIWCg5maXJzdF9zZXF1ZW5jZRgDIAEoBBIVCg1sYXN0X3NlcXVlbmNlGAQgASgEEhAKCHVubGlzdGVkGAUgASgIIl4KC0h1YlJlc3luY2VkEg4KBmhlaWdodBgBIAEoBBIZChF0aW1lc3RhbXBfdW5peF9tcxgCIAEoAxIUCgxob2xkc19iZWZvcmUYAyABKA0SDgoGdW5yZWFkGAQgASgJIh0KCkh1YkRyb3BwZWQSDwoHcHVycG9zZRgBIAEoCSKgAQoNSHViQ29tbWl0bWVudBImCgRyb2xlGAEgASgOMhguZGFzc2llLm93bmVyLnYxLkh1YlJvbGUSDAoEcGVlchgCIAEoCRIMCgRob2xkGAMgASgEEhAKCHNlcXVlbmNlGAQgASgEEg4KBmFtb3VudBgFIAEoBBIRCgljb25kaXRpb24YBiABKAwSFgoOZXhwaXJ5X3VuaXhfbXMYByABKAMibgoISHViQ2xhaW0SJgoEcm9sZRgBIAEoDjIYLmRhc3NpZS5vd25lci52MS5IdWJSb2xlEgwKBHBlZXIYAiABKAkSDAoEaG9sZBgDIAEoBBINCgV0b3RhbBgEIAEoBBIPCgd0aHJvdWdoGAUgASgEIqUCCgxIdWJNb3ZlRXZlbnQSMgoFc3RhZ2UYASABKA4yIy5kYXNzaWUub3duZXIudjEuSHViTW92ZUV2ZW50LlN0YWdlEjUKCWRpcmVjdGlvbhgCIAEoDjIiLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlLkRpcmVjdGlvbhIOCgZhbW91bnQYAyABKAQSDwoHcGF5bWVudBgEIAEoCRIQCghieV9vd25lchgFIAEoCCJ3CgVTdGFnZRIVChFTVEFHRV9VTlNQRUNJRklFRBAAEhEKDVNUQUdFX1NUQVJURUQQARIOCgpTVEFHRV9ET05FEAISEAoMU1RBR0VfRkFJTEVEEAMSDgoKU1RBR0VfTEFURRAEEhIKDlNUQUdFX0dJVkVOX1VQEAUqSwoHSHViUm9sZRIYChRIVUJfUk9MRV9VTlNQRUNJRklFRBAAEhIKDkhVQl9ST0xFX1BBWUVSEAESEgoOSFVCX1JPTEVfUEFZRUUQAmIGcHJvdG8z", [file_dassie_owner_v1_ledger]);
 
 /**
  * A hold of ours toward a peer, or a peer's toward us.
@@ -531,4 +531,723 @@ export type HubGiveUpResponse = Message<"dassie.owner.v1.HubGiveUpResponse"> & {
  */
 export const HubGiveUpResponseSchema: GenMessage<HubGiveUpResponse> = /*@__PURE__*/
   messageDesc(file_dassie_owner_v1_hub_member, 12);
+
+/**
+ * Streams what the node sees of each settlement hub it is in, as it sees
+ * it, for debugging and for watching a network: what its account in the hub
+ * read, in the order it read it, the commitments and claims of its packets
+ * over the hub, and its own moves between the owner book and the hub. An
+ * event stream (spec/areas/rpc.md#live-streams): nothing is replayed, the
+ * node makes the events only while someone listens, and a subscriber that
+ * falls behind is told how many it missed by `lagged`. RESOURCE_EXHAUSTED
+ * when too many are subscribed.
+ *
+ * Unlike the rest of this file, amounts here are the hub's own, at six
+ * decimals: drops of XRP, or millionths of a token.
+ *
+ * @generated from message dassie.owner.v1.SubscribeHubEventsRequest
+ */
+export type SubscribeHubEventsRequest = Message<"dassie.owner.v1.SubscribeHubEventsRequest"> & {
+};
+
+/**
+ * Describes the message dassie.owner.v1.SubscribeHubEventsRequest.
+ * Use `create(SubscribeHubEventsRequestSchema)` to create a new message.
+ */
+export const SubscribeHubEventsRequestSchema: GenMessage<SubscribeHubEventsRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 13);
+
+/**
+ * @generated from message dassie.owner.v1.HubEvent
+ */
+export type HubEvent = Message<"dassie.owner.v1.HubEvent"> & {
+  /**
+   * The hub, by the settlement scheme over it, as `HubStatus.scheme` gives
+   * it; empty for `lagged`.
+   *
+   * @generated from field: string scheme = 1;
+   */
+  scheme: string;
+
+  /**
+   * When the node saw it, by its own clock.
+   *
+   * @generated from field: int64 observed_at_unix_ms = 2;
+   */
+  observedAtUnixMs: bigint;
+
+  /**
+   * @generated from oneof dassie.owner.v1.HubEvent.event
+   */
+  event: {
+    /**
+     * This many events were dropped because the subscriber fell behind.
+     * The first item, and one at least every minute, has 0: the stream is
+     * live.
+     *
+     * @generated from field: uint64 lagged = 3;
+     */
+    value: bigint;
+    case: "lagged";
+  } | {
+    /**
+     * A final block, up to which the account read everything that touched
+     * it.
+     *
+     * @generated from field: dassie.owner.v1.HubBlock block = 4;
+     */
+    value: HubBlock;
+    case: "block";
+  } | {
+    /**
+     * An operation that touched the account, in a final block.
+     *
+     * @generated from field: dassie.owner.v1.HubOperation operation = 5;
+     */
+    value: HubOperation;
+    case: "operation";
+  } | {
+    /**
+     * The account as of a block through which it read everything.
+     *
+     * @generated from field: dassie.owner.v1.HubAccountState account = 6;
+     */
+    value: HubAccountState;
+    case: "account";
+  } | {
+    /**
+     * The hub has no account for the node's key.
+     *
+     * @generated from field: dassie.owner.v1.HubUnfunded unfunded = 7;
+     */
+    value: HubUnfunded;
+    case: "unfunded";
+  } | {
+    /**
+     * A hold's reduction took effect: `amount` went back to its payer.
+     *
+     * @generated from field: dassie.owner.v1.HubHoldReduced reduced = 8;
+     */
+    value: HubHoldReduced;
+    case: "reduced";
+  } | {
+    /**
+     * What claims took and waited in a hold was paid to its payee.
+     *
+     * @generated from field: dassie.owner.v1.HubClaimsPaid claims_paid = 9;
+     */
+    value: HubClaimsPaid;
+    case: "claimsPaid";
+  } | {
+    /**
+     * The validators no longer keep what touched the account since it
+     * last read, so it read its holds anew as of a block.
+     *
+     * @generated from field: dassie.owner.v1.HubResynced resynced = 10;
+     */
+    value: HubResynced;
+    case: "resynced";
+  } | {
+    /**
+     * An operation of ours the hub refused for good.
+     *
+     * @generated from field: dassie.owner.v1.HubDropped dropped = 11;
+     */
+    value: HubDropped;
+    case: "dropped";
+  } | {
+    /**
+     * A packet's commitment: ours as the payer, signed with our Prepare, or
+     * a peer's as the payee, accepted with its Prepare.
+     *
+     * @generated from field: dassie.owner.v1.HubCommitment commitment = 12;
+     */
+    value: HubCommitment;
+    case: "commitment";
+  } | {
+    /**
+     * A claim in the reply to a Fulfill: ours as the payer, sent, or a
+     * peer's as the payee, taken.
+     *
+     * @generated from field: dassie.owner.v1.HubClaim claim = 13;
+     */
+    value: HubClaim;
+    case: "claim";
+  } | {
+    /**
+     * A move of the node's between the owner book and the hub.
+     *
+     * @generated from field: dassie.owner.v1.HubMoveEvent move = 14;
+     */
+    value: HubMoveEvent;
+    case: "move";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubEvent.
+ * Use `create(HubEventSchema)` to create a new message.
+ */
+export const HubEventSchema: GenMessage<HubEvent> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 14);
+
+/**
+ * @generated from message dassie.owner.v1.HubBlock
+ */
+export type HubBlock = Message<"dassie.owner.v1.HubBlock"> & {
+  /**
+   * @generated from field: uint64 height = 1;
+   */
+  height: bigint;
+
+  /**
+   * Its timestamp, by the hub's clock.
+   *
+   * @generated from field: int64 timestamp_unix_ms = 2;
+   */
+  timestampUnixMs: bigint;
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubBlock.
+ * Use `create(HubBlockSchema)` to create a new message.
+ */
+export const HubBlockSchema: GenMessage<HubBlock> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 15);
+
+/**
+ * @generated from message dassie.owner.v1.HubOperation
+ */
+export type HubOperation = Message<"dassie.owner.v1.HubOperation"> & {
+  /**
+   * The block it was in.
+   *
+   * @generated from field: uint64 height = 1;
+   */
+  height: bigint;
+
+  /**
+   * @generated from field: int64 timestamp_unix_ms = 2;
+   */
+  timestampUnixMs: bigint;
+
+  /**
+   * What it is, as the hub's log names it, such as "hold-open",
+   * "hold-fund", "hold-reduce", "hold-release", "claim", "redeem", "pay",
+   * "transfer", "withdraw", "close", "set-disbursal" or "dispute".
+   *
+   * @generated from field: string kind = 3;
+   */
+  kind: string;
+
+  /**
+   * The account that signed it, and the sequence it used.
+   *
+   * @generated from field: uint32 signer = 4;
+   */
+  signer: number;
+
+  /**
+   * @generated from field: uint64 sequence = 5;
+   */
+  sequence: bigint;
+
+  /**
+   * The hold it acts on or opened; 0 if none.
+   *
+   * @generated from field: uint64 hold = 6;
+   */
+  hold: bigint;
+
+  /**
+   * The other account it pays, opened or closes to; 0 if none.
+   *
+   * @generated from field: uint32 peer_account = 7;
+   */
+  peerAccount: number;
+
+  /**
+   * What it moves: the amount it names; T for a redeem; what the
+   * commitments of a claim add up to; 0 for the rest.
+   *
+   * @generated from field: uint64 amount = 8;
+   */
+  amount: bigint;
+
+  /**
+   * "applied", "failed" (it paid its fee and used its sequence) or
+   * "refused" (it paid nothing).
+   *
+   * @generated from field: string outcome = 9;
+   */
+  outcome: string;
+
+  /**
+   * Why it failed or was refused, such as "Funds"; empty if applied.
+   *
+   * @generated from field: string reason = 10;
+   */
+  reason: string;
+
+  /**
+   * @generated from field: uint64 fee = 11;
+   */
+  fee: bigint;
+
+  /**
+   * Why we submitted it, if it is ours, such as "settle:<ID>",
+   * "redeem:<hold>", "claim:<hold>", "dispute:<hold>", "disbursal" or
+   * "withdraw"; empty if it is not.
+   *
+   * @generated from field: string purpose = 12;
+   */
+  purpose: string;
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubOperation.
+ * Use `create(HubOperationSchema)` to create a new message.
+ */
+export const HubOperationSchema: GenMessage<HubOperation> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 16);
+
+/**
+ * @generated from message dassie.owner.v1.HubAccountState
+ */
+export type HubAccountState = Message<"dassie.owner.v1.HubAccountState"> & {
+  /**
+   * The block it is as of.
+   *
+   * @generated from field: uint64 height = 1;
+   */
+  height: bigint;
+
+  /**
+   * The account's number; 0 until the node knows it.
+   *
+   * @generated from field: uint32 number = 2;
+   */
+  number: number;
+
+  /**
+   * @generated from field: uint64 balance = 3;
+   */
+  balance: bigint;
+
+  /**
+   * @generated from field: uint64 reserve = 4;
+   */
+  reserve: bigint;
+
+  /**
+   * The sequence its next operation carries.
+   *
+   * @generated from field: uint64 sequence = 5;
+   */
+  sequence: bigint;
+
+  /**
+   * Everything deposits credited it, and withdrawals that came back.
+   *
+   * @generated from field: uint64 deposited = 6;
+   */
+  deposited: bigint;
+
+  /**
+   * Everything its withdrawals took, ledger fees included.
+   *
+   * @generated from field: uint64 withdrawn = 7;
+   */
+  withdrawn: bigint;
+
+  /**
+   * What withdrawals that came back credited it.
+   *
+   * @generated from field: uint64 returned = 8;
+   */
+  returned: bigint;
+
+  /**
+   * @generated from field: bool closing = 9;
+   */
+  closing: boolean;
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubAccountState.
+ * Use `create(HubAccountStateSchema)` to create a new message.
+ */
+export const HubAccountStateSchema: GenMessage<HubAccountState> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 17);
+
+/**
+ * @generated from message dassie.owner.v1.HubUnfunded
+ */
+export type HubUnfunded = Message<"dassie.owner.v1.HubUnfunded"> & {
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubUnfunded.
+ * Use `create(HubUnfundedSchema)` to create a new message.
+ */
+export const HubUnfundedSchema: GenMessage<HubUnfunded> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 18);
+
+/**
+ * @generated from message dassie.owner.v1.HubHoldReduced
+ */
+export type HubHoldReduced = Message<"dassie.owner.v1.HubHoldReduced"> & {
+  /**
+   * @generated from field: uint64 hold = 1;
+   */
+  hold: bigint;
+
+  /**
+   * @generated from field: uint64 amount = 2;
+   */
+  amount: bigint;
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubHoldReduced.
+ * Use `create(HubHoldReducedSchema)` to create a new message.
+ */
+export const HubHoldReducedSchema: GenMessage<HubHoldReduced> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 19);
+
+/**
+ * @generated from message dassie.owner.v1.HubClaimsPaid
+ */
+export type HubClaimsPaid = Message<"dassie.owner.v1.HubClaimsPaid"> & {
+  /**
+   * @generated from field: uint64 hold = 1;
+   */
+  hold: bigint;
+
+  /**
+   * How many commitments' sequences it paid above the last redeemed W, and
+   * the first and last of them.
+   *
+   * @generated from field: uint32 count = 2;
+   */
+  count: number;
+
+  /**
+   * @generated from field: uint64 first_sequence = 3;
+   */
+  firstSequence: bigint;
+
+  /**
+   * @generated from field: uint64 last_sequence = 4;
+   */
+  lastSequence: bigint;
+
+  /**
+   * Whether it paid what waited unlisted, having read the hold anew.
+   *
+   * @generated from field: bool unlisted = 5;
+   */
+  unlisted: boolean;
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubClaimsPaid.
+ * Use `create(HubClaimsPaidSchema)` to create a new message.
+ */
+export const HubClaimsPaidSchema: GenMessage<HubClaimsPaid> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 20);
+
+/**
+ * @generated from message dassie.owner.v1.HubResynced
+ */
+export type HubResynced = Message<"dassie.owner.v1.HubResynced"> & {
+  /**
+   * @generated from field: uint64 height = 1;
+   */
+  height: bigint;
+
+  /**
+   * @generated from field: int64 timestamp_unix_ms = 2;
+   */
+  timestampUnixMs: bigint;
+
+  /**
+   * How many holds it mirrored before.
+   *
+   * @generated from field: uint32 holds_before = 3;
+   */
+  holdsBefore: number;
+
+  /**
+   * The purpose of the operation of ours that used its sequence in between,
+   * whose fate is not known yet, as in `HubOperation.purpose`; empty if
+   * none.
+   *
+   * @generated from field: string unread = 4;
+   */
+  unread: string;
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubResynced.
+ * Use `create(HubResyncedSchema)` to create a new message.
+ */
+export const HubResyncedSchema: GenMessage<HubResynced> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 21);
+
+/**
+ * @generated from message dassie.owner.v1.HubDropped
+ */
+export type HubDropped = Message<"dassie.owner.v1.HubDropped"> & {
+  /**
+   * As in `HubOperation.purpose`.
+   *
+   * @generated from field: string purpose = 1;
+   */
+  purpose: string;
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubDropped.
+ * Use `create(HubDroppedSchema)` to create a new message.
+ */
+export const HubDroppedSchema: GenMessage<HubDropped> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 22);
+
+/**
+ * @generated from message dassie.owner.v1.HubCommitment
+ */
+export type HubCommitment = Message<"dassie.owner.v1.HubCommitment"> & {
+  /**
+   * @generated from field: dassie.owner.v1.HubRole role = 1;
+   */
+  role: HubRole;
+
+  /**
+   * The peer's node ID.
+   *
+   * @generated from field: string peer = 2;
+   */
+  peer: string;
+
+  /**
+   * @generated from field: uint64 hold = 3;
+   */
+  hold: bigint;
+
+  /**
+   * @generated from field: uint64 sequence = 4;
+   */
+  sequence: bigint;
+
+  /**
+   * The packet's amount in the hub's unit, rounded up.
+   *
+   * @generated from field: uint64 amount = 5;
+   */
+  amount: bigint;
+
+  /**
+   * The Prepare's execution condition, as `Packet.condition` has it: the
+   * same on every hop.
+   *
+   * @generated from field: bytes condition = 6;
+   */
+  condition: Uint8Array;
+
+  /**
+   * The Prepare's expiry less the hub's margin.
+   *
+   * @generated from field: int64 expiry_unix_ms = 7;
+   */
+  expiryUnixMs: bigint;
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubCommitment.
+ * Use `create(HubCommitmentSchema)` to create a new message.
+ */
+export const HubCommitmentSchema: GenMessage<HubCommitment> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 23);
+
+/**
+ * @generated from message dassie.owner.v1.HubClaim
+ */
+export type HubClaim = Message<"dassie.owner.v1.HubClaim"> & {
+  /**
+   * @generated from field: dassie.owner.v1.HubRole role = 1;
+   */
+  role: HubRole;
+
+  /**
+   * The peer's node ID.
+   *
+   * @generated from field: string peer = 2;
+   */
+  peer: string;
+
+  /**
+   * @generated from field: uint64 hold = 3;
+   */
+  hold: bigint;
+
+  /**
+   * T: everything owed on the hold so far.
+   *
+   * @generated from field: uint64 total = 4;
+   */
+  total: bigint;
+
+  /**
+   * W: the commitment sequence up to which T covers every fulfilled
+   * packet.
+   *
+   * @generated from field: uint64 through = 5;
+   */
+  through: bigint;
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubClaim.
+ * Use `create(HubClaimSchema)` to create a new message.
+ */
+export const HubClaimSchema: GenMessage<HubClaim> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 24);
+
+/**
+ * @generated from message dassie.owner.v1.HubMoveEvent
+ */
+export type HubMoveEvent = Message<"dassie.owner.v1.HubMoveEvent"> & {
+  /**
+   * @generated from field: dassie.owner.v1.HubMoveEvent.Stage stage = 1;
+   */
+  stage: HubMoveEvent_Stage;
+
+  /**
+   * @generated from field: dassie.owner.v1.HubMove.Direction direction = 2;
+   */
+  direction: HubMove_Direction;
+
+  /**
+   * @generated from field: uint64 amount = 3;
+   */
+  amount: bigint;
+
+  /**
+   * Its payment's ID with the scheme of the side it leaves: the owner
+   * book's for a deposit, the hub scheme's for a withdrawal.
+   *
+   * @generated from field: string payment = 4;
+   */
+  payment: string;
+
+  /**
+   * Whether the owner asked for it, rather than the node.
+   *
+   * @generated from field: bool by_owner = 5;
+   */
+  byOwner: boolean;
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubMoveEvent.
+ * Use `create(HubMoveEventSchema)` to create a new message.
+ */
+export const HubMoveEventSchema: GenMessage<HubMoveEvent> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 25);
+
+/**
+ * @generated from enum dassie.owner.v1.HubMoveEvent.Stage
+ */
+export const HubMoveEvent_Stage = {
+  /**
+   * @generated from enum value: STAGE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED: 0,
+
+  /**
+   * Its payment went out.
+   *
+   * @generated from enum value: STAGE_STARTED = 1;
+   */
+  STARTED: 1,
+
+  /**
+   * The hub account's counters show it.
+   *
+   * @generated from enum value: STAGE_DONE = 2;
+   */
+  DONE: 2,
+
+  /**
+   * The side it leaves says its payment moved nothing.
+   *
+   * @generated from enum value: STAGE_FAILED = 3;
+   */
+  FAILED: 3,
+
+  /**
+   * On its way for long; the node waits, and pays nothing again.
+   *
+   * @generated from enum value: STAGE_LATE = 4;
+   */
+  LATE: 4,
+
+  /**
+   * The owner gave it up.
+   *
+   * @generated from enum value: STAGE_GIVEN_UP = 5;
+   */
+  GIVEN_UP: 5,
+} as const;
+
+/**
+ * @generated from enum dassie.owner.v1.HubMoveEvent.Stage
+ */
+export type HubMoveEvent_Stage = (typeof HubMoveEvent_Stage)[keyof typeof HubMoveEvent_Stage] | UnknownEnum;
+
+/**
+ * Describes the enum dassie.owner.v1.HubMoveEvent.Stage.
+ */
+export const HubMoveEvent_StageSchema: GenEnum<HubMoveEvent_Stage> = /*@__PURE__*/
+  enumDesc(file_dassie_owner_v1_hub_member, 25, 0);
+
+/**
+ * Which side of a packet over a hub the node is on.
+ *
+ * @generated from enum dassie.owner.v1.HubRole
+ */
+export const HubRole = {
+  /**
+   * @generated from enum value: HUB_ROLE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED: 0,
+
+  /**
+   * It pays: it signs commitments and claims.
+   *
+   * @generated from enum value: HUB_ROLE_PAYER = 1;
+   */
+  PAYER: 1,
+
+  /**
+   * It is paid: it takes them.
+   *
+   * @generated from enum value: HUB_ROLE_PAYEE = 2;
+   */
+  PAYEE: 2,
+} as const;
+
+/**
+ * Which side of a packet over a hub the node is on.
+ *
+ * @generated from enum dassie.owner.v1.HubRole
+ */
+export type HubRole = (typeof HubRole)[keyof typeof HubRole] | UnknownEnum;
+
+/**
+ * Describes the enum dassie.owner.v1.HubRole.
+ */
+export const HubRoleSchema: GenEnum<HubRole> = /*@__PURE__*/
+  enumDesc(file_dassie_owner_v1_hub_member, 0);
 

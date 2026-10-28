@@ -20,6 +20,7 @@ use dassie_settlement::{Commitments, Decided, HoldsWith, Membership, Promised, p
 
 use super::Core;
 use super::events::SettlementEvent;
+use super::hub_events::Role;
 
 /// What became of a Prepare to a peer over a hub.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -460,6 +461,7 @@ impl Core {
             self.with_commitments(scheme, |c| c.on_answered(peer, request_id));
             return Some(HubSent::Unreachable);
         }
+        self.tap_promise(scheme, (Role::Payer, peer), &commitment, false);
         Some(HubSent::Sent)
     }
 
@@ -547,7 +549,9 @@ impl Core {
                 c.check_commitment(now, peer, request_id, promise, commitment)
             })
             .is_some_and(|result| result.is_ok());
-        if !accepted {
+        if accepted {
+            self.tap_promise(scheme, (Role::Payee, peer), commitment, false);
+        } else {
             self.refuse_hub_prepare(now, node, (method, Some(commitment)), request_id, refused);
         }
         accepted
@@ -617,7 +621,8 @@ impl Core {
         taken: bool,
     ) -> Vec<u8> {
         let mut claim = Vec::new();
-        if let Some((scheme, peer)) = self.packet_hub(node, ledger) {
+        let hub = self.packet_hub(node, ledger);
+        if let Some((scheme, peer)) = hub {
             self.with_commitments(scheme, |c| {
                 c.claim(now, peer, request_id, taken, &mut claim)
             });
@@ -625,6 +630,9 @@ impl Core {
         // A payer that lies, in a simulation, keeps its claim to itself.
         if self.settle.sends_no_claims {
             claim.clear();
+        }
+        if let Some((scheme, peer)) = hub {
+            self.tap_promise(scheme, (Role::Payer, peer), &claim, true);
         }
         claim
     }
@@ -669,9 +677,10 @@ impl Core {
             .filter(|(_, active)| active.over_hub)
             .map(|(scheme, _)| *scheme)
             .collect();
-        for scheme in hubs {
-            self.with_commitments(scheme, |c| c.on_claim(now, peer, request_id, claim));
+        for scheme in &hubs {
+            self.with_commitments(*scheme, |c| c.on_claim(now, peer, request_id, claim));
         }
+        self.tap_claim_received(peer, claim, &hubs);
     }
 
     /// As the payer: hands the scheme each packet that timed out and waits

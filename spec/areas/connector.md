@@ -226,6 +226,10 @@ The STREAM receivers, payers and swap endpoints are in-process endpoints that th
 
 The connector keeps a bounded record of recent packets, keyed by trace ID, which the journal's packet references point into, and streams its changes to live subscribers. Events nobody polled are dropped and counted.
 
+- **A record joins its packet's hops.** Each node keeps its own trace, so a record says what ties it to the same packet's records on other nodes: the Prepare's execution condition, which is a hash already and the same on every hop, so a client that reads several nodes' traces joins one packet's hops by it. A packet refused before it decoded has none. The record also keeps the ledger the packet came in on and the one it went out on, so each hop says what it was worth on either side.
+- **Records are fixed in size and inline,** the destination address cut to a bound, so tracing a packet allocates nothing on the packet path.
+- **The connector knows a peer only by the node's number for the peering.** The node adds the peer's node ID to each record it hands out, as far as it still has that peering, so a record names its hops by node rather than by a number that means nothing elsewhere.
+
 ## ILP-over-HTTP
 
 ILP-over-HTTP (RFC 35) is not built: the connector has no HTTP endpoint ([roadmap](../roadmap.md#not-built-yet)).

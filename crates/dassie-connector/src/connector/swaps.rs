@@ -159,7 +159,9 @@ impl Connector {
             return self.answer(now_ms, trace, &refusal, out);
         };
         let destination = prepare.destination.as_str();
-        let record = PacketRecord::new(trace, source, destination, prepare.amount, now_ms);
+        let mut record = PacketRecord::new(trace, source, destination, prepare.amount, now_ms);
+        record.condition = prepare.execution_condition;
+        record.ledger_in = Some(on);
         self.trace.push(record);
         let route = match self.route_own_swap(now_ms, (source, on), to, &prepare, prices, ledger) {
             Ok(route) => route,

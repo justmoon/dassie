@@ -25,7 +25,7 @@ use dassie_xrpl::XrplAccount;
 use super::hub_funding::{
     Direction, Funding, Gas, GasNext, GasSeen, Held, Move, Planned, Standing,
 };
-use super::{Core, EngineError};
+use super::{Core, EngineError, hub_events};
 use crate::store::{HubFundingRow, HubMoveRow};
 
 /// How lately a hub must have made progress for the node to deposit into it
@@ -859,9 +859,11 @@ impl Core {
         let Some(funding) = self.funding.get_mut(&scheme) else {
             return;
         };
+        let before = funding.moving;
         if funding.follow(now, &standing) {
             self.keep_funding(scheme);
         }
+        self.tap_followed(scheme, before, &standing);
         let due = self
             .funding
             .get(&scheme)
@@ -1073,6 +1075,9 @@ impl Core {
             funding.start(now, planned, id);
         }
         self.keep_funding(scheme);
+        if let Some(moving) = self.funding.get(&scheme).and_then(|funding| funding.moving) {
+            self.tap_move(scheme, hub_events::MoveStage::Started, &moving);
+        }
         Ok(())
     }
 
@@ -1515,11 +1520,12 @@ impl Core {
             .funding
             .get_mut(&scheme)
             .and_then(|funding| funding.give_up(now));
-        if given_up.is_none() {
+        let Some(given_up) = given_up else {
             return Err(EngineError::Precondition(
                 "only a move that is late can be given up".into(),
             ));
-        }
+        };
+        self.tap_move(scheme, hub_events::MoveStage::GivenUp, &given_up);
         self.keep_funding(scheme);
         self.hub_status_of(scheme)
             .ok_or_else(|| EngineError::Internal("the hub scheme vanished".into()))
@@ -1538,9 +1544,11 @@ impl Core {
             .funding
             .get_mut(&scheme)
             .ok_or_else(|| EngineError::Internal("a hub without its funding".into()))?;
+        let before = funding.moving;
         if funding.follow(now, &standing) {
             self.keep_funding(scheme);
         }
+        self.tap_followed(scheme, before, &standing);
         Ok(standing)
     }
 

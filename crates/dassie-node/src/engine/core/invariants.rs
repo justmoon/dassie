@@ -13,6 +13,7 @@ impl Core {
     pub(super) fn check_invariants(&self) {
         self.ledger.check_invariants();
         self.connector.check_invariants(&self.ledger);
+        self.hub_tap.check_invariants();
         self.peer.check_invariants();
         let realm = super::ledger_realm(self.realm);
         assert!(
