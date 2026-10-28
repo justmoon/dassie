@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Where the desktop app runs today, which packages and systems come later, and what to use until then."
+    />
+    <title>Other platforms · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Other platforms</h1>
+      <p class="lede">
+        The desktop app runs on Linux today, as a Nix package. This page
+        says where else it is headed, and what you can use in the meantime.
+      </p>
+
+      <h2 id="today">Today</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Platform</th>
+              <th>The desktop app</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Linux on x86-64, with Nix</td>
+              <td>
+                Yes: <a href="/docs/desktop/install/">Install the desktop
+                app</a>
+              </td>
+            </tr>
+            <tr>
+              <td>Linux on ARM</td>
+              <td>Not yet</td>
+            </tr>
+            <tr>
+              <td>AppImage, .deb, Flatpak</td>
+              <td>Not yet</td>
+            </tr>
+            <tr>
+              <td>macOS</td>
+              <td>Not yet</td>
+            </tr>
+            <tr>
+              <td>Windows</td>
+              <td>Not yet</td>
+            </tr>
+            <tr>
+              <td>Phones</td>
+              <td>Not yet</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Nix runs on most Linux distributions beside their own packages, so
+        on Debian, Fedora, Arch and the others you can install Nix first and
+        then the app. It builds from Dassie's source, as the install page
+        says.
+      </p>
+      <p class="not-yet">
+        Packages for other Linux distributions (AppImage, .deb and Flatpak),
+        the app in the release mirror's signed flake, updates from inside
+        the app, and the app for macOS and Windows are not there yet. Each
+        gets its page here once it arrives.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+
+      <h2 id="until-then">Until then</h2>
+      <p>
+        On a computer the app does not run on yet, you can still have a
+        node of your own:
+      </p>
+      <ul>
+        <li>
+          <strong>On a server,</strong> with a public address and a domain
+          name: <a href="/docs/start/quick-start/">Quick Start</a> installs
+          a node there, and you use its wallet from any browser.
+        </li>
+        <li>
+          <strong>On a Linux machine without a public address,</strong> as a
+          small home server: the same <code>dassie</code> binary runs there
+          as a periphery node, reached the way the desktop app is.
+          <a href="/docs/node/periphery/">A server without a public IP</a>
+          shows how.
+        </li>
+      </ul>
+      <p>
+        <a href="/docs/start/pick-your-setup/">Pick your setup</a> compares
+        them with the desktop app.
+      </p>
+
+      <h2 id="apps-for-a-node-elsewhere">Apps for a node elsewhere</h2>
+      <p>
+        The desktop app runs its node inside itself. A different kind of
+        app is planned too: one that runs no node, and reaches yours on
+        another machine. Your node can already pair such apps, with
+        <code>dassie pair</code>, and serves them through the nodes it is
+        connected to, its uplinks.
+      </p>
+      <p class="not-yet">
+        The apps themselves, a remote mode of the desktop app and a mobile
+        app, are not there yet.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/desktop-app.md">Why Linux and Nix first</a>:
+        the quickest way for owners to try the app, with the other packages
+        to follow.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>
