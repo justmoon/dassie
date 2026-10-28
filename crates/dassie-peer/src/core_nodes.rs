@@ -50,9 +50,9 @@ pub const fn edges_to_join(bootstraps: usize) -> usize {
 /// - `neighbors`: a node's advertised neighbors, sorted, if its link state
 ///   is fresh.
 ///
-/// No bootstrap nodes at all asks no edges, and gives no core but the dev
-/// core: the caller passes a node that runs alone as its own bootstrap
-/// node.
+/// With no bootstrap nodes at all, the dev core is the only seed, and
+/// grows by single edges; outside a dev network there is no core. The
+/// caller passes a node that runs alone as its own bootstrap node.
 pub fn compute<'a>(
     registered: &BTreeSet<NodeId>,
     bootstrap: &BTreeSet<NodeId>,
@@ -84,11 +84,19 @@ pub fn compute<'a>(
     peel(&mut peeled, edges_needed(bootstrap.len()), dev_core);
     // The bootstrap nodes of that component are the seed, with the dev
     // core: core because they peer, or because a dev network says so.
-    let seed: BTreeSet<NodeId> = best_component(&peeled, bootstrap)
+    let mut seed: BTreeSet<NodeId> = best_component(&peeled, bootstrap)
         .intersection(bootstrap)
         .chain(dev_core)
         .copied()
         .collect();
+    // A lone seed, such as the only bootstrap node whose link state is
+    // fresh, admits the nodes it advertises itself: with one node in the
+    // core, none could have two edges into it, and the core would shrink
+    // to that node while the others are down.
+    let lone = (seed.len() == 1).then(|| seed.first().copied()).flatten();
+    if let Some(lone) = lone {
+        seed.extend(graph.get(&lone).map(Vec::as_slice).unwrap_or_default());
+    }
     grow(&graph, seed, edges_to_join(bootstrap.len()))
 }
 
@@ -115,6 +123,10 @@ fn grow(
             }
         }
     }
+    assert!(
+        core.iter().all(|node| graph.contains_key(node)),
+        "the core is of the graph's nodes"
+    );
     core
 }
 
@@ -269,6 +281,35 @@ mod tests {
         ]);
         let all = ["ba", "bb", "bc", "na", "nb", "nc"];
         assert_eq!(core(&map, &all, &bootstrap, &[]), ids(&bootstrap));
+    }
+
+    // With all bootstrap nodes but one stale, that one admits the nodes it
+    // advertises, and the core grows from them by two edges as before: it
+    // does not shrink to the one bootstrap node while the others are down.
+    #[test]
+    fn a_lone_bootstrap_node_admits_its_neighbors() {
+        let map = graph(&[
+            ("ba", "na"),
+            ("ba", "nb"),
+            ("na", "nb"),
+            ("na", "nc"),
+            ("nb", "nc"),
+            ("nc", "nd"),
+        ]);
+        // bb and bc are configured and registered, but have no fresh link
+        // state, so no edges.
+        let all = ["ba", "bb", "bc", "na", "nb", "nc", "nd"];
+        assert_eq!(
+            core(&map, &all, &["ba", "bb", "bc"], &[]),
+            ids(&["ba", "na", "nb", "nc"]),
+            "nc joins by two edges, nd with one does not"
+        );
+        // Two seeds admit nobody by themselves: each node needs two edges.
+        let map = graph(&[("ba", "bb"), ("ba", "na"), ("bb", "nb"), ("na", "nb")]);
+        assert_eq!(
+            core(&map, &["ba", "bb", "na", "nb"], &["ba", "bb", "bc"], &[]),
+            ids(&["ba", "bb"])
+        );
     }
 
     // Nodes join one by one, each by two edges into the core as it has
