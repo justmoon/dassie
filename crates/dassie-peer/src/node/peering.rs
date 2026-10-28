@@ -309,7 +309,7 @@ impl PeerNode {
     /// details are not that, or whose hub an offer we took before names, is
     /// taken as absent, and an offer on a scheme we do not offer is passed
     /// over, unread: we would not peer on it.
-    fn their_offers(&self, link: &LinkState) -> Vec<(SchemeId, Option<HubDetails>)> {
+    pub(super) fn their_offers(&self, link: &LinkState) -> Vec<(SchemeId, Option<HubDetails>)> {
         let mut taken: Vec<(SchemeId, Option<HubDetails>)> = Vec::with_capacity(self.offers.len());
         for offered in &link.offers {
             let Some(own) = self.offer_on(offered.scheme) else {

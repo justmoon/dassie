@@ -82,6 +82,8 @@ struct Setup {
     /// What the watcher last handed over of its verifier, as its host
     /// keeps it with the cursor.
     kept: Option<Vec<u8>>,
+    /// The escrow's master key, which its sponsor sets it up with.
+    master: Wallet,
 }
 
 /// The watcher of `escrow` on the testnet, trusting the fake's validators.
@@ -116,6 +118,14 @@ impl Setup {
 
     /// A hub of `token`, or of XRP, whose sponsor set up its escrow.
     fn of(token: Option<IssuedAsset>) -> Self {
+        let mut setup = Self::funded(token);
+        setup.set_up_escrow();
+        setup
+    }
+
+    /// An XRP hub whose sponsor funded its escrow, and has yet to set it
+    /// up ([`Self::set_up_escrow`]).
+    fn funded(token: Option<IssuedAsset>) -> Self {
         let mut xrpl = FakeLedger::new();
         xrpl.sign_validations_with(SECRET);
         let sponsor = IdentityKey::from_bytes(&[100; 32]);
@@ -136,13 +146,6 @@ impl Setup {
         xrpl.fund(master.account());
         xrpl.deposit(holder.account(), 100_000_000);
         xrpl.close();
-        let sequence = xrpl.sequence(master.account()).unwrap();
-        for transaction in setup(&rules, &master, sequence, FEE_BASE) {
-            xrpl.request(SETUP, &api::submit(2, transaction.blob()));
-        }
-        xrpl.close();
-        // What the hub takes from the check: the escrow's sequences before
-        // it are its setup's.
         let next_sequence = xrpl.sequence(master.account()).unwrap();
         let view = EscrowView {
             rules,
@@ -178,11 +181,39 @@ impl Setup {
             on_the_way: Vec::new(),
             problems: Vec::new(),
             kept: None,
+            master,
         };
         if token.is_some() {
             setup.hold_dsusd();
         }
         setup
+    }
+
+    /// The sponsor sets up the escrow, in a ledger that closes now, with
+    /// nothing streamed to the watcher: what the hub takes from the check
+    /// is that the escrow's sequences before it are its setup's.
+    fn set_up_escrow(&mut self) {
+        self.submit_setup();
+        self.xrpl.close();
+        self.view.next_sequence = self.xrpl.sequence(self.master.account()).unwrap();
+    }
+
+    /// The sponsor submits the escrow's setup: it applies in the next
+    /// ledger that closes.
+    fn submit_setup(&mut self) {
+        let master = self.master.account();
+        let sequence = self.xrpl.sequence(master).unwrap();
+        for transaction in setup(&self.view.rules, &self.master, sequence, FEE_BASE) {
+            self.xrpl
+                .request(SETUP, &api::submit(2, transaction.blob()));
+        }
+    }
+
+    /// Whether it attested the escrow's check.
+    fn escrow_attested(&self) -> bool {
+        any(&self.attested, |op| {
+            matches!(op, ValidatorOperation::AttestEscrow { .. })
+        })
     }
 
     fn escrow(&self) -> AccountId {
@@ -704,6 +735,81 @@ fn many_small_payments_drop_no_deposit() {
     assert_eq!(tags.len(), count, "every deposit, once");
     assert_eq!(setup.attested.len(), count, "nothing attested twice");
     assert!(setup.cursor.unwrap().scanned_to >= paid_in);
+}
+
+// The escrow is checked as soon as the sponsor's setup is proven to
+// apply, not at the next check of the fallback: a validator that followed
+// the escrow before its setup attests it within the ledgers that prove
+// it.
+#[test]
+fn the_escrow_is_checked_as_soon_as_its_setup_applies() {
+    let mut setup = Setup::funded(None);
+    setup.connect();
+    setup.closes(2);
+    assert!(setup.watcher.following());
+    assert!(!setup.escrow_attested(), "not set up yet");
+    let refused = setup.problems.len();
+    assert!(refused >= 1, "the first check finds it not set up");
+
+    // The setup applies in the next ledger; its transactions are proven
+    // as they stream.
+    let since = setup.now;
+    setup.submit_setup();
+    setup.closes(2);
+    assert!(setup.escrow_attested(), "{:?}", setup.problems);
+    assert!(
+        setup.now - since < ESCROW_CHECK_EVERY_MS,
+        "at the event, not at the next check"
+    );
+    assert_eq!(setup.problems.len(), refused, "no check found it unset");
+}
+
+// What no transaction of the escrow's own tells, as a token hub's issuer
+// dropping a transfer fee, is checked at the fallback's next check, and a
+// founding's asking checks it at once: each once per anchor at most,
+// however often a founding asks.
+#[test]
+fn the_fallback_and_a_founding_check_what_no_transaction_tells() {
+    let checks_after = |founding: bool| {
+        let mut setup = Setup::of(Some(DSUSD));
+        setup
+            .xrpl
+            .set_transfer_rate(DSUSD_ISSUER, 1_002_000_000)
+            .unwrap();
+        setup.xrpl.close();
+        setup.connect();
+        setup.closes(2);
+        assert!(!setup.escrow_attested(), "an issuer's fee fails the check");
+        let failed = setup.problems.len();
+
+        // The issuer drops its fee: nothing of the escrow's own applies.
+        let since = setup.now;
+        setup.xrpl.set_transfer_rate(DSUSD_ISSUER, 0).unwrap();
+        setup.closes(1);
+        if founding {
+            for _ in 0..8 {
+                let view = setup.view.clone();
+                setup.watcher.check_escrow(setup.now, &view);
+                setup.run();
+            }
+        }
+        while !setup.escrow_attested() {
+            assert!(setup.now - since <= 2 * ESCROW_CHECK_EVERY_MS);
+            setup.closes(1);
+        }
+        assert!(setup.problems.len() <= failed + 1, "once per anchor");
+        setup.now - since
+    };
+    let polled = checks_after(false);
+    assert!(
+        polled >= ESCROW_CHECK_EVERY_MS / 2,
+        "at the fallback: {polled}"
+    );
+    let asked = checks_after(true);
+    assert!(
+        asked < ESCROW_CHECK_EVERY_MS / 2,
+        "when a founding asks: {asked}"
+    );
 }
 
 // A server that stops closing ledgers leaves the watcher's anchor to age:

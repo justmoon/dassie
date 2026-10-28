@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use dassie_identity::NodeId;
 
 use crate::names::Name;
-use crate::wire::{Endpoint, Kind, SchemeId, TerminationReason};
+use crate::wire::{Endpoint, HubDetails, Kind, SchemeId, TerminationReason};
 
 /// Our number for a request we send.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -330,6 +330,19 @@ pub enum Event {
     ChannelClosed {
         /// The node.
         peer: NodeId,
+    },
+    /// A peer's link state names, in its offer on a method of our peering,
+    /// an account in a settlement hub that its link state held before did
+    /// not: the scheme over the hub may look it up at once
+    /// (spec/areas/hubs.md#the-members-side). What the peer says is not
+    /// taken as true: only the hub says which account a key has.
+    HubAccountAdvertised {
+        /// The peer.
+        peer: NodeId,
+        /// The method's scheme.
+        scheme: SchemeId,
+        /// The hub and the account the offer names.
+        details: HubDetails,
     },
     /// A peer is listed as our neighbor again, or no longer.
     Advertised {

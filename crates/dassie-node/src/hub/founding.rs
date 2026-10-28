@@ -173,11 +173,9 @@ impl Founding {
         };
         if let (FoundingRequest::Status(hub), FoundingAnswer::Running { .. }) = (&request, &answer)
         {
-            let checked = node
-                .hubs()
-                .statuses()
-                .iter()
-                .any(|status| status.hub == *hub && status.escrow_checked);
+            // Not checked yet, the escrow is checked at once: the sponsor
+            // asks once it saw its setup in a validated ledger.
+            let checked = node.hubs().escrow_checked(hub);
             return Some(
                 FoundingAnswer::Running {
                     escrow_checked: checked,

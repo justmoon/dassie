@@ -503,6 +503,7 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
         | Event::RegisteredWith(_)
         | Event::PacketFailed { .. }
         | Event::FulfillReply { .. }
+        | Event::HubAccountAdvertised { .. }
         | Event::PeeringFailed { .. }
         | Event::Advertised { .. }
         | Event::SettlementDelivered { .. }

@@ -215,6 +215,8 @@ pub struct EscrowLinks {
     pub view: watch::Receiver<EscrowView>,
     /// Whether the connection follows the escrow now.
     pub connected: watch::Sender<bool>,
+    /// Woken when a founding asks whether a quorum checked the escrow.
+    pub check: Arc<tokio::sync::Notify>,
 }
 
 /// The longest fetching the state after a final block from one validator
@@ -311,6 +313,8 @@ impl HubTask {
             nodes: validator_nodes.clone(),
         };
         hubs.register(*driver.hub(), route);
+        let check = Arc::new(tokio::sync::Notify::new());
+        hubs.register_escrow_check(*driver.hub(), Arc::clone(&check));
         let (attest, attestations) = mpsc::channel(ESCROW_QUEUE);
         let (submits, submitted) = mpsc::channel(ESCROW_QUEUE);
         let (view, viewed) = watch::channel(driver.escrow_view());
@@ -346,6 +350,7 @@ impl HubTask {
             submits: submitted,
             view: viewed,
             connected,
+            check,
         };
         (task, links)
     }

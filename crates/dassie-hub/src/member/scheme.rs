@@ -145,7 +145,9 @@ const MAX_LOSSES: usize = MAX_PEERS * super::payer::MAX_PACKETS;
 const MAX_DECIDED: usize = MAX_PEERS * super::payer::MAX_PACKETS;
 /// How often the scheme asks the hub for the account of a peer that has
 /// none in its records, so it learns of one a deposit opened without
-/// paying the peer in first. Reads cost nothing.
+/// paying the peer in first: the fallback. A peer that names an account in
+/// its link state is asked about at once
+/// ([`SettlementScheme::on_peer_advertised`]). Reads cost nothing.
 pub const LOOK_UP_EVERY_MS: u64 = 60_000;
 /// How long the scheme waits after its `pay` to a peer failed before it
 /// pays that peer in again: each try costs an operation's fee, and what
@@ -1323,9 +1325,10 @@ impl HubScheme {
     /// the key of each unread `pay` of ours, at every turn until the hub
     /// answers as of a block after it, before anything else; and each peer
     /// without an account in our records, every [`LOOK_UP_EVERY_MS`], so
-    /// that one a deposit opened is learnt without paying the peer in. A
-    /// key the account cannot ask about yet is asked about at the next
-    /// turn.
+    /// that one a deposit opened is learnt without paying the peer in, and
+    /// as soon as the peer names one. A key the account cannot ask about yet,
+    /// past [`MAX_LOOKUPS`](super::account::MAX_LOOKUPS) at once, is asked
+    /// about at the next turn.
     fn ask_accounts(&mut self, account: &mut HubAccount) {
         for unread in self.unread_pays.values() {
             account.look_up(unread.key);
@@ -1838,6 +1841,21 @@ impl SettlementScheme for HubScheme {
 
     fn peer_hub_account(&self, peer: Name) -> Option<u32> {
         self.peer_account(peer).map(|number| number.0)
+    }
+
+    /// A peer without an account in our records names one in our hub: it
+    /// is looked up at the account's next turn, not at its next
+    /// [`LOOK_UP_EVERY_MS`]. The number it names is not taken: only f + 1
+    /// validators' answer is.
+    fn on_peer_advertised(&mut self, peer: Name, hub: [u8; 32], account: u32) {
+        if hub != *self.hub.0.as_bytes() || account == NONE.0 {
+            return;
+        }
+        if let Some(known) = self.peers.get_mut(&peer)
+            && known.account == NONE
+        {
+            known.look_up_ms = 0;
+        }
     }
 
     fn deposits_booked(&self) -> Option<u64> {

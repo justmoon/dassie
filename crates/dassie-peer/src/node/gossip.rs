@@ -6,14 +6,16 @@ use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 use dassie_oer::Decode;
+use rand_core::CryptoRng;
 
 use super::{MAX_OWN_HUBS, MAX_SCHEMES, PeerNode, Problem, Purpose, offers_keep_the_rules};
 use crate::config::Config;
-use crate::table::{LinkState, Sources, backoff};
+use crate::io::Event;
+use crate::table::{LinkState, Offered, Sources, backoff};
 use crate::wire::{
     Content, EXTENSION_FEED, EXTENSION_PERIPHERY, Entry, HubDetails, InvalidNodeInfo,
-    LinkStateResponse, MAX_ENTRIES, MAX_NODE_INFO_BYTES, MAX_OFFERS, NodeInfo, SettlementOffer,
-    SignedNodeInfo, TerminationReason, max_node_info_bytes, sign_node_info,
+    LinkStateResponse, MAX_ENTRIES, MAX_NODE_INFO_BYTES, MAX_OFFERS, NodeInfo, SchemeId,
+    SettlementOffer, SignedNodeInfo, TerminationReason, max_node_info_bytes, sign_node_info,
 };
 
 /// The routes are recomputed at least this often, as link states go stale.
@@ -165,6 +167,32 @@ pub(crate) enum Processed {
     Invalid(InvalidNodeInfo),
 }
 
+/// When a link state taken in by `mode` at `now` is forwarded, if it is:
+/// a scheduled one after a random delay of up to `delay_ms`, so that the
+/// copies of a flood suppress each other.
+fn retransmit_at(
+    rng: &mut dyn CryptoRng,
+    delay_ms: u64,
+    mode: Retransmit,
+    now: u64,
+) -> Option<u64> {
+    match mode {
+        Retransmit::Immediately => Some(now),
+        Retransmit::Scheduled => {
+            let delay = 1 + rng.next_u64() % delay_ms.max(1);
+            Some(now.saturating_add(delay))
+        }
+        Retransmit::Never => None,
+    }
+}
+
+/// The details of the offer on `scheme` among `offers`, if there is one.
+fn details_on(offers: &[Offered], scheme: SchemeId) -> Option<&[u8]> {
+    (offers.iter())
+        .find(|offer| offer.scheme == scheme)
+        .map(|offer| offer.details.as_slice())
+}
+
 impl PeerNode {
     /// Takes a link state in, in the order that makes floods cheap: copies
     /// and older states are dropped before the signature is checked.
@@ -226,14 +254,8 @@ impl PeerNode {
         }
         let mut link = LinkState::from_signed(signed);
         link.from = from;
-        link.retransmit_at_ms = match mode {
-            Retransmit::Immediately => Some(now),
-            Retransmit::Scheduled => {
-                let delay = 1 + self.rng.next_u64() % self.config.retransmit_delay_ms.max(1);
-                Some(now.saturating_add(delay))
-            }
-            Retransmit::Never => None,
-        };
+        link.retransmit_at_ms =
+            retransmit_at(&mut *self.rng, self.config.retransmit_delay_ms, mode, now);
         let changed = entry
             .link
             .as_ref()
@@ -243,6 +265,9 @@ impl PeerNode {
         // peering made as the old kind ends, and it may ask anew
         // (spec/areas/network.md#downlinks).
         let switched = entry.peering().is_some() && entry.is_downlink() != link.periphery;
+        // What a peer offered before, to tell an account it names anew.
+        let before =
+            (entry.peering().is_some()).then(|| entry.link.as_ref().map(|old| old.offers.clone()));
         entry.key = Some(key.key());
         entry.link = Some(link);
         entry.refresh_failures = 0;
@@ -254,7 +279,48 @@ impl PeerNode {
         if switched {
             self.begin_depeering(id, TerminationReason::Unspecified);
         }
+        if let Some(before) = before {
+            self.tell_accounts_named(id, before.as_deref());
+        }
         Processed::Accepted
+    }
+
+    /// Tells the node of each account in a hub that peer `id`'s link state
+    /// names anew ([`Self::advertised_accounts`]).
+    fn tell_accounts_named(&mut self, id: NodeId, before: Option<&[Offered]>) {
+        for (scheme, details) in self.advertised_accounts(id, before) {
+            self.event(Event::HubAccountAdvertised {
+                peer: id,
+                scheme,
+                details,
+            });
+        }
+    }
+
+    /// The offers of peer `id`'s link state, as we read them, on methods of
+    /// our peering over a hub, that name an account in the hub where its
+    /// offers `before` named none or another: at most one per method.
+    fn advertised_accounts(
+        &self,
+        id: NodeId,
+        before: Option<&[Offered]>,
+    ) -> Vec<(SchemeId, HubDetails)> {
+        let Some(entry) = self.table.get(&id) else {
+            return Vec::new();
+        };
+        let (Some(peering), Some(link)) = (entry.peering(), entry.link.as_ref()) else {
+            return Vec::new();
+        };
+        (self.their_offers(link).into_iter())
+            .filter(|(scheme, _)| peering.method(*scheme).is_some())
+            .filter_map(|(scheme, hub)| Some((scheme, hub?)))
+            .filter(|(_, hub)| hub.account != HubDetails::NO_ACCOUNT)
+            .filter(|(scheme, _)| {
+                before.is_none_or(|before| {
+                    details_on(before, *scheme) != details_on(&link.offers, *scheme)
+                })
+            })
+            .collect()
     }
 
     /// Issues our own link state when what it says changed, every

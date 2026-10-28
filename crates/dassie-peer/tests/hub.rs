@@ -377,6 +377,44 @@ fn two_members_without_an_account_peer_on_another_scheme() {
     assert_eq!(methods(&network, 1, &a), [scheme(SECOND)]);
 }
 
+/// The accounts node `index` heard `peer` name in its offers on a method
+/// over a hub, in order.
+fn advertised(network: &Network, index: usize, peer: &NodeId) -> Vec<u32> {
+    (network.events.iter())
+        .filter_map(|(at, event)| match event {
+            Event::HubAccountAdvertised {
+                peer: from,
+                scheme: method,
+                details,
+            } if *at == index && from == peer && *method == scheme(STUB) => Some(details.account),
+            _ => None,
+        })
+        .collect()
+}
+
+// A newcomer that peered before its account was opened names the account
+// in its link state once it has one: its peer hears of it as the state
+// arrives, once per account it names, so that its scheme looks it up then
+// (spec/areas/hubs.md#the-members-side). Its own account, and an account
+// it named already, say nothing.
+#[test]
+fn a_peer_naming_its_new_account_is_heard_at_once() {
+    let (mut network, a, b) = over_hubs(7, [member(1), newcomer(1)]);
+    assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
+    assert!(advertised(&network, 0, &b).is_empty(), "no account yet");
+    network.set_hub(1, member(1));
+    settle(&mut network, 10_000);
+    assert_eq!(advertised(&network, 0, &b), [1]);
+    assert!(advertised(&network, 1, &a).is_empty());
+    // A state it issues again, naming the same, says nothing more.
+    let accepted = network.node(0).stats().link_states_accepted;
+    network.set_hub(1, member(1));
+    network.set_running(1, scheme(SECOND), true);
+    settle(&mut network, 10_000);
+    assert!(network.node(0).stats().link_states_accepted > accepted);
+    assert_eq!(advertised(&network, 0, &b), [1]);
+}
+
 // A scheme over a hub is asked for only by a node that shares the hub with
 // the other, which offers the scheme over it
 // (spec/designs/settlement-hubs.md#11-choosing-a-hub): without, neither

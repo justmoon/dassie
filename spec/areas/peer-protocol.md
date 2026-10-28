@@ -146,6 +146,7 @@ A link state offers each settlement scheme the node takes peers on in one list, 
 - **A node reads only the offers of schemes it offers itself,** by its own offer's kind: the hub's details on a scheme it offers over a hub, and none on any other. An offer on a scheme it does not offer is kept and forwarded, since the signature covers it, and otherwise passed over: two nodes peer only on schemes both offer.
 - **An offer that breaks the rules is taken as absent,** and the rest of the link state stands, as for an extension that breaks its rule: an offer whose scheme an earlier offer names, one whose details are not its scheme's canonical encoding, and one over a hub that an offer taken before it names. Which offers a node reads depends on the schemes it offers, so two nodes may read a broken list differently; each reading decides only that node's own peering with the list's node.
 - **Which offers become methods** is the network's ([Network](network.md#settlement-methods)): each scheme both offer, over a hub only where both name the same hub and one of them at least has an account in it, in the asking node's order.
+- **A peer that names a new account** in the hub of one of our methods, where the link state we held of it before named none or another: the peer protocol tells the node so as it takes the state in (`HubAccountAdvertised`), and the scheme asks the hub for the account ([hub-waits-end-at-the-event](../decisions/hub-waits-end-at-the-event.md)). The peer protocol reads it as any offer, and takes nothing of it as true.
 
 ### Verification
 
@@ -217,3 +218,4 @@ The node's outbound connections are peer requests over QUIC, and, to servers tha
 - [names-by-earliest-commitment](../decisions/names-by-earliest-commitment.md): the name messages, a commitment sealed by its holder and salt.
 - [settlement-methods](../decisions/settlement-methods.md): `methodPacket`, `methodAdd` and `methodDrop`, part of version 2.
 - [settlement-offers](../decisions/settlement-offers.md): one list of the schemes a node takes peers on, each with its scheme's details, in place of scheme entries and hub extensions.
+- [hub-waits-end-at-the-event](../decisions/hub-waits-end-at-the-event.md): a peer naming a new account in a hub is told the node, which looks it up at once.

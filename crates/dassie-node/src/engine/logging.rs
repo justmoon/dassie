@@ -92,6 +92,13 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         Event::ChannelClosed { peer } => {
             emit!(severity, target: target::PEER, %peer, "settlement channel closed");
         }
+        Event::HubAccountAdvertised {
+            peer,
+            scheme,
+            details,
+        } => {
+            emit!(severity, target: target::PEER, %peer, %scheme, account = details.account, "the peer names its account in the hub: looked up");
+        }
         Event::Advertised { peer, on, short } => {
             if *short {
                 emit!(severity, target: target::PEER, %peer, "withdrawn: its room stayed short of a packet");
