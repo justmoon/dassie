@@ -1175,4 +1175,29 @@ fn a_node_with_a_url_is_promoted_into_the_core() {
     );
     settle(&mut network, Config::DEV.core_settle_ms);
     assert!(network.node(turning).uses_own_address());
+    a_promoted_node_comes_back_after_an_outage(&mut network, turning);
+}
+
+/// Review of #701: node `turning`, promoted into the core of the first
+/// three, down for longer than its peers wait to hear from it, is withdrawn
+/// and leaves the core, and its peerings turn downlink; back, its uplinks
+/// list it again after their hold-down, by its health as a core peer's,
+/// not after a new hour of standing.
+fn a_promoted_node_comes_back_after_an_outage(network: &mut Network, turning: usize) {
+    let (core, node) = (turning, id(turning));
+    network.crash(turning);
+    settle(network, 2 * Config::DEV.peer_confirm_ms);
+    assert!(
+        !network.node(0).core().contains(&node),
+        "out of the core while down"
+    );
+    network.start(turning);
+    let back = network.now;
+    while !(0..=core).all(|index| network.node(index).core().contains(&node)) {
+        settle(network, 5_000);
+        assert!(
+            network.now < back + Config::DEV.promotion_standing_ms / 2,
+            "back in the core well before a new promotion"
+        );
+    }
 }

@@ -201,9 +201,12 @@ impl PeerNode {
     /// a recent message and not held down. A node whose peers went silent,
     /// or flap, looks for others (spec/decisions/peering-lifecycle.md).
     /// Downlinks do not count: they are apart from the core peering slots.
-    /// A node pinned to its uplinks counts only those.
+    /// A node pinned to its uplinks counts only those. A periphery node
+    /// counts only uplinks that are core nodes: one that left the core
+    /// with it forwards nothing for it, and it looks for others.
     pub(crate) fn confirmed_peers(&self) -> usize {
         let pinned = self.pinned_uplinks();
+        let periphery = self.is_periphery();
         self.table
             .iter()
             .filter(|(id, entry)| {
@@ -211,6 +214,11 @@ impl PeerNode {
                     && entry.active_peering().is_some()
                     && entry.advertise.on
                     && pinned.is_none_or(|pinned| pinned.binary_search(id).is_ok())
+                    && (!periphery
+                        || entry
+                            .link
+                            .as_ref()
+                            .is_some_and(|link| self.is_core_node(id, !link.periphery)))
             })
             .count()
     }

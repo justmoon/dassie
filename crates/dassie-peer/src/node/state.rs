@@ -253,6 +253,9 @@ impl PeerNode {
             on_since_ms: now,
             ..Advertise::default()
         };
+        // Restored as a core peering, it is listed by its health whatever
+        // the core says before its routes are computed again.
+        entry.was_core = !entry.is_downlink();
         entry.peer = match termination {
             Some(termination) => {
                 if !termination.told(now, self.config.termination_timeout_ms) {

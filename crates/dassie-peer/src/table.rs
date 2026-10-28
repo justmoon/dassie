@@ -853,6 +853,13 @@ pub struct Entry {
     /// What an uplink watches of a peer to promote it
     /// (spec/decisions/promotion-to-core.md): reset with each peering.
     pub standing: Standing,
+    /// Whether its peering has been a core peering in this run, or was
+    /// restored as one: once it turns our downlink, as a core node does
+    /// that leaves the core for a moment, it is listed by its health, as a
+    /// core peer is, and not checked for a promotion anew, whose standing
+    /// starts again (spec/decisions/promotion-to-core.md). Forgotten as the
+    /// peering ends.
+    pub was_core: bool,
     /// What we found of its URL when we checked it, as an uplink of a
     /// downlink asking to be promoted, or as the bootstrap node it is
     /// registered with: anew with each URL.
@@ -891,6 +898,7 @@ impl Entry {
                 settle_unreached: false,
             },
             standing: Standing::NEW,
+            was_core: false,
             url: UrlCheck::NEW,
             refuse_until_ms: 0,
         }

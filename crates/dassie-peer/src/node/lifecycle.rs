@@ -506,7 +506,7 @@ impl PeerNode {
                         if stuck { now } else { confirmed }
                     } else if advertise.hold_until_ms > now {
                         advertise.hold_until_ms
-                    } else if entry.is_downlink() {
+                    } else if entry.is_downlink() && !entry.was_core {
                         // Listed once promoted: its standing is long enough
                         // at a time we know; the other checks change with an
                         // input, or are looked at with each heartbeat's
@@ -633,6 +633,7 @@ impl PeerNode {
         };
         entry.sources.remove(from);
         entry.sources.insert(to);
+        entry.was_core |= !downlink;
         self.dirty.insert(id);
         // Only core peers are subscribed to (spec/areas/network.md#snapshot-subscriptions).
         if downlink {
@@ -833,7 +834,13 @@ impl PeerNode {
                 entry.standing.since_ms = None;
             }
             let downlink = entry.is_downlink();
-            let promoted = !downlink || promotable.contains(id);
+            entry.was_core |= !downlink;
+            // A peering that was core is listed by its health, as a core
+            // peer's: a node that left the core for a moment, silent past
+            // the confirmation or while a peer restarted, comes back after
+            // its hold-down, not after a new promotion.
+            let by_health = !downlink || entry.was_core;
+            let promoted = by_health || promotable.contains(id);
             let advertise = &mut entry.advertise;
             if advertise.on
                 && advertise
@@ -858,10 +865,10 @@ impl PeerNode {
             } else if !advertise.on
                 && healthy
                 && promoted
-                && (!downlink || free > 0)
+                && (by_health || free > 0)
                 && advertise.hold_until_ms <= now
             {
-                free = free.saturating_sub(usize::from(downlink));
+                free = free.saturating_sub(usize::from(!by_health));
                 advertise.on = true;
                 advertise.on_since_ms = now;
                 changes.push((*id, true, false));
@@ -900,6 +907,7 @@ impl PeerNode {
             return;
         };
         entry.advertise = Advertise::default();
+        entry.was_core = false;
         let wait = if keeps_away(termination.reason) {
             // Nor does it take the peer's requests: the owner meant it, and
             // a link that stayed short is not formed again at once
