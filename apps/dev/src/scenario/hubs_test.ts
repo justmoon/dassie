@@ -124,10 +124,6 @@ test("several hubs are checked before the scenario starts", () => {
     schemes: [[HUB_OWNER_BOOK], [], [], [], xrpMember, both, dsusdMember],
     addedSchemes: xrpMember,
     bootstrap: [5],
-    configs: {
-      [HUB_OWNER_BOOK]: `{"peers": false}`,
-      [DSUSD_BOOK]: `{"peers": false}`,
-    },
     mint: { token: "DSUSD", value: "100" },
     pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
     hubs: [
@@ -201,12 +197,13 @@ test("several hubs are checked before the scenario starts", () => {
   assertEquals(
     invalidHubs({
       ...base,
-      configs: { ...base.configs, [DSUSD_HUB]: hubConfig("00") },
+      configs: { [DSUSD_HUB]: hubConfig("00") },
     }),
     "hub-xrpl-testnet-dsusd's config is the founded hub's rules",
   );
+  // An owner book peers with nobody, whatever its config.
   assertEquals(
-    invalidHubs({ ...base, configs: { [HUB_OWNER_BOOK]: `{"peers":false}` } }),
-    `xrpl-testnet-dsusd peers: its config must say "peers": false`,
+    invalidHubs({ ...base, configs: { [DSUSD_BOOK]: `{"peers": true}` } }),
+    undefined,
   );
 });

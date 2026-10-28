@@ -450,13 +450,12 @@ impl World {
     }
 
     /// Why node `index`'s guard pauses its token scheme, if it does: then
-    /// it converts nothing, and cannot receive.
+    /// it converts nothing.
     fn paused(&mut self, index: usize) -> Option<PegPause> {
         let node = &mut self.nodes[index];
         let scheme = node.schemes[TOKEN].as_deref_mut().unwrap();
         let paused = scheme.peg().unwrap().paused;
         assert_eq!(scheme.converts(), paused.is_none());
-        assert_eq!(scheme.can_receive(), paused.is_none());
         paused
     }
 
@@ -716,7 +715,7 @@ fn a_payment_with_a_settlement_memo_is_a_deposit() {
 // spec/decisions/issued-assets.md: each network's dollar is priced by its
 // own pool and the node's XRP/USD rate. A pool moved 5% off a dollar,
 // downward or upward, pauses the scheme only once every reading was off for
-// the trip hold: then it converts nothing and cannot receive, while what
+// the trip hold: then it converts nothing, while what
 // arrives is still booked, and the owner may still pay. Back at a dollar,
 // it resumes only once every reading was inside the inner band for the
 // recovery hold.

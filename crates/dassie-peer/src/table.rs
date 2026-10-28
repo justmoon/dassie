@@ -601,7 +601,7 @@ pub enum Room {
         most_ms: u64,
     },
     /// Short of a packet while no settlement from the peer can reach us,
-    /// as while our line on the ledger cannot receive: the time counts
+    /// as once its hub stalled: the time counts
     /// toward withdrawing the peer, up to `most_ms`, as for
     /// [`Short`](Self::Short), but never toward ending the peering for room,
     /// which the peer had no way to restore.

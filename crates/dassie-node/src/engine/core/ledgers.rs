@@ -71,21 +71,26 @@ impl ActiveScheme {
         !self.over_hub && !self.unlimited
     }
 
-    /// The credit the node extends at first to a peer on it: nothing over a
-    /// hub, whose hold is all the credit there is;
+    /// The credit the node extends at first to a peer on it, whichever
+    /// node asked to peer and for a downlink alike: nothing over a hub,
+    /// whose hold is all the credit there is;
     /// [`UNLIMITED_CREDIT`](dassie_settlement::policy::UNLIMITED_CREDIT)
-    /// with unlimited trust (spec/areas/settlement.md#credit). A scheme
-    /// that settles directly extends `default`: the default credit from the
-    /// node that asked to peer, and nothing from the node that accepted or
-    /// to a downlink, which pay in advance. A branch that no scheme reaches
-    /// once none peers directly (spec/decisions/hubs-only.md).
-    pub fn start_credit(&self, default: u64) -> u64 {
+    /// with unlimited trust (spec/areas/settlement.md#credit).
+    ///
+    /// # Panics
+    ///
+    /// On a scheme that would settle directly: no peering or method is
+    /// made on one (spec/decisions/hubs-only.md), so nothing opens a peer's
+    /// accounts on it.
+    pub fn start_credit(&self) -> u64 {
+        assert!(
+            !self.settles_directly(),
+            "no peer's accounts open on a scheme that would settle directly"
+        );
         if self.over_hub {
             0
-        } else if self.unlimited {
-            dassie_settlement::policy::UNLIMITED_CREDIT
         } else {
-            default
+            dassie_settlement::policy::UNLIMITED_CREDIT
         }
     }
 }
@@ -350,6 +355,16 @@ impl Core {
         assert!(
             !(over_hub && unlimited),
             "a scheme over a hub trusts no further than its holds"
+        );
+        // One neither over a hub nor of unlimited trust would settle
+        // directly: it is an owner book, which peers with nobody and whose
+        // settlement messages, as a channel from when the XRPL schemes
+        // peered may still carry, book nothing (spec/decisions/hubs-only.md).
+        // So no peer's accounts open on it, for a peering, a method or a
+        // downlink's settlement ([`ActiveScheme::start_credit`]).
+        assert!(
+            over_hub || unlimited || (!scheme.peers() && !scheme.books_messages()),
+            "a scheme that would settle directly is an owner book"
         );
         let converts = scheme.converts();
         let ledger = scheme.ledger();

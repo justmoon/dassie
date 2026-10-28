@@ -412,16 +412,16 @@ impl Settling {
         match self {
             Self::Trusting | Self::OwnerBooks if ledger == USD => r#"{"trust":"unlimited"}"#.into(),
             Self::OwnerBooks | Self::OwnerBooksLive if self.owner_books(0).contains(&ledger) => {
-                r#"{"peers":false}"#.into()
+                String::new()
             }
             Self::StubHub(limit) if ledger == USD => format!(r#"{{"commitments":{limit}}}"#),
             Self::HubDsusd(_) | Self::Hub(_) | Self::HubAcross(_) | Self::Hubs(_)
                 if ledger == XRP || ledger == DSUSD =>
             {
-                r#"{"peers":false}"#.into()
+                String::new()
             }
             Self::HubLive(_) | Self::HubRlusd(_) if ledger == LIVE_XRP || ledger == RLUSD => {
-                r#"{"peers":false}"#.into()
+                String::new()
             }
             _ => Self::scheme(ledger).1.into(),
         }

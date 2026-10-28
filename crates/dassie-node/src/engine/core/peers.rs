@@ -27,10 +27,6 @@ use dassie_settlement::{AssetId, LedgerStatus};
 pub(super) struct Hooks<'a> {
     pub schemes: &'a mut BTreeMap<Name, ActiveScheme>,
     pub ledger: &'a mut Ledger,
-    /// The default credit, which the node that asked to peer extends at
-    /// first on a scheme that neither settles over a hub nor trusts
-    /// without limit ([`ActiveScheme::start_credit`]).
-    pub credit: u64,
     pub connector: &'a Connector,
     pub endpoints: &'a BTreeMap<NodeId, u64>,
     /// The external assets the schemes settle through, for their status.
@@ -231,10 +227,9 @@ impl PeeringHooks for Hooks<'_> {
         let unlimited = active.unlimited;
         // Over a hub the hold is all the credit there is; with unlimited
         // trust, it starts at the unlimited credit
-        // (spec/areas/settlement.md#credit). On a scheme that settles
-        // directly, the node that accepted extends nothing, and the one
-        // that asked pays in advance.
-        let start = active.start_credit(0);
+        // (spec/areas/settlement.md#credit). The peer node takes no request
+        // on a scheme that would settle directly.
+        let start = active.start_credit();
         let credit_out = self.credit_for(peer, ledger, start);
         // A downlink's accounts open once value moves with it, and only if
         // they fit then: the room for them is kept from now on, while its
@@ -284,15 +279,15 @@ impl PeeringHooks for Hooks<'_> {
         info: &[u8],
     ) -> Result<Agreed, Declined> {
         let peer_name = name(peer).ok_or(Declined)?;
-        let default = self.credit;
         let active = self.scheme(scheme).ok_or(Declined)?;
         let ledger = active.scheme.ledger();
         // Over a hub the hold is all the credit there is; with unlimited
         // trust, it is the unlimited credit
-        // (spec/areas/settlement.md#credit).
+        // (spec/areas/settlement.md#credit). The peer node asks on no
+        // scheme that would settle directly.
         let hub = active.over_hub;
         let unlimited = active.unlimited;
-        let start = active.start_credit(default);
+        let start = active.start_credit();
         let credit_out = self.credit_for(peer, ledger, start);
         let active = self.scheme(scheme).ok_or(Declined)?;
         let state = active
@@ -664,7 +659,6 @@ impl Core {
         let mut hooks = Hooks {
             schemes: &mut self.schemes,
             ledger: &mut self.ledger,
-            credit: self.peer_credit,
             connector: &self.connector,
             endpoints: &self.peer_endpoints,
             assets: &self.assets,
@@ -1057,8 +1051,8 @@ impl Core {
     /// (spec/decisions/synced-before-peering.md), have not stopped, and can
     /// receive a peer's settlement. Before a scheme first synced, a peer's
     /// settlement would be booked as the owner's deposit; once it stopped,
-    /// it would be refused; while it cannot receive, as while an issuer
-    /// froze our line deep, it would fail and cost the peer a fee
+    /// it would be refused; while it cannot receive, as once its hub is
+    /// shutting down, stalled or ended, it could not be paid
     /// (spec/areas/settlement.md#when-peers-cannot-pay-us). A scheme that
     /// only lost its ledger stays, once it has synced. So the node
     /// neither offers, asks for nor accepts a peering on it; peerings already
@@ -1126,10 +1120,11 @@ impl Core {
                 claim,
             } => self.hub_claim_received(self.now_ms, &peer, request_id, &claim),
             // Asked again at the next check, not a minute later: a peer
-            // that had not yet taken in our acceptance pays in advance at
-            // once (spec/decisions/own-fulfills.md), and a request that never
-            // arrived does not use up the grace before a peer short of room
-            // is withdrawn (spec/decisions/peering-lifecycle.md). A refusal
+            // that had not yet taken in our acceptance settles once it has
+            // (spec/areas/settlement.md#asking-a-peer-to-settle), and a
+            // request that never arrived does not use up the grace before a
+            // peer short of room is withdrawn
+            // (spec/decisions/peering-lifecycle.md). A refusal
             // for not being peered, or a request that never left, says so
             // of the peering, not of one method: each of its methods may be
             // asked again.

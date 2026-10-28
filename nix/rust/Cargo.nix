@@ -4644,11 +4644,6 @@ rec {
             features = [ "ecdsa" ];
           }
           {
-            name = "rand_core";
-            packageId = "rand_core";
-            usesDefaultFeatures = false;
-          }
-          {
             name = "ripemd";
             packageId = "ripemd";
             usesDefaultFeatures = false;

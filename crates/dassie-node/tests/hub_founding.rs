@@ -245,7 +245,7 @@ impl Net {
         // The XRP book, peering with nobody, as `dassie setup` adds it.
         let book = network.xrp_scheme.as_str();
         let ledger = format!("{book}+xrp");
-        add_scheme(&sponsor, book, r#"{"peers":false}"#).await;
+        add_scheme(&sponsor, book, "").await;
         let address = ledgers(&sponsor)
             .await
             .into_iter()

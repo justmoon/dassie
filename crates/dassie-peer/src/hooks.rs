@@ -147,8 +147,8 @@ pub trait PeeringHooks {
     /// asks the peer to settle on it (spec/decisions/settlement-methods.md).
     fn settling_on(&self, peer: NodeId, scheme: SchemeId) -> bool;
 
-    /// Whether a peer's settlement on `scheme` can reach us now: not while
-    /// our line on its ledger cannot receive
+    /// Whether a peer's settlement on `scheme` can reach us now: not once
+    /// its hub is shutting down, stalled or ended
     /// (spec/areas/settlement.md#when-peers-cannot-pay-us). A method on a
     /// scheme that cannot for as long as a silent peer is kept is dropped,
     /// without collecting (spec/decisions/settlement-methods.md).
