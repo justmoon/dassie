@@ -38,6 +38,9 @@ message NetworkNode {
   // In the core, as the signed data defines it
   // (spec/decisions/promotion-to-core.md).
   bool core = 18;
+  // How many more core peers it takes, as its link state says, if it says:
+  // a core node does (spec/decisions/promotion-to-core.md).
+  optional uint32 free_core = 19;
 }
 
 enum PeerState {

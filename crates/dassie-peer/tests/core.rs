@@ -78,3 +78,31 @@ fn the_dev_core_is_core() {
         assert!(!node.majority().contains(&outsider), "never registered");
     }
 }
+
+// spec/decisions/promotion-to-core.md: a core node says in its link state how
+// many more core peers it takes, so that a node seeking to be promoted asks
+// uplinks that can promote it; a periphery node says nothing of it.
+#[test]
+fn core_nodes_say_how_many_core_peers_they_take() {
+    let mut network = Network::with_periphery(11, 3, 1, 1, Config::DEV);
+    settle(&mut network, 120_000);
+    let view = network.node(1).nodes();
+    for index in 0..3 {
+        let id = *network.node(index).own();
+        let peers = network.node(index).core_peers().count();
+        let free = u16::try_from(Config::DEV.max_peers - peers).unwrap();
+        let entry = view.iter().find(|entry| entry.id == id).unwrap();
+        assert_eq!(entry.free_core, Some(free), "node {index}");
+    }
+    let periphery = *network.node(3).own();
+    let at_uplink = (0..3)
+        .find_map(|index| {
+            network
+                .node(index)
+                .nodes()
+                .into_iter()
+                .find(|entry| entry.id == periphery && entry.sequence.is_some())
+        })
+        .expect("an uplink holds its link state");
+    assert_eq!(at_uplink.free_core, None);
+}

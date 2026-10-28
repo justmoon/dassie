@@ -13,21 +13,22 @@ use crate::config::Config;
 use crate::io::Event;
 use crate::table::{LinkState, Offered, Sources, backoff};
 use crate::wire::{
-    Content, EXTENSION_FEED, EXTENSION_PERIPHERY, Entry, HubDetails, InvalidNodeInfo,
-    LinkStateResponse, MAX_ENTRIES, MAX_NODE_INFO_BYTES, MAX_OFFERS, NodeInfo, SchemeId,
-    SettlementOffer, SignedNodeInfo, max_node_info_bytes, sign_node_info,
+    Content, EXTENSION_FEED, EXTENSION_FREE_CORE, EXTENSION_PERIPHERY, Entry, HubDetails,
+    InvalidNodeInfo, LinkStateResponse, MAX_ENTRIES, MAX_NODE_INFO_BYTES, MAX_OFFERS, NodeInfo,
+    SchemeId, SettlementOffer, SignedNodeInfo, max_node_info_bytes, sign_node_info,
 };
 
 /// The routes are recomputed at least this often, as link states go stale.
 const ROUTES_PERIOD_MS: u64 = 60_000;
 
-/// Most extensions our own link state carries: the periphery one or a
-/// feed port ([`PeerNode::own_extensions`]).
-const MAX_OWN_EXTENSIONS: usize = 1;
+/// Most extensions our own link state carries: the periphery one, or a
+/// feed port and the free core relationships
+/// ([`PeerNode::own_extensions`]).
+const MAX_OWN_EXTENSIONS: usize = 2;
 
-/// Most bytes their values take together: a feed port; the periphery one
-/// is empty.
-const MAX_OWN_EXTENSION_BYTES: usize = 2;
+/// Most bytes their values take together: a feed port and a count of free
+/// core relationships; the periphery one is empty.
+const MAX_OWN_EXTENSION_BYTES: usize = 4;
 
 /// Most bytes the details of our own offers take together: a hub's on each
 /// of [`MAX_OWN_HUBS`] schemes over a hub, and none on any other.
@@ -440,6 +441,17 @@ impl PeerNode {
         // host; a periphery node has no URL to name one at.
         if let Some(port) = self.own_info.feed_port.filter(|_| !periphery) {
             extensions.push((EXTENSION_FEED, port.to_be_bytes().to_vec()));
+        }
+        // How many more core peers a core node takes, so that a node seeking
+        // to be promoted asks uplinks that can promote it
+        // (spec/decisions/promotion-to-core.md).
+        if !self.is_periphery() {
+            let free = self
+                .config
+                .max_peers
+                .saturating_sub(self.core_peers().count());
+            let free = u16::try_from(free).unwrap_or(u16::MAX);
+            extensions.push((EXTENSION_FREE_CORE, free.to_be_bytes().to_vec()));
         }
         let bytes: usize = extensions.iter().map(|(_, value)| value.len()).sum();
         assert!(

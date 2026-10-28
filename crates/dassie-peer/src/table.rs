@@ -166,6 +166,9 @@ pub struct LinkState {
     /// Whether it is a periphery node's, without a URL: it never floods,
     /// and is reached only over the connection the node opened.
     pub periphery: bool,
+    /// How many more core peers the node takes, if it says
+    /// (spec/decisions/promotion-to-core.md).
+    pub free_core: Option<u16>,
     /// Copies of this sequence received, for suppressing the flood.
     pub copies: u8,
     /// When to forward it, if it is to be.
@@ -189,6 +192,7 @@ impl LinkState {
             neighbors,
             offers: first_of_each(&signed.info.settlement),
             periphery: signed.info.is_periphery(),
+            free_core: signed.info.free_core(),
             copies: 1,
             retransmit_at_ms: None,
             from: None,

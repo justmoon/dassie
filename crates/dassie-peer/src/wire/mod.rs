@@ -84,6 +84,12 @@ pub const EXTENSION_PERIPHERY: u16 = 2;
 /// has no URL, leave it out.
 pub const EXTENSION_FEED: u16 = 3;
 
+/// The link-state extension that says how many more core peers a core node
+/// takes (spec/decisions/promotion-to-core.md), so that a node seeking to
+/// be promoted asks uplinks that can promote it. Its value is the count, a
+/// `UInt16`. A node that is not core leaves it out.
+pub const EXTENSION_FREE_CORE: u16 = 4;
+
 /// Most bytes in the commitment a `methodPacket` carries with its Prepare
 /// on a method over a hub: a signature and what it covers, well within
 /// this.
