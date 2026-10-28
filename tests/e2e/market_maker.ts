@@ -370,6 +370,10 @@ export async function writeConfig(
     },
     marginPpm: MARGIN_PPM,
     slippagePpm: SLIPPAGE_PPM,
+    // The dev CA, as the scenario's nodes trust it
+    // (`DASSIE_EXTRA_CA_FILE`): a host such as CI's build sandbox has no
+    // roots of its own, though the fake ledger is on `ws://`.
+    caFile: scenario.caFile,
     allowPrivate: true,
   };
   const file = join(dir, "config.json");

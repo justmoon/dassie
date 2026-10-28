@@ -35,9 +35,10 @@
 //! account, which funds the hub and which its rebalances spend from
 //! (spec/areas/rate-feed.md#market-maker). The targets are not named here:
 //! they are the node's peers, the uplinks it is pinned to, whose snapshots
-//! it reads. Amounts are in the node's ledger units (scale 9).
-//! `allowPrivate` lets the XRPL server be on a private address, and on
-//! `ws://`: for dev and tests. Every problem is a [`ConfigError`]; nothing
+//! it reads. Amounts are in the node's ledger units (scale 9). `caFile`
+//! adds roots to trust the XRPL server by, besides the platform's, and
+//! `allowPrivate` lets it be on a private address, and on `ws://`: both
+//! for dev and tests, whose hosts may have no roots of their own. Every problem is a [`ConfigError`]; nothing
 //! here panics on what the file says.
 
 use std::fmt;
@@ -104,6 +105,8 @@ pub struct Config {
     pub token_ledgers: AssetLedgers,
     /// The strategy's settings.
     pub params: Params,
+    /// Roots to trust the XRPL server by, besides the platform's.
+    pub ca_file: Option<PathBuf>,
     /// Whether private addresses, and `ws://`, are allowed.
     pub allow_private: bool,
 }
@@ -186,6 +189,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
             "token",
             "marginPpm",
             "slippagePpm",
+            "caFile",
             "allowPrivate",
         ],
     )?;
@@ -194,6 +198,10 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         Some(value) => value
             .as_bool()
             .ok_or_else(|| root.invalid("allowPrivate"))?,
+    };
+    let ca_file = match root.get("caFile") {
+        None => None,
+        Some(_) => Some(PathBuf::from(root.text("caFile")?)),
     };
     let socket = PathBuf::from(root.text("socket")?);
     let passphrase_file = PathBuf::from(root.text("passphraseFile")?);
@@ -225,6 +233,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         xrp,
         token_ledgers,
         params,
+        ca_file,
         allow_private,
     })
 }
@@ -484,6 +493,9 @@ mod tests {
         assert_eq!(config.params.token.trade_size, 500_000_000);
         assert_eq!(config.params.xrp.band.high, 100_000_000_000);
         assert!(!config.allow_private);
+        assert_eq!(config.ca_file, None);
+        let config = with(|v| v["caFile"] = json!("/etc/ca.pem")).unwrap();
+        assert_eq!(config.ca_file, Some(PathBuf::from("/etc/ca.pem")));
     }
 
     // The targets are the node's peers: a config of the market maker's two
@@ -494,10 +506,6 @@ mod tests {
         assert_eq!(
             with(|v| v["targets"] = json!(["https://node.example"])),
             Err(ConfigError::Unknown("targets".into()))
-        );
-        assert_eq!(
-            with(|v| v["caFile"] = json!("/etc/ca.pem")),
-            Err(ConfigError::Unknown("caFile".into()))
         );
         assert_eq!(
             with(|v| v["xrp"]["socket"] = json!("/run/b.sock")),
@@ -535,6 +543,8 @@ mod tests {
             Err(ConfigError::Missing("passphraseFile".into()))
         );
         assert_eq!(with(|v| v["socket"] = json!("")), invalid("socket"));
+        assert_eq!(with(|v| v["caFile"] = json!("")), invalid("caFile"));
+        assert_eq!(with(|v| v["caFile"] = json!(7)), invalid("caFile"));
         assert_eq!(
             with(|v| v["xrpl"]["server"] = json!("ws://localhost:6006")),
             invalid("xrpl.server")

@@ -169,7 +169,7 @@ impl MarketMaker {
         let wallet = config::wallet_from_file(&config.passphrase_file, clock.now_ms())?;
         let mut node = Node::new(&config);
         check_node(&mut node, wallet.account(), &config.token).await?;
-        let client = OutboundClient::new(None, config.allow_private)?;
+        let client = OutboundClient::new(config.ca_file.as_deref(), config.allow_private)?;
         let mut xrpl = Xrpl::new(config.xrpl_server.clone(), client);
         xrpl.testnet_state().await?;
         tracing::info!(
