@@ -40,6 +40,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [named-decisions](named-decisions.md) | Decisions are named, not numbered | engineering |
 | [names-by-earliest-commitment](names-by-earliest-commitment.md) | A name goes to its earliest sealed commitment, held by a quorum of the bootstrap nodes' lists (design, partly built) | designs/names, network, peer-protocol |
 | [nix-flake-on-the-mirror](nix-flake-on-the-mirror.md) | NixOS takes a release from a flake on the mirror | release |
+| [no-simulations-in-tests](no-simulations-in-tests.md) | No test runs a simulation: a case one finds becomes a targeted test | testing, engineering |
 | [node-and-pnpm](node-and-pnpm.md) | Tooling on Node and pnpm, not Deno | engineering |
 | [open-payments](open-payments.md) | Open Payments, fully, and no SPSP | payments, http |
 | [open-rate-sources](open-rate-sources.md) | A node takes its rates only from sources whose terms allow its use: XRP's from mainnet's XRP/RLUSD pool, the fiat currencies' from central banks, with no peg guard until a dollar token has a price of its own (not built) | connector, xrpl, dsusd-keeper, wallet |
