@@ -15,9 +15,7 @@ use dassie_settlement::policy;
 use dassie_xrpl::UNITS_PER_DROP;
 use dassie_xrpl::fake::FakeLedger;
 
-use dassie_hub::operation::{MemberOperation, Operation, SignedMemberOperation};
-
-use super::super::{Core, Output};
+use super::super::{Core, Event, Output, SettlementEvent};
 use super::{
     NOW, Policies, SHARED_CONFIG, Validators, add_xrpl, core_with_bootstrap, deposits,
     downlink_request_on, follow_xrpl, funded_ledger, hub_books, hub_config, peer_as_downlink,
@@ -88,12 +86,31 @@ fn peer_over_hub(
     assert!(core.peer.is_downlink(&node.node_id()));
 }
 
+/// `peer`, a downlink with a URL, turns core from `at` on, once the core
+/// the node computes names it: the dev core list does here
+/// (spec/decisions/promotion-to-core.md). Returns when it did.
+fn turn_core(core: &mut Core, peer: NodeId, at: u64) -> u64 {
+    let own = *core.peer.own();
+    core.peer.set_dev_core(vec![own, peer]);
+    let mut at = at;
+    while core.peer.is_downlink(&peer) {
+        at += 1_000;
+        assert!(at < NOW + 600_000, "it turns core");
+        step_with_list(core, at, &[peer]);
+    }
+    at
+}
+
 /// A core node in the XRP hub whose account, number 5, holds `balance`
-/// drops as last agreed, with a core peer peered over the hub as account
-/// [`CORE_ACCOUNT`] and a downlink as account [`DOWNLINK_ACCOUNT`]: the
-/// core, the hub, the core peer and the downlink. The core peer is a
-/// downlink first, which turns core once its bootstrap node lists it.
-fn hub_with_peers(ledger: &mut FakeLedger, balance: u64) -> (Core, Validators, NodeId, NodeId) {
+/// drops as last agreed, all of it the owner's deposits, with a core peer
+/// peered over the hub as account [`CORE_ACCOUNT`] and a downlink as account
+/// [`DOWNLINK_ACCOUNT`]: the core, the hub, the core peer, the downlink and
+/// what deposits credited the account. The core peer is a downlink first,
+/// which turns core once its bootstrap node lists it.
+fn hub_with_peers(
+    ledger: &mut FakeLedger,
+    balance: u64,
+) -> (Core, Validators, NodeId, NodeId, u64) {
     let mut core = core_with_bootstrap(Arc::new(Store::open_in_memory().unwrap()));
     add_xrpl(&mut core, "xrpl-testnet-xrp", SHARED_CONFIG).unwrap();
     follow_xrpl(&mut core, ledger);
@@ -102,97 +119,52 @@ fn hub_with_peers(ledger: &mut FakeLedger, balance: u64) -> (Core, Validators, N
     let mut hub = Validators::new();
     hub.no_account(&mut core);
     wait_and_close(&mut core, ledger, 1_000);
-    let opening = deposits(ledger, hub.escrow())[0].amount;
-    hub.account(&mut core, balance, opening);
+    let deposited = deposits(ledger, hub.escrow())[0].amount + balance;
+    hub.account(&mut core, balance, deposited);
 
     let downlink = Arc::new(dassie_identity::TableKeygen::identity_key(&[11; 32]));
     let peer = Arc::new(dassie_identity::TableKeygen::identity_key(&[14; 32]));
-    let mut at = core.now_ms() + 1_000;
+    let at = core.now_ms() + 1_000;
     peer_over_hub(&mut core, &hub, &downlink, (DOWNLINK_ACCOUNT, 12), at);
     peer_over_hub(&mut core, &hub, &peer, (CORE_ACCOUNT, 13), at + 1);
     send_link_state(&mut core, &peer, at + 2, Some("https://c.example:4443"));
     let (downlink, peer) = (downlink.node_id(), peer.node_id());
-    while core.peer.is_downlink(&peer) {
-        at += Policies::DEFAULT.peer.list_poll_interval_ms;
-        step_with_list(&mut core, at, &[peer]);
-    }
-    hub.account(&mut core, balance, opening);
+    turn_core(&mut core, peer, at + 3);
+    hub.account(&mut core, balance, deposited);
     assert!(core.peer.peering_of(&downlink).is_some(), "the downlink");
     assert!(core.peer.peering_of(&peer).is_some(), "the core peer");
     assert!(core.peer.is_downlink(&downlink));
-    (core, hub, peer, downlink)
+    (core, hub, peer, downlink, deposited)
 }
 
-/// The operations the node submitted to the validators, each once.
-fn submitted(outputs: &[Output]) -> Vec<SignedMemberOperation> {
-    use dassie_hub::client::Request;
-    use dassie_hub::service::wire::Message;
-
-    let mut seen = Vec::new();
-    for output in outputs {
-        let Output::HubSend { message, .. } = output else {
-            continue;
-        };
-        if let Ok(Message::Request(Request::Submit(Operation::Member(signed)))) =
-            Message::decode_exact(message)
-            && !seen.contains(&signed)
-        {
-            seen.push(signed);
-        }
-    }
-    seen
+/// What a request of `node`'s over the hub may fund at most while the
+/// hub's funds are short: what the account can spend beyond what the
+/// other peers' reserves need.
+fn room(core: &Core, node: NodeId) -> u64 {
+    let scheme = scheme_id(SCHEME_ID);
+    let allotments = core.hub_allotments(scheme).unwrap();
+    let (held, _, _) = core
+        .hub_books(dassie_ledger::name!(SCHEME_ID), node)
+        .unwrap_or_default();
+    let spendable = core.spendable_for(node, scheme);
+    allotments.room(&node, held, spendable).unwrap()
 }
 
-/// The hub applies `ours`, opening hold 1, in a new final block, after
-/// which the node's account 5 holds `balance` and deposits credited it
-/// `deposited`.
-fn applied(
-    core: &mut Core,
-    hub: &mut Validators,
-    ours: &SignedMemberOperation,
-    (balance, deposited): (u64, u64),
-) {
-    use dassie_hub::client::{AccountView, Statement};
-    use dassie_hub::ledger::{Detail, Outcome};
-    use dassie_hub::operation::AccountNumber;
-    use dassie_hub::promise::HoldNumber;
+/// What a peer's own share pays for its hold's opening: the hub's fee and
+/// the reserve a new hold locks.
+fn opening() -> u64 {
+    let fees = Validators::new().rules.terms.fees;
+    (fees.operation + fees.hold_reserve) * UNITS_PER_DROP
+}
 
-    hub.height += 1;
-    let fees = hub.rules.terms.fees;
-    let view = AccountView {
-        key: hub.member,
-        balance,
-        reserve: fees.account_reserve,
-        sequence: ours.sequence + 1,
-        disbursal: true,
-        closing: false,
-        deposited,
-        withdrawn: 0,
-        returned: 0,
-    };
-    let timestamp = NOW + hub.height;
-    let statements = [
-        Statement::Executed {
-            height: hub.height,
-            timestamp,
-            index: 0,
-            operation: Operation::Member(ours.clone()),
-            outcome: Outcome::Applied {
-                fee: fees.operation,
-                detail: Detail::Hold(HoldNumber(1)),
-            },
-        },
-        Statement::Account {
-            height: hub.height,
-            key: hub.member,
-            account: Some((AccountNumber(5), view)),
-        },
-        Statement::Final {
-            height: hub.height,
-            timestamp,
-        },
-    ];
-    hub.say(core, &statements);
+/// Whether `outputs` say a request from `peer` was capped by the
+/// allotments.
+fn allotted(outputs: &[Output], peer: NodeId) -> bool {
+    outputs.iter().any(|output| {
+        matches!(output,
+            Output::Event(Event::Settlement(SettlementEvent::RequestAllotted { node, .. }))
+                if *node == peer)
+    })
 }
 
 /// The allotment the owner sees of the hold toward `peer`, once there is
@@ -206,100 +178,129 @@ fn allotment_shown(core: &Core, peer: NodeId) -> Option<u64> {
 }
 
 // With less in the hub than every peer's default credit, the core peer is
-// allotted the least hold before the downlink gets anything, and a request
-// of the core peer's funds the hold up to its allotment, less than the
-// rule says, and nothing more while it holds that; the request is kept,
-// to be funded once the hold has room under the allotment again.
+// allotted the least hold before the downlink, and its request funds the
+// hold only with what the account can spend beyond the downlink's reserve,
+// a largest packet: less than the rule says. The request is kept.
 #[test]
-fn a_scarce_pool_funds_a_core_peer_up_to_its_allotment() {
+fn a_scarce_pool_keeps_the_others_reserves() {
     let (mut ledger, _) = funded_ledger();
-    // Eight packets: the least hold for the core peer, the rest for the
+    // Seven packets: the least hold for the core peer, the rest for the
     // downlink.
-    let pool = 8 * P;
-    let (mut core, _hub, peer, downlink) = hub_with_peers(&mut ledger, pool / UNITS_PER_DROP);
+    let pool = 7 * P;
+    let (mut core, _, peer, downlink, _) = hub_with_peers(&mut ledger, pool / UNITS_PER_DROP);
     let scheme = scheme_id(SCHEME_ID);
     let least = policy::least_hold(P, Policies::DEFAULT.connector.max_in_flight());
     let allotments = core.hub_allotments(scheme).unwrap();
     assert!(!allotments.plentiful);
     assert_eq!(allotments.peers, [(peer, least), (downlink, pool - least)]);
-    assert!(least < one_request(), "the allotment caps the request");
+    assert_eq!(allotments.reserved, [P, P]);
+    let spendable = core.spendable_for(peer, scheme).unwrap();
+    let room = room(&core, peer);
+    assert_eq!(room, spendable - P);
+    assert!(room < one_request(), "the downlink's reserve caps it");
 
     let at = core.now_ms() + 1_000;
     core.begin_step(at);
-    assert_eq!(core.settlement_requested(peer, scheme), least);
+    assert_eq!(core.settlement_requested(peer, scheme), room);
     assert!(core.settle.unanswered.contains_key(&(peer, scheme)), "kept");
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
+    assert!(allotted(&outputs, peer), "said so");
     for later in 1..5 {
         let at = core.now_ms() + later * 1_000;
         core.begin_step(at);
         core.finish_step(&mut outputs);
     }
-    // Funded once, up to the allotment: what was on its way is all the
-    // core peer gets until the hold falls back under it.
+    // Funded once: the downlink's packet stays spendable, of which its own
+    // hold's opening is paid.
     let (credit, _, _) = core
         .hub_books(dassie_ledger::name!(SCHEME_ID), peer)
         .unwrap();
-    assert_eq!(credit, least);
+    assert_eq!(credit, room);
+    let left = core.spendable_for(downlink, scheme).unwrap();
+    assert!(left + opening() >= P, "the downlink's packet is left");
     core.check_invariants();
 }
 
-// A hold at its allotment takes no more: once the hub applied the core
-// peer's hold, funded up to its allotment, the owner sees the allotment
-// beside it, and the peer's next request funds nothing, booked nothing, and
-// is kept until the hold has room under the allotment again.
+// spec/decisions/hold-allotment.md: an idle peer's share strands nothing.
+// Twelve packets give the core peer seven and a half and the downlink its
+// least hold; the core peer idle, the busy downlink's request is funded as
+// the rule says, past its allotment, from what the core peer leaves unused
+// above its packet.
 #[test]
-fn a_hold_at_its_allotment_takes_no_more() {
+fn a_busy_peer_takes_past_its_allotment_what_idle_shares_leave() {
+    let (mut ledger, _) = funded_ledger();
+    let pool = 12 * P;
+    let (mut core, _, peer, downlink, _) = hub_with_peers(&mut ledger, pool / UNITS_PER_DROP);
+    let scheme = scheme_id(SCHEME_ID);
+    let least = policy::least_hold(P, Policies::DEFAULT.connector.max_in_flight());
+    let allotments = core.hub_allotments(scheme).unwrap();
+    assert_eq!(allotments.peers, [(peer, pool - least), (downlink, least)]);
+    assert!(one_request() > least, "the rule asks past the allotment");
+    assert!(room(&core, downlink) >= one_request());
+
+    let at = core.now_ms() + 1_000;
+    core.begin_step(at);
+    assert_eq!(core.settlement_requested(downlink, scheme), one_request());
+    assert!(!core.settle.unanswered.contains_key(&(downlink, scheme)));
+    core.finish_step(&mut Vec::new());
+    let (credit, _, _) = core
+        .hub_books(dassie_ledger::name!(SCHEME_ID), downlink)
+        .unwrap();
+    assert_eq!(credit, one_request());
+    let left = core.spendable_for(peer, scheme).unwrap();
+    assert!(left + opening() >= P, "the core peer's packet is left");
+    core.check_invariants();
+}
+
+// With twenty packets the pool falls short of both peers' default credit,
+// yet the core peer, idle, leaves enough unused: the busy downlink's hold
+// may rise to the default credit, past its allotment, while the core
+// peer's packet stays set aside.
+#[test]
+fn a_busy_peer_may_rise_to_the_default_credit() {
+    let (mut ledger, _) = funded_ledger();
+    let pool = 20 * P;
+    let (core, _, peer, downlink, _) = hub_with_peers(&mut ledger, pool / UNITS_PER_DROP);
+    let allotments = core.hub_allotments(scheme_id(SCHEME_ID)).unwrap();
+    assert!(!allotments.plentiful);
+    let full = Policies::DEFAULT.peer_credit;
+    assert!(allotments.of(&downlink).unwrap() < full);
+    assert_eq!(room(&core, downlink), full);
+    let spendable = core.spendable_for(downlink, scheme_id(SCHEME_ID)).unwrap();
+    let reserved = allotments.reserved[allotments.rank(&peer)];
+    assert!(spendable - full >= reserved);
+}
+
+// While the core peer's packet takes what the account can spend, the
+// downlink's request funds nothing, books nothing, says the allotments
+// capped it, and is kept until there is room; the owner sees the core
+// peer's allotment beside the node's hold toward it.
+#[test]
+fn a_request_the_others_reserves_leave_nothing_waits() {
     let (mut ledger, _) = funded_ledger();
     let least = policy::least_hold(P, Policies::DEFAULT.connector.max_in_flight());
-    let pool = 8 * P / UNITS_PER_DROP;
-    let (mut core, mut hub, peer, _) = hub_with_peers(&mut ledger, pool);
-    let opening = deposits(&mut ledger, hub.escrow())[0].amount;
+    let balance = 3 * P / UNITS_PER_DROP;
+    let (mut core, mut hub, peer, downlink, deposited) = hub_with_peers(&mut ledger, balance);
+    hub.opened_hold(&mut core, P / UNITS_PER_DROP / 10, balance, deposited);
     let scheme = scheme_id(SCHEME_ID);
-    let at = core.now_ms() + 1_000;
-    core.begin_step(at);
-    assert_eq!(core.settlement_requested(peer, scheme), least);
-    let mut outputs = Vec::new();
-    core.finish_step(&mut outputs);
-    let funding = submitted(&outputs)
-        .into_iter()
-        .find(|signed| matches!(signed.operation, MemberOperation::HoldOpen { .. }))
-        .unwrap();
-    let fee = hub.rules.terms.fees.operation;
-    let left = pool - least / UNITS_PER_DROP - fee;
-    applied(&mut core, &mut hub, &funding, (left, opening));
-    // Its notice goes, and the peer acknowledges it.
-    let at = core.now_ms() + 1_000;
-    let mut outputs = Vec::new();
-    core.begin_step(at);
-    core.finish_step(&mut outputs);
-    let notice = outputs
-        .into_iter()
-        .find_map(|output| match output {
-            Output::PeerRequest(request) if request.to == peer => Some(request.id),
-            _ => None,
-        })
-        .unwrap();
-    core.begin_step(at);
-    let done = dassie_peer::Response {
-        status: 200,
-        body: Vec::new(),
-    };
-    core.peer_response(notice, Ok(done));
-    core.finish_step(&mut Vec::new());
-    let hub_scheme = dassie_ledger::name!(SCHEME_ID);
-    let (credit, _, settling) = core.hub_books(hub_scheme, peer).unwrap();
-    assert_eq!((credit, settling), (least, 0));
-    assert_eq!(allotment_shown(&core, peer), Some(least));
+    let share = core.hub_allotments(scheme).unwrap().of(&peer);
+    assert!(share.is_some_and(|share| share < least));
+    assert_eq!(allotment_shown(&core, peer), share);
+    assert!(room(&core, downlink) < policy::minimum(P));
 
     let at = core.now_ms() + 1_000;
     core.begin_step(at);
     let before = core.ledger.next_transfer_id();
-    assert_eq!(core.settlement_requested(peer, scheme), 0);
+    assert_eq!(core.settlement_requested(downlink, scheme), 0);
     assert_eq!(core.ledger.next_transfer_id(), before, "booked nothing");
-    assert!(core.settle.unanswered.contains_key(&(peer, scheme)), "kept");
-    core.finish_step(&mut Vec::new());
-    assert_eq!(core.hub_books(hub_scheme, peer).unwrap().0, least);
+    assert!(
+        core.settle.unanswered.contains_key(&(downlink, scheme)),
+        "kept"
+    );
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    assert!(allotted(&outputs, downlink), "said so");
     core.check_invariants();
 }
 
@@ -309,19 +310,20 @@ fn a_hold_at_its_allotment_takes_no_more() {
 #[test]
 fn a_plentiful_pool_funds_what_the_rule_says() {
     let (mut ledger, _) = funded_ledger();
-    let pool = 2 * Policies::DEFAULT.peer_credit;
-    let (mut core, mut hub, peer, downlink) = hub_with_peers(&mut ledger, pool / UNITS_PER_DROP);
-    let opening = deposits(&mut ledger, hub.escrow())[0].amount;
+    // Every peer's default credit, and what opening its hold costs.
+    let pool = 3 * Policies::DEFAULT.peer_credit;
+    let (mut core, mut hub, peer, downlink, deposited) =
+        hub_with_peers(&mut ledger, pool / UNITS_PER_DROP);
     hub.opened_hold(
         &mut core,
         P / UNITS_PER_DROP,
         pool / UNITS_PER_DROP,
-        opening,
+        deposited,
     );
     let scheme = scheme_id(SCHEME_ID);
     let allotments = core.hub_allotments(scheme).unwrap();
     assert!(allotments.plentiful);
-    assert_eq!(allotments.of(&peer), None);
+    assert_eq!(allotments.room(&peer, 0, Some(0)), None, "nothing capped");
     let full = Policies::DEFAULT.peer_credit;
     assert_eq!(allotment_shown(&core, peer), Some(full));
 
@@ -348,15 +350,12 @@ fn late_requests_go_to_core_peers_first() {
     let stub = scheme_id("stub");
     let downlink = Arc::new(dassie_identity::TableKeygen::identity_key(&[11; 32]));
     let peer = Arc::new(dassie_identity::TableKeygen::identity_key(&[14; 32]));
-    let mut at = NOW + 1_000;
+    let at = NOW + 1_000;
     peer_as_downlink(&mut core, &downlink, at);
     peer_as_downlink(&mut core, &peer, at + 1);
     send_link_state(&mut core, &peer, at + 2, Some("https://c.example:4443"));
     let (downlink, peer) = (downlink.node_id(), peer.node_id());
-    while core.peer.is_downlink(&peer) {
-        at += Policies::DEFAULT.peer.list_poll_interval_ms;
-        step_with_list(&mut core, at, &[peer]);
-    }
+    let at = turn_core(&mut core, peer, at + 3);
     assert!(downlink < peer, "the downlink first by node ID");
     drain(&mut core);
     core.begin_step(at + 1_000);

@@ -140,13 +140,14 @@
       <p>
         <strong>Short of funds, your node shares them out.</strong> When what
         your node has in the hub, its balance and its holds, cannot give
-        every peer a full hold, each peer gets a share, and a request to
-        settle tops its hold up to that share and no further. Every peer
-        first gets enough to carry a full load of packets in flight. Peers
-        in the core of the network come before peers that use your node as
-        their way in, and what is left goes to those that earned your node
-        the most fees, with a little spread over all, so a new peer can
-        start to earn. A hold above its share is never taken back; it
+        every peer a full hold, each peer gets a share: first enough to
+        carry a full load of packets in flight, peers in the core of the
+        network before peers that use your node as their way in, and what
+        is left to those that earned your node the most fees, with a little
+        spread over all, so a new peer can start to earn. Every peer can
+        always count on one largest packet. A busy peer may take more, up to
+        a full hold, from what idle peers leave unused, but never another
+        peer's packet. A hold above its share is never taken back; it
         shrinks as the peer takes from it.
       </p>
       <p

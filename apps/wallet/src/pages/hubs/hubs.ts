@@ -261,8 +261,8 @@ export interface HoldRow {
   account: number;
   amount: bigint;
   /**
-   * For a hold of ours toward a peer: the most a request to settle raises
-   * it to, the peer's share of what the node can hold in the hub.
+   * For a hold of ours toward a peer: the peer's share of what the node can
+   * hold in the hub.
    */
   allotment?: bigint;
 }
@@ -284,7 +284,7 @@ export function holdRows(
   }));
 }
 
-/** Whether any hold says how far a request raises it. */
+/** Whether any hold says its peer's share. */
 export function holdsAllotted(
   holds: readonly { allotment?: bigint }[],
 ): boolean {

@@ -340,8 +340,8 @@ function HubAccount(
 
 /**
  * Holds toward peers, or from them: each peer's, and their total. Ours
- * toward peers say how far a request to settle raises each, the peer's
- * share of what the node can hold in the hub.
+ * toward peers say each peer's share of what the node can hold in the
+ * hub.
  */
 function Holds(props: {
   title: string;
@@ -364,7 +364,7 @@ function Holds(props: {
                 <th scope="col">Peer</th>
                 <th scope="col">Held</th>
                 <Show when={holdsAllotted(props.holds)}>
-                  <th scope="col">Up to</th>
+                  <th scope="col">Share</th>
                 </Show>
               </tr>
             </thead>

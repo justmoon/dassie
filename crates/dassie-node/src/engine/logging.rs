@@ -474,6 +474,9 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::RequestShort { node, scheme } => {
             emit!(severity, target: target::SETTLEMENT, %node, %scheme, "asked to settle with less on hand than the request calls for: the rest follows once the scheme can fund it");
         }
+        SettlementEvent::RequestAllotted { node, scheme } => {
+            emit!(severity, target: target::SETTLEMENT, %node, %scheme, "asked to settle while the hub's funds are short: what the other peers' reserves need keeps the hold toward this peer from rising further; the rest follows once there is room");
+        }
         SettlementEvent::Reconciling { .. }
         | SettlementEvent::UnknownExecuted { .. }
         | SettlementEvent::AnnounceFailed { .. }
@@ -571,6 +574,7 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::SchemeUnavailable { .. }
         | SettlementEvent::PrepareFailed { .. }
         | SettlementEvent::RequestShort { .. }
+        | SettlementEvent::RequestAllotted { .. }
         | SettlementEvent::HistoryGap { .. }
         | SettlementEvent::SettlementUnproven { .. }
         // Logged by `settled_by_peers`.

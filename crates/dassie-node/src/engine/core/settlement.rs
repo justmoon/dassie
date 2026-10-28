@@ -20,6 +20,7 @@ use dassie_peer::wire::SchemeId;
 use dassie_settlement::{DollarRate, LedgerStatus, policy};
 
 use super::events::SettlementEvent;
+use super::hub_allotment::Allotments;
 use super::{Core, EngineError};
 use crate::node::Policies;
 
@@ -152,9 +153,9 @@ enum Answer {
     /// answer: a request that was short stays so.
     OnItsWay,
     /// Over a hub whose funds are short, with less than the rule asks, or
-    /// nothing, as the peer's allotment caps the hold toward it: funded as
-    /// soon as the hold has room under it again, as the payee takes from
-    /// it (spec/decisions/hold-allotment.md).
+    /// nothing, as what the other peers' reserves need caps the hold
+    /// toward it: funded as soon as there is room again
+    /// (spec/decisions/hold-allotment.md).
     Allotted,
     /// Never on this method: we settle nothing on it, or the peering has
     /// no such method.
@@ -163,7 +164,7 @@ enum Answer {
 
 impl Answer {
     /// A request funded as far as the rule goes: in full, or as far as the
-    /// peer's allotment lets it, if that cut it short.
+    /// hub's allotments let it, if they cut it short.
     const fn funded(allotted: bool) -> Self {
         if allotted { Self::Allotted } else { Self::Full }
     }
@@ -626,20 +627,22 @@ impl Core {
     /// way, which is the whole answer, or the one made now.
     pub(super) fn settlement_requested(&mut self, node: NodeId, scheme: SchemeId) -> u64 {
         let key = (node, scheme);
-        let allotment = self
-            .hub_allotments(scheme)
-            .and_then(|allotments| allotments.of(&node));
-        match self.fund_request(node, scheme, allotment) {
+        let allotments = self.hub_allotments(scheme);
+        match self.fund_request(node, scheme, allotments.as_ref()) {
             Answer::Full | Answer::Never => {
                 self.settle.unanswered.remove(&key);
             }
-            Answer::Short | Answer::Allotted => {
+            answer @ (Answer::Short | Answer::Allotted) => {
                 let asked = Unanswered {
                     asked_ms: self.now_ms,
                     tried: None,
                 };
                 if self.settle.unanswered.insert(key, asked).is_none() {
-                    self.report(SettlementEvent::RequestShort { node, scheme });
+                    self.report(if answer == Answer::Allotted {
+                        SettlementEvent::RequestAllotted { node, scheme }
+                    } else {
+                        SettlementEvent::RequestShort { node, scheme }
+                    });
                 }
                 self.refill_soon(scheme);
             }
@@ -660,8 +663,9 @@ impl Core {
     /// Each method's requests are funded in the order of priority, core
     /// peers by what they earned us and then downlinks, so that while the
     /// scheme can spend too little for all, the peers that carry the most
-    /// are funded first; and over a hub up to each one's allotment, which
-    /// is worked out once for each hub here (spec/decisions/hold-allotment.md).
+    /// are funded first; and over a hub as far as the others' reserves
+    /// leave, which are worked out once for each hub here
+    /// (spec/decisions/hold-allotment.md).
     pub(super) fn answer_late(&mut self) {
         if self.settle.unanswered.is_empty() {
             return;
@@ -684,7 +688,7 @@ impl Core {
             allotments
                 .get(scheme)
                 .and_then(Option::as_ref)
-                .map_or(0, |of: &super::hub_allotment::Allotments| of.rank(node))
+                .map_or(0, |of: &Allotments| of.rank(node))
         };
         kept.sort_by_key(|(key, _)| (key.1, rank(key), key.0));
         for ((node, scheme), unanswered) in kept {
@@ -704,11 +708,8 @@ impl Core {
             if spendable < self.settle.minimum || unanswered.tried == Some(spendable) {
                 continue;
             }
-            let allotment = allotments
-                .get(&scheme)
-                .and_then(Option::as_ref)
-                .and_then(|allotments| allotments.of(&node));
-            match self.fund_request(node, scheme, allotment) {
+            let shares = allotments.get(&scheme).and_then(Option::as_ref);
+            match self.fund_request(node, scheme, shares) {
                 Answer::Full | Answer::Never => {
                     self.settle.unanswered.remove(&key);
                 }
@@ -722,9 +723,10 @@ impl Core {
                         unanswered.tried = tried;
                     }
                 }
-                // Capped by its allotment, it is tried again at the next
-                // step: what frees room under the cap, the payee taking
-                // from the hold, changes nothing the scheme can spend.
+                // Capped by the others' reserves, it is tried again at
+                // the next step: what frees room, another peer's hold
+                // filling its reserve, changes nothing the scheme can
+                // spend.
                 Answer::Allotted => {
                     if let Some(unanswered) = self.settle.unanswered.get_mut(&key) {
                         unanswered.tried = None;
@@ -749,7 +751,7 @@ impl Core {
 
     /// What a settlement to `node` on `scheme` could move now, as its
     /// scheme clamps it; `None` if the scheme cannot tell.
-    fn spendable_for(&self, node: NodeId, scheme: SchemeId) -> Option<u64> {
+    pub(super) fn spendable_for(&self, node: NodeId, scheme: SchemeId) -> Option<u64> {
         let name = Name::new(scheme.as_str()).ok()?;
         let peer = Name::new(node.as_str()).ok()?;
         let active = self.schemes.get(&name).filter(|a| a.failed.is_none())?;
@@ -766,9 +768,14 @@ impl Core {
     /// scheme cannot fund with the least settlement funds nothing, rather
     /// than make the hub's fee for a few drops: the rest follows once it
     /// can (spec/decisions/settle-when-funds-arrive.md). Over a hub whose
-    /// funds are short, the hold toward the peer goes no higher than its
-    /// `allotment` (spec/decisions/hold-allotment.md).
-    fn fund_request(&mut self, node: NodeId, scheme: SchemeId, allotment: Option<u64>) -> Answer {
+    /// funds are short, the hold toward the peer goes only as high as the
+    /// hub's `allotments` leave room for (spec/decisions/hold-allotment.md).
+    fn fund_request(
+        &mut self,
+        node: NodeId,
+        scheme: SchemeId,
+        allotments: Option<&Allotments>,
+    ) -> Answer {
         // With unlimited trust, nothing is ever settled, nor on its way.
         if self.settle.never_settles || self.unlimited(scheme) {
             return Answer::Never;
@@ -799,9 +806,9 @@ impl Core {
             _ => None,
         };
         // Paying a peer in pays what we owe it, which no hold caps.
-        let allotment = allotment.filter(|_| paying.is_none());
+        let allotments = allotments.filter(|_| paying.is_none());
         let Some((mut at, mut over_hub, mut amount, mut allotted)) =
-            self.requested(node, scheme, allotment)
+            self.requested(node, scheme, allotments)
         else {
             return Answer::Never;
         };
@@ -831,7 +838,7 @@ impl Core {
             if !self.open_downlink_accounts(node, at.scheme) {
                 return Answer::Never;
             }
-            let Some(opened) = self.requested(node, scheme, allotment) else {
+            let Some(opened) = self.requested(node, scheme, allotments) else {
                 return Answer::Never;
             };
             (at, over_hub, amount, allotted) = opened;
@@ -865,17 +872,18 @@ impl Core {
     }
 
     /// Where we stand with `node` on `scheme`, whether it is over a hub,
-    /// what we would settle to it now when asked, and whether its
-    /// `allotment` made that less than the rule asks. Over a hub, a request
-    /// raises the hold toward the peer, the credit we extend it, at most
-    /// to the allotment, and by nothing less than the least settlement; a
-    /// hold above it stays, and shrinks as the peer takes from it
+    /// what we would settle to it now when asked, and whether the hub's
+    /// `allotments` made that less than the rule asks. Over a hub whose
+    /// funds are short, a request raises the hold toward the peer, the
+    /// credit we extend it, at most to the default credit, and only with
+    /// what the account can spend beyond what the other peers' reserves
+    /// need, by nothing less than the least settlement
     /// (spec/decisions/hold-allotment.md).
     fn requested(
         &self,
         node: NodeId,
         scheme: SchemeId,
-        allotment: Option<u64>,
+        allotments: Option<&Allotments>,
     ) -> Option<(Position, bool, u64, bool)> {
         let at = self.position(node, scheme)?;
         let over_hub = self
@@ -888,9 +896,10 @@ impl Core {
             at.position
         };
         let asked = policy::requested_amount(position, self.settle.trigger, self.settle.minimum);
-        let room = allotment
-            .filter(|_| over_hub)
-            .map(|allotment| allotment.saturating_sub(at.credit_out));
+        let room = allotments.filter(|_| over_hub).and_then(|allotments| {
+            let spendable = self.spendable_for(node, scheme);
+            allotments.room(&node, at.credit_out, spendable)
+        });
         let (capped, allotted) = match room {
             Some(room) if room < asked => {
                 let room = if room < self.settle.minimum { 0 } else { room };

@@ -393,9 +393,9 @@ fn moving_text(status: &proto::HubStatus, moving: &proto::HubMove) -> String {
     said
 }
 
-/// Each hold, and for one of ours toward a peer, the most a request to
-/// settle raises it to: the peer's allotment of what the node can hold in
-/// the hub (spec/decisions/hold-allotment.md).
+/// Each hold, and for one of ours toward a peer, the peer's allotment: its
+/// share of what the node can hold in the hub
+/// (spec/decisions/hold-allotment.md).
 fn holds(status: &proto::HubStatus, holds: &[proto::HubHold], way: &str) -> String {
     if holds.is_empty() {
         return "no holds".into();
@@ -408,7 +408,7 @@ fn holds(status: &proto::HubStatus, holds: &[proto::HubHold], way: &str) -> Stri
         };
         let mut said = format!("{} {way} {who}", text(status, hold.amount));
         if let Some(allotment) = hold.allotment {
-            said.push_str(&format!(", up to {}", text(status, allotment)));
+            said.push_str(&format!(", its share {}", text(status, allotment)));
         }
         said
     }))
@@ -564,8 +564,8 @@ mod tests {
     }
 
     // spec/decisions/hold-allotment.md: a hold of ours toward a peer says
-    // the most a request raises it to; a peer's toward us, and one toward
-    // an account the node does not peer with, have no such bound.
+    // the peer's share; a peer's toward us, and one toward an account the
+    // node does not peer with, have none.
     #[test]
     fn holds_say_their_allotment() {
         let status = proto::HubStatus {
@@ -590,7 +590,7 @@ mod tests {
         assert_eq!(
             lines,
             [
-                "0.5 XRP to dA (account 7), up to 0.45 XRP",
+                "0.5 XRP to dA (account 7), its share 0.45 XRP",
                 "0.3 XRP to account 9"
             ]
         );

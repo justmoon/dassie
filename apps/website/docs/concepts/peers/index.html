@@ -88,8 +88,10 @@
           hub account cannot give every peer a full hold, each gets a share:
           enough for a full load of packets in flight first, core peers
           before the peers that use your node as their way in, and the rest
-          by the fees each earned you. A request tops a hold up to its share,
-          and requests that waited for funds are answered in the same order.
+          by the fees each earned you. Each can always count on one largest
+          packet; a busy peer may take more from what idle ones leave
+          unused. Requests
+          that waited for funds are answered in the same order.
           <a href="/docs/concepts/hubs/#holds">Settlement hubs</a> says more.
         </li>
         <li>

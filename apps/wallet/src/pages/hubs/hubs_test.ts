@@ -199,9 +199,9 @@ test("holds are listed as the node reports them", () => {
 });
 
 // spec/decisions/hold-allotment.md: a hold of ours toward a peer says the
-// most a request raises it to; one toward an account the node does not
-// peer with says nothing.
-test("holds of ours say how far a request raises them", () => {
+// peer's share; one toward an account the node does not peer with says
+// nothing.
+test("holds of ours say their peer's share", () => {
   const holds = [
     create(HubHoldSchema, {
       peer: "dA",

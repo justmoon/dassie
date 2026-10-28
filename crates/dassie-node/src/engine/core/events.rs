@@ -312,6 +312,17 @@ pub enum SettlementEvent {
         /// The method's scheme.
         scheme: dassie_peer::wire::SchemeId,
     },
+    /// A peer's request to settle over a hub whose funds are short was
+    /// funded short of what the rule asks, or not at all, as the other
+    /// peers' reserves need what the account could spend: the rest is
+    /// funded once there is room, until the peer would ask again
+    /// (spec/decisions/hold-allotment.md).
+    RequestAllotted {
+        /// The peer.
+        node: NodeId,
+        /// The method's scheme.
+        scheme: dassie_peer::wire::SchemeId,
+    },
     /// A scheme cannot settle now, said now and then.
     SchemeUnavailable {
         /// The peer.
@@ -569,6 +580,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::Settling { .. }
         | SettlementEvent::Reconciling { .. }
         | SettlementEvent::RequestShort { .. }
+        | SettlementEvent::RequestAllotted { .. }
         | SettlementEvent::PeerSettled { .. }
         | SettlementEvent::PegResumed { .. }
         // The books follow what is above the reserve: a change of it is

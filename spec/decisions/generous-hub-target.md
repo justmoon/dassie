@@ -19,7 +19,7 @@
 - **A step either way.** The node deposits once what it keeps falls a tenth below the target, back up to it, and withdraws once it rises a tenth above, back down to it. So a deposit or a withdrawal carries a hundred packets' worth, never one per settlement.
 - **What requests to settle need stays spendable,** whatever the holds: per peering over the hub, what one request has the node fund, at most half a step. A balance below it calls for a deposit, past the ceiling if the holds keep the hub there, as an owner's payment does, and a withdrawal never takes it.
 - **The XRP book keeps the gas** of a token hub the node is in on its network, twice that hub's least escrow gas, out of the node's own deposits. A node in no token hub keeps none back: its XRP pays for nothing else.
-- **How the hub's funds are shared out among peers is the allotments' business,** not the target's: the target says how much to deploy, and each peer's allotment how much of it the hold toward that peer may take ([hold-allotment](hold-allotment.md)).
+- **How the hub's funds are shared out among peers is the allotments' business,** not the target's: the target says how much to deploy, and the allotments how much of it each peer can count on, and what a busy one may take beyond that ([hold-allotment](hold-allotment.md)).
 
 ## Accepted
 

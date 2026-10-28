@@ -38,7 +38,7 @@ message HubHold {
   // covers every peer, the default credit; otherwise first the least hold,
   // core peers before downlinks, then the rest by the fees each earned the
   // node. A busy peer may take more, up to the default credit, from what
-  // the others leave unused, never what another needs for its least hold.
+  // the others leave unused, never what another needs for a largest packet.
   // A hold above it is not taken back: it shrinks as the peer takes from it.
   optional uint64 allotment = 4;
 }

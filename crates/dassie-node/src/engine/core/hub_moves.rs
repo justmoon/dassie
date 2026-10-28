@@ -141,9 +141,9 @@ pub struct HubHold {
     /// What is left in it, in internal units.
     pub amount: u64,
     /// For a hold of ours toward a peer the node peers with over the hub,
-    /// the most a request to settle raises it to: the peer's allotment of
-    /// what the node can hold, the default credit while that covers every
-    /// peer (spec/decisions/hold-allotment.md).
+    /// the peer's allotment, its share of what the node can hold, the
+    /// default credit while that covers every peer
+    /// (spec/decisions/hold-allotment.md).
     pub allotment: Option<u64>,
 }
 
@@ -1455,14 +1455,7 @@ impl Core {
         for (_, mirror) in account.holds() {
             if Some(mirror.payer) == number {
                 let mut ours = hold(mirror.payee, mirror.amount);
-                ours.allotment = ours.peer.and_then(|node| {
-                    allotments
-                        .as_ref()?
-                        .peers
-                        .iter()
-                        .find(|(peer, _)| *peer == node)
-                        .map(|(_, allotment)| *allotment)
-                });
+                ours.allotment = ours.peer.and_then(|node| allotments.as_ref()?.of(&node));
                 paying.push(ours);
             } else {
                 taking.push(hold(mirror.payer, mirror.amount));
