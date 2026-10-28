@@ -39,7 +39,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use super::keys::{self, AnyNodeKey, Keys, PinnedServer, Present};
-use super::{CONNECT_TIMEOUT, Handler, Link, MAX_STREAMS, On, Quic, StreamKind, no_room, stand_by};
+use super::{CONNECT_TIMEOUT, Handler, MAX_STREAMS, On, Quic, StreamKind, adopt, no_room};
 use crate::log::target;
 use crate::node::lock;
 use crate::outbound::Resolver;
@@ -746,17 +746,48 @@ impl Quic {
     }
 
     /// Answers on the connection to the chosen relay, and uses it for
-    /// requests to the relay too: at once, unless another is open, and
-    /// otherwise once that one closes ([`stand_by`]). Returns once the
-    /// connection closes.
+    /// requests to the relay too (spec/decisions/verified-connections.md).
+    /// It verifies it with a request of its own, the relay's link state, so
+    /// that the relay adopts it too: at once, if we hold no other open, and
+    /// otherwise then, by the rule both nodes judge alike. One the relay
+    /// does not answer closes, and the node dials again. If the relay keeps
+    /// another connection with us by the rule, one it opened, it reaches us
+    /// over that one: ours closes, and the relay counts as held while that
+    /// one lasts. Returns once the connection the relay reaches us over
+    /// closes.
     async fn hold_relay(self: &Arc<Self>, relay: NodeId, connection: &Connection) {
         self.answer_on(connection);
-        if let Some(place) = self.place(relay) {
-            let link = Link {
-                connection: connection.clone(),
-                ours: true,
-            };
-            stand_by(&place, link).await;
+        let Some(place) = self.place(relay) else {
+            let _ = connection.closed().await;
+            return;
+        };
+        let link = self.link(connection.clone(), true);
+        let free = {
+            let mut held = place.lock().await;
+            let free = held.as_ref().is_none_or(|kept| !kept.is_open());
+            if free {
+                *held = Some(link.clone());
+            }
+            free
+        };
+        if !super::answers(connection, relay).await {
+            connection.close(0u32.into(), b"unverified");
+            return;
+        }
+        if !free {
+            let lower = self.keys.current().is_some_and(|(own, _)| own < relay);
+            if !adopt(&place, link, (relay, lower, self.drain)).await {
+                connection.close(0u32.into(), b"");
+                let survivor = place
+                    .lock()
+                    .await
+                    .as_ref()
+                    .map(|kept| kept.connection.clone());
+                if let Some(survivor) = survivor {
+                    let _ = survivor.closed().await;
+                }
+                return;
+            }
         }
         let _ = connection.closed().await;
     }
