@@ -256,10 +256,7 @@ fn a_scheme_refuses_an_account_of_another_network() {
     );
     assert!(dassie_xrpl::RlusdScheme::new(&mainnet, None, &[]).is_ok());
     // An asset of no XRPL network is no account.
-    let hub = dassie_settlement::AssetId {
-        kind: dassie_settlement::AssetKind::HubTestnetAccount,
-        index: 0,
-    };
+    let hub = dassie_settlement::AssetId::sole(dassie_settlement::AssetKind::HubXrplTestnetXrp);
     assert_eq!(
         XrplAccount::new(hub, &[], "", &[7; 32], &[]).err(),
         Some(SchemeError::UnknownScheme)

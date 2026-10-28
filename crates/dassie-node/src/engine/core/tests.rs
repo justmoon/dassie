@@ -2239,10 +2239,12 @@ fn an_accounts_config_is_its_own() {
         core.set_asset_config("xrpl-testnet-account/1", &config),
         Err(EngineError::Invalid(_))
     ));
-    assert!(matches!(
-        core.set_asset_config("hub-testnet-account/0", ""),
-        Err(EngineError::Invalid(_))
-    ));
+    for hub in ["hub-xrpl-testnet-xrp", "hub-testnet-account/0"] {
+        assert!(matches!(
+            core.set_asset_config(hub, ""),
+            Err(EngineError::Invalid(_))
+        ));
+    }
     assert!(matches!(
         core.set_asset_config("xrpl-account/0", ""),
         Err(EngineError::Precondition(_))
@@ -4835,8 +4837,8 @@ fn the_credit_over_a_hub_is_kept_in_step_on_a_full_journal() {
     assert_eq!((credit, room), (500, 0));
 }
 
-/// The node's hub account, as `hub-testnet-account/0`.
-const HUB_ACCOUNT: &str = "hub-testnet-account/0";
+/// The node's hub account, named by the scheme over its hub.
+const HUB_ACCOUNT: &str = dassie_hub::member::SCHEME_ID;
 
 /// The hub of [`hub_rules`] as its validators speak for it: each signs
 /// alone with its consensus key.
@@ -4874,7 +4876,7 @@ impl Validators {
         use dassie_hub::client::SignedStatement;
         use dassie_hub::validators::ValidatorIndex;
 
-        let epoch = core.assets[&dassie_hub::member::FIRST].epoch;
+        let epoch = core.assets[&dassie_hub::member::ACCOUNT_ID].epoch;
         for (i, key) in self.keys.iter().enumerate() {
             let signed: Vec<SignedStatement> = statements
                 .iter()

@@ -50,6 +50,9 @@ test("an asset is named by its kind, and numbered past the first", () => {
   assertEquals(nativeAsset("xrpl-testnet-account/0"), "XRP");
   assertEquals(nativeAsset("xrpl-account/0"), "XRP");
   assertEquals(nativeAsset("bank/0"), undefined);
+  // A hub account is named by the scheme over its hub, with no number.
+  assertEquals(assetName("hub-xrpl-testnet-dsusd"), "hub-xrpl-testnet-dsusd");
+  assertEquals(nativeAsset("hub-xrpl-testnet-dsusd"), undefined);
 });
 
 test("a holding is shown in its own asset, at its own scale", () => {

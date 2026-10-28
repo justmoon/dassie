@@ -419,7 +419,8 @@ fn a_live_hub_is_funded_from_the_live_book() {
     let mut hub = Hub::new(MAINNET_SCHEME_ID, MAINNET.id, Asset::Xrp);
     let view = core.add_scheme(MAINNET_SCHEME_ID, hub.config()).unwrap();
     assert_eq!(view.id, LedgerId::HubXrplXrp);
-    assert_eq!(hub.account.kind, AssetKind::HubAccount);
+    assert_eq!(hub.account, AssetId::sole(AssetKind::HubXrplXrp));
+    assert_eq!(hub.account.to_string(), MAINNET_SCHEME_ID);
     super::follow_xrpl(&mut core, &mut ledger);
     let escrow = hub.escrow();
 
@@ -463,8 +464,8 @@ fn a_live_hub_is_funded_from_the_live_book() {
 
 // spec/decisions/hub-scheme-names.md, spec/areas/xrpl.md#the-peg-guard: a
 // member scheme on a mainnet hub of RLUSD, made from its rules, books on
-// `hub-xrpl-rlusd+usd` through an account of its own of the live realm's
-// kind; the owner's deposit into it leaves the live RLUSD book; and the
+// `hub-xrpl-rlusd+usd` through an account of its own, `hub-xrpl-rlusd`;
+// the owner's deposit into it leaves the live RLUSD book; and the
 // RLUSD book's peg guard reaches its ledger: while the book runs pegged,
 // the hub's ledger converts, and once the books stopped the book, it is
 // halted for want of a reading.
@@ -480,13 +481,8 @@ fn a_mainnet_rlusd_hub_follows_the_rlusd_book() {
     assert_eq!(view.id, ledger_id);
     let scheme = Name::new(RLUSD_SCHEME_ID).unwrap();
     assert_eq!(core.schemes[&scheme].asset, Some(hub.account));
-    assert_eq!(
-        hub.account,
-        AssetId {
-            kind: AssetKind::HubAccount,
-            index: 1
-        }
-    );
+    assert_eq!(hub.account, AssetId::sole(AssetKind::HubXrplRlusd));
+    assert_eq!(hub.account.to_string(), RLUSD_SCHEME_ID);
     let book = Name::new(dassie_xrpl::rlusd::SCHEME_ID).unwrap();
     let book_peg = core.schemes[&book].scheme.peg();
     assert!(book_peg.is_some_and(|peg| peg.paused.is_none()), "pegged");
@@ -625,4 +621,15 @@ fn the_stub_with_commitments_is_in_no_hub() {
     let funded: Vec<Name> = core.funding.keys().copied().collect();
     assert_eq!(funded, hubs);
     assert_eq!(core.hub_rules().len(), 2);
+    // Each through an account of its own, which its scheme names
+    // (spec/decisions/hub-scheme-names.md).
+    let accounts: Vec<AssetId> = hubs
+        .iter()
+        .map(|scheme| core.schemes[scheme].asset.unwrap())
+        .collect();
+    for (scheme, account) in hubs.iter().zip(&accounts) {
+        assert_eq!(account.to_string(), scheme.as_str());
+        assert!(core.assets.contains_key(account), "{scheme}");
+    }
+    assert_ne!(accounts[0], accounts[1]);
 }

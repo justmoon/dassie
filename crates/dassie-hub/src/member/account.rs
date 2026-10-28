@@ -100,12 +100,10 @@ use crate::promise::{HoldNumber, Promise, Signed};
 use crate::rules::{Amount, Asset, HubId, MAX_HOLD_MS, Millis, Rules, Terms};
 use crate::validators::{MAX_VALIDATORS, ValidatorSet};
 
-/// The node's first hub account: in the default hub of the XRP Ledger
-/// testnet.
-pub const FIRST: AssetId = AssetId {
-    kind: AssetKind::HubTestnetAccount,
-    index: 0,
-};
+/// The node's account in its hub of XRP on the XRP Ledger testnet, over
+/// which [`SCHEME_ID`](super::SCHEME_ID) settles: named by the scheme
+/// ([`account_id`](super::account_id)).
+pub const ACCOUNT_ID: AssetId = AssetId::sole(AssetKind::HubXrplTestnetXrp);
 
 /// Most operations waiting to be sent, or on their way.
 pub const MAX_QUEUED: usize = 16;

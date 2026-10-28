@@ -2078,4 +2078,41 @@ mod tests {
         ));
         assert_eq!(super::super::account_id("xrpl-testnet-xrp"), None);
     }
+
+    // spec/decisions/hub-scheme-names.md: a node's account in a hub is
+    // named by the scheme over the hub, with no number, so a node in
+    // several hubs has an account of a distinct ID in each, and no other
+    // scheme names one.
+    #[test]
+    fn a_hub_account_is_named_by_its_scheme() {
+        use alloc::string::ToString;
+
+        let schemes = [
+            SCHEME_ID,
+            DSUSD_SCHEME_ID,
+            MAINNET_SCHEME_ID,
+            RLUSD_SCHEME_ID,
+        ];
+        let ids: Vec<_> = schemes
+            .iter()
+            .map(|scheme| super::super::account_id(scheme).unwrap())
+            .collect();
+        for (at, (scheme, id)) in schemes.iter().zip(&ids).enumerate() {
+            assert_eq!(id.to_string(), *scheme);
+            assert_eq!(id.index(), None, "{scheme}");
+            assert!(!ids[at + 1..].contains(id), "{scheme}");
+        }
+        assert_eq!(
+            super::super::account_id(SCHEME_ID),
+            Some(super::super::ACCOUNT_ID)
+        );
+        for other in [
+            "xrpl-testnet-xrp",
+            "xrpl-testnet-account/0",
+            "hub-account/0",
+            "",
+        ] {
+            assert_eq!(super::super::account_id(other), None, "{other}");
+        }
+    }
 }

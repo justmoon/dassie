@@ -30,7 +30,7 @@ use std::sync::Arc;
 use dassie_hub::client::{MAX_STATEMENTS, Request, SignedStatement, Statement};
 use dassie_hub::escrow::{ValidatorKeys, escrow_master};
 use dassie_hub::ledger::{Block, Detail, Outcome, Refusal, TESTNET_NETWORK};
-use dassie_hub::member::{FIRST, HubAccount, HubScheme, SCHEME_ID, units};
+use dassie_hub::member::{ACCOUNT_ID, HubAccount, HubScheme, SCHEME_ID, units};
 use dassie_hub::operation::{
     AccountNumber, Deposit, Destination, Issuer, MemberOperation, Operation, SignedMemberOperation,
     SignedValidatorOperation, ValidatorOperation,
@@ -654,7 +654,7 @@ impl World {
             tag: None,
         };
         let account = HubAccount::new(
-            FIRST,
+            ACCOUNT_ID,
             self.validators.rules(),
             Arc::clone(&key),
             disbursal,
@@ -974,7 +974,7 @@ impl World {
         let scheme_state = member.scheme.state();
         let balance = member.scheme.balance();
         member.account = HubAccount::new(
-            FIRST,
+            ACCOUNT_ID,
             rules,
             Arc::clone(&member.key),
             member.disbursal,

@@ -438,14 +438,17 @@ export const ListLedgersResponseSchema: GenMessage<ListLedgersResponse> = /*@__P
 
 /**
  * Something the node holds outside its books, which settlement schemes
- * settle through (spec/areas/settlement.md#external-assets): its account
- * on the XRP Ledger testnet.
+ * settle through (spec/areas/settlement.md#external-assets): an account
+ * on the XRP Ledger, or the node's account in a settlement hub.
  *
  * @generated from message dassie.owner.v1.ExternalAsset
  */
 export type ExternalAsset = Message<"dassie.owner.v1.ExternalAsset"> & {
   /**
-   * Its kind and number, for example "xrpl-testnet-account/0".
+   * For an XRP Ledger account, its kind and number, for example
+   * "xrpl-testnet-account/0"; for an account in a settlement hub, the ID of
+   * the scheme over the hub, with no number, for example
+   * "hub-xrpl-testnet-xrp".
    *
    * @generated from field: string id = 1;
    */
