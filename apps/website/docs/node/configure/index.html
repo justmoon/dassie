@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Change your node's environment with a systemd drop-in: how much it logs, its relay, its uplinks, and extra certificate authorities."
+    />
+    <title>Configure your node · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Configure your node</h1>
+      <p class="lede">
+        Most of your node's settings live in its database, and you change
+        them in the wallet. A few belong to the server it runs on. Those are
+        environment variables, and you set them with a systemd drop-in.
+      </p>
+
+      <h2 id="where-settings-live">Where settings live</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>What</th>
+              <th>Where you change it</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>The domain name and its certificate</td>
+              <td><code>sudo dassie init</code>, see <a href="/docs/node/certificates/">Certificates</a></td>
+            </tr>
+            <tr>
+              <td>Ledgers, hubs, peers, names, exchange rates, apps</td>
+              <td>The wallet, see <a href="/docs/wallet/">Use your wallet</a></td>
+            </tr>
+            <tr>
+              <td>How much the node logs, its relay, its uplinks, extra certificate authorities</td>
+              <td>Environment variables, on this page</td>
+            </tr>
+            <tr>
+              <td>Validating a settlement hub</td>
+              <td>A file the environment names, see <a href="/docs/services/hub-validator/">Validate a settlement hub</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The node reads its environment once, when it starts, and checks every
+        variable before it starts anything. A value it cannot use stops it
+        with a message that names the variable.
+      </p>
+
+      <h2 id="systemd-drop-ins">systemd drop-ins</h2>
+      <p>
+        The installer puts the node's unit, <code>dassie.service</code>, in
+        <code>/etc/systemd/system/</code>, and each update may replace it.
+        Your own settings go in a drop-in beside it, which updates leave
+        alone.
+      </p>
+      <ol class="steps">
+        <li>
+          <p>Open the drop-in in your editor:</p>
+          <pre><code><span class="prompt">$</span>sudo systemctl edit dassie</code></pre>
+        </li>
+        <li>
+          <p>Add a <code>[Service]</code> section with your variables, one <code>Environment=</code> line each, and save:</p>
+          <figure class="file">
+            <figcaption>/etc/systemd/system/dassie.service.d/override.conf</figcaption>
+            <pre><code>[Service]
+Environment=DASSIE_LOG=dassie::peer=debug</code></pre>
+          </figure>
+        </li>
+        <li>
+          <p>Restart the node, so that it reads them:</p>
+          <pre><code><span class="prompt">$</span>sudo systemctl restart dassie</code></pre>
+        </li>
+        <li>
+          <p>Check that it came up:</p>
+          <pre><code><span class="prompt">$</span>dassie status</code></pre>
+          <p>
+            If it says <samp>Dassie is not running.</samp>, the log says
+            which variable it refused:
+            <code>journalctl -u dassie -n 20</code>.
+          </p>
+        </li>
+      </ol>
+      <p>
+        <code>systemctl cat dassie</code> shows the unit with every drop-in,
+        so you can see what is set.
+      </p>
+      <p>
+        A value that holds double quotes, such as the JSON of a relay, goes
+        in single quotes around the whole assignment:
+        <code>Environment='DASSIE_RELAY={"id":"…"}'</code>.
+      </p>
+      <p>
+        On NixOS you set the same variables in your configuration instead:
+        <a href="/docs/node/nixos/#configuration">Dassie on NixOS</a>.
+      </p>
+
+      <h2 id="common-settings">Common settings</h2>
+      <p>
+        The full list, with every variable the node reads, is
+        <a href="/docs/reference/environment/">Environment variables</a>.
+        These are the ones operators change most.
+      </p>
+
+      <h3 id="log-level">How much it logs</h3>
+      <p>
+        <code>DASSIE_LOG</code> says what reaches the journal. It is a level,
+        <code>trace</code>, <code>debug</code>, <code>info</code>,
+        <code>warn</code>, <code>error</code> or <code>off</code>, or
+        directives for parts of the node, separated by commas. The unit sets
+        <code>info</code>.
+      </p>
+      <p>
+        To hear more from one part without the rest getting louder, name
+        it. Parts the directives don't name stay at <code>info</code>:
+      </p>
+      <figure class="file">
+        <figcaption>/etc/systemd/system/dassie.service.d/override.conf</figcaption>
+        <pre><code>[Service]
+Environment=DASSIE_LOG=dassie::peer=debug,dassie::settlement=debug</code></pre>
+      </figure>
+      <p>
+        The node's parts are <code>dassie::daemon</code>, <code>dassie::database</code>,
+        <code>dassie::http</code>, <code>dassie::ipc</code>, <code>dassie::acme</code>,
+        <code>dassie::auth</code>, <code>dassie::rpc</code>, <code>dassie::systemd</code>,
+        <code>dassie::engine</code>, <code>dassie::btp</code>, <code>dassie::peer</code>,
+        <code>dassie::routing</code>, <code>dassie::payment</code>,
+        <code>dassie::settlement</code> and <code>dassie::hub</code>;
+        <code>dassie</code> alone covers all of them.
+        <code>dassie::front_door</code> and <code>dassie::market_maker</code>
+        belong to <code>dassie front-door</code> and
+        <code>dassie market-maker</code>, and <code>dassie::desktop</code> to
+        the desktop app. The wallet's logs page always keeps the node's last
+        lines at <code>info</code> and above, and also anything more detailed
+        you turn on here.
+      </p>
+
+      <h3 id="a-relay">A relay</h3>
+      <p>
+        A relay lets clients reach your node through another node, even
+        when yours has no public address: a front door is one. This release
+        has no default relay built in, so a node keeps none until you name
+        one.
+      </p>
+      <p
+        class="not-yet">A default relay is not built in yet. Once it is, a node without a domain name keeps a connection to the front door of its default name under <code>dassiepay.net</code> by itself. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
+      <p>
+        <code>DASSIE_RELAY</code> names a relay, by an entry of four
+        fields: its node ID, its URL and its two public keys. A front door
+        logs its own entry when it starts. Copy it whole:
+      </p>
+      <figure class="file">
+        <figcaption>/etc/systemd/system/dassie.service.d/override.conf</figcaption>
+        <pre><code>[Service]
+Environment='DASSIE_RELAY={"id":"…","url":"https://relay.example.net","publicKey":"…","slhDsaPublicKey":"…"}'</code></pre>
+      </figure>
+      <p>
+        The node keeps a relay you name whether or not it has a domain name.
+        Set it empty, <code>Environment=DASSIE_RELAY=</code>, to keep no relay
+        at all. <code>dassie status</code> shows the relay and whether the
+        node is connected to it.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why it works this way</a>: a relay by default only for a node without a domain name.</p>
+
+      <h3 id="uplinks">Uplinks</h3>
+      <p>
+        A periphery node finds the core nodes it connects through, its
+        uplinks, by itself. <code>DASSIE_UPLINKS</code> pins them instead:
+        a comma-separated list of node IDs, at most 128, and the node asks
+        only those.
+      </p>
+      <figure class="file">
+        <figcaption>/etc/systemd/system/dassie.service.d/override.conf</figcaption>
+        <pre><code>[Service]
+Environment=DASSIE_UPLINKS=sbegzgsyebannd6yz2emrvftva2hipgad57lm4i,i2yhz2nartbnlzgcjn4qavsyeefnpaxx5i6iyli</code></pre>
+      </figure>
+      <p>
+        A node pinned to nodes it cannot reach waits for them and asks no
+        other. A core node ignores the list, and says so in its log when it
+        starts. More in
+        <a href="/docs/node/periphery/">A server without a public IP</a>.
+      </p>
+
+      <h3 id="extra-cas">Extra certificate authorities</h3>
+      <p>
+        The node checks the certificates of the servers it connects to, peers
+        and relays among them, against the system's trusted roots.
+        <code>DASSIE_EXTRA_CA_FILE</code> names a PEM file of further roots
+        to trust beside those, for a network that uses a certificate
+        authority of its own.
+      </p>
+      <figure class="file">
+        <figcaption>/etc/systemd/system/dassie.service.d/override.conf</figcaption>
+        <pre><code>[Service]
+Environment=DASSIE_EXTRA_CA_FILE=/etc/dassie-roots.pem</code></pre>
+      </figure>
+      <p>
+        The node runs as a user of its own, in a sandbox that hides home
+        directories, so put the file under <code>/etc</code> and let every
+        user read it (<code>chmod 644</code>).
+      </p>
+
+      <h3 id="a-proxy">A proxy</h3>
+      <p>
+        On a network that blocks UDP, a periphery node reaches its uplinks
+        over a WebSocket on their HTTPS port. If it must go through an HTTP
+        proxy for that, it reads <code>https_proxy</code> or
+        <code>HTTPS_PROXY</code>, and <code>no_proxy</code> or
+        <code>NO_PROXY</code>, as other programs do. Only an
+        <code>http://</code> proxy is used; anything the node cannot use, it
+        warns about at start and goes on without.
+      </p>
+
+      <h3 id="other-settings">Other settings</h3>
+      <ul>
+        <li>
+          <code>DASSIE_PUBLIC_NAMES</code>: more names a node without a domain
+          name answers Open Payments to, separated by commas.
+        </li>
+        <li>
+          <code>DASSIE_BOOTSTRAP_NODES</code>: the bootstrap nodes, as a JSON
+          list of entries like a relay's. This release has none built in,
+          so a node runs alone until this names the nodes of the network it
+          joins. The testnet's list is not built in yet:
+          <a href="/docs/project/roadmap/">What's next</a>.
+        </li>
+        <li>
+          <code>DASSIE_VALIDATOR_CONFIG</code>: the file that turns on
+          validating settlement hubs. See
+          <a href="/docs/services/hub-validator/">Validate a settlement hub</a>.
+        </li>
+      </ul>
+
+      <h2 id="dev-switches">Dev switches warn on a public node</h2>
+      <p>
+        Three variables exist for Dassie's own development and tests, and
+        make a node unsafe on the internet:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Variable</th>
+              <th>What it does</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>DASSIE_PEER_ALLOW_PRIVATE=1</code></td>
+              <td>Peers on private and loopback addresses are reachable.</td>
+            </tr>
+            <tr>
+              <td><code>DASSIE_DEV_TIMINGS=1</code></td>
+              <td>The node polls, settles and reads pools every second.</td>
+            </tr>
+            <tr>
+              <td><code>DASSIE_DEV_LIVE_REALM=1</code></td>
+              <td>
+                Lets a development build run the live realm. A release build
+                refuses to start with it set.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        If any of them is set while the node listens beyond loopback, it
+        warns in its log at every start, naming the variable and what it
+        does, and ending with <samp>It is for development; unset it on a
+        public node</samp>. If you see that line, remove the variable from
+        your drop-in.
+      </p>
+      <aside class="early">
+        <p><strong>Early days.</strong> Dassie takes test money only: a node refuses the live realm. <a href="/docs/start/early-days/">How far along it is</a></p>
+      </aside>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/node.md#dev-switches-warn-on-a-public-node">Why it works this way</a></p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

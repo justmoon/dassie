@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Read dassie status: your node's address, certificate, peers, ledgers and hubs, its counters, and what each hint in it asks you to do."
+    />
+    <title>Check on your node · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Check on your node</h1>
+      <p class="lede">
+        <code>dassie status</code> tells you in a few lines how your node is
+        doing. This page goes through each line, and says what to do about
+        each hint it gives.
+      </p>
+
+      <aside class="early">
+        <p><strong>Early days.</strong> Dassie takes test money only: a node refuses the live realm. <a href="/docs/start/early-days/">How far along it is</a></p>
+      </aside>
+
+      <h2 id="run-it">Run it</h2>
+      <p>On the node's server, run:</p>
+      <pre><code><span class="prompt">$</span>dassie status</code></pre>
+      <p>
+        It talks to the node over its local socket, which root and members
+        of the group <code>dassie-users</code> may use. The installer adds
+        you to that group; if you get a permission error, log out and in
+        again, or run it with <code>sudo</code>.
+      </p>
+      <p>
+        If the node is not running, it says <samp>Dassie is not running.</samp>,
+        shows how the last update went, and says why it could not reach the
+        node.
+      </p>
+
+      <h2 id="reading-the-output">Reading the output</h2>
+      <p>
+        Here is a node with a domain name, a few days after it was set up,
+        with bootstrap nodes named in <code>DASSIE_BOOTSTRAP_NODES</code> and
+        a settlement hub joined:
+      </p>
+      <pre><code><span class="prompt">$</span>dassie status
+<span class="output">Dassie 0.3.0 is running, for 3 days (since 2026-10-25 03:41 UTC).
+  Address      https://node.example.com/
+  Certificate  valid until 2027-01-21 02:10 UTC; the node renews it by itself
+  Setup        done; the node ID is 454ml6lg4tjfcz4kaedcmpb5u4mos7af5r2fqui
+  Network      a member of the network, listed by 4 of 4 bootstrap nodes; peers: 2
+  Peers        sbegzgsyebannd6yz2emrvftva2hipgad57lm4i: hub-xrpl-testnet-xrp, credit 10 XRP, owes the node 1.5 XRP
+               i2yhz2nartbnlzgcjn4qavsyeefnpaxx5i6iyli: hub-xrpl-testnet-xrp, credit 10 XRP, nothing owed
+  Ledgers      hub-xrpl-testnet-xrp+xrp: 20 XRP, in sync
+               xrpl-testnet-xrp+xrp: 79.5 XRP, in sync
+  Hub          hub-xrpl-testnet-xrp: account 17, 20 XRP, in sync; 4 of 4 validators answering
+  Rate feed    served at [::]:7768, to 1 subscriber
+               published 4310 feeds; sent 4302 datagrams, 0 failed, 0 out of time
+               took 1460 datagrams: 1 challenged, 1 subscribed, 1458 renewed, 0 ignored; 0 lapsed
+               refused 0 for a full table, 0 for a client's share
+  Packets      took 212 Prepares: 140 forwarded, 72 answered at once
+               196 fulfilled, 14 rejected, 2 expired
+               0 wrong fulfillments, 0 unexpected responses, 0 duplicate request IDs
+  Protocol     sent 9120 requests, 3 failed, 0 dropped; refused 0 inbound
+               link states 880 accepted, 12 dropped
+               2 peerings begun, 0 ended; 0 answers dropped
+               settlements 6 delivered, 6 applied, 0 again, 1 requested; 0 channels closed
+  Updates      checked 2026-10-28 03:52 UTC: up to date</span></code></pre>
+      <p>Line by line:</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Line</th>
+              <th>What it tells you</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>First line</td>
+              <td>The version that runs, and how long it has run.</td>
+            </tr>
+            <tr>
+              <td>Address</td>
+              <td>Where you and other nodes reach your node: <code>https://</code> its domain name.</td>
+            </tr>
+            <tr>
+              <td>Certificate</td>
+              <td>Which TLS certificate the node serves, until when, and whether it renews it by itself.</td>
+            </tr>
+            <tr>
+              <td>Setup</td>
+              <td>Whether the node has an owner yet, and its node ID once it has.</td>
+            </tr>
+            <tr>
+              <td>Network</td>
+              <td>How many bootstrap nodes list your node, whether that makes it a member of the network, and how many peers it has.</td>
+            </tr>
+            <tr>
+              <td>Peers</td>
+              <td>For each peer, at most twelve, the ways the two of you settle: the scheme, the credit your node extends, and who owes whom. The wallet lists every peer.</td>
+            </tr>
+            <tr>
+              <td>Ledgers</td>
+              <td>Each of your node's ledgers, with your balance on it and whether the node is in sync with it.</td>
+            </tr>
+            <tr>
+              <td>Hub</td>
+              <td>Each settlement hub your node is in: its account number there, the balance, and how many of the hub's validators answer.</td>
+            </tr>
+            <tr>
+              <td>Rate feed</td>
+              <td>Whether the node publishes its exchange rates, where, to how many subscribers, and what it counted since it started.</td>
+            </tr>
+            <tr>
+              <td>Packets, Protocol, Names</td>
+              <td>What the node's engine counted since it started. <a href="#the-counters">The counters</a> are below.</td>
+            </tr>
+            <tr>
+              <td>Updates</td>
+              <td>How the last nightly update went.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Amounts are in each ledger's own asset, such as XRP. A node that
+        validates a settlement hub, or founds one, gets a line for each of
+        those too (<a href="#validating-and-founding">below</a>).
+      </p>
+
+      <h3 id="a-periphery-node">A periphery node</h3>
+      <p>
+        A node without a domain name runs as a
+        <a href="/docs/concepts/core-and-periphery/">periphery node</a>.
+        It registers nowhere and needs no certificate from Let's Encrypt, so
+        <code>dassie status</code> describes it differently: its addresses
+        are its names for Open Payments, and instead of its membership it
+        names its uplinks, the core nodes it reaches the network through,
+        and its relay, here one named in <code>DASSIE_RELAY</code>.
+      </p>
+      <pre><code><span class="output">  Address      https://454ml6lg4tjfcz4kaedcmpb5u4mos7af5r2fqui.dassiepay.net/ (Open Payments only)
+  Certificate  a temporary one the node made, which browsers warn about; a periphery node needs no other
+  Setup        done; the node ID is 454ml6lg4tjfcz4kaedcmpb5u4mos7af5r2fqui
+  Network      a periphery node: it registers with no bootstrap node, and reaches the network through its uplinks
+  Uplinks      topmkmy6f2dggcqpzq27sleio6ernnber24pdci at https://node.example.org, connected
+  Relay        i2yhz2nartbnlzgcjn4qavsyeefnpaxx5i6iyli at https://relay.example.net, connected</span></code></pre>
+      <p>
+        A periphery node publishes no rate feed, so it has no Rate feed
+        line. The rest reads as above.
+      </p>
+
+      <h2 id="hints">Hints</h2>
+      <p>
+        <code>dassie status</code> gives a hint only where something needs
+        you. A line without one is fine as it is. Here is each hint, and
+        what to do about it.
+      </p>
+
+      <h3 id="hint-address">Address</h3>
+      <ul>
+        <li>
+          <samp>none yet: `sudo dassie init` sets the node's domain name</samp>:
+          run <code>sudo dassie init</code>. It asks for the domain name and
+          gets a certificate for it.
+        </li>
+        <li>
+          <samp>none yet: a periphery node is named once it is set up</samp>:
+          set the node up; its names follow from its node ID.
+        </li>
+      </ul>
+
+      <h3 id="hint-certificate">Certificate</h3>
+      <ul>
+        <li>
+          <samp>a temporary one the node made, which browsers warn about:
+          `sudo dassie init` gets a real one</samp>: the node has no
+          certificate from Let's Encrypt yet. Run <code>sudo dassie init</code>.
+        </li>
+        <li>
+          <samp>It ends in …</samp>: fewer than 14 days are left. A
+          certificate from Let's Encrypt renews by itself well before then,
+          so look for a failed renewal next to it. One you installed by hand
+          is yours to replace.
+        </li>
+        <li>
+          <samp>IT HAS EXPIRED: browsers and peers refuse the node</samp>:
+          renew it now. See <a href="/docs/node/certificates/">Certificates</a>.
+        </li>
+        <li>
+          <samp>The last renewal failed: …</samp>: the rest of the line is
+          what Let's Encrypt said. Most often port 80 is not reachable, or
+          the domain name points somewhere else.
+          <a href="/docs/node/troubleshooting/#certificates">Troubleshooting</a>
+          has the fixes.
+        </li>
+      </ul>
+
+      <h3 id="hint-setup">Setup</h3>
+      <ul>
+        <li>
+          <samp>not done yet: `sudo dassie setup-url` prints the link to open
+          in a browser</samp>: the node has no owner yet. Open that link, or
+          set the node up from your phrase on the server with
+          <a href="/docs/node/headless/">headless setup</a>. The link is
+          never in the status or the logs, since whoever opens it first
+          claims the node.
+        </li>
+      </ul>
+
+      <h3 id="hint-network">Network</h3>
+      <ul>
+        <li>
+          <samp>no bootstrap nodes are set (DASSIE_BOOTSTRAP_NODES), so the
+          node runs alone</samp>: the node knows no bootstrap node, so it
+          finds no other node. This release has no bootstrap nodes built in,
+          so every node shows this until <code>DASSIE_BOOTSTRAP_NODES</code>
+          names the nodes of the network it joins. Set it in a
+          <a href="/docs/node/configure/#other-settings">drop-in</a>.
+          The testnet's list is not built in yet:
+          <a href="/docs/project/roadmap/">What's next</a>.
+        </li>
+        <li>
+          <samp>not a member yet, listed by 0 of 4 bootstrap nodes</samp>:
+          right after the first start, this is normal: the node registers
+          with each bootstrap node, and each first checks that it can reach
+          your node at its address. It becomes a member once more than half
+          of them list it. If it stays at 0 for more than a few minutes, see
+          <a href="/docs/node/troubleshooting/#not-listed">Not listed</a>.
+        </li>
+        <li>
+          <samp>peers: 0</samp>, for a member: see
+          <a href="/docs/node/troubleshooting/#no-peers">No peers</a>.
+        </li>
+      </ul>
+
+      <h3 id="hint-uplinks-and-relay">Uplinks and relay</h3>
+      <p>These lines are a periphery node's, and a relay line shows on a core node only if you chose a relay for it.</p>
+      <ul>
+        <li>
+          <samp>none yet, so no payment reaches the node</samp>, on Uplinks:
+          the node has found no core node to connect through. It peers with
+          core nodes that share one of its ledgers, so check that it is in a
+          settlement hub, on the Hub line.
+        </li>
+        <li>
+          <samp>not connected, last heard from … ago</samp>, on an uplink:
+          the node lost that connection. It dials again by itself; if it
+          stays this way, check that the server can send and receive UDP.
+        </li>
+        <li>
+          <samp>none (DASSIE_RELAY names none), so Open Payments clients cannot
+          reach the node</samp>: the node keeps no relay. This release has
+          no default relay built in, so a periphery node shows this until
+          <code>DASSIE_RELAY</code> names a relay's entry:
+          <a href="/docs/node/configure/#a-relay">Configure your node</a>.
+          A default relay is not there yet:
+          <a href="/docs/project/roadmap/">What's next</a>.
+        </li>
+        <li>
+          <samp>connecting</samp>, on Relay: normal right after a start or a
+          short drop. No action.
+        </li>
+        <li>
+          <samp>not connected, so Open Payments clients cannot reach the
+          node through it</samp>: the node has failed to reach its relay for
+          a while. Check that <code>DASSIE_RELAY</code> is exactly the entry
+          the front door logs, and that the server can reach the relay over
+          UDP. See <a href="/docs/node/troubleshooting/#relay-not-connected">Troubleshooting</a>.
+        </li>
+      </ul>
+
+      <h3 id="hint-peers">Peers</h3>
+      <ul>
+        <li>
+          <samp>withdrawn for room</samp>: the peer has used up the room your
+          node gives it on this method and has not settled for a while, so
+          no payment crosses it for now. The node keeps asking the peer to
+          settle, and the method comes back once it has. No action.
+        </li>
+        <li>
+          <samp>winding down</samp>: the node is dropping this method. It
+          asks the peer to settle first, then drops it; the peering goes on
+          over its other methods. No action.
+        </li>
+        <li>
+          <samp>no method</samp>: the peering has no method left to settle
+          on, and the node ends it. No action.
+        </li>
+      </ul>
+      <p>
+        Peers and how they settle are explained in
+        <a href="/docs/concepts/peers/">Peers and holds</a>.
+      </p>
+
+      <h3 id="hint-ledgers">Ledgers</h3>
+      <ul>
+        <li>
+          <samp>none yet: add one in the wallet</samp>: your node holds no
+          money yet. See <a href="/docs/wallet/ledgers/">Add and fund a ledger</a>.
+        </li>
+        <li>
+          <samp>connecting</samp> or <samp>catching up</samp>: the node is
+          talking to the ledger's server. No action unless it stays so.
+        </li>
+        <li>
+          <samp>waiting for funds at …</samp>: the account on the ledger does
+          not exist yet. On the XRP Ledger testnet the node asks the
+          testnet's faucet for test XRP by itself; otherwise, send test funds
+          to that address.
+        </li>
+        <li>
+          <samp>failed: …</samp>: the node cannot use the ledger; the rest of
+          the line says why, such as a server on the wrong network. To use
+          another server, set the account's config with
+          <a href="/docs/node/headless/#assets-and-schemes"><code>dassie setup --asset</code></a>,
+          then restart the node.
+        </li>
+      </ul>
+
+      <h3 id="hint-hub">Hub</h3>
+      <ul>
+        <li>
+          <samp>no account yet</samp> with <samp>waiting for the first
+          deposit to open it</samp>: deposit into the hub to open your
+          account there, with <code>dassie hub deposit</code> or on the
+          wallet's Hubs page: <a href="/docs/wallet/hubs/">Your hubs</a>.
+        </li>
+        <li>
+          <samp>frozen by its token's issuer</samp>: the issuer of the hub's
+          token holds the hub's escrow. Nothing crosses the hub until it lets
+          go. No action on your side.
+        </li>
+        <li>
+          <samp>failed</samp>: the node cannot follow the hub.
+          <code>dassie hub</code> says more.
+        </li>
+        <li>
+          Fewer validators answering than the hub has: some are unreachable.
+          A hub works on as long as a quorum answers.
+        </li>
+      </ul>
+      <p>
+        <code>dassie hub</code> shows each hub in full: the balance and
+        reserve, what was deposited and withdrawn, and the floor and ceiling
+        the node keeps its account between.
+      </p>
+
+      <h3 id="hint-rate-feed">Rate feed</h3>
+      <ul>
+        <li>
+          <samp>none: the node has no UDP socket for it (under systemd,
+          `dassie-feed.socket`)</samp>: UDP port 7768 is taken, or its socket
+          unit did not start. The node runs fine without it. To publish a
+          feed, free the port and run <code>sudo systemctl restart dassie</code>,
+          which starts the socket with the node.
+        </li>
+        <li>
+          <samp>not served yet: the node publishes it at … once it has a
+          domain name</samp>: run <code>sudo dassie init</code>.
+        </li>
+      </ul>
+
+      <h3 id="validating-and-founding">Validating and founding</h3>
+      <p>
+        A node that validates a settlement hub gets a <samp>Validating</samp>
+        line for each: which validator it is, the last final block and its
+        view. Its hints are a validator's to act on:
+        <samp>no block final for …</samp> (check that the other validators
+        reach it over QUIC), <samp>stalled</samp>,
+        <samp>its escrow is not checked yet</samp> and
+        <samp>its XRPL server cannot be reached</samp>.
+        A node that founds a hub gets a <samp>Founding</samp> line, which
+        says how far the founding is. Both are covered in
+        <a href="/docs/services/hub-validator/">Validate a settlement hub</a>
+        and <a href="/docs/services/found-a-hub/">Found a hub</a>.
+      </p>
+
+      <h3 id="hint-updates">Updates</h3>
+      <ul>
+        <li>
+          <samp>none yet; the node checks every night</samp>: a new install.
+          No action.
+        </li>
+        <li>
+          <samp>… did not start (…), so the version before runs again</samp>:
+          the update rolled back by itself, and your node runs as before.
+        </li>
+        <li>
+          <samp>… did not start here before (…), so the node waits for a newer
+          version</samp>: the updater passes over that version from now on.
+          <code>sudo dassie update --force</code> tries it again.
+        </li>
+        <li>
+          <samp>the update failed: …</samp>: the rest says why; the next
+          night's update tries again.
+        </li>
+        <li>
+          <samp>this binary was not installed by the installer, so it is not
+          updated</samp>: expected on NixOS, where Nix updates it, and for a
+          binary you run by hand.
+        </li>
+      </ul>
+      <p>
+        More on all of these in <a href="/docs/node/updates/">Updates and rollback</a>.
+      </p>
+
+      <h2 id="the-counters">The counters</h2>
+      <p>
+        Packets, Protocol and Names count what the node's engine did since it
+        last started, so they start from zero after a restart or an update.
+        They help you, and anyone helping you, see whether payments fail or
+        peers refuse, without reading the logs.
+      </p>
+      <ul>
+        <li>
+          <strong>Packets</strong>: the payment packets (Prepares) the node
+          took, how many it passed on and how many it answered itself, and how
+          they ended. Some rejected and expired packets are normal. The third
+          line counts what should never happen, such as a wrong fulfillment
+          from a peer: it should stay at zero.
+        </li>
+        <li>
+          <strong>Protocol</strong>: the messages the node sent to other nodes
+          and how many failed, the requests it refused, the link states it
+          took in, the peerings it began and ended, and the settlements it
+          delivered and applied.
+        </li>
+        <li>
+          <strong>Names</strong> shows only on a node that registered a name
+          or keeps a registrar's log. See
+          <a href="/docs/concepts/names/">Names and addresses</a>.
+        </li>
+      </ul>
+
+      <h2 id="asking-for-help">Pasting it when you ask for help</h2>
+      <p>
+        <code>dassie status</code> names no secret: no phrase, no key, no
+        setup link. You can paste its whole output where you ask for help,
+        along with what you expected to see. Where to ask is on
+        <a href="/docs/project/help/">Get help</a>.
+      </p>
+      <p>
+        It does name your node's ID and domain name, which are public anyway.
+        For more detail, the node's log is in
+        <code>journalctl -u dassie</code>;
+        <a href="/docs/node/troubleshooting/#reading-the-journal">Troubleshooting</a>
+        says what to look for there.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/node.md#the-dassie-command">Why it works this way</a>: a hint only where something is wrong, so a healthy node never reads as a fault.</p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

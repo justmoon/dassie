@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Set a node up from its recovery phrase on the server itself, without a browser, and join settlement hubs, from a script or a unit that runs at every start."
+    />
+    <title>Headless setup · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Headless setup</h1>
+      <p class="lede">
+        <code>dassie setup</code> sets a node up from your recovery phrase,
+        kept in a file on the node's server, with no browser. It does what the
+        wallet's setup does, then adds the ledgers and settlement hubs you
+        name, and it is safe to run at every start.
+      </p>
+
+      <aside class="early">
+        <p><strong>Early days.</strong> Dassie takes test money only: a node refuses the live realm. <a href="/docs/start/early-days/">How far along it is</a></p>
+      </aside>
+
+      <h2 id="when-to-use-it">When to use it</h2>
+      <p>
+        Most owners set their node up in the browser, at the link
+        <code>sudo dassie init</code> prints. Use <code>dassie setup</code>
+        when nobody will open that link: a server a script sets up, the two
+        nodes of a <a href="/docs/services/market-maker/">market maker</a>, or
+        a node you want set up the same way every time it starts.
+      </p>
+      <p>
+        It means keeping your phrase on the server. The phrase is your node,
+        and the key to everything it holds: whoever can read the file can
+        take both. Keep it only where you would keep the node's own keys.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/headless-setup.md">Why it works this way</a>: the phrase stays on your server, and only the node key reaches the node.</p>
+
+      <h2 id="before-you-start">Before you start</h2>
+      <ul>
+        <li>
+          <strong>Dassie is installed and running</strong>, as in the
+          <a href="/docs/start/quick-start/">Quick Start</a> or
+          <a href="/docs/node/nixos/">on NixOS</a>.
+        </li>
+        <li>
+          <strong>If the node has a domain name, configure it first,</strong>
+          without questions:
+          <pre><code><span class="prompt">$</span>sudo dassie init --hostname node.example.com --email you@example.com --agree-tos</code></pre>
+          <p>
+            It gets the certificate and prints the setup link at the end.
+            Whoever opens that link first claims the node, so run
+            <code>dassie setup</code> right after: once the node is set up,
+            the link no longer works. A node without a domain name skips this
+            step and runs as a
+            <a href="/docs/concepts/core-and-periphery/">periphery node</a>.
+          </p>
+        </li>
+        <li>
+          <strong>The server's clock is in sync.</strong> A phrase says when
+          it was made, and <code>dassie setup</code> refuses one that says it
+          was made more than a day after the server's clock.
+        </li>
+        <li>
+          <strong>You have a phrase:</strong> the 20 words a Dassie wallet
+          makes when it sets up a node. A phrase says which realm it is for,
+          and the node is set up in that realm for good. See
+          <a href="/docs/concepts/phrase/">Your recovery phrase</a>.
+        </li>
+      </ul>
+      <p>
+        Phrases come from the wallet or the desktop app: there is no command
+        that makes one on the server.
+      </p>
+
+      <h2 id="the-phrase-file">The phrase file</h2>
+      <p>
+        The file holds the phrase alone: the 20 words, separated by spaces,
+        and nothing else. Make it readable by root only, and keep the phrase
+        out of your shell's history by typing it into <code>cat</code>:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo install -d -m 700 /etc/dassie
+<span class="prompt">$</span>sudo sh -c 'umask 077; cat &gt; /etc/dassie/phrase'
+<span class="comment"># type or paste the phrase, press Enter, then Ctrl-D</span></code></pre>
+      <p>
+        <code>dassie setup</code> reads the file once, wipes the phrase from
+        memory as soon as it has the node key, and never prints the phrase,
+        not even in an error. It refuses:
+      </p>
+      <ul>
+        <li>a phrase that reads only once some of its words are corrected, naming their positions: fix those words in the file;</li>
+        <li>a phrase that says it was made more than a day after the server's clock, naming its date: check the clock;</li>
+        <li>a phrase of the live realm, which a node refuses.</li>
+      </ul>
+
+      <h2 id="run-it">Run it</h2>
+      <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file /etc/dassie/phrase
+<span class="output">The passphrase in /etc/dassie/phrase is node 454ml6lg4tjfcz4kaedcmpb5u4mos7af5r2fqui, of the test realm.
+Set the node up as 454ml6lg4tjfcz4kaedcmpb5u4mos7af5r2fqui, in the test realm.
+The node's engine is running.
+This build has no default settlement hub for the test realm yet: joining none.</span></code></pre>
+      <p>Each step prints a line:</p>
+      <ol class="steps">
+        <li>It reads the phrase and works out the node key, as the wallet does.</li>
+        <li>
+          It sets the node up with that key, through the same setup the
+          wallet uses, on the node's own address on this server. Only the
+          key reaches the node, never the phrase.
+        </li>
+        <li>It waits, at most a minute, until the node's engine runs.</li>
+        <li>
+          It joins the realm's default settlement hub. This release has none
+          built in, so it says so and leaves the node in no hub.
+        </li>
+      </ol>
+      <p>
+        Nodes settle with each other only through a hub they share, so a node
+        in no hub gets no peers. To join one, add its scheme with the hub's
+        rules, as in <a href="#joining-a-hub">Joining a hub</a>. Then
+        <a href="/docs/wallet/hubs/">deposit into the hub</a>, in the wallet
+        or with <code>dassie hub deposit</code>.
+      </p>
+      <p
+        class="not-yet">The testnet's default hubs are not built in yet, so neither <code>dassie setup</code> nor the wallet joins one by itself. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
+
+      <h2 id="joining-a-hub">Joining a hub</h2>
+      <p>
+        A hub is named by its rules, a long hex string that whoever founded
+        it gives you. Add the XRP book the hub is funded from, which settles
+        with nobody, and then the hub's scheme, with the rules as its
+        config:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file /etc/dassie/phrase \
+    --scheme xrpl-testnet-xrp \
+    --scheme 'hub-xrpl-testnet-xrp={"rules":"…"}'
+<span class="output">…
+Added the settlement scheme xrpl-testnet-xrp.
+Added the settlement scheme hub-xrpl-testnet-xrp.</span></code></pre>
+      <p>
+        A DSUSD hub, <code>hub-xrpl-testnet-dsusd</code>, takes both
+        <code>xrpl-testnet-xrp</code>, which pays the hub's fees, and
+        <code>xrpl-testnet-dsusd</code> first. The node keeps the rules you
+        gave it, so it stays in that hub whatever a later release builds
+        in. Run the same command again and each scheme the node runs
+        already is left as it is.
+      </p>
+
+      <h2 id="choosing-hubs">Choosing hubs</h2>
+      <p>
+        <code>--hub</code> says which hubs to join, by the settlement scheme
+        over each, the name <code>dassie hub</code> and
+        <code>dassie status</code> show. Give it once for each hub. It joins
+        the default hub of that scheme built into the release, after the
+        books the table names:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th><code>--hub</code></th>
+              <th>Joins</th>
+              <th>Adds first</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>hub-xrpl-testnet-xrp</code></td>
+              <td>The XRP hub on the XRP Ledger testnet</td>
+              <td><code>xrpl-testnet-xrp</code></td>
+            </tr>
+            <tr>
+              <td><code>hub-xrpl-testnet-dsusd</code></td>
+              <td>The DSUSD hub on the XRP Ledger testnet</td>
+              <td><code>xrpl-testnet-xrp</code>, which pays the hub's fees, and <code>xrpl-testnet-dsusd</code></td>
+            </tr>
+            <tr>
+              <td><code>none</code></td>
+              <td>No hub</td>
+              <td>Nothing</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li>
+          Without <code>--hub</code>, a test phrase joins the default
+          <code>hub-xrpl-testnet-xrp</code> where the release has one built
+          in. This release has none, so setup joins none and says so.
+        </li>
+        <li>
+          A hub the node is in already is left as it is, so
+          <code>--hub</code> accepts a hub you joined with
+          <code>--scheme</code>.
+        </li>
+        <li>
+          Any other hub you name, one this release has no default for, fails
+          setup before it joins any hub, and says which. For now that is
+          every hub the node is not in. The node is set up all the same, and
+          running setup again without that <code>--hub</code> finishes the
+          job.
+        </li>
+        <li>
+          The live realm's hubs, <code>hub-xrpl-xrp</code> and
+          <code>hub-xrpl-rlusd</code>, are refused with a test phrase, before
+          anything changes.
+        </li>
+      </ul>
+      <p>
+        Hubs are explained in <a href="/docs/concepts/hubs/">Settlement hubs</a>,
+        and every scheme in <a href="/docs/reference/schemes/">Schemes and hubs</a>.
+      </p>
+
+      <h3 id="keep-funds">Where received money is kept</h3>
+      <p>
+        <code>--keep-funds hub</code> keeps what your node receives in its
+        hubs, which is where it arrives and the default.
+        <code>--keep-funds account</code> keeps it on your own account on the
+        ledger instead: the node withdraws from a hub what it holds beyond its
+        ceiling. The node remembers the choice, for hubs it joins later too.
+        Without the flag, setup leaves the choice as it is.
+      </p>
+
+      <h3 id="assets-and-schemes">Ledger settings and other schemes</h3>
+      <p>Two more flags, each repeatable, are for setups that need more than a hub:</p>
+      <ul>
+        <li>
+          <code>--asset &lt;id&gt;=&lt;config&gt;</code> sets the JSON config of
+          one of the node's ledger accounts before it adds any scheme or
+          joins a hub, such as the XRP Ledger server of the testnet account:
+          <code>--asset 'xrpl-testnet-account/0={"server":"wss://xrpl.example.net"}'</code>.
+          The server must serve the proofs the node checks, as a
+          <a href="/docs/reference/proof-servers/">proof server</a> does.
+          For an account the node already uses, the new config takes effect
+          when the node next starts (<code>sudo systemctl restart dassie</code>).
+        </li>
+        <li>
+          <code>--scheme &lt;id&gt;[=&lt;config&gt;]</code> adds a settlement
+          scheme the node does not run yet, with its JSON config if it takes
+          one.
+        </li>
+      </ul>
+
+      <h2 id="running-it-again">Running it again</h2>
+      <p>
+        <code>dassie setup</code> changes only what is missing, so you can run
+        it as often as you like. On a node set up with the same phrase, it
+        says <samp>The node is set up already</samp> and goes on to the
+        settings and hubs. Its exit code tells a script what happened:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Exit code</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>0</code></td>
+              <td>The node is set up from this phrase, with everything you asked for.</td>
+            </tr>
+            <tr>
+              <td><code>1</code></td>
+              <td>Something failed; the last line says what. Setup may have got part of the way: run it again once it is fixed.</td>
+            </tr>
+            <tr>
+              <td><code>2</code></td>
+              <td>The command line was not understood. Nothing was done.</td>
+            </tr>
+            <tr>
+              <td><code>3</code></td>
+              <td>The node was set up with another phrase. Nothing was changed.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A node set up in another realm than the phrase's is refused too,
+        with nothing changed: a node's realm never changes.
+      </p>
+
+      <h2 id="from-a-unit">Running it from a unit</h2>
+      <p>
+        To set the node up the same way at every boot, run
+        <code>dassie setup</code> from a systemd unit that starts once the node
+        is ready and the clock is in sync:
+      </p>
+      <figure class="file">
+        <figcaption>/etc/systemd/system/dassie-setup.service</figcaption>
+        <pre><code>[Unit]
+Description=Set up the Dassie node from its phrase
+Requires=dassie.service
+After=dassie.service time-sync.target
+Wants=time-sync.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/dassie setup --passphrase-file /etc/dassie/phrase
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+      </figure>
+      <pre><code><span class="prompt">$</span>sudo systemctl daemon-reload
+<span class="prompt">$</span>sudo systemctl enable --now dassie-setup.service
+<span class="prompt">$</span>journalctl -u dassie-setup</code></pre>
+      <p>
+        <code>time-sync.target</code> waits for a synced clock only where a
+        service holds it back until then: with systemd-timesyncd, enable
+        <code>systemd-time-wait-sync.service</code>; with chrony,
+        <code>chrony-wait.service</code>.
+      </p>
+
+      <h3 id="on-nixos">On NixOS</h3>
+      <p>The same unit, in your configuration:</p>
+      <pre><code>systemd.services.dassie-setup = {
+  description = "Set up the Dassie node from its phrase";
+  wantedBy = [ "multi-user.target" ];
+  requires = [ "dassie.service" ];
+  wants = [ "time-sync.target" ];
+  after = [ "dassie.service" "time-sync.target" ];
+  serviceConfig = {
+    Type = "oneshot";
+    ExecStart = "${config.services.dassie.package}/bin/dassie setup --passphrase-file /etc/dassie/phrase";
+  };
+};</code></pre>
+      <aside class="warning">
+        <p><strong>Careful.</strong> Keep the phrase file out of your Nix configuration. Anything Nix builds lands in the Nix store, which every user of the machine can read. Put the file on the server by hand, or with a secrets tool that writes it outside the store.</p>
+      </aside>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="What a server needs to run a Dassie node: Linux with systemd, a domain name, and four ports."
+    />
+    <title>Requirements · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Requirements</h1>
+      <p class="lede">
+        What your server needs before you install Dassie on it. Most small
+        Linux servers have all of it already, apart from the domain name and
+        an open UDP port.
+      </p>
+
+      <aside class="early">
+        <p><strong>Early days.</strong> Dassie takes test money only: a node refuses the live realm. <a href="/docs/start/early-days/">How far along it is</a></p>
+      </aside>
+
+      <h2 id="the-server">The server</h2>
+      <ul>
+        <li>
+          <strong>Linux, on x86-64 or arm64.</strong> Each release has a
+          bundle for both. There are no releases for other architectures.
+        </li>
+        <li>
+          <strong>systemd, running.</strong> The installer sets up systemd
+          units that start the node, hand it its ports and update it every
+          night. It stops if systemd is not running.
+        </li>
+        <li>
+          <strong>root, or sudo.</strong> The installer writes to
+          <code>/opt/dassie</code>, <code>/usr/local/bin</code> and
+          <code>/etc/systemd/system</code>.
+        </li>
+        <li>
+          <strong>A clock that keeps time,</strong> through
+          systemd-timesyncd, chrony or anything like them. Certificates need
+          it, and so does <a href="/docs/node/headless/">headless setup</a>,
+          which refuses a phrase that says it was made more than a day after
+          the server's clock.
+        </li>
+      </ul>
+      <p>
+        Each release's installer is tested on these distributions, each in a
+        container with systemd, before the release is signed:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Distribution</th>
+              <th>What the test covers there</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Debian 12</td>
+              <td>curl and OpenSSL</td>
+            </tr>
+            <tr>
+              <td>Ubuntu 24.04</td>
+              <td>wget instead of curl</td>
+            </tr>
+            <tr>
+              <td>Fedora 42</td>
+              <td>minisign instead of OpenSSL</td>
+            </tr>
+            <tr>
+              <td>CentOS Stream 9</td>
+              <td>the fewest tools: tar and OpenSSL</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Other distributions with systemd usually work too. On NixOS, use the
+        flake instead of the installer:
+        <a href="/docs/node/nixos/">Dassie on NixOS</a>.
+      </p>
+      <p>
+        No server? The <a href="/docs/desktop/">desktop app</a> runs a node
+        on your own computer, with no domain name and no open ports. A
+        server without a public IP address can run a node too:
+        <a href="/docs/node/periphery/">A server without a public IP</a>.
+      </p>
+
+      <h2 id="tools">Tools the installer uses</h2>
+      <p>The installer is a POSIX shell script. It checks for each of these and stops at the first one missing, naming it:</p>
+      <ul>
+        <li><code>tar</code>, <code>sha256sum</code>, <code>base64</code>, <code>awk</code>, <code>mktemp</code> and <code>flock</code></li>
+        <li><code>curl</code> or <code>wget</code>, to download the release</li>
+        <li>
+          <code>minisign</code>, or OpenSSL 1.1.1 or later, to check the
+          release's signature. With OpenSSL, the installer reads minisign's
+          format itself, so you don't need to install anything first. Your
+          OpenSSL must be able to compute BLAKE2b-512; if it can't, the
+          installer asks you to install minisign.
+        </li>
+      </ul>
+      <p>
+        Nothing is unpacked before the signature checks out. How that works,
+        and the key itself, are on
+        <a href="/docs/reference/mirror/">Release mirror and key</a>.
+      </p>
+
+      <h2 id="domain-name">A domain name</h2>
+      <p>
+        Your node needs a public IP address and a domain name that points to
+        it, such as <code>node.example.com</code>. The node gets its TLS
+        certificate for that name from Let's Encrypt, other nodes find it at
+        <code>https://</code> that name, and you open your wallet there.
+      </p>
+      <ul>
+        <li>It must be a DNS name, not an IP address, and at most 253 characters long.</li>
+        <li>Point an <code>A</code> record, an <code>AAAA</code> record or both at the server before you run <code>sudo dassie init</code>.</li>
+      </ul>
+      <p>
+        You can use any domain you control. If you have none, your node can
+        still run as a periphery node, reached through a relay you name with
+        <code>DASSIE_RELAY</code> (<a href="/docs/node/configure/#a-relay">A
+        relay</a>).
+        <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>
+        explains the difference.
+      </p>
+      <p
+        class="not-yet">A default relay is not built in yet, so a periphery node keeps none until you name one. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
+
+      <h2 id="ports">Ports</h2>
+      <p>
+        Open these to the internet, in the server's firewall and in your
+        cloud provider's, if it has one:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Port</th>
+              <th>What it carries</th>
+              <th>Needed?</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>TCP 80</td>
+              <td>Let's Encrypt's HTTP challenge, and redirects to HTTPS</td>
+              <td>Yes, for a certificate</td>
+            </tr>
+            <tr>
+              <td>TCP 443</td>
+              <td>
+                Your wallet, Open Payments, and nodes behind networks that
+                block UDP, which reach yours over a WebSocket
+              </td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <td>UDP 443</td>
+              <td>QUIC: everything nodes say to each other</td>
+              <td>Yes: the node does not start without it</td>
+            </tr>
+            <tr>
+              <td>UDP 7768</td>
+              <td>The node's rate feed, which market makers read</td>
+              <td>No: without it the node runs and publishes no feed</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        UDP 443 is the one people miss most often. Nodes talk to each other
+        over QUIC only, so a node whose UDP port 443 is closed cannot be
+        listed by the bootstrap nodes and gets no peers.
+        <a href="/docs/node/troubleshooting/#udp-and-quic">Troubleshooting</a>
+        says how to tell.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/quic-only.md">Why it works this way</a>: QUIC is the only transport between nodes.</p>
+      <p>
+        The node also connects out: to other nodes over QUIC, on UDP,
+        usually to port 443, and over
+        HTTPS to Let's Encrypt, to <code>get.dassie.land</code> for
+        updates, and to the XRP Ledger server it settles through. The full
+        list, with the paths Dassie uses on disk, is on
+        <a href="/docs/reference/files-and-ports/">Files, ports and sockets</a>.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

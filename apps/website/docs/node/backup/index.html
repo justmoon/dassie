@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="What the node keeps on disk, how to back it up, and how to move a node to another server with its data or with your recovery phrase."
+    />
+    <title>Back up and move a node · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Back up and move a node</h1>
+      <p class="lede">
+        Your node keeps everything in one directory, and your recovery phrase
+        brings back what matters most. This page shows what to keep safe, and
+        how to move a node to a new server.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="your-phrase-and-your-data">Your phrase and your data</h2>
+      <p>Two things make up a node:</p>
+      <ul>
+        <li>
+          <strong>Your recovery phrase,</strong> which only you keep. The
+          node's identity derives from it: its node ID, and the keys of its
+          accounts on the XRP Ledger and in its settlement hubs. Set up a new
+          node with the same phrase, and it is the same node to the network,
+          with the same accounts.
+          <a href="/docs/concepts/phrase/">Your recovery phrase</a> explains
+          it.
+        </li>
+        <li>
+          <strong>The node's data,</strong> which the node keeps. It holds
+          everything else: the node's books with each peer, its payments, its
+          peerings, the ledgers and hubs it uses, your settings, grants, API
+          keys and paired devices, and its certificate.
+        </li>
+      </ul>
+      <p>
+        So keep your phrase safe above all, and back up the data too: the
+        phrase alone brings the node back with empty books.
+      </p>
+
+      <h2 id="the-data-directory">The data directory</h2>
+      <p>
+        On a server set up with the installer, the data is in
+        <code>/var/lib/dassie</code>. systemd runs the node as a user it makes
+        for it, so that path links to <code>/var/lib/private/dassie</code>,
+        where the files really are. Only that user, and root, can read them.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>What it is</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>dassie.sqlite3</code></td>
+              <td>
+                The node's database, with its <code>-wal</code> and
+                <code>-shm</code> files beside it while the node runs. They
+                belong together.
+              </td>
+            </tr>
+            <tr>
+              <td><code>dassie.lock</code></td>
+              <td>
+                Held while a node runs, so that no second node starts on the
+                same data.
+              </td>
+            </tr>
+            <tr>
+              <td><code>dassie.sqlite3.pre-migration</code></td>
+              <td>
+                A copy from just before an update last changed the database's
+                layout, for a rollback
+                (<a href="/docs/node/updates/#automatic-rollback">Updates and
+                rollback</a>).
+              </td>
+            </tr>
+            <tr>
+              <td><code>dassie.sqlite3.rolled-back</code></td>
+              <td>
+                After a rollback, the database the version that didn't start
+                left behind.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The desktop app keeps the same files in your home, in
+        <code>~/.local/share/dassie</code>. A node started by hand looks for
+        <code>DASSIE_STATE_DIRECTORY</code> first.
+        <a href="/docs/reference/files-and-ports/#data-directory">Files, ports and sockets</a>
+        lists every file.
+      </p>
+
+      <h2 id="secrets-at-rest">The data holds the node key</h2>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> The database holds the node key as it is,
+          not encrypted. Whoever has a copy of it can act as your node and
+          spend what its accounts hold. Treat every backup like your recovery
+          phrase.
+        </p>
+      </aside>
+      <p>
+        The node has to sign and settle while nobody watches, so it needs the
+        key at hand; a key to unlock it, stored next to it, would protect
+        nothing. What the node can keep as hashes, it does: the tokens of
+        your wallet sessions, of BTP clients and of Open Payments grants. The
+        directory is readable by the node's user alone, and the database file
+        too.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/secrets-at-rest.md">Why it works this way</a>
+      </p>
+
+      <h2 id="back-up">Make a backup</h2>
+      <p>
+        Stop the node, so that the copy is whole, and copy the directory.
+        The node is socket-activated: systemd starts it again when a
+        connection arrives, so stop its sockets as well, and the updater, so
+        that no update starts meanwhile:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo systemctl stop dassie-update.timer dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie-feed.socket
+<span class="prompt">$</span>sudo tar -C /var/lib/private -czpf /root/dassie-data.tar.gz dassie
+<span class="prompt">$</span>sudo systemctl start dassie.service dassie-update.timer</code></pre>
+      <p>
+        Starting <code>dassie.service</code> starts its sockets too. The node
+        is down for as long as the copy takes, which for a small database is
+        a few seconds. Packets that were on their way through it fail, as in
+        any restart.
+      </p>
+      <p>
+        Move the archive somewhere safe, encrypted, over SSH or another
+        channel you trust, and remove it from the server once you have.
+      </p>
+      <aside class="note">
+        <p>
+          A backup is the node as it was when you made it. Put back later, the
+          node forgets what it did since, though its peers, its hubs and the
+          ledgers don't: it may ask for or pay settlements again that already
+          happened, and its peers may end their peerings with it. Put a
+          backup back only when the node's own data is lost, and when you
+          move a node, copy fresh data, as below.
+        </p>
+      </aside>
+
+      <h2 id="move-with-the-data">Move a node with its data</h2>
+      <p>
+        This moves the node whole: the new server runs the same node, with
+        its books, peerings and settings.
+      </p>
+      <ol class="steps">
+        <li>
+          <p>
+            On the new server, install Dassie as in the
+            <a href="/docs/start/quick-start/">Quick Start</a>, but don't run
+            <code>dassie init</code> or set the node up. Then stop it:
+          </p>
+          <pre><code><span class="prompt">$</span>sudo systemctl stop dassie-update.timer dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie-feed.socket</code></pre>
+        </li>
+        <li>
+          <p>
+            On the old server, stop the node and copy its data, as in
+            <a href="#back-up">Make a backup</a>, but don't start it again.
+            Disable it, so that a reboot doesn't start it either:
+          </p>
+          <pre><code><span class="prompt">$</span>sudo systemctl disable dassie-update.timer dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie-feed.socket</code></pre>
+        </li>
+        <li>
+          <p>
+            Copy the archive to the new server, and put it in place of the
+            empty node the install made:
+          </p>
+          <pre><code><span class="prompt">$</span>sudo rm -rf /var/lib/private/dassie
+<span class="prompt">$</span>sudo tar -C /var/lib/private -xzpf dassie-data.tar.gz
+<span class="prompt">$</span>sudo systemctl start dassie.service dassie-update.timer</code></pre>
+          <p>
+            systemd gives the files to the node's user as it starts.
+          </p>
+        </li>
+        <li>
+          <p>
+            Point your domain name at the new server. The certificate came
+            along in the database, and renews there once the name points
+            at it. If the node gets a new domain name, set it with
+            <code>sudo dassie init --hostname &lt;name&gt;</code>
+            (<a href="/docs/node/certificates/#changing-the-domain">Changing
+            the domain name</a>).
+          </p>
+        </li>
+        <li>
+          <p>
+            Check that it is the same node: <code>dassie status</code> shows
+            the node ID it had before.
+          </p>
+        </li>
+        <li>
+          <p>
+            Once the new server runs well,
+            <a href="/docs/node/uninstall/">uninstall</a> Dassie from the old
+            one and delete its data there.
+          </p>
+        </li>
+      </ol>
+      <p>
+        If you set environment variables in a drop-in, such as
+        <code>DASSIE_RELAY</code> or <code>DASSIE_UPLINKS</code>, copy the
+        drop-in too: it lives in <code>/etc/systemd/system/dassie.service.d/</code>,
+        not in the data.
+      </p>
+      <p>
+        The new server may run a newer release than the old one: it reads an
+        older node's database and brings it up to date. The other way round
+        doesn't work, since a release refuses a database newer than it knows.
+        Data from the 0.2 releases, which ran the early test network, doesn't
+        carry over at all: a node from those releases is set up again with a
+        new phrase, and starts with empty books
+        (<a href="/docs/node/updates/#from-0-2">A node from the 0.2
+        releases</a>).
+      </p>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Never run two copies of one node. Two
+          nodes with the same key and books would each sign, settle and book
+          as if the other didn't exist. The data directory's lock keeps a
+          second node off the same disk, but not off another server.
+        </p>
+      </aside>
+
+      <h2 id="move-with-the-phrase">Start again from your phrase</h2>
+      <p>
+        If the data is lost, set up a new node with your recovery phrase.
+        Install as in the <a href="/docs/start/quick-start/">Quick Start</a>,
+        and when the setup page asks for a phrase, enter yours rather than
+        making a new one; or, on a node nobody logs in to, use
+        <code>dassie setup</code> (<a href="/docs/node/headless/">Headless
+        setup</a>).
+      </p>
+      <p>
+        This works with a phrase of 20 words. A 24-word phrase is from the
+        0.2 releases, before the test network was reset, and the node
+        refuses it, as it refuses any phrase of 12 to 24 words but 20. That
+        node can't be brought back: set one up with a new phrase instead.
+      </p>
+      <p>The new node has:</p>
+      <ul>
+        <li>the same node ID, so the network knows it as the node it was;</li>
+        <li>
+          the same XRP Ledger accounts, with what they hold, and the same
+          keys for its accounts in settlement hubs;
+        </li>
+        <li>
+          the same Open Payments key, so other wallets know it as before.
+        </li>
+      </ul>
+      <p>
+        It starts with empty books: no peerings, no record of what peers owed
+        it or it owed them, no payment history, and none of your settings,
+        grants, API keys or paired devices. Add your ledgers and hubs
+        again, and give the node your domain name again with
+        <code>dassie init</code>.
+      </p>
+      <p>
+        Make sure the old node is gone for good first: a node set up from
+        the same phrase is the same node, and two of them must never run at
+        once.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/node.md#database">How the database works</a>,
+        and why one directory holds one node.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

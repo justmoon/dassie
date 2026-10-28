@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How the node gets its TLS certificate from Let's Encrypt, renews it, and works with a staging or private ACME server."
+    />
+    <title>Certificates · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Certificates</h1>
+      <p class="lede">
+        Your node gets its own certificate for its domain name, and renews it
+        by itself. This page shows how, and what to do when it can't.
+      </p>
+
+      <h2 id="what-the-certificate-is-for">What the certificate is for</h2>
+      <p>
+        The node serves its wallet, Open Payments and its other routes over
+        HTTPS on TCP port 443. Browsers and other wallets check that
+        certificate against your domain name, so a node that others pay needs
+        one they trust.
+      </p>
+      <p>
+        Nodes don't need it to talk to each other. Their connections, over
+        QUIC on UDP port 443, are checked against each node's own key, with no
+        certificate authority involved.
+      </p>
+      <p>
+        The HTTPS listener always has a certificate. Until the node has a real
+        one, it makes one itself, which browsers warn about. The node keeps
+        that one across restarts, so a browser exception you made still
+        holds the next day.
+      </p>
+
+      <h2 id="getting-one">Getting a certificate</h2>
+      <p>
+        <code>dassie init</code> gets the first one from Let's Encrypt, over
+        ACME with the http-01 challenge. Before you run it:
+      </p>
+      <ul>
+        <li>
+          your domain name must point at the server: an <code>A</code> record,
+          and an <code>AAAA</code> record if the server has IPv6;
+        </li>
+        <li>
+          TCP port 80 must reach the node from the internet. Let's Encrypt
+          checks your domain by fetching a file from it on port 80, and the
+          node serves that file itself.
+        </li>
+      </ul>
+      <p>Then run:</p>
+      <pre><code><span class="prompt">$</span>sudo dassie init</code></pre>
+      <p>
+        It asks for your domain name, shows Let's Encrypt's terms and asks
+        whether you agree, and asks for an email address, which the CA may
+        write to about your certificate. You can leave the email empty. The
+        node then runs the order and <code>dassie init</code> shows each
+        step until the certificate is installed.
+      </p>
+      <p>
+        Every question has a flag, so a script can run it without a terminal:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie init --hostname node.example.com --email you@example.com --agree-tos</code></pre>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Flag</th>
+              <th>What it does</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>--hostname &lt;name&gt;</code></td>
+              <td>The node's public domain name.</td>
+            </tr>
+            <tr>
+              <td><code>--email &lt;address&gt;</code></td>
+              <td>The contact for the ACME account.</td>
+            </tr>
+            <tr>
+              <td><code>--agree-tos</code></td>
+              <td>Agrees to the CA's terms without asking.</td>
+            </tr>
+            <tr>
+              <td><code>--acme-staging</code></td>
+              <td>Uses Let's Encrypt's staging server (<a href="#staging">below</a>).</td>
+            </tr>
+            <tr>
+              <td><code>--acme-directory &lt;url&gt;</code></td>
+              <td>Uses another ACME server (<a href="#another-acme-server">below</a>).</td>
+            </tr>
+            <tr>
+              <td><code>--skip-acme</code></td>
+              <td>Sets the domain name and keeps the current certificate.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Without a terminal, <code>--hostname</code> is required, and so is
+        <code>--agree-tos</code> whenever a certificate is ordered. Only the http-01 challenge is
+        supported, so the node can't get a wildcard certificate, and it can't
+        get one for a name that doesn't reach it on port 80.
+      </p>
+
+      <h2 id="renewal">Renewal</h2>
+      <p>
+        The node renews the certificate on its own. Once an hour it looks at
+        the certificate, and orders a new one when:
+      </p>
+      <ul>
+        <li>30 days or less are left before it ends;</li>
+        <li>it doesn't cover the node's domain name, because you changed it;</li>
+        <li>
+          it still serves the certificate it made itself, though you asked
+          for a real one with <code>dassie init</code> before.
+        </li>
+      </ul>
+      <p>
+        If an order fails, the node waits an hour before it tries again, then
+        twice as long after each failure, up to a day. If the CA asks it to
+        wait longer, it does, up to a week. This keeps a node with a problem
+        from running into Let's Encrypt's limits on failed attempts.
+      </p>
+      <p>
+        <code>dassie status</code> shows where the certificate came from and
+        when it ends, and the last renewal's error if it failed:
+      </p>
+      <pre><code><span class="prompt">$</span>dassie status
+<span class="comment"># …</span>
+<span class="output">  Certificate  valid until 2027-01-12 09:30 UTC; the node renews it by itself</span></code></pre>
+      <p>
+        From 14 days before the end, it also says how long is left. If renewal
+        keeps failing, check that your domain still points at the server and
+        that port 80 still reaches it, then look at the node's log:
+      </p>
+      <pre><code><span class="prompt">$</span>journalctl -u dassie</code></pre>
+      <p>
+        <a href="/docs/node/troubleshooting/">Troubleshooting</a> covers the
+        usual causes.
+      </p>
+
+      <h2 id="changing-the-domain">Changing the domain name</h2>
+      <p>Point the new name at the server, then set it:</p>
+      <pre><code><span class="prompt">$</span>sudo dassie init --hostname new.example.com</code></pre>
+      <p>
+        When <code>dassie init</code> finds a certificate, it asks whether to
+        skip ordering one. Either answer works: the node notices that its
+        certificate no longer covers the name and orders one for the new name
+        on its own. Until that one arrives, it serves a certificate it made
+        itself.
+      </p>
+      <p>
+        A new domain name is a new address for your node's wallet and payment
+        pointers, so tell whoever pays you.
+      </p>
+
+      <h2 id="staging">Trying it out with staging</h2>
+      <p>
+        Let's Encrypt limits how many certificates one name can get in a
+        week. If you're setting up and tearing down test nodes, use its
+        staging server, whose limits are far higher:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie init --acme-staging</code></pre>
+      <p>
+        Browsers don't trust staging certificates, so they warn as they do
+        about the node's own. When you're done testing, run
+        <code>sudo dassie init --acme-directory
+        https://acme-v02.api.letsencrypt.org/directory</code> and answer
+        that you don't want to skip the order.
+      </p>
+      <p>
+        The server you name is kept: once an order through it succeeds, the
+        node renews through it too.
+      </p>
+
+      <h2 id="another-acme-server">Another ACME server</h2>
+      <p>
+        Any ACME server that offers the http-01 challenge works, such as a CA
+        on your own network. Name its directory:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie init --acme-directory https://ca.example.internal/acme/directory</code></pre>
+      <p>
+        The directory must be an <code>https://</code> URL. If the ACME
+        server's own certificate is from a private CA, tell the node to trust
+        that CA's root with <code>DASSIE_ACME_CA_FILE</code>, in a drop-in:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo systemctl edit dassie.service</code></pre>
+      <figure class="file">
+        <figcaption>/etc/systemd/system/dassie.service.d/override.conf</figcaption>
+        <pre><code>[Service]
+Environment=DASSIE_ACME_CA_FILE=/etc/dassie/acme-root.pem</code></pre>
+      </figure>
+      <pre><code><span class="prompt">$</span>sudo systemctl restart dassie.service</code></pre>
+      <p>
+        With it set, the node's ACME client trusts only the roots in that
+        file, not the system's. The node runs as a user systemd makes for it,
+        so the file must be readable by everyone, with mode 0644, and outside
+        <code>/home</code>, which the node can't see:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo chmod 0644 /etc/dassie/acme-root.pem</code></pre>
+      <p>
+        The node reads the file the first time it orders a certificate. If it
+        can't, every order fails until the node restarts, so restart it after
+        you fix or change the file. A certificate from a private CA is
+        trusted only by browsers and wallets that trust that CA, so it suits
+        a private network, not a node others on the internet pay.
+      </p>
+
+      <h2 id="without-a-domain">Without a domain name</h2>
+      <p>
+        A node without a domain name runs as a periphery node, and needs no
+        certificate from a CA: it keeps the one it made. Open Payments clients
+        reach it through the front door you name as its relay in
+        <code>DASSIE_RELAY</code>, which has its own certificate. <a
+        href="/docs/node/periphery/">A server without a public IP</a> shows
+        how to run one.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/http.md#certificates">Why it works this way</a>
+        and how renewal is bounded (<a href="https://github.com/justmoon/dassie/blob/main/spec/areas/http.md#acme">ACME</a>).
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>
