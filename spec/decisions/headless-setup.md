@@ -18,6 +18,7 @@
 - **It pins the certificate the daemon names,** by the SHA-256 of its leaf, and requires the handshake to be signed by that certificate's key. A listener at a loopback address that cannot do that is passed over and sent nothing. Only the node, or whoever can read its database and so the node key too, can answer as the node.
 - **It is idempotent,** so a unit can run it at every start: a node set up with this phrase is left as it is, a node set up with another is refused with a code of its own and left untouched, an external asset's config it is given is set only if it differs, and of the settlement schemes it is given it adds only those that are not active.
 - **The phrase is read once from a bounded file and wiped as soon as the key is derived,** and no output or error names it.
+- **One flag says which settlement hubs it joins, the same in either realm:** `--hub <scheme>`, repeatable, names each by the scheme over it, as `dassie hub` names a hub, and joins the default hub of that scheme's asset; `--hub none` joins none. Without it, each realm keeps its default: the default hub of XRP on the testnet, none in the live realm, where a node joins a hub only once its owner turns hubs on ([Node](../areas/node.md#the-dassie-command)). A hub it was told to join and cannot fails setup, so that a script never takes the exit for a hub joined.
 
 ## Accepted
 
@@ -31,5 +32,6 @@
 - *Accepting whatever certificate answers on loopback at the node's port:* safe only while the node holds every loopback address at that port. Another user who binds the address the node leaves free would be sent the node key and the login proof.
 - *Taking the certificate to pin from the node's data directory:* reading it needs the node's user, and the status already reads the certificate the node serves.
 - *A `--realm` flag:* the phrase says its realm, so a flag could only agree with it or have the phrase refused, and every provisioning script would have to name, in a second place, what the phrase already says.
+- *A flag per realm, `--no-hub` to join none on the testnet and a bare `--hub` to join one in the live realm:* the same intent took a different flag in each realm, so a script had to know the realm the phrase names, and `--hub` could mean only the default hub of XRP, though a node is in one hub per asset and the testnet has a DSUSD hub too.
 - *Driving the wallet in a headless browser:* a browser on every node host, to type a phrase that is already in a file, for the same request.
 - *Sending the phrase, or the master seed, to the node:* the node would then hold secrets it never needs, which derive keys outside `node/` ([Identity](../areas/identity.md#seed-paths)).

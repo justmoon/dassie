@@ -1,6 +1,7 @@
 //! `dassie setup` against a standalone daemon: it claims a fresh node from a
 //! passphrase file, changes nothing when run again, refuses another
-//! passphrase without touching the node, and adds a settlement scheme
+//! passphrase without touching the node, adds a settlement scheme, and
+//! takes the hubs to join by their schemes (`--hub`)
 //! (spec/areas/node.md#the-dassie-command).
 
 #![allow(
@@ -134,6 +135,7 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
     );
 
     refuses_a_phrase_of_another_realm(dir.path(), &owner, &ipc);
+    names_hubs_by_their_schemes(&owner, &ipc);
 
     let refused = dassie(
         &["setup", "--passphrase-file", &stranger, "--scheme", "stub"],
@@ -199,6 +201,59 @@ fn refuses_a_phrase_of_another_realm(dir: &Path, owner: &str, ipc: &Path) {
         "{text}"
     );
     assert!(text.contains("a phrase of the live realm"), "{text}");
+}
+
+/// `--hub` names each hub by its scheme, or `none`. A flag line that cannot
+/// mean anything is a usage error, `--no-hub` among them, which is gone; a
+/// hub of another realm than the phrase's is refused before the node is
+/// touched; and `--hub none` joins no hub, not even the realm's default.
+fn names_hubs_by_their_schemes(owner: &str, ipc: &Path) {
+    let usage = |flags: &[&str], says: &str| {
+        let mut args = vec!["setup", "--passphrase-file", owner];
+        args.extend_from_slice(flags);
+        let refused = dassie(&args, ipc);
+        let text = describe(&refused);
+        assert_eq!(refused.status.code(), Some(2), "{text}");
+        assert!(text.contains(says), "{text}");
+    };
+    usage(&["--no-hub"], "pass --hub none");
+    usage(&["--hub"], "--hub");
+    usage(
+        &["--hub", "xrpl-testnet-xrp"],
+        "names no settlement hub's scheme",
+    );
+    usage(
+        &["--hub", "none", "--hub", "hub-xrpl-testnet-xrp"],
+        "--hub none joins no settlement hub",
+    );
+
+    let live = dassie(
+        &[
+            "setup",
+            "--passphrase-file",
+            owner,
+            "--scheme",
+            "stub",
+            "--hub",
+            "hub-xrpl-xrp",
+        ],
+        ipc,
+    );
+    let text = describe(&live);
+    assert_eq!(live.status.code(), Some(1), "{text}");
+    assert!(
+        text.contains("--hub hub-xrpl-xrp names a settlement hub of the live realm"),
+        "{text}"
+    );
+    assert!(text.contains("Nothing was changed."), "{text}");
+    let status = describe(&dassie(&["status"], ipc));
+    assert!(!status.contains("stub+"), "{status}");
+
+    let none = dassie(&["setup", "--passphrase-file", owner, "--hub", "none"], ipc);
+    let text = describe(&none);
+    assert!(none.status.success(), "{text}");
+    assert!(!text.contains("settlement hub"), "{text}");
+    assert!(!text.contains("Added the settlement scheme"), "{text}");
 }
 
 /// A fresh node that may not run the live realm, as none may but by the

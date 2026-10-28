@@ -115,11 +115,10 @@ Commands:
                     phrase names, fixed for good (live only by the dev
                     switch), set the config of
                     the accounts it is given, add the settlement
-                    schemes it lacks, and join the realm's default
-                    settlement hub if this build has one: the owner book
-                    it funds from, peering with nobody, then the hub's
-                    scheme; in the live realm only with --hub. Running
-                    it again changes nothing; it
+                    schemes it lacks, and join settlement hubs: for each,
+                    the owner books it funds from, peering with nobody,
+                    then the hub's scheme. Running it again changes
+                    nothing; it
                     exits 3, changing nothing, if the node is another
                     passphrase's.
                       --passphrase-file <file>  the passphrase, alone
@@ -129,10 +128,16 @@ Commands:
                                                 server; repeatable
                       --scheme <id>[=<config>]  a settlement scheme, with
                                                 its JSON config; repeatable
-                      --no-hub                  join no settlement hub
-                      --hub                     join the default hub in
-                                                the live realm too; fails
-                                                if this build has none
+                      --hub <scheme>|none       join the default hub of
+                                                the asset of this hub
+                                                scheme, as
+                                                hub-xrpl-testnet-dsusd;
+                                                fails if this build has
+                                                none; repeatable. none
+                                                joins no hub. Without it:
+                                                hub-xrpl-testnet-xrp in
+                                                the test realm, none in
+                                                the live realm
   pair              Print a code that pairs an owner app with the node, for
                     the next five minutes.
   update           Update Dassie to the newest release, once its signature

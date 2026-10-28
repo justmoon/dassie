@@ -4,17 +4,18 @@
 # in its runtime directory (phrases.sh).
 #
 # 1. Sets each node up from its phrase with `dassie setup`, which claims a
-#    fresh node, checks that one set up before is the phrase's, and adds
-#    the schemes it names that are missing: each node joins the testnet's
-#    default hub of its asset, the XRP node the XRP hub and the DSUSD node
-#    the DSUSD hub, with the owner books it funds the hub from, which peer
-#    with nobody: XRP's, and DSUSD's on the DSUSD node, whose XRP book pays
-#    its hub's gas (spec/areas/hubs.md#in-the-node). `--no-hub`: the
-#    DSUSD node joins no XRP hub, and neither joins a hub it does not name.
+#    fresh node, checks that one set up before is the phrase's, and joins
+#    the hub `--hub` names, unless the node is in it: each node the
+#    testnet's default hub of its asset, the XRP node the XRP hub and the
+#    DSUSD node the DSUSD hub, with the owner books it funds the hub from,
+#    which peer with nobody: XRP's, and DSUSD's on the DSUSD node, whose
+#    XRP book pays its hub's gas (spec/areas/hubs.md#in-the-node). With a
+#    hub named, setup joins no other, so the DSUSD node joins no XRP hub.
 #    A hub's scheme names no rules, so the node stores the rules of the
-#    default hub of its asset, which it adds only once they are built into
-#    the release (spec/areas/market-maker-vm.md). It changes no scheme a node already
-#    runs, so a node with a database from before hubs starts afresh.
+#    default hub of its asset; setup fails until they are built into the
+#    release (spec/areas/market-maker-vm.md). It changes no scheme a node
+#    already runs, so a node with a database from before hubs starts
+#    afresh.
 # 2. Writes the market maker's config (crates/dassie-cli/src/market_maker/
 #    config.rs) beside the phrases, from the settings startup.sh wrote
 #    from the instance metadata (MM_*, in /etc/dassie-mm/settings.env).
@@ -33,16 +34,11 @@ setup() {
   node=$1
   shift
   DASSIE_IPC_SOCKET_PATH="/run/dassie-mm-$node/dassie.sock" \
-    "$dassie" setup --passphrase-file "$dir/$node.phrase" --no-hub "$@"
+    "$dassie" setup --passphrase-file "$dir/$node.phrase" "$@"
 }
 
-setup xrp \
-  --scheme xrpl-testnet-xrp \
-  --scheme hub-xrpl-testnet-xrp
-setup dsusd \
-  --scheme xrpl-testnet-xrp \
-  --scheme xrpl-testnet-dsusd \
-  --scheme hub-xrpl-testnet-dsusd
+setup xrp --hub hub-xrpl-testnet-xrp
+setup dsusd --hub hub-xrpl-testnet-dsusd
 
 umask 077
 jq -n \
