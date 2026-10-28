@@ -31,6 +31,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     MIGRATION_6,
     MIGRATION_7,
     MIGRATION_8,
+    MIGRATION_9,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -796,6 +797,16 @@ ALTER TABLE peer_settings ADD COLUMN swapping INTEGER NOT NULL DEFAULT 1
   CHECK (swapping IN (0, 1));
 ";
 
+/// Migration 9: the targets a periphery node's own swaps aim for, per
+/// asset, by the ledger its holding counts toward
+/// (spec/decisions/peer-swaps.md): none, as for a new node.
+const MIGRATION_9: &str = "
+CREATE TABLE swap_targets (
+  asset TEXT NOT NULL PRIMARY KEY CHECK (length(asset) BETWEEN 1 AND 64),
+  target_ppm INTEGER NOT NULL CHECK (target_ppm BETWEEN 1 AND 1000000)
+) STRICT, WITHOUT ROWID;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1259,6 +1270,14 @@ pub const TABLES: &[Table] = &[
             ("rebalance_ppm", "INTEGER", true, false),
             ("offer_swaps", "INTEGER", true, false),
             ("swapping", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "swap_targets",
+        without_rowid: true,
+        columns: &[
+            ("asset", "TEXT", true, true),
+            ("target_ppm", "INTEGER", true, false),
         ],
     },
     Table {

@@ -22,7 +22,7 @@ const HUB: LedgerId = LedgerId::HubXrplTestnetXrp;
 
 /// Two nodes peered over the stub and [`StubTwo`](super::StubTwo), each
 /// hold funded, with the rates both learn, so a swap converts.
-fn pair(seed: u64) -> Sim {
+pub(super) fn pair(seed: u64) -> Sim {
     let mut sim = Sim::with(seed, 2, 1, BTreeMap::new(), Settling::StubHub(4));
     sim.loss_per_mille = 0;
     for index in 0..2 {
@@ -90,7 +90,7 @@ fn swap(sim: &mut Sim, amount: u64, minimum: u64) -> SwapOutcome {
 }
 
 /// What the owner of node `index` holds on each ledger.
-fn holds(sim: &Sim, index: usize) -> (u64, u64) {
+pub(super) fn holds(sim: &Sim, index: usize) -> (u64, u64) {
     let core = sim.core(index);
     (core.owner_available(USD), core.owner_available(HUB))
 }
