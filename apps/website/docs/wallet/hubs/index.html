@@ -166,13 +166,11 @@
       </p>
       <p>
         <strong>The ceiling</strong> bounds what your node puts into the
-        hub: its own deposits never take the account past it. It also
-        matters if you keep what you receive on your own account, which you
-        choose under <strong>Received Funds</strong> in
-        <strong>Settings</strong>. Then the node withdraws what goes beyond
-        the ceiling to your own account. By default what you receive stays
-        in the hub, where it arrives, and the node withdraws nothing by
-        itself.
+        hub: its own deposits never take the account past it. When what
+        you receive takes the account past it, the node withdraws what goes
+        beyond to your own account. Between the floor and the ceiling is a
+        float: enough to settle with your peers, and no more at stake in the
+        hub than that.
       </p>
       <p class="not-yet">
         Setting the floor and the ceiling yourself is not there yet: the node
@@ -212,9 +210,8 @@
 
       <h2 id="automatic-moves">Let your node move funds</h2>
       <p>
-        Your node keeps each hub account above its floor by itself, and, if
-        you keep what you receive on your own account, below its ceiling. The
-        card says which it does now. To move everything yourself, choose
+        Your node keeps each hub account between its floor and its ceiling by
+        itself. The card says whether it does now. To move everything yourself, choose
         <strong>Stop your node's own moves</strong>; choose
         <strong>Let your node move funds by itself</strong> to turn them back
         on. Your node remembers the choice.

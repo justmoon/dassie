@@ -26,7 +26,7 @@ use super::hub_funding::{
     Direction, Funding, Gas, GasNext, GasSeen, Held, Move, Planned, Standing,
 };
 use super::{Core, EngineError};
-use crate::store::{FundsKept, HubFundingRow, HubMoveRow};
+use crate::store::{HubFundingRow, HubMoveRow};
 
 /// The most XRP Ledger fee a payment out of an owner book is sized to leave
 /// room for, in drops: XRP the account pays, from the XRP book.
@@ -159,10 +159,6 @@ pub struct HubStatus {
     pub ceiling: u64,
     /// Whether the node moves funds by itself.
     pub automatic: bool,
-    /// Whether its own moves withdraw what is beyond the ceiling to the
-    /// owner's own account: the owner keeps what the node receives in the
-    /// hub's asset there rather than in the hub.
-    pub sweeps: bool,
     /// Until when the owner's last move pauses the automatic ones.
     pub paused_until_ms: Option<u64>,
     /// The move on its way.
@@ -294,47 +290,11 @@ impl Core {
                 .copied()
                 .unwrap_or(automatic);
             let row = self.batch.hub_funding.get(&scheme).unwrap_or(&row);
-            let mut funding = restored(self.now_ms, self.settle.interval_ms, automatic, row)?;
-            funding.sweeps = self.sweeps(scheme)?;
+            let funding = restored(self.now_ms, self.settle.interval_ms, automatic, row)?;
             self.funding.insert(scheme, funding);
         }
         assert!(self.funding.len() <= MAX_OWN_HUBS, "a funding per hub");
         Ok(())
-    }
-
-    /// Whether the node withdraws to the owner's own account what the hub
-    /// of `scheme` holds beyond the ceiling: the owner's choice for the
-    /// hub's asset, by the name of its wallet address, which the database
-    /// keeps (spec/areas/payments.md#where-received-money-is-kept).
-    ///
-    /// # Errors
-    ///
-    /// The database failed, or holds what it may not.
-    fn sweeps(&self, scheme: Name) -> Result<bool, String> {
-        let Some(active) = self.schemes.get(&scheme) else {
-            return Ok(false);
-        };
-        let kept = self
-            .store
-            .funds_kept(active.scheme.ledger().wallet_name())
-            .map_err(|e| e.to_string())?;
-        Ok(kept == FundsKept::OwnAccount)
-    }
-
-    /// The owner keeps what the node receives in the asset of the wallet
-    /// address called `name`, or in every asset, where `kept` says, which
-    /// the database keeps already: the hub of that asset withdraws what is
-    /// beyond its ceiling from now on, or no longer does.
-    pub fn set_funds_kept(&mut self, name: Option<&str>, kept: FundsKept) {
-        self.follow_hubs();
-        for (scheme, funding) in &mut self.funding {
-            let named = self.schemes.get(scheme).is_some_and(|active| {
-                name.is_none_or(|name| active.scheme.ledger().wallet_name() == name)
-            });
-            if named {
-                funding.sweeps = kept == FundsKept::OwnAccount;
-            }
-        }
     }
 
     /// [`load_funding`](Self::load_funding) in a step.
@@ -631,9 +591,12 @@ impl Core {
             .filter(|_| account.is_synced())
             .map(|(_, view)| {
                 let number = account.number();
+                // A stranger's hold toward us counts nowhere: anyone may
+                // open one, and the node never takes from it, so it is
+                // nothing a failing hub could cost the owner.
                 let toward_us: u64 = account
                     .holds()
-                    .filter(|(_, hold)| Some(hold.payee) == number)
+                    .filter(|(n, hold)| Some(hold.payee) == number && !account.is_stranger(*n))
                     .map(|(_, hold)| hold.amount)
                     .fold(0, u64::saturating_add);
                 let paying = account
@@ -1206,9 +1169,7 @@ impl Core {
         let funding = match self.funding.get(&scheme) {
             Some(funding) => funding,
             None => {
-                let mut fresh = Funding::new(now, self.settle.interval_ms);
-                fresh.sweeps = self.sweeps(scheme).unwrap_or(false);
-                starting = fresh;
+                starting = Funding::new(now, self.settle.interval_ms);
                 &starting
             }
         };
@@ -1227,7 +1188,6 @@ impl Core {
             floor,
             ceiling,
             automatic: funding.automatic,
-            sweeps: funding.sweeps,
             paused_until_ms: (funding.paused_until_ms > now).then_some(funding.paused_until_ms),
             moving: funding.moving,
             late: funding.late(now),

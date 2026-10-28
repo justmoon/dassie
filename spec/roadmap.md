@@ -28,6 +28,15 @@ A ledger kept by n = 3f + 1 validators and backed by an escrow on the XRP Ledger
   - stall periods above what the engine's views hold at the longest view (`MAX_STALL_MS`), by keeping long runs of nullified views as ranges ([finality-after-any-outage](decisions/finality-after-any-outage.md)).
 - Hubs hold real money only once the conditions of [Real money](#real-money) are met.
 
+### One balance per asset
+
+The owner holds one balance per asset, and the node manages the hub's part of it like a hold ([one-balance-per-asset](decisions/one-balance-per-asset.md)). The float, the sweep beyond the ceiling and deposits on the owner's own account are built.
+
+- **What is left:**
+  - a payment's deposit on demand: the funds check counts the whole asset, and a payment the hub account does not cover waits while the node deposits the shortfall from the owner book, within its deadline;
+  - one balance per asset: the node reports what the owner book, the hub account and a move on its way hold together, and the wallet's dashboard, its Send, which pays in an asset, and `dassie status` show that.
+- **Done when:** an owner sees one balance per asset, and Send pays any amount it covers.
+
 ### Token hubs
 
 Hubs that hold an issued token: DSUSD on the XRP Ledger testnet, RLUSD on mainnet ([token-hubs](decisions/token-hubs.md)). The issuer's freeze is a state of the hub's ledger, a clawback ends the hub with a payout pro rata, and the escrow's fees are paid from XRP anyone may send it; what is built is in [Settlement hubs](areas/hubs.md), [A frozen hub](areas/hubs.md#a-frozen-hub) among it, and in the `node-hub-dsusd` simulation ([Testing](areas/testing.md#over-a-settlement-hub)).

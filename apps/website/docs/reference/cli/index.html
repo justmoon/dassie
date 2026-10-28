@@ -310,15 +310,6 @@
             that hub's scheme as it is.
           </p>
         </dd>
-        <dt><code>--keep-funds hub|account</code></dt>
-        <dd>
-          <p>
-            Where the node keeps what it receives in each asset a hub holds:
-            in the hub, where it arrives (the default for a new node), or on
-            your own account, withdrawing what is beyond a ceiling. Without
-            this option the node's choice stays as it is.
-          </p>
-        </dd>
       </dl>
       <p>
         <code>--no-hub</code> is refused, with a pointer to
@@ -423,8 +414,8 @@
       <h3 id="dassie-hub-auto"><code>dassie hub auto &lt;scheme&gt; on|off</code></h3>
       <p>
         Lets the node move funds to and from the hub by itself, or not. With
-        it on, the node deposits when the account falls below its floor, and,
-        if you keep funds on your own account, withdraws beyond the ceiling.
+        it on, the node deposits when the account falls below its floor, and
+        withdraws to your own account what goes beyond the ceiling.
       </p>
 
       <h3 id="dassie-hub-give-up"><code>dassie hub give-up &lt;scheme&gt;</code></h3>

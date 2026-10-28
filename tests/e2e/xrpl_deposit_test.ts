@@ -3,9 +3,9 @@
  * on a settlement hub's member, for its owner book of XRP on the XRP
  * Ledger testnet (spec/areas/wallet.md#pages). The `hub` scenario runs on
  * the node's fake ledger, and once its hub is founded a node added to it
- * joins as a member, whose owner keeps what it receives on the own
- * account; a headless browser signed in to that member finds
- * its deposit address, and asks the faucet for test XRP. The faucet made
+ * joins as a member; a headless browser signed in to that member finds
+ * its deposit address, the owner's own account, and asks the faucet for
+ * test XRP. The faucet made
  * the account a moment ago, as the member started, and it is asked at
  * most once a minute, so the node says so and asks nothing
  * (spec/areas/xrpl.md#deposits-and-withdrawals): the button reaches the
@@ -26,7 +26,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { assert, assertEquals, assertMatch } from "@std/assert";
-import { FundsKept } from "@dassie/rpc/proto";
 import { HUB_OWNER_BOOK, Scenario } from "@dassie/dev/scenario";
 import type { Page } from "puppeteer-core";
 import { click, count, signIn, text, until } from "./browser.ts";
@@ -102,14 +101,8 @@ test(
       );
       const funded = await ledger(member, LEDGER);
       assert(funded.faucet, "the testnet has a faucet");
-      // Receive shows the owner book's address while the owner keeps what
-      // the node receives on the own account; kept in the hub, it shows
-      // the hub's escrow and the account's tag once the account has its
-      // number (spec/areas/payments.md#where-received-money-is-kept).
-      await member.rpc.call("setFundsKept", {
-        name: "xrp",
-        fundsKept: FundsKept.OWN_ACCOUNT,
-      });
+      // Receive shows the owner book's address, never the hub's escrow
+      // (spec/decisions/one-balance-per-asset.md).
 
       const page = await browser.newPage();
       const errors: string[] = [];

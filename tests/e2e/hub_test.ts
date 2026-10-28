@@ -27,6 +27,7 @@ import {
 import {
   assertPeersOverHubAlone,
   fundedInHub,
+  HUB_OWNER_LEDGER,
   HUB_WITHIN_MS,
   hubBooks,
   joinedHub,
@@ -38,7 +39,6 @@ import {
   peersOverHub,
   settledOverHub,
 } from "./settling.ts";
-import { FundsKept } from "@dassie/rpc/proto";
 import { HUB_LEDGER, HUB_SCHEME, Scenario } from "@dassie/dev/scenario";
 
 /** 2 XRP: twenty of the largest packets, so the payer funds its hold
@@ -64,8 +64,9 @@ test(
 
       // The payee has one wallet address for XRP, which books on the hub's
       // ledger, where what its peers pay arrives, and none names the hub;
-      // what it receives stays there, so a deposit goes to the escrow
-      // with its account's tag (spec/areas/payments.md#wallet-addresses).
+      // a deposit goes to the owner's own account, never to the escrow
+      // (spec/areas/payments.md#wallet-addresses,
+      // spec/decisions/one-balance-per-asset.md).
       const { walletAddresses } = await payee.rpc.call(
         "listWalletAddresses",
         {},
@@ -73,14 +74,17 @@ test(
       const xrp = walletAddresses.find((address) => address.name === "xrp");
       assert(xrp, "no XRP wallet address");
       assertEquals(xrp.ledger, HUB_LEDGER);
-      assertEquals(xrp.fundsKept, FundsKept.HUB);
-      assertEquals(xrp.depositLedger, HUB_LEDGER);
+      assertEquals(xrp.depositLedger, HUB_OWNER_LEDGER);
       assert(
         !walletAddresses.some((address) => address.url.includes("/pay/hub-")),
         "an address names the hub",
       );
       const hubAccount = await ledger(payee, HUB_LEDGER);
-      assert(hubAccount.depositTag, "no destination tag for deposits");
+      assertEquals(
+        hubAccount.depositAddress,
+        "",
+        "the escrow is no deposit address",
+      );
 
       const [paid, received] = await Promise.all(
         [payer, payee].map(ownerFunds),

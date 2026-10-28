@@ -855,8 +855,7 @@ fn a_channel_stored_with_the_mark_of_an_end_for_room_loads_without_it() {
 // spec/areas/node.md#database, spec/areas/payments.md#wallet-addresses: a
 // database written while the default named a ledger moves forward through
 // migration 7. The ledger becomes its asset's wallet address, a hub's
-// ledger the same as its owner book's; where funds are kept starts in the
-// hub for every asset, and each choice round-trips.
+// ledger the same as its owner book's.
 #[test]
 fn a_default_ledger_becomes_its_assets_wallet_address() {
     for (ledger, name) in [
@@ -887,14 +886,34 @@ fn a_default_ledger_becomes_its_assets_wallet_address() {
     assert_eq!(store.default_address().unwrap(), None);
     store.set_default_address(Some("xrp")).unwrap();
     assert_eq!(store.default_address().unwrap().as_deref(), Some("xrp"));
-    assert_eq!(store.funds_kept("xrp").unwrap(), FundsKept::Hub);
-    store
-        .set_funds_kept(&["xrp", "dsusd"], FundsKept::OwnAccount)
+}
+
+// spec/areas/node.md#database, spec/decisions/one-balance-per-asset.md: a
+// database that kept where the owner's funds were kept moves forward
+// through migration 10, which drops the choice with its table.
+#[test]
+fn where_funds_were_kept_goes() {
+    let temp = tempfile::tempdir().unwrap();
+    {
+        let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+        schema::prepare(&mut connection, &schema::MIGRATIONS[..9]).unwrap();
+        connection
+            .execute(
+                "INSERT INTO funds_kept (asset, kept) VALUES ('xrp', 'own')",
+                [],
+            )
+            .unwrap();
+    }
+    drop(Store::open(temp.path()).unwrap());
+    let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    let tables: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE name = 'funds_kept'",
+            [],
+            |row| row.get(0),
+        )
         .unwrap();
-    store.set_funds_kept(&["dsusd"], FundsKept::Hub).unwrap();
-    assert_eq!(store.funds_kept("xrp").unwrap(), FundsKept::OwnAccount);
-    assert_eq!(store.funds_kept("dsusd").unwrap(), FundsKept::Hub);
-    assert_eq!(store.funds_kept("rlusd").unwrap(), FundsKept::Hub);
+    assert_eq!(tables, 0);
 }
 
 // spec/areas/node.md#database, spec/areas/hubs.md#the-validator-in-the-node:

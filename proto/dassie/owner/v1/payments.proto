@@ -27,31 +27,11 @@ message WalletAddress {
   // Its name, the asset's for people, as its URL ends: usd, xrp, dsusd or
   // rlusd.
   string name = 7;
-  // Where the node keeps what arrives in the asset, which the owner
-  // chooses (SetFundsKept); UNSPECIFIED for an asset no settlement hub of
-  // the node's realm holds, which stays where it arrives.
-  FundsKept funds_kept = 8;
   // The ledger whose deposit method Receive shows for the asset, for
   // deposits on its underlying ledger rather than over Interledger: the
-  // hub's, whose deposit address and tag name the node's account in the
-  // hub, while the funds are kept in the hub and that account has its
-  // number; else the asset's own ledger, where the owner's account is.
-  // Empty when neither is active.
+  // asset's own, where the owner's account is, never a settlement hub's
+  // (spec/decisions/one-balance-per-asset.md). Empty while it is not active.
   string deposit_ledger = 9;
-}
-
-// Where the node keeps what it receives in an asset over Interledger
-// (spec/areas/payments.md#where-received-money-is-kept). It arrives on the
-// ledger of the asset's settlement hub either way.
-enum FundsKept {
-  // Not an asset a settlement hub holds.
-  FUNDS_KEPT_UNSPECIFIED = 0;
-  // In the hub, where it arrives: the default.
-  FUNDS_KEPT_HUB = 1;
-  // On the owner's own account on the hub's underlying ledger: the node
-  // withdraws there what its hub account holds beyond the ceiling, back to
-  // the midpoint between floor and ceiling (HubStatus).
-  FUNDS_KEPT_OWN_ACCOUNT = 2;
 }
 
 message ListWalletAddressesRequest {}
@@ -69,20 +49,6 @@ message SetDefaultWalletAddressRequest {
 }
 
 message SetDefaultWalletAddressResponse {
-  repeated WalletAddress wallet_addresses = 1;
-}
-
-// Chooses where the node keeps what it receives in an asset, or in every
-// asset a settlement hub of the node's realm holds. The database keeps it,
-// for a hub joined later too. NOT_FOUND for the name of an asset no
-// settlement hub of the realm holds; INVALID_ARGUMENT for UNSPECIFIED.
-message SetFundsKeptRequest {
-  // The wallet address's name, such as xrp; empty for every asset.
-  string name = 1;
-  FundsKept funds_kept = 2;
-}
-
-message SetFundsKeptResponse {
   repeated WalletAddress wallet_addresses = 1;
 }
 

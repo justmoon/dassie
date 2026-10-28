@@ -28,14 +28,12 @@ socket=/run/dassie-mm-node/dassie.sock
 xrpl_server=wss://s.altnet.rippletest.net:51233
 dsusd_issuer=rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M
 
-# The node keeps what it is paid on its owner's own account, so that each
-# hub's funding sweeps it beyond the ceiling into the owner book, which the
-# market maker's rebalances spend from (spec/areas/rate-feed.md#bands).
-# Setup runs at every start, so this holds for a node set up before too.
+# Each hub's funding sweeps what the node is paid beyond the ceiling into
+# the owner book, which the market maker's rebalances spend from
+# (spec/areas/rate-feed.md#bands, spec/decisions/one-balance-per-asset.md).
 DASSIE_IPC_SOCKET_PATH=$socket "$dassie" setup \
   --passphrase-file "$dir/node.phrase" \
-  --hub hub-xrpl-testnet-xrp --hub hub-xrpl-testnet-dsusd \
-  --keep-funds account
+  --hub hub-xrpl-testnet-xrp --hub hub-xrpl-testnet-dsusd
 
 umask 077
 jq -n \

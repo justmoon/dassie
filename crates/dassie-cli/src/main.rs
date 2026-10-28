@@ -138,11 +138,6 @@ Commands:
                                                 hub-xrpl-testnet-xrp in
                                                 the test realm, none in
                                                 the live realm
-                      --keep-funds <hub|account>
-                                                keep what the node receives
-                                                in its settlement hubs (the
-                                                default), or on your own
-                                                account beyond a float
   pair              Print a code that pairs an owner app with the node, for
                     the next five minutes.
   update           Update Dassie to the newest release, once its signature

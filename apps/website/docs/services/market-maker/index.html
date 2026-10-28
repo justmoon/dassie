@@ -152,13 +152,13 @@
       <p>
         Keep the node's recovery phrase in a file of its own, and set the
         node up from it. Setup joins both hubs, which are built into Dassie,
-        with the ledgers they are funded from, and keeps what the node is
-        paid on your own account, which the swaps on the pool spend from:
+        with the ledgers they are funded from. What the node is paid beyond
+        each hub's float goes to your own account, which the swaps on the
+        pool spend from:
       </p>
       <pre><code><span class="prompt">$</span>DASSIE_IPC_SOCKET_PATH=$XDG_RUNTIME_DIR/mm.sock \
   dassie setup --passphrase-file ~/mm/node.phrase \
-    --hub hub-xrpl-testnet-xrp --hub hub-xrpl-testnet-dsusd \
-    --keep-funds account</code></pre>
+    --hub hub-xrpl-testnet-xrp --hub hub-xrpl-testnet-dsusd</code></pre>
       <p>
         Running setup again changes nothing, so you can run it at every
         start. The node asks the testnet's faucet for XRP while its account

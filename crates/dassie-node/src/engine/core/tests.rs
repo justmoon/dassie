@@ -5069,6 +5069,26 @@ impl Validators {
     /// The node's account 5 opened a hold of `amount` toward account 9, in
     /// a new final block, after which it holds `balance`.
     fn opened_hold(&mut self, core: &mut Core, amount: u64, balance: u64, deposited: u64) {
+        self.hold_opened(core, (7, 5, 9), amount, balance, deposited);
+    }
+
+    /// Account 9, a stranger the node does not peer with, opened a hold of
+    /// `amount` toward the node's account 5, which holds `balance`.
+    fn stranger_hold(&mut self, core: &mut Core, amount: u64, balance: u64, deposited: u64) {
+        self.hold_opened(core, (8, 9, 5), amount, balance, deposited);
+    }
+
+    /// The account of the key from `seed`, `payer`, opened a hold of
+    /// `amount` toward `payee`, in a new final block, after which the
+    /// node's account 5 holds `balance`.
+    fn hold_opened(
+        &mut self,
+        core: &mut Core,
+        (seed, payer, payee): (u8, u32, u32),
+        amount: u64,
+        balance: u64,
+        deposited: u64,
+    ) {
         use dassie_hub::client::{AccountView, Statement};
         use dassie_hub::ledger::{Detail, Outcome};
         use dassie_hub::operation::{
@@ -5078,15 +5098,15 @@ impl Validators {
 
         self.height += 1;
         let key =
-            dassie_hub::member::member_key(&IdentityKey::from_bytes(&[7; 32]), &self.rules.id());
+            dassie_hub::member::member_key(&IdentityKey::from_bytes(&[seed; 32]), &self.rules.id());
         let fees = self.rules.terms.fees;
         let operation = SignedMemberOperation::sign(
             &self.rules.id(),
-            AccountNumber(5),
+            AccountNumber(payer),
             1,
             fees.operation,
             MemberOperation::HoldOpen {
-                payee: AccountNumber(9),
+                payee: AccountNumber(payee),
                 amount,
             },
             &key,
@@ -5095,7 +5115,7 @@ impl Validators {
             key: self.member,
             balance,
             reserve: fees.account_reserve,
-            sequence: 2,
+            sequence: if payer == 5 { 2 } else { 1 },
             disbursal: true,
             closing: false,
             deposited,
@@ -5141,18 +5161,6 @@ fn funding_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
         .unwrap();
     follow_xrpl(&mut core, ledger);
     core
-}
-
-/// The owner of `core` keeps what it receives in XRP on the own account,
-/// so its XRP hub withdraws what is beyond the ceiling
-/// (spec/areas/payments.md#where-received-money-is-kept).
-fn keep_xrp_on_own_account(core: &mut Core) {
-    use crate::store::FundsKept;
-
-    core.store
-        .set_funds_kept(&["xrp"], FundsKept::OwnAccount)
-        .unwrap();
-    core.set_funds_kept(Some("xrp"), FundsKept::OwnAccount);
 }
 
 /// Moves the core's time on by `ms`, then by a few ledgers' closes, each
@@ -5227,41 +5235,36 @@ fn withdrawals(outputs: &[Output]) -> Vec<(u64, dassie_hub::operation::Destinati
     seen
 }
 
-// spec/areas/hubs.md#in-the-node, spec/areas/payments.md#where-received-money-is-kept:
-// the hub's ledger names the escrow and the account's number as its
-// deposit address and tag once the hub agreed on the number, and neither
-// before, nor once the account failed: a hub that names another number for
-// the key makes the one known someone else's, whom a deposit would credit.
+// spec/decisions/one-balance-per-asset.md: the owner deposits on the
+// asset's own ledger, never to the hub's escrow: the hub's ledger names no
+// deposit address, whether or not its account has a number, while the
+// owner book names the owner's own account.
 #[test]
-fn a_hub_ledgers_deposit_tag_is_its_accounts_number_while_it_holds() {
-    use dassie_settlement::LedgerStatus;
-
-    let (mut ledger, _) = funded_ledger();
+fn only_the_owner_book_names_a_deposit_address() {
+    let (mut ledger, own) = funded_ledger();
     let mut core = funding_core(&mut ledger);
     let mut hub = Validators::new();
-    let escrow = hub.escrow();
-    let view = |core: &Core| {
+    let view = |core: &Core, id| {
         core.ledger_views()
             .into_iter()
-            .find(|view| view.id == dassie_ledger::LedgerId::HubXrplTestnetXrp)
+            .find(|view| view.id == id)
             .unwrap()
+            .deposit_address
     };
     hub.no_account(&mut core);
-    let none = view(&core);
-    assert_eq!((none.deposit_address, none.deposit_tag), (None, None));
-    hub.account(&mut core, 3_000_000, 3_000_000);
-    let known = view(&core);
     assert_eq!(
-        (known.deposit_address, known.deposit_tag),
-        (Some(escrow.to_address()), Some(5))
+        view(&core, dassie_ledger::LedgerId::HubXrplTestnetXrp),
+        None
     );
-    hub.account_numbered(&mut core, 6, 3_000_000, 3_000_000, 0);
-    let failed = view(&core);
-    assert!(
-        matches!(failed.status, LedgerStatus::Failed(_)),
-        "{failed:?}"
+    hub.account(&mut core, 3_000_000, 3_000_000);
+    assert_eq!(
+        view(&core, dassie_ledger::LedgerId::HubXrplTestnetXrp),
+        None
     );
-    assert_eq!((failed.deposit_address, failed.deposit_tag), (None, None));
+    assert_eq!(
+        view(&core, dassie_ledger::LedgerId::XrplTestnetXrp),
+        Some(own.to_address())
+    );
 }
 
 // spec/areas/hubs.md#in-the-node: a node in a hub that has no account for
@@ -5307,10 +5310,9 @@ fn the_node_keeps_its_hub_between_floor_and_ceiling() {
     assert_eq!((made[1].tag, made[1].key), (5, None));
     assert_eq!(made[1].amount, middle - 100_000);
 
-    // Credited, then peers' settlements taken past the ceiling, with what
-    // the node receives kept on the owner's own account: withdrawn to the
-    // midpoint, counting the account reserve.
-    keep_xrp_on_own_account(&mut core);
+    // Credited, then peers' settlements taken past the ceiling: withdrawn
+    // to the owner's own account down to the midpoint, counting the account
+    // reserve.
     hub.account(&mut core, middle, opening + made[1].amount);
     let balance = 12_000_000;
     hub.account(&mut core, balance, opening + made[1].amount);
@@ -5682,6 +5684,39 @@ fn our_holds_count_toward_the_hub_ceiling() {
     );
 }
 
+// spec/areas/hubs.md#in-the-node: anyone in the hub may open a hold toward
+// the node's account, and the node takes nothing from one that is not a
+// peer's, so it counts nowhere in what the node keeps in the hub: a
+// stranger's hold of a ceiling makes the node withdraw nothing, nor keeps
+// it from filling its float.
+#[test]
+fn a_strangers_hold_moves_nothing() {
+    use dassie_settlement::policy;
+
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let floor =
+        policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0) / dassie_xrpl::UNITS_PER_DROP;
+    let ceiling = policy::hub_ceiling(p) / dassie_xrpl::UNITS_PER_DROP;
+    let balance = floor.midpoint(ceiling);
+    hub.account(&mut core, balance, opening);
+    hub.stranger_hold(&mut core, ceiling, balance, opening);
+    let outputs = wait_and_close(&mut core, &mut ledger, 4_000);
+    assert_eq!(withdrawals(&outputs), [], "nothing withdrawn");
+
+    hub.account(&mut core, 100_000, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 2, "below the floor: {made:?}");
+    assert_eq!(made[1].amount, floor.midpoint(ceiling) - 100_000);
+}
+
 // spec/areas/hubs.md#in-the-node: a deposit on its way is done only once
 // the account's deposits counter shows it: a withdrawal that came back in
 // the meantime counts apart, and does not end the move early.
@@ -6012,10 +6047,8 @@ fn an_owner_book_funds_the_hub_and_never_peers() {
     );
     assert_eq!(owner_xrp(&core).1, 0, "and is no longer held");
 
-    // Credited, then taken past the ceiling, with what the node receives
-    // kept on the owner's own account: withdrawn to the owner book's
+    // Credited, then taken past the ceiling: withdrawn to the owner book's
     // account.
-    keep_xrp_on_own_account(&mut core);
     let fees = hub.rules.terms.fees;
     let p = Policies::DEFAULT.connector.max_packet_amount;
     let credit = Policies::DEFAULT.peer_credit;

@@ -29,8 +29,9 @@ message Ledger {
   // reserve.
   uint64 reserve = 9;
   // Where the owner sends money to fund it, if anywhere: an XRPL address.
-  // For a settlement hub's ledger, the hub's escrow, once the node's
-  // account there has its number, which deposit_tag gives.
+  // Never for a settlement hub's ledger: the owner deposits on the asset's
+  // own ledger, and the node moves into the hub what it needs there
+  // (spec/decisions/one-balance-per-asset.md).
   string deposit_address = 10;
   // How the scheme stands with its underlying ledger.
   LedgerConnection connection = 11;
@@ -52,11 +53,6 @@ message Ledger {
   // settlement methods of peerings on it are left to wind down before it
   // goes. Absent while it is not being removed.
   optional uint32 removing_methods = 17;
-  // The destination tag a deposit to deposit_address must carry: for a
-  // settlement hub's ledger, the number of the node's account in the hub,
-  // which a deposit with it is credited to (spec/areas/hubs.md#the-escrow).
-  // Absent where no tag is needed.
-  optional uint32 deposit_tag = 18;
 }
 
 // A dollar token's peg guard: whether it pauses the scheme, and the token's

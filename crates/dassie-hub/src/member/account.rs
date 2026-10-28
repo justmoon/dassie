@@ -692,6 +692,14 @@ impl HubAccount {
         self.holds.iter().map(|(number, hold)| (*number, hold))
     }
 
+    /// Whether hold `number` is toward it from an account the scheme does
+    /// not follow: one anyone may open, kept in a pool of its own, which
+    /// the node never takes from.
+    #[must_use]
+    pub fn is_stranger(&self, number: HoldNumber) -> bool {
+        self.strangers.contains(&number)
+    }
+
     /// What it learnt since its scheme was last told.
     #[must_use]
     pub fn news(&self) -> &[News] {

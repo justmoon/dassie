@@ -172,7 +172,6 @@ mod tests {
             on_ledger_balance: 0,
             reserve: 0,
             deposit_address: None,
-            deposit_tag: None,
             issuer: None,
             faucet: false,
             status: LedgerStatus::Synced,
