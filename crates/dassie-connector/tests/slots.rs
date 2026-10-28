@@ -15,10 +15,11 @@
 
 use std::collections::BTreeMap;
 
-use dassie_connector::sim::{Harness, NOW, fulfill, prepare, reject};
+use dassie_connector::sim::{Harness, NOW, decode_prepare, fulfill, prepare, reject};
 use dassie_connector::{Config, EndpointId, MAX_SLOTS, Outcome, RATE_PRECISION, SlotError};
-use dassie_ilp::ErrorCode;
+use dassie_ilp::{AmountTooLarge, ErrorCode};
 use dassie_ledger::{AccountId, LedgerId};
+use dassie_oer::Decode;
 
 const ALICE: EndpointId = EndpointId::Btp(1);
 const ONE: EndpointId = EndpointId::Peer(1);
@@ -401,4 +402,61 @@ fn the_hub_flag_is_per_method() {
     assert!(h.timeout(NOW + 19_000).is_none(), "the hub's waits");
     let wait = h.connector.poll_hub_wait().unwrap();
     assert_eq!((wait.destination, wait.ledger), (ONE, XRP));
+}
+
+// spec/areas/connector.md#the-largest-packet: a packet that a conversion
+// makes larger than the largest packet on the way out gets F08, with the
+// most that would pass in its own units, and is never forwarded. Every
+// threshold of the next link is counted in the largest packet: a payer
+// over a hub can hold too little toward the hop for such a packet while
+// the hop has too much room to ask it to settle, so the packet, refused
+// for liquidity (T04), would be sent again as it is, for good.
+#[test]
+fn a_conversion_past_the_largest_packet_gets_f08() {
+    let largest = Config::DEFAULT.max_packet_amount;
+    let mut h = Harness::new(Config::DEFAULT, TRUST);
+    h.open_books(USD);
+    h.fund(XRP, TRUST);
+    h.open_books(XRP);
+    h.add_peer(5, "dsource", TRUST, 0);
+    h.add_peer_on(XRP, 1, "done", TRUST, 0);
+    h.rates.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
+    h.rates.set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), NOW);
+    h.connector.set_routes([(FAR, &[ONE][..])]).unwrap();
+    // A dollar buys about two XRP: the largest packet in dollars is about
+    // two of them in XRP.
+    let packet = prepare(FAR, largest, NOW + 20_000, [1; 32]);
+    let Outcome::Respond(length) = h.prepare_on(NOW, (SOURCE, USD), 1, &packet) else {
+        panic!("a packet past the largest was forwarded");
+    };
+    let (code, data) = h.reject_written(length);
+    assert_eq!(code, ErrorCode::F08_AMOUNT_TOO_LARGE);
+    let too_large = AmountTooLarge::decode_exact(&data).unwrap();
+    assert_eq!(too_large.received_amount, largest);
+    let mut most = too_large.maximum_amount;
+    assert!(most > largest / 3 && most < largest * 3 / 5, "{most}");
+    // A sender that sizes its packets by the F08s, as STREAM does, soon
+    // gets one through, at most the largest packet on the way out. The
+    // most an F08 names is at the larger packet's rate, and a smaller
+    // packet's own impact moves its rate less, so it may take a step more.
+    for request_id in 2..5 {
+        let packet = prepare(FAR, most, NOW + 20_000, [1; 32]);
+        match h.prepare_on(NOW, (SOURCE, USD), request_id, &packet) {
+            Outcome::Forward(sent) => {
+                assert_eq!((sent.to, sent.ledger), (ONE, XRP));
+                let out = decode_prepare(&h.buffer[..sent.length]).amount;
+                assert!(out <= largest && out > largest * 9 / 10, "{out}");
+                return;
+            }
+            Outcome::Respond(length) => {
+                let (code, data) = h.reject_written(length);
+                assert_eq!(code, ErrorCode::F08_AMOUNT_TOO_LARGE);
+                let too_large = AmountTooLarge::decode_exact(&data).unwrap();
+                assert!(too_large.maximum_amount < most);
+                most = too_large.maximum_amount;
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+    panic!("no packet sized by the F08s got through");
 }

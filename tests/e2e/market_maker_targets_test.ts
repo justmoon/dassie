@@ -31,7 +31,6 @@ import {
   freshRates,
   held,
   marketMakerNodes,
-  TRADE,
   writeConfig,
   XRP,
 } from "./market_maker.ts";
@@ -105,10 +104,12 @@ test("a market maker moves each of two core nodes toward balance over hubs", {
     let exited = false;
     maker.exited.then(() => exited = true);
     try {
-      // A trade's DSUSD reached each: only the market maker pays a core
-      // node DSUSD. While one of a core node's own moves between its hub
-      // and its book is on its way, the sum reads short of what it holds,
-      // never above.
+      // A trade's DSUSD reached each: only the market maker pays a core node
+      // DSUSD, and a core node pays its own costs in it, such as the DSUSD
+      // hub's fee on each claim it redeems, so what a trade brings shows as a
+      // rise that may fall short of a whole trade. While one of a core node's
+      // own moves between its hub and its book is on its way, the sum reads
+      // short of what it holds, never above.
       await scenario.until(
         "the market maker trades through each core node",
         async () => {
@@ -116,7 +117,7 @@ test("a market maker moves each of two core nodes toward balance over hubs", {
           const dsusd = await Promise.all(
             cores.map((node) => held(node, DSUSD)),
           );
-          return dsusd.every((held, i) => held >= dsusdBefore[i] + TRADE);
+          return dsusd.every((held, i) => held > dsusdBefore[i]);
         },
         RUN_MS,
       );

@@ -17,8 +17,9 @@ use dassie_connector::sim::*;
 use dassie_connector::{
     Charges, Config, EndpointId, Forwarded, Outcome, Pricing, RATE_PRECISION, Responded, convert,
 };
-use dassie_ilp::ErrorCode;
+use dassie_ilp::{AmountTooLarge, ErrorCode};
 use dassie_ledger::{AccountName, LedgerId};
+use dassie_oer::Decode;
 use proptest::prelude::*;
 
 const ALICE: EndpointId = EndpointId::Btp(1);
@@ -296,21 +297,33 @@ proptest! {
             AccountName::AssetsInterledger(dassie_ledger::Name::new("done").unwrap()),
         )).unwrap();
         let before = h.net(source);
+        let fee = charges.fee(amount);
+        let net = amount - fee;
+        let max_age_ms = Config::DEFAULT.max_rate_age_ms;
+        let expected = table.convert(USD, XRP, amount, net, &holdings, NOW, max_age_ms);
         let packet = prepare("test.das.dtwo.x", amount, NOW + 20_000, [1; 32]);
         let sent = match h.prepare(NOW, ONE, 1, &packet) {
             Outcome::Forward(sent) => sent,
             Outcome::Respond(length) => {
-                // Only an amount the charges take whole.
-                prop_assert_eq!(h.reject_written(length).0, ErrorCode::F02_UNREACHABLE);
+                let (code, data) = h.reject_written(length);
+                // Only an amount the charges take whole, or one the
+                // conversion makes larger than the largest packet, which
+                // is told the most that would pass.
+                if code == ErrorCode::F08_AMOUNT_TOO_LARGE {
+                    let largest = Config::DEFAULT.max_packet_amount;
+                    prop_assert!(expected.is_ok_and(|out| out > largest));
+                    let too_large = AmountTooLarge::decode_exact(&data).unwrap();
+                    prop_assert_eq!(too_large.received_amount, amount);
+                    prop_assert!(too_large.maximum_amount < amount);
+                } else {
+                    prop_assert_eq!(code, ErrorCode::F02_UNREACHABLE);
+                }
                 return Ok(());
             }
             other => panic!("{other:?}"),
         };
         let out = amount_sent(&h, sent);
-        let fee = charges.fee(amount);
-        let net = amount - fee;
-        let max_age_ms = Config::DEFAULT.max_rate_age_ms;
-        let expected = table.convert(USD, XRP, amount, net, &holdings, NOW, max_age_ms);
+        prop_assert!(out <= Config::DEFAULT.max_packet_amount);
         prop_assert_eq!(expected, Ok(out));
         prop_assert!(price.and_then(|price| price.convert(net)) >= Some(out));
         // Spot, k above it: net · xrp_rate / 10^15 · (1 + k).
