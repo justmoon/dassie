@@ -8,7 +8,7 @@ import { For, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { useNodeData } from "@dassie/ui/node-data";
 import { Link } from "@dassie/ui/router";
-import { Alert, Card, LiveNote, PageTitle } from "@dassie/ui/ui";
+import { Alert, Card, LiveNote, PageTitle, ValueCube } from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
 import { assetName, assetOf } from "../assets/assets.ts";
 import { ageText, rateText } from "../settings/rates.ts";
@@ -31,19 +31,22 @@ export function Ledgers(): JSX.Element {
               <h2>{schemeName(ledger().settlementScheme)}</h2>
               <Link
                 href={`/ledgers/delete/${ledger().settlementScheme}`}
-                class="button danger icon"
+                class="button"
                 testid={`ledger-delete-${ledger().settlementScheme}`}
                 aria-label={`Remove ${schemeName(ledger().settlementScheme)}`}
               >
-                🗑
+                Remove
               </Link>
             </div>
-            <Amount
-              value={ledger().ownerBalance}
-              currency={ledgerCurrency(ledger())}
-              size="lg"
-              testid={`ledger-balance-${ledger().id}`}
-            />
+            <div class="ledger-balance">
+              <ValueCube />
+              <Amount
+                value={ledger().ownerBalance}
+                currency={ledgerCurrency(ledger())}
+                size="lg"
+                testid={`ledger-balance-${ledger().id}`}
+              />
+            </div>
             <Show
               when={data.balances().find((balance) =>
                 balance.ledgers.length > 1 &&
@@ -125,13 +128,17 @@ export function Ledgers(): JSX.Element {
         )}
       </For>
       <div class="actions">
-        <Link href="/ledgers/create" class="button" testid="add-ledger">
+        <Link
+          href="/ledgers/create"
+          class="button primary"
+          testid="add-ledger"
+        >
           + Add Ledger
         </Link>
       </div>
       <Show when={data.rates().some((rate) => rate.assetCode !== "USD")}>
         <Card title="Exchange Rates" testid="rates">
-          <ul>
+          <ul class="rate-list">
             <For
               each={data.rates().filter((rate) => rate.assetCode !== "USD")}
             >
@@ -140,7 +147,9 @@ export function Ledgers(): JSX.Element {
                   data-testid={`rate-${rate.assetCode}`}
                   data-stale={rate.stale ? "yes" : "no"}
                 >
-                  {rateText(rate.assetCode, rate.perUsd)}{" "}
+                  <span class="rate">
+                    {rateText(rate.assetCode, rate.perUsd)}
+                  </span>{" "}
                   <span class="muted">
                     ({ageText(rate.asOfUnixMs, Date.now(), rate.stale)})
                   </span>

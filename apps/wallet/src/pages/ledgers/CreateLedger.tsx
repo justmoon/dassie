@@ -12,6 +12,7 @@ import { useNodeData } from "@dassie/ui/node-data";
 import { describe, useClient } from "@dassie/ui/rpc";
 import { useRouter } from "@dassie/ui/router";
 import { Alert, Card, ErrorText, PageTitle, Spinner } from "@dassie/ui/ui";
+import { Lockup } from "@dassie/ui/kopje";
 import { schemeDescription, schemeName } from "../schemes.ts";
 
 export function CreateLedger(): JSX.Element {
@@ -28,7 +29,9 @@ export function Onboarding(): JSX.Element {
   const data = useNodeData();
   return (
     <main id="content" class="page-narrow onboarding">
-      <p class="brand">Dassie Wallet</p>
+      <p class="brand">
+        <Lockup suffix="Wallet" />
+      </p>
       <PageTitle>Choose a Ledger Type</PageTitle>
       <p class="muted">
         Signed in to node <code data-testid="node-id">{data.selfId}</code>

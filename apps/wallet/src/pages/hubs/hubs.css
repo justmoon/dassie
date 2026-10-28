@@ -1,6 +1,12 @@
 /*
- * Settlement hubs.
+ * Settlement hubs: a card each, its balance marked by the value cube, and
+ * its sections headed by small labels.
  */
+
+.hub-intro {
+  max-width: 70ch;
+  margin: 0;
+}
 
 .hub-head {
   display: flex;
@@ -15,7 +21,11 @@
 }
 
 .card p.hub-id {
-  margin: 4px 0 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 8px 0 16px;
 }
 
 .hub-balance {
@@ -25,14 +35,60 @@
   margin-bottom: 16px;
 }
 
+.hub-balance > div {
+  min-width: 0;
+}
+
 .card .hub-balance p {
   margin: 0;
+}
+
+/* Small labels: Figtree, uppercase and spaced, in muted ink. */
+.card p.hub-label,
+.hub-holds h3,
+.hub-moves h3,
+.hub-payout h3 {
+  margin: 0 0 6px;
+  font: 600 13px/1.3 var(--sans);
+  font-variation-settings: normal;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .hub-holds,
 .hub-moves,
 .hub-payout {
-  padding-top: 12px;
+  padding-top: 16px;
   border-top: 1px solid var(--line);
-  margin-top: 16px;
+  margin-top: 20px;
+}
+
+.hub-moves h3 {
+  margin: 0;
+}
+
+/* Holds: the amounts lined up at the right, their total below a rule. */
+.hub-holds th:last-child,
+.hub-holds td:last-child {
+  text-align: right;
+}
+
+.hub-holds tfoot th,
+.hub-holds tfoot td {
+  border-top: 1.5px solid var(--stone);
+  border-bottom: 0;
+}
+
+.hub-holds tfoot th {
+  color: var(--text);
+}
+
+/* Phones: a long balance wraps, rather than leaving its card. */
+@media (max-width: 720px) {
+  .hub-balance .amount-lg {
+    font-size: 1.6rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }

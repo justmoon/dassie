@@ -33,7 +33,7 @@ export function Register(): JSX.Element {
     setBusy(undefined);
   };
   return (
-    <div class="page-narrow">
+    <div class="page-narrow stack">
       <PageTitle>Register</PageTitle>
       <LiveNote status={status.status()} />
       <Card testid="page-register">
@@ -41,27 +41,28 @@ export function Register(): JSX.Element {
           Your node registers with the network's bootstrap nodes by itself, and
           renews before a registration lapses. You can also renew now.
         </p>
-        <ul class="bootstrap-list">
+        <ul class="node-rows">
           <For each={status.value()?.bootstrap ?? []}>
             {(entry) => (
-              <li data-testid={`bootstrap-${entry.node}`}>
-                <code>{shortId(entry.node, 20)}</code>{" "}
+              <li class="node-row" data-testid={`bootstrap-${entry.node}`}>
+                <code class="node-name">{shortId(entry.node, 20)}</code>{" "}
                 <Show
                   when={entry.listed}
                   fallback={<Badge tone="bad">Not registered</Badge>}
                 >
                   <Badge tone="good">Registered</Badge>
                 </Show>
-                <div class="muted">
+                <span class="node-status">
                   registered{" "}
                   {relativeTime(entry.registeredAtUnixMs, Date.now())}, list
                   fetched {relativeTime(entry.listFetchedUnixMs, Date.now())}
-                </div>
+                </span>
                 <button
                   type="button"
                   data-testid={`renew-${entry.node}`}
                   disabled={busy() !== undefined}
-                  onClick={() => renew(entry.node)}
+                  onClick={() =>
+                    renew(entry.node)}
                 >
                   Renew now
                 </button>

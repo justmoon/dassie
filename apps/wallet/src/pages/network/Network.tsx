@@ -103,7 +103,7 @@ function Listing(
   props: { nodes: readonly NetworkNode[]; periphery: boolean },
 ): JSX.Element {
   return (
-    <Card title="Nodes" testid="node-listing">
+    <Card title="Nodes" testid="node-listing" class="node-listing">
       <For each={groupNodes(props.nodes)}>
         {(group) => (
           <section class="node-group">
@@ -111,22 +111,23 @@ function Listing(
               <span class="distance" aria-hidden="true">{group.mark}</span>{" "}
               {group.heading}
             </h3>
-            <ul>
+            <ul class="node-rows">
               <For each={group.nodes}>
                 {(node) => (
-                  <li>
+                  <li class="node-row">
                     <Link
                       href={`/network/${node.id}`}
+                      class="node-name"
                       testid={`node-row-${node.id}`}
                     >
-                      <strong>{node.alias || shortId(node.id, 20)}</strong>
+                      {node.alias || shortId(node.id, 20)}
                     </Link>
-                    <div class="muted">
+                    <span class="node-status">
                       {node.url ||
                         (node.isSelf && props.periphery
                           ? "a periphery node, reached through its uplinks"
                           : "no link state")}
-                    </div>
+                    </span>
                   </li>
                 )}
               </For>
@@ -151,7 +152,7 @@ function OwnNode(
     (item) => item,
   );
   return (
-    <Card title="Details for Your Node" testid="own-node">
+    <Card title="Details for Your Node" testid="own-node" class="node-card">
       <h3>Tier 1 Registration</h3>
       <LiveNote status={registration.status()} />
       <Show when={registration.value()}>
@@ -184,7 +185,7 @@ function OwnNode(
             </p>
             <Link
               href="/network/register"
-              class="button"
+              class={status().member ? "button" : "button primary"}
               testid="registration-link"
             >
               {status().member ? "Update registration" : "Register"}
@@ -196,7 +197,8 @@ function OwnNode(
       <h3>Snapshot</h3>
       <Show when={props.status} fallback={<p class="muted">Asking…</p>}>
         {(status) => {
-          const feed = () => feedView(status().feed);
+          const feed = () =>
+            feedView(status().feed);
           return (
             <div data-testid="rate-feed">
               <p>
@@ -225,7 +227,7 @@ function PeripheryNode(props: {
   const now = useNow();
   const relay = () => props.status?.relay ?? null;
   return (
-    <Card title="Details for Your Node" testid="own-node">
+    <Card title="Details for Your Node" testid="own-node" class="node-card">
       <h3>Periphery Node</h3>
       <p class="muted">
         Your node has no public address, so it registers with no bootstrap node.
@@ -237,17 +239,17 @@ function PeripheryNode(props: {
         when={uplinks(props.nodes).length > 0}
         fallback={<p data-testid="uplinks-none">{NO_UPLINKS}</p>}
       >
-        <ul data-testid="uplinks">
+        <ul class="node-rows" data-testid="uplinks">
           <For each={uplinks(props.nodes)}>
             {(uplink) => (
-              <li>
-                <Link href={`/network/${uplink.id}`}>
-                  <strong>{uplink.alias || shortId(uplink.id, 20)}</strong>
+              <li class="node-row">
+                <Link href={`/network/${uplink.id}`} class="node-name">
+                  {uplink.alias || shortId(uplink.id, 20)}
                 </Link>{" "}
                 <Badge tone={uplinkConnected(uplink.peering) ? "good" : "bad"}>
                   {uplinkState(uplink.peering, now())}
                 </Badge>
-                <div class="muted">{uplink.url}</div>
+                <span class="node-status">{uplink.url}</span>
               </li>
             )}
           </For>
@@ -257,7 +259,12 @@ function PeripheryNode(props: {
       <Show when={props.status} fallback={<p class="muted">Asking…</p>}>
         <p data-testid="relay">
           <Show when={relay()}>
-            {(chosen) => <span>{chosen().url}{" "}</span>}
+            {(chosen) => (
+              <>
+                <code>{chosen().url}</code>
+                {" "}
+              </>
+            )}
           </Show>
           <Badge tone={relayState(relay()).tone}>
             {relayState(relay()).text}
@@ -340,6 +347,7 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
     <Card
       title={`Details for ${node().alias || shortId(node().id, 20)}`}
       testid="node-detail"
+      class="node-card"
     >
       <dl class="facts">
         <dt>ID</dt>
@@ -347,14 +355,22 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
           <code>{node().id}</code>
         </dd>
         <dt>URL</dt>
-        <dd data-testid="node-url">{node().url || "no link state"}</dd>
+        <dd data-testid="node-url">
+          <Show when={node().url} fallback="no link state">
+            {(url) => <code>{url()}</code>}
+          </Show>
+        </dd>
         <dt>Distance</dt>
         <dd data-testid="node-distance">{node().distance ?? "no route"}</dd>
         <dt>Settles with</dt>
         <dd>{node().settlementSchemes.join(", ") || "—"}</dd>
         <dt>Neighbors</dt>
         <dd>
-          {node().neighbors.map((id) => shortId(id, 10)).join(", ") || "—"}
+          <Show when={node().neighbors.length > 0} fallback="—">
+            <code>
+              {node().neighbors.map((id) => shortId(id, 10)).join(", ")}
+            </code>
+          </Show>
         </dd>
         <dt>Peering</dt>
         <dd data-testid="peer-state">{peerStateName(node().peerState)}</dd>
@@ -369,7 +385,7 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
           <dl class="facts">
             <dt>Settles on</dt>
             <dd>
-              <ul data-testid="peer-methods">
+              <ul class="method-list" data-testid="peer-methods">
                 <For each={peerMethods(peering())}>
                   {(method) => (
                     <li data-testid={`peer-method-${method.scheme}`}>

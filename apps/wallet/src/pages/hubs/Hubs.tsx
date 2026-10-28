@@ -157,9 +157,9 @@ function pollHubs(): PolledHubs {
 export function Hubs(): JSX.Element {
   const polled = pollHubs();
   return (
-    <div class="page-wide stack kopje" data-testid="page-hubs">
+    <div class="page-wide stack" data-testid="page-hubs">
       <PageTitle>Settlement Hubs</PageTitle>
-      <p class="muted">
+      <p class="muted hub-intro">
         Your node settles with its peers through settlement hubs: ledgers that a
         few validators keep together, backed by an escrow on the XRP Ledger.
         Here is your account in each hub, what you hold for your peers and what
@@ -278,7 +278,7 @@ function HubAccount(
       <div class="hub-balance">
         <ValueCube />
         <div>
-          <p class="muted">Yours to spend in the hub</p>
+          <p class="hub-label">Yours to spend in the hub</p>
           <Amount
             value={props.status.balance}
             currency={props.currency}
