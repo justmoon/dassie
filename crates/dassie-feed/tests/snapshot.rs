@@ -398,6 +398,28 @@ fn swaps_at_par_lose_only_the_drops() {
     assert_eq!(snapshot.swap_out(from, to, 0), Some(0));
 }
 
+// A node prices a packet at its last unit: one packet per step gets the
+// walk's sum, one packet across steps the rate of its last step on all of
+// it.
+#[test]
+fn a_packet_is_promised_the_rate_of_its_last_unit() {
+    let one = Quote::floor(1, 1);
+    let snapshot = pair(one, one, 1_000);
+    let (from, to) = (method_tag(DSUSD), method_tag(XRP));
+    // The first level of both ladders, 0.1% each; then the second, 0.25%.
+    assert_eq!(snapshot.packet_out(from, to, 0, 1_000), Some(998));
+    assert_eq!(snapshot.packet_out(from, to, 1_000, 1_000), Some(995));
+    assert_eq!(snapshot.swap_out(from, to, 2_000), Some(998 + 995));
+    assert_eq!(snapshot.packet_out(from, to, 0, 2_000), Some(1_990));
+    // A packet within a step gets that step's rate, wherever it starts.
+    assert_eq!(snapshot.packet_out(from, to, 1_500, 500), Some(497));
+    assert_eq!(snapshot.packet_out(from, to, 7, 0), Some(0));
+    // Beyond the ladders, or past the end of the amounts: not priced.
+    assert_eq!(snapshot.packet_out(from, to, 0, 1_000 << LEVELS), None);
+    assert_eq!(snapshot.packet_out(from, to, u64::MAX, 1), None);
+    assert_eq!(snapshot.packet_out(from, from, 0, 1), None);
+}
+
 #[test]
 fn swaps_follow_bid_over_ask() {
     // A unit in is worth 2.49, a unit out costs 2.51 / 1000: about 992
@@ -434,14 +456,17 @@ fn the_ask_ladder_can_end_first() {
         }
     }
     let from = method_tag(DSUSD);
-    // Ten out at most, whatever comes in.
+    // The ask ladder reads what came in at the top-of-book price, one to
+    // one here: ten in at most, whatever else the bid ladder covers.
     assert_eq!(snapshot.swap_out(from, to, 100), None);
+    assert_eq!(snapshot.swap_out(from, to, 11), None);
     let all = snapshot
         .swap_at_least(from, to, Ratio::new(0, 1).unwrap())
         .unwrap();
-    assert_eq!(all.amount_out, 10);
-    // Ten out at 0.998 each takes eleven in: rounded against the reader.
-    assert_eq!(all.amount_in, 11);
+    assert_eq!(all.amount_in, 10);
+    // At 0.998 each: rounded against the reader.
+    assert_eq!(all.amount_out, 9);
+    assert_eq!(snapshot.swap_out(from, to, 10), Some(9));
 }
 
 #[test]
@@ -479,13 +504,13 @@ fn extreme_quotes_saturate_rather_than_overflow() {
     let smallest = Quote::from_bits(1 << 23).unwrap();
     let snapshot = pair(largest, smallest, u64::MAX >> LEVELS);
     let (from, to) = (method_tag(DSUSD), method_tag(XRP));
-    // Out is bounded by the ask ladder, in comes back at the least.
+    // A unit in is worth more at the top of the book than the whole ask
+    // ladder: nothing is covered.
     let swap = snapshot
-        .swap_at_least(from, to, Ratio::new(u64::MAX, 1).unwrap())
+        .swap_at_least(from, to, Ratio::new(0, 1).unwrap())
         .unwrap();
-    assert!(swap.amount_out > 0);
-    // Each level of the ask ladder costs at least a unit in, rounded up.
-    assert!(swap.amount_in <= LEVELS as u64);
+    assert_eq!(swap, dassie_feed::Swap::default());
+    assert_eq!(snapshot.swap_out(from, to, 1), None);
     let snapshot = pair(smallest, largest, u64::MAX >> LEVELS);
     assert_eq!(snapshot.swap_out(from, to, u64::MAX >> LEVELS), Some(0));
 }

@@ -25,6 +25,9 @@ dassie-oer = { path = "../dassie-oer", default-features = false }
 
 [dev-dependencies]
 dassie-connector = { path = ".", features = ["sim"] }
+# The snapshot's own reader, which the quotes' property test prices swaps
+# with (spec/areas/connector.md#quotes-and-ladders).
+dassie-feed = { path = "../dassie-feed" }
 dassie-kit = { path = "../dassie-kit", features = ["sim"] }
 dassie-oer = { path = "../dassie-oer" }
 num-bigint = "0.4"

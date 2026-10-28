@@ -158,6 +158,17 @@ fn swaps() -> Value {
                 "from": from, "to": to, "amountIn": amount_in, "amountOut": out,
             }));
         }
+        // Packets, each at the rate of the step its last unit falls in.
+        for (start, amount_in) in [
+            (0u64, 1_000_000u64),
+            (1_000_000, 49_000_000),
+            (0, 50_000_000),
+        ] {
+            let out = snapshot.packet_out(method_tag(from), method_tag(to), start, amount_in);
+            swaps.push(json!({
+                "from": from, "to": to, "start": start, "amountIn": amount_in, "amountOut": out,
+            }));
+        }
         for (numerator, denominator) in [(0u64, 1u64), (39, 100), (2, 5), (247, 100), (5, 2)] {
             let threshold = Ratio::new(numerator, denominator).unwrap();
             let swap = snapshot

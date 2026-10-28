@@ -144,61 +144,73 @@ struct Pair {
 }
 
 impl Pair {
-    /// Each level's share of `amount`, which the ladder covers.
-    fn segments(amounts: &[u64; LEVELS], amount: u64) -> [u64; LEVELS] {
-        let mut below = 0;
-        amounts.map(|top| {
-            let segment = amount.min(top) - amount.min(below);
-            below = top;
-            segment
-        })
+    /// `value · 2^(exponent − low)`, for the lower of the two exponents.
+    fn scaled(&self, value: BigUint, exponent: i32) -> BigUint {
+        let low = self.bid.exponent().min(self.ask.exponent());
+        value << usize::try_from(exponent - low).unwrap()
     }
 
-    /// Whether, at the worst the ladders allow, what `amount_out` costs is
-    /// covered by what `amount_in` is worth: `ask · Σ out_j / keep_j ≤ bid ·
-    /// Σ in_i · keep_i`, the keeps in basis points.
+    /// The last unit in within the ask ladder's level `j`: the most whose
+    /// worth at the top-of-book price, `bid / ask`, is at most its amount,
+    /// at most a `u64`.
+    fn ask_top(&self, j: usize) -> u64 {
+        let room = BigUint::from(self.ask_amounts[j]) * self.ask.mantissa();
+        let room = self.scaled(room, self.ask.exponent());
+        let per = self.scaled(BigUint::from(self.bid.mantissa()), self.bid.exponent());
+        u64::try_from(room / per).unwrap_or(u64::MAX)
+    }
+
+    /// The levels the `unit`-th unit in lies in, if both ladders cover it.
+    fn levels(&self, unit: u64) -> Option<(usize, usize)> {
+        let i = self.bid_amounts.iter().position(|&top| unit <= top)?;
+        let j = (0..LEVELS).find(|&j| unit <= self.ask_top(j))?;
+        Some((i, j))
+    }
+
+    /// The rate of `levels`, scaled to the lower exponent: `bid · keep_i ·
+    /// keep_j` over `ask · 10^8`.
+    fn rate(&self, (i, j): (usize, usize)) -> (BigUint, BigUint) {
+        let ours = BigUint::from(self.bid.mantissa()) * self.keep_bp[i] * self.keep_bp[j];
+        let theirs = BigUint::from(self.ask.mantissa()) * 100_000_000u64;
+        (
+            self.scaled(ours, self.bid.exponent()),
+            self.scaled(theirs, self.ask.exponent()),
+        )
+    }
+
+    /// Whether, at the worst the ladders allow, what `amount_in` is worth
+    /// covers `amount_out`: each unit in at the rate of the levels it lies
+    /// in, both ladders read by what has come in.
     fn covers(&self, amount_in: u64, amount_out: u64) -> bool {
-        let product: BigUint = self
-            .keep_bp
-            .iter()
-            .map(|&keep| BigUint::from(keep))
-            .product();
-        let ins = Self::segments(&self.bid_amounts, amount_in);
-        let outs = Self::segments(&self.ask_amounts, amount_out);
-        let worth: BigUint = ins
-            .iter()
-            .zip(self.keep_bp)
-            .map(|(&segment, keep)| BigUint::from(segment) * keep)
-            .sum::<BigUint>()
-            * &product
-            * self.bid.mantissa();
-        let cost: BigUint = outs
-            .iter()
-            .zip(self.keep_bp)
-            .map(|(&segment, keep)| BigUint::from(segment) * (&product / keep))
-            .sum::<BigUint>()
-            * 100_000_000u64
-            * self.ask.mantissa();
-        let (bid_exponent, ask_exponent) = (self.bid.exponent(), self.ask.exponent());
-        let low = bid_exponent.min(ask_exponent);
-        let worth = worth << usize::try_from(bid_exponent - low).unwrap();
-        let cost = cost << usize::try_from(ask_exponent - low).unwrap();
-        cost <= worth
+        // Where a level of either ladder ends within the swap, and its end.
+        let mut ends: Vec<u64> = (0..LEVELS)
+            .flat_map(|level| [self.bid_amounts[level], self.ask_top(level)])
+            .filter(|&end| end > 0 && end < amount_in)
+            .collect();
+        ends.push(amount_in);
+        ends.sort_unstable();
+        ends.dedup();
+        let (mut worth, mut below) = (BigUint::ZERO, 0u64);
+        for end in ends.into_iter().filter(|&end| end > 0) {
+            let Some(levels) = self.levels(end) else {
+                return false;
+            };
+            worth += BigUint::from(end - below) * self.rate(levels).0;
+            below = end;
+        }
+        BigUint::from(amount_out) * self.rate((0, 0)).1 <= worth
     }
 
-    /// The level a unit lies in: the first whose amount reaches it.
-    fn level(amounts: &[u64; LEVELS], unit: u64) -> Option<usize> {
-        amounts.iter().position(|&top| unit <= top)
+    /// Whether the rate at `levels` is at least `n / d`.
+    fn rate_at_least(&self, levels: (usize, usize), n: u64, d: u64) -> bool {
+        let (ours, theirs) = self.rate(levels);
+        ours * d >= theirs * n
     }
 
-    /// Whether the rate at levels `i` and `j` is at least `n / d`.
-    fn rate_at_least(&self, i: usize, j: usize, n: u64, d: u64) -> bool {
-        let ours = BigUint::from(self.bid.mantissa()) * self.keep_bp[i] * self.keep_bp[j] * d;
-        let theirs = BigUint::from(self.ask.mantissa()) * 100_000_000u64 * n;
-        let (bid_exponent, ask_exponent) = (self.bid.exponent(), self.ask.exponent());
-        let low = bid_exponent.min(ask_exponent);
-        (ours << usize::try_from(bid_exponent - low).unwrap())
-            >= (theirs << usize::try_from(ask_exponent - low).unwrap())
+    /// What `amount` gets at the rate of `levels`, rounded down.
+    fn out(&self, levels: (usize, usize), amount: u64) -> u64 {
+        let (ours, theirs) = self.rate(levels);
+        u64::try_from(BigUint::from(amount) * ours / theirs).unwrap_or(u64::MAX)
     }
 }
 
@@ -259,8 +271,39 @@ proptest! {
             // Less in never gets more out.
             let less = snapshot.swap_out(a, b, amount / 2).unwrap();
             prop_assert!(less <= out);
+        } else {
+            // Only beyond what both ladders cover.
+            prop_assert!(amount > 0 && pair.levels(amount).is_none());
         }
         prop_assert_eq!(snapshot.swap_out(b, a, 1), None);
+    }
+
+    // A packet is promised the rate of the levels its last unit lies in, on
+    // all of it: one packet never more than the walk's sum, but for each
+    // step's rounding.
+    #[test]
+    fn a_packet_gets_the_rate_of_its_last_unit(
+        (snapshot, pair) in pairs(),
+        start_share in 0u64..=1_000_000,
+        size_share in 0u64..=1_000_000,
+    ) {
+        let (a, b) = (method_tag("a"), method_tag("b"));
+        let top = pair.bid_amounts[LEVELS - 1];
+        let start = (u128::from(top) * u128::from(start_share) / 1_000_000) as u64;
+        let amount = (u128::from(top - start) * u128::from(size_share) / 1_000_000) as u64;
+        let expected = if amount == 0 {
+            Some(0)
+        } else {
+            pair.levels(start + amount).map(|levels| pair.out(levels, amount))
+        };
+        prop_assert_eq!(snapshot.packet_out(a, b, start, amount), expected);
+        if let (Some(one), Some(walked)) = (
+            snapshot.packet_out(a, b, 0, amount),
+            snapshot.swap_out(a, b, amount),
+        ) {
+            // Up to the rounding of each of the walk's steps.
+            prop_assert!(one <= walked + 2 * LEVELS as u64);
+        }
     }
 
     #[test]
@@ -273,18 +316,14 @@ proptest! {
         let threshold = Ratio::new(numerator, denominator).unwrap();
         let swap = snapshot.swap_at_least(a, b, threshold).unwrap();
         prop_assert!(pair.covers(swap.amount_in, swap.amount_out));
-        let last_in = Pair::level(&pair.bid_amounts, swap.amount_in.max(1));
-        let last_out = Pair::level(&pair.ask_amounts, swap.amount_out.max(1));
-        if swap.amount_in > 0 && swap.amount_out > 0 {
-            // Its last units still got the threshold.
-            let (i, j) = (last_in.unwrap(), last_out.unwrap());
-            prop_assert!(pair.rate_at_least(i, j, numerator, denominator));
+        if swap.amount_in > 0 {
+            // Its last unit still got the threshold.
+            let levels = pair.levels(swap.amount_in).unwrap();
+            prop_assert!(pair.rate_at_least(levels, numerator, denominator));
         }
-        // Where both ladders go on, the next units would not.
-        let next_in = Pair::level(&pair.bid_amounts, swap.amount_in + 1);
-        let next_out = Pair::level(&pair.ask_amounts, swap.amount_out + 1);
-        if let (Some(i), Some(j)) = (next_in, next_out) {
-            prop_assert!(!pair.rate_at_least(i, j, numerator, denominator));
+        // Where both ladders go on, the next unit would not.
+        if let Some(levels) = swap.amount_in.checked_add(1).and_then(|next| pair.levels(next)) {
+            prop_assert!(!pair.rate_at_least(levels, numerator, denominator));
         }
     }
 }

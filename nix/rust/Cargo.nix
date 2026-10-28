@@ -3400,6 +3400,10 @@ rec {
             features = [ "sim" ];
           }
           {
+            name = "dassie-feed";
+            packageId = "dassie-feed";
+          }
+          {
             name = "dassie-kit";
             packageId = "dassie-kit";
             features = [ "sim" ];

@@ -80,7 +80,7 @@ pub const MAX_PRICED_LEDGERS: usize = most_ledgers_of_one_realm();
 pub const MAX_PRICES: usize = MAX_PRICED_LEDGERS * (MAX_PRICED_LEDGERS - 1);
 
 /// Parts per million.
-const MILLION: u128 = 1_000_000;
+pub(crate) const MILLION: u128 = 1_000_000;
 
 /// How many ledgers the realm with the most has.
 const fn most_ledgers_of_one_realm() -> usize {
@@ -100,7 +100,12 @@ const fn most_ledgers_of_one_realm() -> usize {
 /// twelve decimal places, rounded down, which keeps every product of the
 /// curve within 128 bits. A share that rounds to nothing is a ledger with
 /// nothing.
-const SHARE_ONE: u128 = 1_000_000_000_000;
+pub(crate) const SHARE_ONE: u128 = 1_000_000_000_000;
+
+/// What a unit of the common base is worth in values, at scale 9 and the
+/// base's rate of 10^[`RATE_PRECISION`]: a value is `amount × VALUE_BASE /
+/// value_unit`, rounded down ([`value_of`]).
+pub(crate) const VALUE_BASE: u128 = 10u128.pow(RATE_PRECISION + 9);
 
 /// The most one ledger's value counts as: so that the values of every
 /// ledger add up within 128 bits. Only shares read values.
@@ -867,13 +872,13 @@ fn convert_at_rate(net: u64, rate_e15: u64) -> Option<u64> {
 
 /// Whether a rate learned at `as_of_ms` is at most `max_age_ms` old at
 /// `now_ms`, and not from after it.
-const fn fresh(as_of_ms: u64, now_ms: u64, max_age_ms: u64) -> bool {
+pub(crate) const fn fresh(as_of_ms: u64, now_ms: u64, max_age_ms: u64) -> bool {
     as_of_ms <= now_ms && now_ms - as_of_ms <= max_age_ms
 }
 
 /// What one unit of an asset at `scale` divides into, at `rate`: the
 /// denominator of [`value_of`]. `None` for a rate too large for its scale.
-fn value_unit(rate: u128, scale: u8) -> Option<u128> {
+pub(crate) fn value_unit(rate: u128, scale: u8) -> Option<u128> {
     rate.checked_mul(10u128.checked_pow(u32::from(scale))?)
         .filter(|&unit| unit > 0)
 }
@@ -882,12 +887,11 @@ fn value_unit(rate: u128, scale: u8) -> Option<u128> {
 /// scale 9 and the base's rate of 10^[`RATE_PRECISION`], rounded down, at
 /// most [`MAX_VALUE`]: the same amount is always worth the same, and more
 /// never less.
-fn value_of(amount: u128, entry: &LedgerPrice) -> u128 {
+pub(crate) fn value_of(amount: u128, entry: &LedgerPrice) -> u128 {
     let Some(unit) = value_unit(entry.rate, entry.ledger.asset().scale) else {
         return 0;
     };
-    let base = 10u128.pow(RATE_PRECISION) * 10u128.pow(9);
-    mul_div(amount, base, unit).map_or(MAX_VALUE, |value| value.min(MAX_VALUE))
+    mul_div(amount, VALUE_BASE, unit).map_or(MAX_VALUE, |value| value.min(MAX_VALUE))
 }
 
 /// `value`'s share of `total`, in [`SHARE_ONE`]s, rounded down: it only
@@ -975,7 +979,7 @@ pub(crate) fn mul_div(a: u128, b: u128, c: u128) -> Option<u128> {
 }
 
 /// `a × b` as its high and low 128 bits.
-const fn wide_mul(a: u128, b: u128) -> (u128, u128) {
+pub(crate) const fn wide_mul(a: u128, b: u128) -> (u128, u128) {
     let (a_high, a_low) = (a >> 64, a & LOW);
     let (b_high, b_low) = (b >> 64, b & LOW);
     let low_low = a_low * b_low;
