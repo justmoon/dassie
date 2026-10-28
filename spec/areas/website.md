@@ -71,4 +71,5 @@ Between them sits a connector, simulated one event at a time in `src/toy/simulat
 - [node-and-pnpm](../decisions/node-and-pnpm.md): Node and pnpm, one `web` WASM build for the browser and Node.
 - [website-hosting](../decisions/website-hosting.md): a bucket behind the mirror's load balancer, published from `main`, with no previews.
 - [visual-identity](../decisions/visual-identity.md): Dassie's visual identity is Kopje, and the brand page holds it.
+- [granite-rocks](../decisions/granite-rocks.md): Kopje's rocks are to be gray granite blocks, drawn by hand to rules the brand page states (not drawn yet).
 - [docs-section](../decisions/docs-section.md): the docs are hand-written pages under `/docs/`, searched with Pagefind, and link the spec on GitHub.
