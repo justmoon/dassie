@@ -1828,6 +1828,15 @@
   ],
   "releases": [
     {
+      "version": "0.3.3",
+      "date": "2026-10-28",
+      "changes": [
+        "A bootstrap node checks the URL of each node registered with it, over QUIC and HTTPS, and ends the registration of a node whose URL has failed its checks for two hours, though the node keeps renewing it. A node that went away leaves the network's list; one that comes back registers again and stays.",
+        "For people who run nodes for a network: set `DASSIE_EVENT_LOG=<path>` and the node writes its packet trace and the hub events it sees to a file, one JSON line each, rotated under a size cap (`DASSIE_EVENT_LOG_MAX_BYTES`, 64 MiB by default). It is off unless you set it, and it records other people's payments that pass through your node.",
+        "The desktop app's icons and the page it shows while the node starts are in Kopje, Dassie's visual identity."
+      ]
+    },
+    {
       "version": "0.3.2",
       "date": "2026-10-28",
       "changes": [
