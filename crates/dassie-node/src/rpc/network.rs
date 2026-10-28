@@ -369,6 +369,7 @@ fn node(view: &NodeView) -> proto::NetworkNode {
         banned: view.banned,
         peering: None,
         core: view.core,
+        free_core: view.free_core.map(u32::from),
     }
 }
 

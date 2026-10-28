@@ -59,6 +59,9 @@ pub struct NodeView {
     /// Whether it is in the core, as the signed data defines it
     /// (spec/decisions/promotion-to-core.md).
     pub core: bool,
+    /// How many more core peers it takes, as its link state says, if it
+    /// says (spec/decisions/promotion-to-core.md).
+    pub free_core: Option<u16>,
     /// Whether it is listed as our neighbor.
     pub advertised: bool,
     /// Whether our peer was heard from within the confirm window: unless
@@ -439,6 +442,7 @@ impl PeerNode {
                 peering: entry.peering().cloned(),
                 termination: entry.termination().copied(),
                 core: self.core.contains(id),
+                free_core: entry.link.as_ref().and_then(|link| link.free_core),
                 advertised: !entry.is_downlink()
                     && entry.active_peering().is_some()
                     && entry.advertise.on,
