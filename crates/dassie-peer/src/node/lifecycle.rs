@@ -678,13 +678,14 @@ impl PeerNode {
             && (self.free_downlinks() < self.config.max_free_downlinks() || self.paid_us(id, hooks))
     }
 
-    /// On a node that forwards for nobody, ends the peerings with its
-    /// downlinks, from when it did: it routes nothing to them
-    /// (spec/areas/network.md#downlinks). It does so once it has forwarded
-    /// for nobody for as long as its status takes to settle, so that a dip
-    /// while a peer restarts ends nothing. Those not peered leave at once.
+    /// On a node that keeps no downlinks ([`Self::keeps_downlinks`]), ends
+    /// the peerings with its downlinks, from when it did: nothing routes to
+    /// them (spec/areas/network.md#downlinks). It does so once it has kept
+    /// none for as long as its status takes to settle, so that a dip while
+    /// a peer restarts ends nothing. Those not peered leave at once.
     pub(crate) fn end_downlinks(&mut self) {
         let settled = self
+            .status
             .stranded_since_ms
             .is_some_and(|since| since.saturating_add(self.config.core_settle_ms) <= self.now_ms);
         if !settled {

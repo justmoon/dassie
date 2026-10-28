@@ -333,18 +333,8 @@ pub struct PeerNode {
     /// The core, as the signed data defines it, computed with the routes
     /// (spec/decisions/promotion-to-core.md).
     pub(crate) core: BTreeSet<NodeId>,
-    /// Since when we are a core node in our own view, in this run
-    /// ([`Self::is_core`]).
-    pub(crate) own_core_since_ms: Option<u64>,
-    /// Since when we forward for nobody, in this run
-    /// ([`Self::forwards`]).
-    pub(crate) stranded_since_ms: Option<u64>,
-    /// Whether a peer we list lists us too, in its fresh link state: an edge
-    /// both ends list, which routes through us.
-    pub(crate) own_edges: bool,
-    /// Whether we use our own address, as last told
-    /// ([`Event::OwnAddress`]).
-    own_address: bool,
+    /// Our own status, in our own view (spec/decisions/promotion-to-core.md).
+    pub(crate) status: OwnStatus,
     /// The nodes a dev network makes core outright, sorted; empty outside
     /// one (`DASSIE_DEV_CORE_NODES`).
     pub(crate) dev_core: BTreeSet<NodeId>,
@@ -477,10 +467,7 @@ impl PeerNode {
             peering: peering::Peering::new(now_ms),
             routes: Routes::new(),
             core: BTreeSet::new(),
-            own_core_since_ms: None,
-            stranded_since_ms: Some(now_ms),
-            own_edges: false,
-            own_address: false,
+            status: OwnStatus::new(now_ms),
             dev_core: BTreeSet::new(),
             route_key: RouteKey::of(&key),
             requests: BTreeMap::new(),
@@ -656,7 +643,7 @@ impl PeerNode {
     /// ([`Self::is_core`]).
     #[must_use]
     pub const fn own_core_since_ms(&self) -> Option<u64> {
-        self.own_core_since_ms
+        self.status.core_since_ms
     }
 
     /// The uplinks the node is pinned to, if it runs as a periphery node
@@ -1042,8 +1029,8 @@ impl PeerNode {
     /// once when it leaves the core.
     fn follow_own_address(&mut self) {
         let own = self.uses_own_address();
-        if own != self.own_address {
-            self.own_address = own;
+        if own != self.status.own_address {
+            self.status.own_address = own;
             self.event(Event::OwnAddress { own });
         }
     }
@@ -1054,10 +1041,12 @@ impl PeerNode {
     fn next_status_due(&self) -> Option<u64> {
         let settle = self.config.core_settle_ms;
         let own = self
-            .own_core_since_ms
-            .filter(|_| !self.own_address)
+            .status
+            .core_since_ms
+            .filter(|_| !self.status.own_address)
             .map(|since| since.saturating_add(settle));
         let downlinks = self
+            .status
             .stranded_since_ms
             .filter(|_| self.table.values().any(Entry::is_downlink))
             .map(|since| since.saturating_add(settle));
@@ -1436,7 +1425,7 @@ impl PeerNode {
     pub fn uses_own_address(&self) -> bool {
         self.is_core()
             && (self.is_seed(&self.own)
-                || self.own_core_since_ms.is_some_and(|since| {
+                || self.status.core_since_ms.is_some_and(|since| {
                     since.saturating_add(self.config.core_settle_ms) <= self.now_ms
                 }))
     }
@@ -1470,35 +1459,57 @@ impl PeerNode {
     /// (spec/decisions/promotion-to-core.md).
     #[must_use]
     pub const fn forwards(&self) -> bool {
-        self.has_url() && (self.own_core_since_ms.is_some() || self.own_edges)
+        self.has_url() && (self.status.core_since_ms.is_some() || self.status.own_edges)
+    }
+
+    /// Whether this node keeps its downlinks: while it forwards, and while
+    /// the edges it lost went only silent, as while every bootstrap node
+    /// is out of reach, so that a node whose edges all go to them keeps
+    /// its downlinks through the outage, forwarding among them beneath its
+    /// own address. One whose peers withdrew it, as once its registration
+    /// ended, ends them (spec/decisions/promotion-to-core.md).
+    #[must_use]
+    pub const fn keeps_downlinks(&self) -> bool {
+        self.forwards() || (self.has_url() && self.status.silent_edges)
     }
 
     /// Follows our own status in our own view: since when we are core, and
-    /// since when we forward for nobody.
+    /// since when we keep no downlinks.
     pub(crate) fn update_own_status(&mut self) {
         let now = self.now_ms;
-        let (stale, future) = (self.config.stale_ms, self.config.max_future_ms);
-        self.own_edges = self.advertised().iter().any(|peer| {
-            self.table
-                .get(peer)
-                .and_then(|entry| entry.link.as_ref())
-                .is_some_and(|link| {
-                    link.is_fresh(now, stale, future) && link.neighbors.contains(&self.own)
-                })
+        let (stale, future, confirm) = (
+            self.config.stale_ms,
+            self.config.max_future_ms,
+            self.config.peer_confirm_ms,
+        );
+        let lists_us = |entry: &Entry| {
+            entry.link.as_ref().is_some_and(|link| {
+                link.is_fresh(now, stale, future) && link.neighbors.contains(&self.own)
+            })
+        };
+        self.status.own_edges = self
+            .advertised()
+            .iter()
+            .any(|peer| self.table.get(peer).is_some_and(lists_us));
+        self.status.silent_edges = self.table.values().any(|entry| {
+            entry
+                .active_peering()
+                .is_some_and(|p| p.depeering.is_none() && !p.heard_within(now, confirm))
+                && lists_us(entry)
         });
         if self.is_core() {
-            self.own_core_since_ms.get_or_insert(now);
+            self.status.core_since_ms.get_or_insert(now);
         } else {
-            self.own_core_since_ms = None;
+            self.status.core_since_ms = None;
         }
-        let forwarded = self.stranded_since_ms.is_none();
-        if self.forwards() {
-            self.stranded_since_ms = None;
+        if self.keeps_downlinks() {
+            self.status.stranded_since_ms = None;
         } else {
-            self.stranded_since_ms.get_or_insert(now);
+            self.status.stranded_since_ms.get_or_insert(now);
         }
         // How the connector forwards follows.
-        if forwarded != self.forwards() {
+        if self.status.forwarding != self.forwards() {
+            self.status.forwarding = self.forwards();
             self.gossip.routes_dirty = true;
             self.event(Event::RoutesChanged);
         }
@@ -1578,5 +1589,40 @@ mod tests {
         // request that was acted upon.
         assert!(!Problem::Failed(Failure::Unknown).is_definite());
         assert!(!Problem::Invalid.is_definite());
+    }
+}
+
+/// A node's own status, in its own view (spec/decisions/promotion-to-core.md).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct OwnStatus {
+    /// Since when it is a core node, in this run ([`PeerNode::is_core`]).
+    pub core_since_ms: Option<u64>,
+    /// Since when it keeps no downlinks, in this run
+    /// ([`PeerNode::keeps_downlinks`]).
+    pub stranded_since_ms: Option<u64>,
+    /// Whether a peer it lists lists it too, in its fresh link state: an
+    /// edge both ends list, which routes through it.
+    pub own_edges: bool,
+    /// Whether a peer it no longer hears from still lists it, in the last
+    /// link state of its it holds fresh: an edge lost to its silence alone.
+    pub silent_edges: bool,
+    /// Whether it forwarded, as last told ([`PeerNode::forwards`]).
+    pub forwarding: bool,
+    /// Whether it uses its own address, as last told
+    /// ([`Event::OwnAddress`]).
+    pub own_address: bool,
+}
+
+impl OwnStatus {
+    /// A node that started at `now_ms`: neither core nor forwarding yet.
+    const fn new(now_ms: u64) -> Self {
+        Self {
+            core_since_ms: None,
+            stranded_since_ms: Some(now_ms),
+            own_edges: false,
+            silent_edges: false,
+            forwarding: false,
+            own_address: false,
+        }
     }
 }

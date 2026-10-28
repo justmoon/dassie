@@ -1334,3 +1334,28 @@ fn promoted_nodes_forward_while_the_bootstrap_nodes_are_away() {
         Config::DEV.promotion_standing_ms / 2,
     );
 }
+
+// Review of #701: a promoted node whose every edge goes silent, its peers
+// all down, forwards for no peer, but keeps its downlinks through the
+// outage while the peers it lost still list it: they only went silent, and
+// did not withdraw it.
+#[test]
+fn a_node_whose_peers_all_went_silent_keeps_its_downlinks() {
+    let (promoted, downlink) = ([3, 4], 5);
+    let mut network = promoted_beyond_the_bootstrap_nodes();
+    for index in [0, 1, 2, promoted[0]] {
+        network.crash(index);
+    }
+    settle(
+        &mut network,
+        Config::DEV.peer_confirm_ms + 2 * Config::DEV.core_settle_ms,
+    );
+    let node = network.node(promoted[1]);
+    assert!(!node.forwards(), "no edge left to forward over");
+    assert!(node.keeps_downlinks(), "only silent ones");
+    assert!(
+        node.peering_of(&id(downlink))
+            .is_some_and(|peering| peering.depeering.is_none()),
+        "its downlink stays"
+    );
+}

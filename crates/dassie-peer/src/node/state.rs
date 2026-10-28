@@ -818,14 +818,14 @@ impl PeerNode {
             "the core within bounds"
         );
         assert_eq!(
-            self.own_core_since_ms.is_some(),
+            self.status.core_since_ms.is_some(),
             self.is_core(),
             "we know since when we are core"
         );
         assert_eq!(
-            self.stranded_since_ms.is_some(),
-            !self.forwards(),
-            "we know since when we forward for nobody"
+            self.status.stranded_since_ms.is_some(),
+            !self.keeps_downlinks(),
+            "we know since when we keep no downlinks"
         );
     }
 
