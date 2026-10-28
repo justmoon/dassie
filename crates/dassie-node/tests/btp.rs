@@ -239,7 +239,13 @@ async fn a_stream_client_pays_the_receiver_and_the_journal_matches() {
         .filter(|p| p.state() == proto::PacketState::Fulfilled)
     {
         assert_eq!(packet.condition.len(), 32, "{packet:?}");
-        assert!(!packet.ledger_in.is_empty() && !packet.ledger_out.is_empty());
+        // ILDCP is answered here, routed nowhere.
+        assert!(!packet.ledger_in.is_empty(), "{packet:?}");
+        assert_eq!(
+            packet.ledger_out.is_empty(),
+            packet.destination.is_empty(),
+            "{packet:?}"
+        );
         assert!(packet.source_node.is_empty() && packet.destination_node.is_empty());
     }
     let transfers = journal(&mut owner).await;
