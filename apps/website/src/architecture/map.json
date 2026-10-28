@@ -1830,6 +1830,16 @@
   ],
   "releases": [
     {
+      "version": "0.3.4",
+      "date": "2026-10-28",
+      "changes": [
+        "Your node keeps a generous amount in each settlement hub, a thousand of its largest packets (100 XRP or 100 USD by default), and tops it up from your own XRP Ledger account once it falls a tenth below that. Its holds for its peers count toward that amount, and it always keeps enough spendable to fund a request to settle from each peer at once. Earlier releases stopped depositing once the holds of about ten peerings filled a 10-unit ceiling, so a node with plenty on its own account could not settle, and payments through it failed. Most nodes now keep all their funds in the hub. A node in a token hub, such as DSUSD's, keeps 2 XRP on its own account for that hub's fees.",
+        "You can set how much your node keeps in each hub: `dassie hub target <scheme> <amount>`, or the target on the wallet's Hubs page, and `dassie hub target <scheme> default` goes back to the default. The node keeps what it put in within a tenth of that amount. A target is at least ten of the largest packets, and enough that the hub's floor stays above the account's reserve. Your node's first deposit into a hub is the target itself, since the account's reserve counts toward it.",
+        "A bootstrap node lists a node that registers only once its URL answers over HTTPS with a publicly issued certificate, not just over QUIC, so a node that fails HTTPS is turned away at once rather than listed and dropped two hours later.",
+        "Your node checks the XRP Ledger's proofs on every ledger only while a settlement through its account is on its way, and otherwise when something calls for it, so an idle node asks the proof server far less. It signs a payment only from a proof it took moments ago."
+      ]
+    },
+    {
       "version": "0.3.3",
       "date": "2026-10-28",
       "changes": [
