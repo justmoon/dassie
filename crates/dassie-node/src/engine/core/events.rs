@@ -482,6 +482,7 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
     use dassie_peer::{Event, NameEvent};
     match event {
         Event::Peered { .. }
+        | Event::KindChanged { .. }
         | Event::MethodAdded { .. }
         | Event::MethodWinding { .. }
         | Event::MethodDropped { .. }

@@ -384,7 +384,7 @@ impl Core {
             {
                 Ok(()) => return Ok(address),
                 Err(EndpointError::InvalidAddress) => {}
-                Err(EndpointError::Full | EndpointError::Duplicate) => {
+                Err(EndpointError::Full | EndpointError::Duplicate | EndpointError::Unknown) => {
                     return Err(EngineError::Exhausted("too many BTP connections".into()));
                 }
             }

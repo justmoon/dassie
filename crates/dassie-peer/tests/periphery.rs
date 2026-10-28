@@ -891,3 +891,69 @@ fn downlinks_ended_by_a_node_turning_periphery_leave_a_full_table() {
     assert!(ended(&network, turning, &id(4)), "the downlink ended");
     assert!(core_entries(&network, turning) <= 3);
 }
+
+// spec/decisions/promotion-to-core.md: a peering's kind follows the peer's
+// status in place. A periphery node that gets a URL, a core node for now,
+// stays peered with its uplinks, which take it as a core peer, with the
+// same peering and channel; losing its URL again makes it their downlink
+// again, still the same peering.
+#[test]
+fn a_peers_kind_changes_in_place() {
+    let (core, periphery) = (3, 1);
+    let mut network = Network::with_periphery(23, core, 1, periphery, Config::DEV);
+    settle(&mut network, 90_000);
+    let turning = core;
+    let uplinks: Vec<usize> = (0..core)
+        .filter(|index| network.node(*index).is_downlink(&id(turning)))
+        .collect();
+    assert!(!uplinks.is_empty(), "the periphery node has an uplink");
+    let since = |network: &Network, at: usize| {
+        network
+            .node(at)
+            .peering_of(&id(turning))
+            .map(|peering| peering.since_ms)
+    };
+    let before: Vec<Option<u64>> = uplinks.iter().map(|at| since(&network, *at)).collect();
+    let set_url = |network: &mut Network, url: Option<String>| {
+        network.act(turning, |node, now| {
+            node.set_own_info(
+                now,
+                dassie_peer::OwnInfo {
+                    url,
+                    alias: String::new(),
+                    feed_port: None,
+                },
+            );
+        });
+    };
+    set_url(&mut network, Some(dassie_peer::sim::url(turning)));
+    network.periphery.remove(&turning);
+    settle(&mut network, 60_000);
+    for (at, before) in uplinks.iter().zip(&before) {
+        let node = network.node(*at);
+        assert!(
+            !node.is_downlink(&id(turning)),
+            "node {at} takes it as core"
+        );
+        assert_eq!(since(&network, *at), *before, "node {at}: the same peering");
+        assert!(
+            node.channels()
+                .any(|(node, channel)| *node == id(turning) && channel.endpoint.is_some())
+        );
+    }
+    set_url(&mut network, None);
+    network.periphery.insert(turning);
+    settle(&mut network, 60_000);
+    for (at, before) in uplinks.iter().zip(&before) {
+        let node = network.node(*at);
+        assert!(
+            node.is_downlink(&id(turning)),
+            "node {at} takes it as a downlink"
+        );
+        assert_eq!(since(&network, *at), *before, "node {at}: the same peering");
+        assert!(
+            node.channels()
+                .any(|(node, channel)| *node == id(turning) && channel.endpoint.is_none())
+        );
+    }
+}

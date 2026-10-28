@@ -310,6 +310,15 @@ pub enum Event {
         /// Whether we began it.
         by_us: bool,
     },
+    /// A peer's kind changed in place, as its status did: it became our
+    /// downlink, or a core peer. Its peering, methods and channel stay
+    /// (spec/decisions/promotion-to-core.md).
+    KindChanged {
+        /// The peer.
+        peer: NodeId,
+        /// Whether it is our downlink now.
+        downlink: bool,
+    },
     /// We decided to end a peering, and tell no one until we collected
     /// what the peer owes (spec/decisions/ending-a-peering.md).
     Depeering {

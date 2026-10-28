@@ -1362,6 +1362,7 @@ impl Core {
                 self.remove_peer_endpoint(&peer);
                 self.update_routes();
             }
+            Event::KindChanged { peer, downlink } => self.peer_kind_changed(peer, downlink),
             // A method added gets a slot of its own; one withdrawn, or no
             // longer, or being wound down, is available no more, or again.
             Event::MethodAdded { peer, .. }
@@ -1538,6 +1539,74 @@ impl Core {
             self.connector
                 .remove_endpoint(now, EndpointId::Peer(endpoint));
         }
+    }
+
+    /// A peer's kind changed in place, its peering and channel kept
+    /// (spec/decisions/promotion-to-core.md). Its QUIC connection takes the
+    /// place of its kind. A core peer gets its accounts on every method
+    /// that has none yet, in the core peers' share, or the peering ends: a
+    /// downlink's opened only once value moved with it
+    /// (spec/decisions/lazy-downlink-accounts.md). Accounts opened as one
+    /// kind's stay in that kind's share for good, as every peer's do. A
+    /// downlink is reached at its child address, and keeps room for the
+    /// accounts it waits for; a core peer keeps its child address while
+    /// the peering lasts.
+    fn peer_kind_changed(&mut self, peer: NodeId, downlink: bool) {
+        self.peerings_changed = true;
+        self.refresh_waiting(peer);
+        if !downlink && !self.open_core_accounts(peer) {
+            self.peer
+                .terminate(self.now_ms, &peer, TerminationReason::Unspecified);
+            return;
+        }
+        if let Some(&endpoint) = self.peer_endpoints.get(&peer) {
+            let child = format!("{}.{peer}", self.connector.own_address());
+            if let Err(error) =
+                self.connector
+                    .set_peer_kind(EndpointId::Peer(endpoint), downlink, &child)
+            {
+                self.report(PeerEvent::NoEndpoint {
+                    node: peer,
+                    error: error.to_string(),
+                });
+            }
+        }
+        self.resync_slots(peer);
+        self.update_routes();
+    }
+
+    /// Opens a new core peer's accounts on each of its methods' ledgers
+    /// where it has none, while the core peers' share has room. Returns
+    /// whether it has them on every one.
+    fn open_core_accounts(&mut self, peer: NodeId) -> bool {
+        let Some(name) = name(peer) else {
+            return false;
+        };
+        let wanted: Vec<(LedgerId, u64)> = self
+            .peer
+            .peering_of(&peer)
+            .map(|peering| {
+                peering
+                    .schemes()
+                    .filter_map(|scheme| {
+                        let active = self.schemes.get(&Name::new(scheme.as_str()).ok()?)?;
+                        Some((active.scheme.ledger(), active.start_credit()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let now = self.now_ms;
+        for (ledger, start) in wanted {
+            if has_accounts(&self.ledger, ledger, name) {
+                continue;
+            }
+            if !room_for_core_peer(&self.ledger, &self.downlinks.opened)
+                || self.ledger.open_peer(now, ledger, name, start).is_err()
+            {
+                return false;
+            }
+        }
+        true
     }
 
     /// Makes a peer a connector endpoint, with a slot per method of its

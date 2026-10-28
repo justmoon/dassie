@@ -12,7 +12,9 @@ use super::inbound::Accepted;
 use super::{PeerNode, Problem, Purpose};
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Reply};
-use crate::table::{Advertise, Depeering, Entry, PeerState, Peering, Termination, backoff};
+use crate::table::{
+    Advertise, Depeering, Entry, PeerState, Peering, Sources, Termination, backoff,
+};
 use crate::wire::{Content, SchemeId, TerminationReason};
 
 /// Why a node could not be banned.
@@ -520,6 +522,56 @@ impl PeerNode {
             .chain(self.next_drop())
             .chain(self.next_channel_close())
             .min()
+    }
+
+    /// Changes peer `id`'s kind in place, to our downlink if `downlink`,
+    /// else to a core peer, as its status changed
+    /// (spec/decisions/promotion-to-core.md): the peering, its methods and
+    /// its channel stay; its place in the table, its bounds and how it is
+    /// reached follow the new kind. Where the new kind has no room, the
+    /// peering ends instead, as it would if the peer asked anew.
+    pub(super) fn change_kind(&mut self, id: NodeId, downlink: bool) {
+        let (downlink_channels, core_channels) = self.channel_counts();
+        let room = if downlink {
+            let downlinks = self.peers().count() - self.core_peers().count();
+            self.takes_downlinks()
+                && self.downlinks() < self.config.max_downlinks
+                && downlinks < self.config.max_downlinks
+                && downlink_channels < self.config.max_downlinks
+        } else {
+            self.core_peers().count() < self.max_core_peers()
+                && core_channels < self.config.max_channels
+                && (self.table.len() - self.downlinks() < self.config.max_nodes
+                    || self.evict_for(Sources::PEER))
+        };
+        if !room {
+            self.begin_depeering(id, TerminationReason::Unspecified);
+            return;
+        }
+        let now = self.now_ms;
+        let Some(entry) = self.table.get_mut(&id) else {
+            return;
+        };
+        let (from, to) = if downlink {
+            (Sources::PEER, Sources::DOWNLINK)
+        } else {
+            (Sources::DOWNLINK, Sources::PEER)
+        };
+        entry.sources.remove(from);
+        entry.sources.insert(to);
+        // A core peer is listed afresh, as a new peering is; a downlink
+        // never is.
+        entry.advertise = Advertise {
+            on: !downlink,
+            on_since_ms: now,
+            ..Advertise::default()
+        };
+        self.dirty.insert(id);
+        // Its channel counts with its kind, and is reached as it is now.
+        self.open_channel_from(id, None);
+        self.advertised_changed();
+        self.gossip.routes_dirty = true;
+        self.event(Event::KindChanged { peer: id, downlink });
     }
 
     /// Terminates peers not heard from for too long, counted from our

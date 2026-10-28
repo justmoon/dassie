@@ -15,7 +15,7 @@ use crate::table::{LinkState, Offered, Sources, backoff};
 use crate::wire::{
     Content, EXTENSION_FEED, EXTENSION_PERIPHERY, Entry, HubDetails, InvalidNodeInfo,
     LinkStateResponse, MAX_ENTRIES, MAX_NODE_INFO_BYTES, MAX_OFFERS, NodeInfo, SchemeId,
-    SettlementOffer, SignedNodeInfo, TerminationReason, max_node_info_bytes, sign_node_info,
+    SettlementOffer, SignedNodeInfo, max_node_info_bytes, sign_node_info,
 };
 
 /// The routes are recomputed at least this often, as link states go stale.
@@ -262,9 +262,8 @@ impl PeerNode {
             .as_ref()
             .is_none_or(|old| old.neighbors != link.neighbors);
         // A peer that turned from core to periphery, or back, is a peer of
-        // the other kind now, with another address and other bounds: the
-        // peering made as the old kind ends, and it may ask anew
-        // (spec/areas/network.md#downlinks).
+        // the other kind now, with other bounds and reach: the peering
+        // changes kind in place (spec/areas/network.md#periphery-nodes).
         let switched = entry.peering().is_some() && entry.is_downlink() == core;
         // What a peer offered before, to tell an account it names anew.
         let before =
@@ -278,7 +277,7 @@ impl PeerNode {
             self.gossip.routes_dirty = true;
         }
         if switched {
-            self.begin_depeering(id, TerminationReason::Unspecified);
+            self.change_kind(id, !core);
         }
         if let Some(before) = before {
             self.tell_accounts_named(id, before.as_deref());

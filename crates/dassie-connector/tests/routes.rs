@@ -481,6 +481,65 @@ fn downlinks_are_routed_below_our_address() {
     assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
 }
 
+// spec/decisions/promotion-to-core.md: a peer's kind changes in place. A
+// downlink promoted to a core peer carries other nodes' traffic, and keeps
+// its child address while its peering lasts, beside the routes to its own;
+// a core peer that turns downlink is reached at its child address from
+// then on, which may not be another child's.
+#[test]
+fn a_peers_kind_changes_in_place() {
+    let mut harness = harness();
+    let down = EndpointId::Peer(3);
+    harness.add_downlink(3, "ddown", TRUST, 0);
+    assert!(!harness.connector.is_transit(down));
+    harness
+        .connector
+        .set_peer_kind(down, false, "unused")
+        .unwrap();
+    assert!(harness.connector.is_transit(down), "a core peer now");
+    set(&mut harness, &[("test.das.ddown", &[down])]);
+    let below = prepare(&format!("{OWN}.ddown.receiver"), 10, NOW + 20_000, [1; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 1, &below)), down);
+    let own = prepare("test.das.ddown.receiver", 10, NOW + 20_000, [2; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 2, &own)), down);
+
+    let core = EndpointId::Peer(4);
+    harness.add_peer(4, "dcore", TRUST, 0);
+    assert!(harness.connector.is_transit(core));
+    assert_eq!(
+        harness
+            .connector
+            .set_peer_kind(core, true, &format!("{OWN}.ddown")),
+        Err(dassie_connector::EndpointError::InvalidAddress),
+        "another child's address"
+    );
+    assert_eq!(
+        harness
+            .connector
+            .set_peer_kind(core, true, "test.das.delse.dcore"),
+        Err(dassie_connector::EndpointError::InvalidAddress),
+        "not below ours"
+    );
+    harness
+        .connector
+        .set_peer_kind(core, true, &format!("{OWN}.dcore"))
+        .unwrap();
+    assert!(!harness.connector.is_transit(core), "a downlink now");
+    let child = format!("{OWN}.dcore");
+    assert_eq!(
+        harness.connector.endpoint_address(core),
+        Some(child.as_str())
+    );
+    let packet = prepare(&format!("{child}.receiver"), 10, NOW + 20_000, [3; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 3, &packet)), core);
+    assert_eq!(
+        harness
+            .connector
+            .set_peer_kind(EndpointId::Peer(9), true, &child),
+        Err(dassie_connector::EndpointError::Unknown)
+    );
+}
+
 // spec/areas/connector.md#a-periphery-node: below the node's address beneath
 // an uplink lie its own endpoints, which get the packet written below its
 // own address; a peer's packet for anywhere else gets F02, while the

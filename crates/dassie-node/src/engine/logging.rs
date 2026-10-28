@@ -76,6 +76,9 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         Event::PeeringFailed { node, reason } => {
             emit!(severity, target: target::PEER, %node, reason, "peering failed");
         }
+        Event::KindChanged { peer, downlink } => {
+            emit!(severity, target: target::PEER, %peer, downlink, "a peer's kind changed in place");
+        }
         Event::Depeering { peer, reason } => {
             emit!(severity, target: target::PEER, %peer, ?reason, "ending a peering: collecting first, before the peer is told");
         }

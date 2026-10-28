@@ -172,7 +172,7 @@ impl PeerNode {
     /// Most peerings with core nodes the node holds: a pinned node's
     /// slots are its own, bounded by [`crate::MAX_UPLINKS`] rather than
     /// the configured `max_peers` ([`crate::Config::max_core_peers`]).
-    fn max_core_peers(&self) -> usize {
+    pub(super) fn max_core_peers(&self) -> usize {
         if self.pinned_uplinks().is_some() {
             self.config.max_core_peers()
         } else {
