@@ -1828,6 +1828,15 @@
   ],
   "releases": [
     {
+      "version": "0.3.3",
+      "date": "2026-10-28",
+      "changes": [
+        "A node now keeps its place on the network's list only while its URL keeps passing the bootstrap nodes' checks: it answers over QUIC (UDP 443), and it serves over HTTPS with a certificate from a public authority, as ACME gets one. A self-signed certificate, which a node serves while ACME fails, does not pass. A node that fails either check for two hours leaves the list, though it is up and renewing, and after it registers again it drops off again two hours later until both checks pass. So a node that went away leaves the list too.",
+        "For people who run nodes for a network: set `DASSIE_EVENT_LOG=<path>` and the node writes its packet trace and the hub events it sees to a file, one JSON line each, rotated under a size cap (`DASSIE_EVENT_LOG_MAX_BYTES`, 64 MiB by default). It is off unless you set it, a path the node can't open stops it at start, and it records other people's payments that pass through your node.",
+        "The desktop app's icons and the page it shows while the node starts are in Kopje, Dassie's visual identity."
+      ]
+    },
+    {
       "version": "0.3.2",
       "date": "2026-10-28",
       "changes": [
