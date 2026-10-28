@@ -465,14 +465,10 @@ impl Engine {
         self.call(|core| Ok(core.hub_statuses())).await
     }
 
-    /// The owner deposits into the hub `hub` (its ID, or none for the
-    /// node's only hub) from the owner book of its asset.
-    pub async fn hub_deposit(
-        &self,
-        hub: Option<[u8; 32]>,
-        amount: u64,
-    ) -> Result<HubStatus, EngineError> {
-        self.call(move |core| core.hub_deposit_to(hub, amount))
+    /// The owner deposits into the hub over `scheme` from the owner book
+    /// of its asset.
+    pub async fn hub_deposit(&self, scheme: String, amount: u64) -> Result<HubStatus, EngineError> {
+        self.call(move |core| core.hub_deposit_to(&scheme, amount))
             .await
     }
 
@@ -497,6 +493,11 @@ impl Engine {
         self.call(|core| Ok(core.hub_rules())).await
     }
 
+    /// The rules of the hub over `scheme`, for the owner.
+    pub async fn hub_rules_of(&self, scheme: String) -> Result<dassie_hub::Rules, EngineError> {
+        self.call(move |core| core.hub_rules_of(&scheme)).await
+    }
+
     /// What became of the owner's payment `id` out of the XRPL account of
     /// the node's realm.
     pub async fn xrpl_owner_payment(
@@ -511,31 +512,31 @@ impl Engine {
         .await
     }
 
-    /// The owner withdraws from the hub `hub` (its ID, or none for the
-    /// node's only hub) to the XRPL account.
+    /// The owner withdraws from the hub over `scheme` to the owner book
+    /// of its asset.
     pub async fn hub_withdraw(
         &self,
-        hub: Option<[u8; 32]>,
+        scheme: String,
         amount: u64,
     ) -> Result<HubStatus, EngineError> {
-        self.call(move |core| core.hub_withdraw_from(hub, amount))
+        self.call(move |core| core.hub_withdraw_from(&scheme, amount))
             .await
     }
 
-    /// The owner gives up the late move between the hub `hub` (its ID, or
-    /// none for the node's only hub) and the owner book of its asset.
-    pub async fn hub_give_up(&self, hub: Option<[u8; 32]>) -> Result<HubStatus, EngineError> {
-        self.call(move |core| core.hub_give_up(hub)).await
+    /// The owner gives up the late move between the hub over `scheme` and
+    /// the owner book of its asset.
+    pub async fn hub_give_up(&self, scheme: String) -> Result<HubStatus, EngineError> {
+        self.call(move |core| core.hub_give_up(&scheme)).await
     }
 
-    /// Turns the node's own moves to and from the hub `hub` (its ID, or
-    /// none for the node's only hub) on or off.
+    /// Turns the node's own moves to and from the hub over `scheme` on or
+    /// off.
     pub async fn set_hub_automatic(
         &self,
-        hub: Option<[u8; 32]>,
+        scheme: String,
         automatic: bool,
     ) -> Result<HubStatus, EngineError> {
-        self.call(move |core| core.set_hub_automatic(hub, automatic))
+        self.call(move |core| core.set_hub_automatic(&scheme, automatic))
             .await
     }
 

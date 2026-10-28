@@ -253,7 +253,7 @@ fn dsusd_core(ledger: &mut FakeLedger, hub: &mut Hub, balance: u64) -> Core {
     super::follow_xrpl(&mut core, ledger);
     core.add_scheme(DSUSD_SCHEME_ID, hub.config()).unwrap();
     super::follow_xrpl(&mut core, ledger);
-    core.set_hub_automatic(None, false).unwrap();
+    core.set_hub_automatic(DSUSD_SCHEME_ID, false).unwrap();
     hub.account(&mut core, balance, balance);
     assert_eq!(core.hub_status().unwrap().status, LedgerStatus::Synced);
     core
@@ -394,7 +394,7 @@ fn a_mainnet_token_hubs_gas_comes_from_the_live_xrp_book() {
     super::follow_xrpl(&mut core, &mut ledger);
     core.add_scheme(RLUSD_SCHEME_ID, hub.config()).unwrap();
     super::follow_xrpl(&mut core, &mut ledger);
-    core.set_hub_automatic(None, false).unwrap();
+    core.set_hub_automatic(RLUSD_SCHEME_ID, false).unwrap();
     hub.account(&mut core, 5_000_000, 5_000_000);
     let own = own_account(&MAINNET);
     withdraws_once_the_escrow_has_its_gas((&mut core, &mut ledger), &hub, own, short);
@@ -491,7 +491,7 @@ fn a_mainnet_rlusd_hub_follows_the_rlusd_book() {
 
     // The owner's deposit opens the account from the RLUSD book, held
     // against the owner's funds there while on its way.
-    core.set_hub_automatic(None, false).unwrap();
+    core.set_hub_automatic(RLUSD_SCHEME_ID, false).unwrap();
     hub.no_account(&mut core);
     let before = core.owner_available(LedgerId::XrplRlusdUsd);
     let amount = 3_000_000 * UNITS_PER_DROP;

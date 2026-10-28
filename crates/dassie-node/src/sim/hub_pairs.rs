@@ -133,7 +133,7 @@ pub(super) fn stake(sim: &mut Sim) -> Result<(), Outcome> {
         .collect();
     while let Some(&(place, index)) = staking.first() {
         let hub = sim.hub_at(place);
-        let id = Some(*hub.id().0.as_bytes());
+        let scheme = hub.scheme();
         let stake = match hub.spec.asset {
             Asset::Xrp => HUB_STAKE_XRP * DROPS_PER_XRP,
             Asset::Token { .. } => HUB_STAKE_MICROS,
@@ -141,8 +141,8 @@ pub(super) fn stake(sim: &mut Sim) -> Result<(), Outcome> {
         let mut moved = Ok(());
         sim.step(index, |core| {
             moved = core
-                .set_hub_automatic(id, false)
-                .and_then(|_| core.hub_deposit_to(id, stake * UNITS_PER_DROP))
+                .set_hub_automatic(scheme, false)
+                .and_then(|_| core.hub_deposit_to(scheme, stake * UNITS_PER_DROP))
                 .map(|_| ());
         });
         match moved {

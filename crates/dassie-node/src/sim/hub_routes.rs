@@ -517,7 +517,7 @@ fn moving(sim: &Sim, index: usize) -> bool {
 /// no hold there. The owner's automatic moves are off since its stake.
 fn take_out(sim: &mut Sim, index: usize) -> Result<(), Outcome> {
     let place = place_of(sim, HUB);
-    let id = Some(*sim.hub_at(place).id().0.as_bytes());
+    let scheme = sim.hub_at(place).scheme();
     let fees = sim.hub_at(place).rules.terms.fees;
     let spendable = status_in(sim, index, place)
         .map_or(0, |status| status.balance / UNITS_PER_DROP)
@@ -532,7 +532,7 @@ fn take_out(sim: &mut Sim, index: usize) -> Result<(), Outcome> {
         }
         sim.step(index, |core| {
             taken = core
-                .hub_withdraw_from(id, drops * UNITS_PER_DROP)
+                .hub_withdraw_from(scheme, drops * UNITS_PER_DROP)
                 .map(|_| ())
                 .map_err(|error| format!("{error:?}"));
         });
@@ -571,12 +571,12 @@ fn bring_back(
     until: u64,
 ) -> Result<(), Outcome> {
     let place = place_of(sim, HUB);
-    let id = Some(*sim.hub_at(place).id().0.as_bytes());
+    let scheme = sim.hub_at(place).scheme();
     let mut moved: Result<(), String> = Err("not yet".into());
     while sim.now < until {
         sim.step(index, |core| {
             moved = core
-                .hub_deposit_to(id, BACK_IN_XRP * DROPS_PER_XRP * UNITS_PER_DROP)
+                .hub_deposit_to(scheme, BACK_IN_XRP * DROPS_PER_XRP * UNITS_PER_DROP)
                 .map(|_| ())
                 .map_err(|error| format!("{error:?}"));
         });

@@ -6,19 +6,22 @@
 //!
 //! - `dassie hub status` shows each hub's account, its holds, the floor and
 //!   the ceiling the node keeps it between, and the move on its way.
-//! - `dassie hub deposit <amount>` and `dassie hub withdraw <amount>` move
-//!   funds now, which pauses the node's own moves of that hub for a while.
-//!   A token hub's withdrawal may first have the node check, and top up,
-//!   the XRP its escrow pays fees with: try again shortly.
-//! - `dassie hub auto on|off` turns the node's own moves on or off.
-//! - `dassie hub give-up` gives up a move that is late; the node's own
-//!   moves of that hub then wait for the owner.
+//! - `dassie hub deposit <scheme> <amount>` and `dassie hub withdraw
+//!   <scheme> <amount>` move funds now, which pauses the node's own moves
+//!   of that hub for a while. A token hub's withdrawal may first have the
+//!   node check, and top up, the XRP its escrow pays fees with: try again
+//!   shortly.
+//! - `dassie hub auto <scheme> on|off` turns the node's own moves on or
+//!   off.
+//! - `dassie hub give-up <scheme>` gives up a move that is late; the
+//!   node's own moves of that hub then wait for the owner.
 //! - `dassie hub found`, `foundings`, `drop` and `payout` found hubs, and
 //!   show the payout bundles kept ([`crate::founding`]).
 //!
-//! Each of `deposit`, `withdraw`, `auto` and `give-up` acts on one hub:
-//! `--hub <ID>` names it, as `status` shows it, and is needed only while
-//! the node is in more than one.
+//! Each of `deposit`, `withdraw`, `auto`, `give-up` and `payout` acts on
+//! one hub, which it names first by the settlement scheme over it, as
+//! `status` shows it, such as `hub-xrpl-testnet-xrp`: always, so that a
+//! script means the same hub once the node is in more than one.
 
 use dassie_node::env::Env;
 use dassie_node::rpc::proto::{self, request::Method, response};
@@ -36,7 +39,7 @@ const SCALE: u32 = 9;
 pub enum Command {
     /// Show each hub's account.
     Status,
-    /// Act on the hub named by its ID in hex, or the node's only hub.
+    /// Act on the hub over this scheme.
     Move(Move, String),
     /// Found a hub, or see the foundings or the payout bundles.
     Founding(crate::founding::Command),
@@ -61,18 +64,26 @@ pub enum Move {
 ///
 /// A command line that is not one of the above.
 pub fn args(parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
-    let action = match parser.next()? {
+    let command = match parser.next()? {
         None => return Ok(Command::Status),
         Some(Value(word)) => match word.string()?.as_str() {
-            "status" => None,
-            "deposit" => Some(Move::Deposit(hub_amount(&parser.value()?.string()?)?)),
-            "withdraw" => Some(Move::Withdraw(hub_amount(&parser.value()?.string()?)?)),
-            "auto" => match parser.value()?.string()?.as_str() {
-                "on" => Some(Move::Automatic(true)),
-                "off" => Some(Move::Automatic(false)),
-                other => return Err(format!("`auto` takes on or off, not {other:?}").into()),
-            },
-            "give-up" => Some(Move::GiveUp),
+            "status" => Command::Status,
+            word @ ("deposit" | "withdraw" | "auto" | "give-up") => {
+                let scheme = hub_scheme(&parser.value()?.string()?)?;
+                let action = match word {
+                    "deposit" => Move::Deposit(hub_amount(&parser.value()?.string()?)?),
+                    "withdraw" => Move::Withdraw(hub_amount(&parser.value()?.string()?)?),
+                    "auto" => match parser.value()?.string()?.as_str() {
+                        "on" => Move::Automatic(true),
+                        "off" => Move::Automatic(false),
+                        other => {
+                            return Err(format!("`auto` takes on or off, not {other:?}").into());
+                        }
+                    },
+                    _ => Move::GiveUp,
+                };
+                Command::Move(action, scheme)
+            }
             word @ ("found" | "foundings" | "drop" | "payout") => {
                 return crate::founding::args(word, parser).map(Command::Founding);
             }
@@ -80,27 +91,23 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
         },
         Some(other) => return Err(other.unexpected()),
     };
-    let mut hub = String::new();
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Long("hub") if action.is_some() && hub.is_empty() => {
-                hub = hub_id(&parser.value()?.string()?)?;
-            }
-            other => return Err(other.unexpected()),
-        }
+    if let Some(extra) = parser.next()? {
+        return Err(extra.unexpected());
     }
-    Ok(action.map_or(Command::Status, |action| Command::Move(action, hub)))
+    Ok(command)
 }
 
-/// A hub's ID, as `dassie hub status` shows it: 64 hex digits.
-fn hub_id(text: &str) -> Result<String, String> {
-    let hex = text.len() == 64 && text.bytes().all(|byte| byte.is_ascii_hexdigit());
-    if !hex {
+/// The settlement scheme over a hub, as `dassie hub status` shows it, such
+/// as `hub-xrpl-testnet-xrp`: whether the node runs it is the node's to
+/// say.
+pub(crate) fn hub_scheme(text: &str) -> Result<String, String> {
+    if !text.starts_with("hub-") {
         return Err(format!(
-            "{text:?} is not a hub's ID, the 64 hex digits `dassie hub status` shows"
+            "{text:?} is not the scheme over a hub, such as hub-xrpl-testnet-xrp, as \
+             `dassie hub status` shows it"
         ));
     }
-    Ok(text.to_ascii_lowercase())
+    Ok(text.to_owned())
 }
 
 /// An amount of XRP, such as `2.5`, in the hub ledger's units.
@@ -139,7 +146,7 @@ pub async fn run(env: &Env, command: Command) -> Result<(), String> {
         return crate::founding::run(env, command).await;
     }
     let mut client = Client::connect(env).await.map_err(|error| error.message)?;
-    let Command::Move(action, hub_id) = command else {
+    let Command::Move(action, scheme) = command else {
         let hubs = statuses(&mut client).await?;
         if hubs.is_empty() {
             println!("The node is in no settlement hub: no hub scheme runs.");
@@ -153,12 +160,12 @@ pub async fn run(env: &Env, command: Command) -> Result<(), String> {
         return Ok(());
     };
     let method = match action {
-        Move::Deposit(amount) => Method::HubDeposit(proto::HubDepositRequest { amount, hub_id }),
-        Move::Withdraw(amount) => Method::HubWithdraw(proto::HubWithdrawRequest { amount, hub_id }),
+        Move::Deposit(amount) => Method::HubDeposit(proto::HubDepositRequest { amount, scheme }),
+        Move::Withdraw(amount) => Method::HubWithdraw(proto::HubWithdrawRequest { amount, scheme }),
         Move::Automatic(automatic) => {
-            Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic, hub_id })
+            Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic, scheme })
         }
-        Move::GiveUp => Method::HubGiveUp(proto::HubGiveUpRequest { hub_id }),
+        Move::GiveUp => Method::HubGiveUp(proto::HubGiveUpRequest { scheme }),
     };
     let status = match client.call(method).await {
         Ok(
@@ -249,8 +256,8 @@ fn text(status: &proto::HubStatus, units: u64) -> String {
 
 /// Prints a hub's account, line by line.
 fn show(status: &proto::HubStatus, now_ms: i64) {
-    println!("Settlement hub {}", status.hub_id);
-    line("Scheme", &status.scheme);
+    println!("Settlement hub {}", status.scheme);
+    line("ID", &status.hub_id);
     line("Account", &brief(status));
     line(
         "Balance",
@@ -304,11 +311,15 @@ fn issuer_text(status: &proto::HubStatus) -> Option<String> {
 /// The floor, the ceiling, and whether the node moves funds by itself.
 fn keeps(status: &proto::HubStatus, now_ms: i64) -> String {
     let who = match (status.automatic, status.paused_until_unix_ms) {
-        (false, _) => "the node's own moves are off (`dassie hub auto on`)".into(),
-        (true, _) if status.given_up.is_some() => {
-            "the node's own moves wait for you after a move you gave up (`dassie hub auto on`)"
-                .into()
-        }
+        (false, _) => format!(
+            "the node's own moves are off (`dassie hub auto {} on`)",
+            status.scheme
+        ),
+        (true, _) if status.given_up.is_some() => format!(
+            "the node's own moves wait for you after a move you gave up (`dassie hub auto {} \
+             on`)",
+            status.scheme
+        ),
         (true, Some(until)) if until > now_ms => {
             format!("the node's own moves wait until {}", date(until))
         }
@@ -391,45 +402,41 @@ mod tests {
         }
     }
 
+    // A move names its hub first, by the scheme over it, always: status
+    // shows them all.
     #[test]
-    fn the_command_line_names_one_move() {
+    fn the_command_line_names_one_move_and_its_hub() {
         let parse = |args: &[&str]| args_of(args).map_err(|error| error.to_string());
-        let only = |action| Ok(Command::Move(action, String::new()));
+        let hub = "hub-xrpl-testnet-dsusd";
+        let on = |action| Ok(Command::Move(action, hub.into()));
         assert_eq!(parse(&[]), Ok(Command::Status));
         assert_eq!(parse(&["status"]), Ok(Command::Status));
-        assert_eq!(parse(&["deposit", "3"]), only(Move::Deposit(3_000_000_000)));
         assert_eq!(
-            parse(&["withdraw", "0.5"]),
-            only(Move::Withdraw(500_000_000))
-        );
-        assert_eq!(parse(&["auto", "off"]), only(Move::Automatic(false)));
-        assert!(parse(&["auto", "maybe"]).is_err());
-        assert_eq!(parse(&["give-up"]), only(Move::GiveUp));
-        assert!(parse(&["deposit"]).is_err());
-        assert!(parse(&["status", "now"]).is_err());
-    }
-
-    // A move names its hub only while the node is in several; status shows
-    // them all.
-    #[test]
-    fn a_move_names_its_hub_by_its_id() {
-        let parse = |args: &[&str]| args_of(args).map_err(|error| error.to_string());
-        let id = "AB".repeat(32);
-        assert_eq!(
-            parse(&["withdraw", "1", "--hub", &id]),
-            Ok(Command::Move(
-                Move::Withdraw(1_000_000_000),
-                "ab".repeat(32)
-            ))
+            parse(&["deposit", hub, "3"]),
+            on(Move::Deposit(3_000_000_000))
         );
         assert_eq!(
-            parse(&["give-up", "--hub", &id]),
-            Ok(Command::Move(Move::GiveUp, "ab".repeat(32)))
+            parse(&["withdraw", hub, "0.5"]),
+            on(Move::Withdraw(500_000_000))
         );
-        assert!(parse(&["give-up", "--hub", "abc"]).is_err());
-        assert!(parse(&["give-up", "--hub", &id, "--hub", &id]).is_err());
-        assert!(parse(&["status", "--hub", &id]).is_err());
-        assert!(parse(&["deposit", "--hub", &id]).is_err());
+        assert_eq!(parse(&["auto", hub, "off"]), on(Move::Automatic(false)));
+        assert_eq!(parse(&["give-up", hub]), on(Move::GiveUp));
+        for wrong in [
+            &["deposit", "3"][..],
+            &["deposit", hub],
+            &["deposit", "3", hub],
+            &["withdraw", "0.5"],
+            &["auto", "off"],
+            &["auto", hub, "maybe"],
+            &["give-up"],
+            &["give-up", "xrpl-testnet-xrp"],
+            &["give-up", hub, hub],
+            &["give-up", "--hub", hub],
+            &["status", "now"],
+            &["status", hub],
+        ] {
+            assert!(parse(wrong).is_err(), "{wrong:?}");
+        }
     }
 
     fn args_of(words: &[&str]) -> Result<Command, lexopt::Error> {

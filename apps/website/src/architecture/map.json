@@ -316,7 +316,7 @@
       "does": [
         "Config, TLS, certificates and sessions",
         "Ledgers, with a dollar token's peg guard, BTP tokens, payments and debug data",
-        "The node's account in each settlement hub it is in, and since when a token's issuer froze the hub, and the owner's moves into it and out of it, naming the hub by its ID",
+        "The node's account in each settlement hub it is in, and since when a token's issuer froze the hub, and the owner's moves into it and out of it, naming the hub by the settlement scheme over it",
         "Founding a settlement hub as its sponsor, and the payout bundles the node keeps of each of its hubs",
         "Nodes, peers, routes, settlements and bans; every settlement method of a peering, each with its credit, what is owed, and whether it is withdrawn or being wound down, and for a ledger being removed how many methods are left to wind down",
         "The owner's names: registering and renewing them, and how each stands with each registrar",

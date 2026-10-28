@@ -12,7 +12,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/hub_member.proto.
  */
 export const file_dassie_owner_v1_hub_member: GenFile = /*@__PURE__*/
-  fileDesc("CiBkYXNzaWUvb3duZXIvdjEvaHViX21lbWJlci5wcm90bxIPZGFzc2llLm93bmVyLnYxIjgKB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBCKYAgoHSHViTW92ZRI1CglkaXJlY3Rpb24YASABKA4yIi5kYXNzaWUub3duZXIudjEuSHViTW92ZS5EaXJlY3Rpb24SDgoGYW1vdW50GAIgASgEEhAKCGJ5X293bmVyGAMgASgIEhcKD3NlbnRfYXRfdW5peF9tcxgEIAEoAxIfChJhcHBsaWVkX2F0X3VuaXhfbXMYBSABKANIAIgBARIMCgRsYXRlGAYgASgIIlUKCURpcmVjdGlvbhIZChVESVJFQ1RJT05fVU5TUEVDSUZJRUQQABIVChFESVJFQ1RJT05fREVQT1NJVBABEhYKEkRJUkVDVElPTl9XSVRIRFJBVxACQhUKE19hcHBsaWVkX2F0X3VuaXhfbXMi+gQKCUh1YlN0YXR1cxIOCgZodWJfaWQYASABKAkSFAoHYWNjb3VudBgCIAEoDUgAiAEBEjUKCmNvbm5lY3Rpb24YAyABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIPCgdiYWxhbmNlGAQgASgEEg8KB3Jlc2VydmUYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIoCgZwYXlpbmcYCCADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBIoCgZ0YWtpbmcYCSADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBINCgVmbG9vchgKIAEoBBIPCgdjZWlsaW5nGAsgASgEEhEKCWF1dG9tYXRpYxgMIAEoCBIhChRwYXVzZWRfdW50aWxfdW5peF9tcxgNIAEoA0gBiAEBEigKBm1vdmluZxgOIAEoCzIYLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlEhIKCnZhbGlkYXRvcnMYDyABKA0SHAoUdmFsaWRhdG9yc19hbnN3ZXJpbmcYECABKA0SKgoIZ2l2ZW5fdXAYESABKAsyGC5kYXNzaWUub3duZXIudjEuSHViTW92ZRIQCghyZXR1cm5lZBgSIAEoBBIOCgZzY2hlbWUYEyABKAkSIQoUZnJvemVuX3NpbmNlX3VuaXhfbXMYFCABKANIAogBARITCgtlc2Nyb3dfaGVsZBgVIAEoCEIKCghfYWNjb3VudEIXChVfcGF1c2VkX3VudGlsX3VuaXhfbXNCFwoVX2Zyb3plbl9zaW5jZV91bml4X21zIhUKE0dldEh1YlN0YXR1c1JlcXVlc3QiQAoUR2V0SHViU3RhdHVzUmVzcG9uc2USKAoEaHVicxgBIAMoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiMwoRSHViRGVwb3NpdFJlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBmh1Yl9pZBgCIAEoCSJAChJIdWJEZXBvc2l0UmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyI0ChJIdWJXaXRoZHJhd1JlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBmh1Yl9pZBgCIAEoCSJBChNIdWJXaXRoZHJhd1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiOwoWU2V0SHViQXV0b21hdGljUmVxdWVzdBIRCglhdXRvbWF0aWMYASABKAgSDgoGaHViX2lkGAIgASgJIkUKF1NldEh1YkF1dG9tYXRpY1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiIgoQSHViR2l2ZVVwUmVxdWVzdBIOCgZodWJfaWQYASABKAkiPwoRSHViR2l2ZVVwUmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1c2IGcHJvdG8z", [file_dassie_owner_v1_ledger]);
+  fileDesc("CiBkYXNzaWUvb3duZXIvdjEvaHViX21lbWJlci5wcm90bxIPZGFzc2llLm93bmVyLnYxIjgKB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBCKYAgoHSHViTW92ZRI1CglkaXJlY3Rpb24YASABKA4yIi5kYXNzaWUub3duZXIudjEuSHViTW92ZS5EaXJlY3Rpb24SDgoGYW1vdW50GAIgASgEEhAKCGJ5X293bmVyGAMgASgIEhcKD3NlbnRfYXRfdW5peF9tcxgEIAEoAxIfChJhcHBsaWVkX2F0X3VuaXhfbXMYBSABKANIAIgBARIMCgRsYXRlGAYgASgIIlUKCURpcmVjdGlvbhIZChVESVJFQ1RJT05fVU5TUEVDSUZJRUQQABIVChFESVJFQ1RJT05fREVQT1NJVBABEhYKEkRJUkVDVElPTl9XSVRIRFJBVxACQhUKE19hcHBsaWVkX2F0X3VuaXhfbXMi+gQKCUh1YlN0YXR1cxIOCgZodWJfaWQYASABKAkSFAoHYWNjb3VudBgCIAEoDUgAiAEBEjUKCmNvbm5lY3Rpb24YAyABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIPCgdiYWxhbmNlGAQgASgEEg8KB3Jlc2VydmUYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIoCgZwYXlpbmcYCCADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBIoCgZ0YWtpbmcYCSADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBINCgVmbG9vchgKIAEoBBIPCgdjZWlsaW5nGAsgASgEEhEKCWF1dG9tYXRpYxgMIAEoCBIhChRwYXVzZWRfdW50aWxfdW5peF9tcxgNIAEoA0gBiAEBEigKBm1vdmluZxgOIAEoCzIYLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlEhIKCnZhbGlkYXRvcnMYDyABKA0SHAoUdmFsaWRhdG9yc19hbnN3ZXJpbmcYECABKA0SKgoIZ2l2ZW5fdXAYESABKAsyGC5kYXNzaWUub3duZXIudjEuSHViTW92ZRIQCghyZXR1cm5lZBgSIAEoBBIOCgZzY2hlbWUYEyABKAkSIQoUZnJvemVuX3NpbmNlX3VuaXhfbXMYFCABKANIAogBARITCgtlc2Nyb3dfaGVsZBgVIAEoCEIKCghfYWNjb3VudEIXChVfcGF1c2VkX3VudGlsX3VuaXhfbXNCFwoVX2Zyb3plbl9zaW5jZV91bml4X21zIhUKE0dldEh1YlN0YXR1c1JlcXVlc3QiQAoUR2V0SHViU3RhdHVzUmVzcG9uc2USKAoEaHVicxgBIAMoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiMwoRSHViRGVwb3NpdFJlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBnNjaGVtZRgDIAEoCSJAChJIdWJEZXBvc2l0UmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyI0ChJIdWJXaXRoZHJhd1JlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBnNjaGVtZRgDIAEoCSJBChNIdWJXaXRoZHJhd1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiOwoWU2V0SHViQXV0b21hdGljUmVxdWVzdBIRCglhdXRvbWF0aWMYASABKAgSDgoGc2NoZW1lGAMgASgJIkUKF1NldEh1YkF1dG9tYXRpY1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiIgoQSHViR2l2ZVVwUmVxdWVzdBIOCgZzY2hlbWUYAiABKAkiPwoRSHViR2l2ZVVwUmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1c2IGcHJvdG8z", [file_dassie_owner_v1_ledger]);
 
 /**
  * A hold of ours toward a peer, or a peer's toward us.
@@ -147,7 +147,8 @@ export const HubMove_DirectionSchema: GenEnum<HubMove_Direction> = /*@__PURE__*/
  */
 export type HubStatus = Message<"dassie.owner.v1.HubStatus"> & {
   /**
-   * The hub's ID, the digest of its rules, as 64 hex digits.
+   * The hub's ID, the digest of its rules, as 64 hex digits: to tell which
+   * hub this is, never to name it in a request, which `scheme` does.
    *
    * @generated from field: string hub_id = 1;
    */
@@ -278,7 +279,8 @@ export type HubStatus = Message<"dassie.owner.v1.HubStatus"> & {
 
   /**
    * The settlement scheme over the hub, which names its ledger and asset,
-   * such as `hub-xrpl-testnet-xrp`, or `hub-xrpl-rlusd` on mainnet.
+   * such as `hub-xrpl-testnet-xrp`, or `hub-xrpl-rlusd` on mainnet: what
+   * the methods that act on the hub name it by.
    *
    * @generated from field: string scheme = 19;
    */
@@ -364,13 +366,12 @@ export type HubDepositRequest = Message<"dassie.owner.v1.HubDepositRequest"> & {
   amount: bigint;
 
   /**
-   * The hub, by its ID as HubStatus.hub_id gives it; empty while the node
-   * is in one hub only. NOT_FOUND for a hub the node is not in,
-   * INVALID_ARGUMENT for none while it is in several.
+   * The hub, by the settlement scheme over it, as HubStatus.scheme gives
+   * it, such as `hub-xrpl-testnet-xrp`.
    *
-   * @generated from field: string hub_id = 2;
+   * @generated from field: string scheme = 3;
    */
-  hubId: string;
+  scheme: string;
 };
 
 /**
@@ -415,11 +416,11 @@ export type HubWithdrawRequest = Message<"dassie.owner.v1.HubWithdrawRequest"> &
   amount: bigint;
 
   /**
-   * The hub, as in HubDepositRequest.
+   * The hub, by its scheme, as in HubDepositRequest.
    *
-   * @generated from field: string hub_id = 2;
+   * @generated from field: string scheme = 3;
    */
-  hubId: string;
+  scheme: string;
 };
 
 /**
@@ -459,11 +460,11 @@ export type SetHubAutomaticRequest = Message<"dassie.owner.v1.SetHubAutomaticReq
   automatic: boolean;
 
   /**
-   * The hub, as in HubDepositRequest.
+   * The hub, by its scheme, as in HubDepositRequest.
    *
-   * @generated from field: string hub_id = 2;
+   * @generated from field: string scheme = 3;
    */
-  hubId: string;
+  scheme: string;
 };
 
 /**
@@ -500,11 +501,11 @@ export const SetHubAutomaticResponseSchema: GenMessage<SetHubAutomaticResponse> 
  */
 export type HubGiveUpRequest = Message<"dassie.owner.v1.HubGiveUpRequest"> & {
   /**
-   * The hub, as in HubDepositRequest.
+   * The hub, by its scheme, as in HubDepositRequest.
    *
-   * @generated from field: string hub_id = 1;
+   * @generated from field: string scheme = 2;
    */
-  hubId: string;
+  scheme: string;
 };
 
 /**

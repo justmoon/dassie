@@ -1106,9 +1106,10 @@ fn check_payout(sim: &mut Sim) -> Result<(), String> {
 /// members' own moves are off first, so nothing is on its way into or out
 /// of the escrow. Each member's DSUSD book then holds its line.
 fn claw_back(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
+    let scheme = sim.hub_at(0).scheme();
     for index in 0..sim.nodes.len() {
         sim.step(index, |core| {
-            core.set_hub_automatic(None, false).unwrap();
+            core.set_hub_automatic(scheme, false).unwrap();
         });
     }
     let held = escrow_tokens(sim);

@@ -685,10 +685,13 @@ fn ledgers() -> BoxedStrategy<Method> {
     .boxed()
 }
 
-/// A hub named by its ID, or none.
-fn hub_id() -> BoxedStrategy<String> {
+/// A hub named by its scheme, by another, or by none.
+fn hub_scheme() -> BoxedStrategy<String> {
     field(&[
         "",
+        "hub-xrpl-testnet-xrp",
+        "hub-xrpl-testnet-dsusd",
+        "stub",
         "4c5ef2ba00000000000000000000000000000000000000000000000000000000",
     ])
 }
@@ -697,16 +700,16 @@ fn hub_id() -> BoxedStrategy<String> {
 fn hub() -> BoxedStrategy<Method> {
     prop_oneof![
         Just(Method::GetHubStatus(proto::GetHubStatusRequest {})),
-        (number(), hub_id()).prop_map(|(amount, hub_id)| {
-            Method::HubDeposit(proto::HubDepositRequest { amount, hub_id })
+        (number(), hub_scheme()).prop_map(|(amount, scheme)| {
+            Method::HubDeposit(proto::HubDepositRequest { amount, scheme })
         }),
-        (number(), hub_id()).prop_map(|(amount, hub_id)| {
-            Method::HubWithdraw(proto::HubWithdrawRequest { amount, hub_id })
+        (number(), hub_scheme()).prop_map(|(amount, scheme)| {
+            Method::HubWithdraw(proto::HubWithdrawRequest { amount, scheme })
         }),
-        (any::<bool>(), hub_id()).prop_map(|(automatic, hub_id)| {
-            Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic, hub_id })
+        (any::<bool>(), hub_scheme()).prop_map(|(automatic, scheme)| {
+            Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic, scheme })
         }),
-        hub_id().prop_map(|hub_id| Method::HubGiveUp(proto::HubGiveUpRequest { hub_id })),
+        hub_scheme().prop_map(|scheme| Method::HubGiveUp(proto::HubGiveUpRequest { scheme })),
         (
             field(&["", "{}", "{\"fees\":{\"operation\":0}}", "["]),
             number()
@@ -726,7 +729,7 @@ fn hub() -> BoxedStrategy<Method> {
         field(&["", "00", "x; DROP TABLE x"])
             .prop_map(|nonce| { Method::DropHubFounding(proto::DropHubFoundingRequest { nonce }) }),
         Just(Method::ListHubFoundings(proto::ListHubFoundingsRequest {})),
-        hub_id().prop_map(|hub_id| Method::GetHubPayout(proto::GetHubPayoutRequest { hub_id })),
+        hub_scheme().prop_map(|scheme| Method::GetHubPayout(proto::GetHubPayoutRequest { scheme })),
     ]
     .boxed()
 }

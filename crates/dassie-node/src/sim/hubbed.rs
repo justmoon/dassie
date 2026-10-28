@@ -522,9 +522,10 @@ fn has_account(sim: &Sim, index: usize) -> bool {
 /// network forms, every peering over the hub.
 fn form_with_newcomers(sim: &mut Sim) -> Result<(), Outcome> {
     let count = sim.nodes.len();
+    let scheme = sim.hub_at(0).scheme();
     for index in NEWCOMER..count {
         sim.step(index, |core| {
-            core.set_hub_automatic(None, false).unwrap();
+            core.set_hub_automatic(scheme, false).unwrap();
         });
     }
     let members_joined = |sim: &Sim| {

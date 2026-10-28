@@ -117,14 +117,17 @@ async function quiet(
   for (const node of scenario.nodes) {
     const { channels } = await node.rpc.call("listSettlementChannels", {});
     if (channels.some((channel) => channel.sending)) return false;
-    if ((await ledger(node, id)).connection !== LedgerConnection.SYNCED) {
-      return false;
-    }
+    const view = await ledger(node, id);
+    if (view.connection !== LedgerConnection.SYNCED) return false;
     if (!(await inStep(node))) return false;
     const { peers } = await node.rpc.call("listPeers", {});
-    if (peers.some((peer) => peer.creditOut + peer.owed <= TRIGGER)) {
-      return false;
-    }
+    const atTrigger = peers.some((peer) =>
+      peer.methods.some((method) =>
+        method.scheme === view.settlementScheme &&
+        method.creditOut + method.owed <= TRIGGER
+      )
+    );
+    if (atTrigger) return false;
   }
   return (await peerAccounts(scenario, id)).size > 0;
 }
@@ -241,9 +244,11 @@ async function held(node: ScenarioNode, scheme: string): Promise<bigint> {
 async function holds(node: ScenarioNode): Promise<Map<string, bigint>> {
   const { peers } = await node.rpc.call("listPeers", {});
   return new Map(
-    peers
-      .filter((peer) => peer.scheme === HUB_SCHEME)
-      .map((peer) => [peer.node, peer.creditOut]),
+    peers.flatMap((peer) =>
+      peer.methods
+        .filter((method) => method.scheme === HUB_SCHEME)
+        .map((method) => [peer.node, method.creditOut] as const)
+    ),
   );
 }
 
@@ -331,7 +336,8 @@ export async function peersOverHub(
 ): Promise<boolean> {
   const { peers } = await node.rpc.call("listPeers", {});
   return peers.some((p) =>
-    p.node === peer.id && p.scheme === HUB_SCHEME && p.state === "peered"
+    p.node === peer.id && p.state === "peered" &&
+    p.methods.some((m) => m.scheme === HUB_SCHEME)
   );
 }
 
@@ -354,7 +360,9 @@ export async function assertPeersOverHubAlone(
   node: ScenarioNode,
 ): Promise<void> {
   const { peers } = await node.rpc.call("listPeers", {});
-  for (const peer of peers) assertEquals(peer.scheme, HUB_SCHEME);
+  for (const peer of peers) {
+    for (const method of peer.methods) assertEquals(method.scheme, HUB_SCHEME);
+  }
 }
 
 /**
@@ -625,8 +633,10 @@ export async function joinedHubs(scenario: Scenario): Promise<void> {
   const schemes = hubs.map(hubScheme);
   for (const node of members) {
     const { peers } = await node.rpc.call("listPeers", {});
-    for (const peer of peers) {
-      assert(schemes.includes(peer.scheme), `${node.name}: ${peer.scheme}`);
+    for (const { methods } of peers) {
+      for (const { scheme } of methods) {
+        assert(schemes.includes(scheme), `${node.name}: ${scheme}`);
+      }
     }
   }
   await scenario.until("holds toward every peer over each hub", async () => {
