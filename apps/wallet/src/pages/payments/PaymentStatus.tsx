@@ -22,14 +22,16 @@ export function PaymentStatus(props: RouteProps): JSX.Element {
     (item) => item,
   );
   return (
-    <div class="page page-narrow stack" data-testid="page-payment">
+    <div class="page-narrow stack" data-testid="page-payment">
       <PageTitle>Payment</PageTitle>
       <LiveNote status={live.status()} />
       <Show when={live.value()}>
         {(payment) => <Status payment={payment()} />}
       </Show>
       <p>
-        <Link href="/payments" testid="payment-activity">All activity</Link>
+        <Link href="/payments" class="button" testid="payment-activity">
+          All activity
+        </Link>
       </p>
     </div>
   );
@@ -56,7 +58,7 @@ function Status(props: { payment: OutgoingPayment }): JSX.Element {
             {stateText(props.payment.state)}
           </Badge>
         </p>
-        <p>
+        <p class="payment-sent">
           <Amount
             value={props.payment.sentAmount}
             currency={currency()}
@@ -67,6 +69,7 @@ function Status(props: { payment: OutgoingPayment }): JSX.Element {
           <Amount value={props.payment.debitAmount} currency={currency()} />
         </p>
         <progress
+          class="payment-progress"
           max="1000"
           value={progress(props.payment.sentAmount, props.payment.debitAmount)}
           aria-label="Sent so far"
@@ -76,7 +79,7 @@ function Status(props: { payment: OutgoingPayment }): JSX.Element {
             {props.payment.failure}
           </p>
         </Show>
-        <dl class="facts">
+        <dl class="facts rows">
           <dt>They receive</dt>
           <dd>
             <Show when={receive()}>
@@ -115,7 +118,7 @@ function Status(props: { payment: OutgoingPayment }): JSX.Element {
               class="button"
               testid="payment-send-again"
             >
-              Send Again
+              Send again
             </Link>
           </div>
         </Show>

@@ -33,7 +33,7 @@ import { useStatus } from "../../status.ts";
 
 export function Settings(): JSX.Element {
   return (
-    <div class="page-wide">
+    <div class="page-wide settings">
       <PageTitle>Settings</PageTitle>
       <div class="grid-2">
         <div class="stack">
@@ -69,7 +69,7 @@ function Wallet(): JSX.Element {
         <dd>
           <code data-testid="settings-node-id">{data.selfId}</code>
         </dd>
-        <dt>Payment Pointer</dt>
+        <dt>Payment pointer</dt>
         <dd>{data.hostname ? `$${data.hostname}` : "???"}</dd>
         <dt>Dassie version</dt>
         <dd>
@@ -83,7 +83,7 @@ function Wallet(): JSX.Element {
           data-testid="logout"
           onClick={logout}
         >
-          Logout
+          Log out
         </button>
       </div>
       <ErrorText message={error()} testid="logout-error" />
@@ -100,7 +100,7 @@ function Appearance(): JSX.Element {
   ];
   return (
     <Card title="Appearance">
-      <fieldset class="radios">
+      <fieldset class="radios theme-choice">
         <legend>Theme</legend>
         <For each={options}>
           {([value, label]) => (
@@ -147,7 +147,7 @@ function NodeSettings(): JSX.Element {
     }
   };
   return (
-    <Card title="Node Settings" testid="node-settings">
+    <Card title="Node settings" testid="node-settings">
       <p class="muted">Edit your node settings</p>
       <form onSubmit={save}>
         <Field

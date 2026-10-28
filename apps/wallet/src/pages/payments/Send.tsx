@@ -207,10 +207,10 @@ export function Send(): JSX.Element {
   };
 
   return (
-    <div class="page page-narrow stack" data-testid="page-send">
+    <div class="page-narrow stack send" data-testid="page-send">
       <PageTitle>Send</PageTitle>
       <Show when={step() === "recipient"}>
-        <Card title="Whom to Pay">
+        <Card title="Whom to pay">
           <form class="stack" onSubmit={toAmount}>
             <Field
               label="Payment pointer, wallet address or payment request"
@@ -248,7 +248,7 @@ export function Send(): JSX.Element {
       </Show>
       <Show when={step() === "amount" && recipient()}>
         {(found) => (
-          <Card title="How Much">
+          <Card title="How much">
             <form class="stack" onSubmit={toReview}>
               <p>
                 To{" "}
@@ -406,7 +406,7 @@ export function Send(): JSX.Element {
         {(quoted) => (
           <Card title="Review">
             <div class="stack">
-              <dl class="facts">
+              <dl class="facts rows">
                 <dt>To</dt>
                 <dd data-testid="send-review-to">
                   {recipientName(
@@ -458,7 +458,7 @@ export function Send(): JSX.Element {
                       disabled={pending()}
                       onClick={() => void getQuote()}
                     >
-                      Get a New Quote
+                      Get a new quote
                     </button>
                   }
                 >
@@ -493,7 +493,7 @@ export function Send(): JSX.Element {
 function RecipientFacts(props: { recipient: Recipient }): JSX.Element {
   const currency = () => ledgerCurrency(props.recipient);
   return (
-    <dl class="facts" data-testid="send-recipient-found">
+    <dl class="facts rows" data-testid="send-recipient-found">
       <dt>Recipient</dt>
       <dd data-testid="send-recipient-name">
         {recipientName(props.recipient)}

@@ -11,7 +11,7 @@
  *    payment, and pays it with an outgoing payment.
  * 4. The payment completes, the receiver got it, and the grant's spend
  *    reads back.
- * 5. The owner revokes the grant on the Connected Apps page, and its token
+ * 5. The owner revokes the grant on the Connected apps page, and its token
  *    stops working.
  * 6. A second request is denied: the app learns it, and cannot continue.
  */

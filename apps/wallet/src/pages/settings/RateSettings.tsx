@@ -70,7 +70,7 @@ export function RateSettings(): JSX.Element {
   };
 
   return (
-    <Card title="Exchange Rates" testid="rate-settings">
+    <Card title="Exchange rates" testid="rate-settings">
       <Field label="Show totals in" for={`${id}-currency`}>
         <select
           id={`${id}-currency`}
@@ -94,7 +94,7 @@ export function RateSettings(): JSX.Element {
           Rates come from these sources: each the median of those that give one,
           once more than half of them do.
         </p>
-        <ul data-testid="rate-sources">
+        <ul class="rate-sources" data-testid="rate-sources">
           <For each={sources()}>
             {(source, index) => (
               <li data-testid={`rate-source-${index()}`}>

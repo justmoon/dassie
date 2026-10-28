@@ -24,7 +24,9 @@
     "./ui.css": "./ui.css",
     "./testing/csp": "./testing/csp.ts",
     "./vite": "./vite.ts",
-    "./qr": "./src/qr/Qr.tsx"
+    "./qr": "./src/qr/Qr.tsx",
+    "./kopje": "./src/kopje/Lockup.tsx",
+    "./kopje.css": "./kopje.css"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.16.0",

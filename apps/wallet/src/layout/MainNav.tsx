@@ -9,6 +9,7 @@ import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { useNodeData } from "@dassie/ui/node-data";
 import { useClient } from "@dassie/ui/rpc";
 import { Link, useRouter } from "@dassie/ui/router";
+import { Lockup } from "@dassie/ui/kopje";
 import { ThemeToggle } from "@dassie/ui/theme-toggle";
 
 const DEBUG_PAGES = [
@@ -33,7 +34,9 @@ export function MainNav(): JSX.Element {
   return (
     <nav class="nav" aria-label="Main">
       <div class="nav-bar">
-        <Link href="/" class="brand" end>Dassie Wallet</Link>
+        <Link href="/" class="brand" end>
+          <Lockup suffix="Wallet" />
+        </Link>
         <button
           type="button"
           class="nav-toggle"
@@ -47,7 +50,7 @@ export function MainNav(): JSX.Element {
       <div id="nav-links" class={`nav-links ${open() ? "open" : ""}`}>
         <Link href="/dashboard" testid="nav-dashboard">Dashboard</Link>
         <Link href="/payments" testid="nav-activity">Activity</Link>
-        <Link href="/grants" testid="nav-grants">Connected Apps</Link>
+        <Link href="/grants" testid="nav-grants">Connected apps</Link>
         <Link href="/network" testid="nav-network">Network</Link>
         <Link href="/names" testid="nav-names">Names</Link>
         <Link href="/ledgers" testid="nav-ledgers">Ledgers</Link>

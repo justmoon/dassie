@@ -162,10 +162,10 @@ A node's default rate sources are exchanges whose terms license their market dat
 
 ### Kopje across Dassie
 
-The brand page holds Dassie's visual identity, Kopje ([visual-identity](decisions/visual-identity.md)), and dassie.land draws in it; the wallet and the desktop app do not yet.
+The brand page holds Dassie's visual identity, Kopje ([visual-identity](decisions/visual-identity.md)), and dassie.land and the wallet draw in it; the desktop app's own parts do not yet.
 
-- **Parts that can be built side by side:** the wallet, in its light theme and dusk; the desktop app's icons and tray.
-- **Done when:** every screen of the wallet and the desktop app draws in Kopje's palette, type and mark, light and dark.
+- **Left to build:** the desktop app's icons and tray, and the page its window shows while the node starts.
+- **Done when:** every part of the desktop app draws in Kopje's palette, type and mark, light and dark.
 
 ## Not built yet
 

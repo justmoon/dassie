@@ -28,7 +28,7 @@ export function Assets(): JSX.Element {
   const data = useNodeData();
   return (
     <div class="page-wide stack">
-      <PageTitle>External Assets</PageTitle>
+      <PageTitle>External assets</PageTitle>
       <p class="muted">
         What your node holds outside its books, as the ledger reports it. Your
         ledgers settle through these.
@@ -53,7 +53,7 @@ export function Assets(): JSX.Element {
 function AssetCard(props: { asset: ExternalAsset }): JSX.Element {
   const id = () => props.asset.id;
   return (
-    <Card testid={`asset-${id()}`} class="ledger">
+    <Card testid={`asset-${id()}`} class="ledger external-asset">
       <h2>{assetName(id())}</h2>
       <Show when={connectionText(props.asset)}>
         {(text) => <p data-testid={`asset-connection-${id()}`}>{text()}</p>}
@@ -67,7 +67,7 @@ function AssetCard(props: { asset: ExternalAsset }): JSX.Element {
               testid={`asset-qr-${id()}`}
             />
             <div>
-              <p>Address</p>
+              <p class="overline">Address</p>
               <p>
                 <code data-testid={`asset-address-${id()}`}>{address()}</code>
                 {" "}
