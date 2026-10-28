@@ -1,7 +1,8 @@
 //! The peer node never panics on what other nodes send it
 //! (spec/decisions/tigerstyle.md): requests and the responses to its own,
 //! arbitrary or broken from valid ones, handed to one node of a small
-//! network, fresh or formed, which checks its invariants after every step.
+//! network, fresh or formed. The node checks its invariants after each
+//! request it takes, and after each round of responses.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -185,7 +186,8 @@ proptest! {
     // 200, or of every second or third, is one of the responder's choosing,
     // which the connection takes as the responder's: registrations, list
     // polls, peering, probes, gossip, packets, settlements and the end of a
-    // peering get them. The node checks its invariants after every step.
+    // peering get them. The node checks its invariants once a round, after
+    // it took the round's responses and fired its timers.
     #[test]
     fn responses_never_panic(
         index in 0..COUNT,

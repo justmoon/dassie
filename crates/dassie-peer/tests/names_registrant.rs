@@ -286,3 +286,34 @@ fn a_renewal_reaches_every_registrar_and_its_answer_comes_back() {
     network.act(2, |node, now| renewed = node.renew_name(now, &name("bob")));
     assert_eq!(renewed, Err(RenewError::NotHeld));
 }
+
+// spec/designs/names.md#5-holding-a-name: the holder renews its name by
+// itself: the node's next timer is no later than the renewal at each
+// registrar, `renew_before_ms` before the expiry that registrar gave, and
+// firing it then, and not a millisecond before, sends the renewal there.
+// The node's clock jumps to the deadline, as a node's timer would wake it.
+#[test]
+fn a_node_renews_its_name_on_its_own_timer() {
+    let mut network = start(38, 3, 2);
+    let alice = name("alice");
+    register(&mut network, 2, &alice);
+    windows(&mut network);
+    let dues: Vec<u64> = (0..2)
+        .map(|registrar| {
+            let expires = network.listed(registrar)[&alice].expires_at_ms;
+            expires - CONFIG.names.renew_before_ms
+        })
+        .collect();
+    let (first, last) = (dues[0].min(dues[1]), dues[0].max(dues[1]));
+    let node = network.node(2);
+    let now = network.clock(2);
+    let next = node.registrant().next_due(node.holders(), now);
+    assert_eq!(next, Some(first));
+    assert!(node.poll_timeout().is_some_and(|at| at <= first));
+    let sent = node.stats().renewals_sent;
+    network.act_with_hooks(2, |node, hooks, _| node.handle_timeout(first - 1, hooks));
+    assert_eq!(network.node(2).stats().renewals_sent, sent, "not yet due");
+    assert_eq!(network.node(2).poll_timeout(), Some(first), "woken for it");
+    network.act_with_hooks(2, |node, hooks, _| node.handle_timeout(last, hooks));
+    assert_eq!(network.node(2).stats().renewals_sent, sent + 2);
+}
