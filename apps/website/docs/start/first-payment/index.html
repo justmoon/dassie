@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="From an empty wallet to a payment that arrived: test XRP from the faucet, some of it in your hub, a payment to someone, and seeing it land."
+    />
+    <title>Your first payment · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Your first payment</h1>
+      <p class="lede">
+        This page walks you from an empty wallet to a payment that arrived.
+        You get test XRP from the faucet, put some of it in your settlement
+        hub, pay someone, and watch the payment land.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="before-you-start">Before you start</h2>
+      <p>You need:</p>
+      <ul>
+        <li>
+          a node that is set up, with <strong>XRP Ledger Testnet</strong> as
+          a ledger. The <a href="/docs/start/quick-start/">Quick Start</a>
+          gets you there, or the
+          <a href="/docs/desktop/install/">desktop app</a>;
+        </li>
+        <li>
+          someone to pay: the payment pointer of another node, such as
+          <code>$pay.example.com</code>, or a wallet address, such as
+          <code>https://pay.example.com/pay/xrp</code>. A friend who runs a
+          node is ideal, since they can tell you it arrived. A friend with a
+          name works too, as the pointer <code>$&lt;name&gt;.dassiepay.net</code>
+          (<a href="/docs/concepts/names/">Names and addresses</a>).
+        </li>
+      </ul>
+      <p>
+        Your own payment pointer is on your wallet's
+        <strong>Dashboard</strong>, under <strong>Payment Pointer</strong>.
+        Swap pointers with your friend, and you can pay each other.
+      </p>
+      <p class="not-yet">
+        Dassie names no default bootstrap nodes and no default testnet hub
+        yet. Until you name bootstrap nodes and join a hub by its rules, your
+        node has no one to peer with, and the steps from
+        <a href="/docs/start/first-payment/#hub">step 2</a> on wait.
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      </p>
+
+      <h2 id="faucet">1. Get test XRP</h2>
+      <p>
+        Your node has an account on the XRP Ledger testnet, and the testnet
+        has a faucet that hands out test XRP for free. Your node asks it for
+        you.
+      </p>
+      <ol class="steps">
+        <li>In the wallet, open <strong>Assets</strong>.</li>
+        <li>
+          Under your XRP Ledger testnet account, choose
+          <strong>Get test XRP</strong>.
+        </li>
+        <li>
+          Wait for the ledger to validate it. The account's XRP then shows
+          on the same page, and your balance on the
+          <strong>Dashboard</strong>.
+        </li>
+      </ol>
+      <p>
+        You can ask the faucet at most once a minute. The ledger holds back
+        part of what the account holds as its reserve, so you cannot spend
+        all of it.
+      </p>
+
+      <h2 id="hub">2. Put some of it in your hub</h2>
+      <p>
+        Your node pays its peers only through a settlement hub, never from
+        your XRP Ledger account directly. So some of your XRP needs to be in
+        the hub. If you joined the hub in the Quick Start, your node has
+        done this already, and you can go on to
+        <a href="/docs/start/first-payment/#peers">step 3</a>.
+      </p>
+      <p>
+        Your node joins a hub when you add the hub's scheme. The wallet
+        offers no hub to add today, so you add it with the hub's rules on
+        the server, as
+        <a href="/docs/start/quick-start/#hub">Join a settlement hub</a>
+        in the Quick Start shows. Once your node is in the hub, it moves some
+        test XRP into it at once: the hub account's reserve, and some to
+        spend. Open <strong>Hubs</strong> to see your account there.
+      </p>
+      <p>
+        From then on your node keeps your balance in the hub above a floor
+        by itself, from your XRP Ledger account. To move more yourself, type
+        an amount under <strong>Moving funds</strong> on the
+        <strong>Hubs</strong> page and choose <strong>Deposit</strong>. On
+        the server, the same is:
+      </p>
+      <pre><code><span class="prompt">$</span>dassie hub deposit hub-xrpl-testnet-xrp 5</code></pre>
+      <p>
+        <a href="/docs/wallet/hubs/">Your hubs</a> explains the page, and
+        <a href="/docs/concepts/hubs/">Settlement hubs</a> how a hub keeps
+        both sides honest.
+      </p>
+
+      <h2 id="peers">3. Wait for a peer</h2>
+      <p>
+        Your node peers on its own with nodes in the same hub. This can take
+        a few minutes. Open <strong>Network</strong> to see the
+        nodes it knows and its peers. Once it has a peer, it can reach
+        everyone that peer reaches.
+      </p>
+      <p>
+        On a server, <code>dassie status</code> shows the same: how many
+        bootstrap nodes list your node, and its peers.
+      </p>
+
+      <h2 id="send">4. Send</h2>
+      <ol class="steps">
+        <li>
+          On the <strong>Dashboard</strong>, choose <strong>Send</strong>.
+        </li>
+        <li>
+          Under <strong>Payment pointer, wallet address or payment
+          request</strong>, enter your friend's pointer, and choose
+          <strong>Continue</strong>. Your node looks the address up and shows
+          whom it found.
+        </li>
+        <li>
+          Enter an amount. By default it is what they receive, in their
+          currency; choose <strong>What you send</strong> to name what
+          leaves your wallet instead. If the wallet asks you to
+          <strong>Pay from</strong> a ledger, choose
+          <code>hub-xrpl-testnet-xrp+xrp</code>, your XRP in the hub. You can
+          add a note for them.
+        </li>
+        <li>
+          Choose <strong>Review</strong>. The wallet shows what you send, what
+          they receive and how long this quote is good for.
+        </li>
+        <li>
+          Choose <strong>Send</strong> while the quote is still good. If it
+          lapsed, choose <strong>Get a New Quote</strong> first.
+        </li>
+      </ol>
+
+      <h2 id="follow">5. See it land</h2>
+      <p>
+        After you send, the wallet opens the payment. It shows
+        <strong>Sending…</strong> with a bar of how much has gone, then
+        <strong>Sent</strong> once the whole amount arrived, or
+        <strong>Failed</strong> with the reason.
+      </p>
+      <p>
+        <strong>Activity</strong> lists your recent payments under
+        <strong>Outgoing Payments</strong>. Your friend finds yours in their
+        own <strong>Activity</strong>, under <strong>Incoming
+        Payments</strong>, with your note.
+      </p>
+      <p>
+        Your node and its peer settle what they owe each other in the hub
+        later, on their own. You don't need to do anything for that.
+        <a href="/docs/concepts/payments/">How a payment travels</a> follows
+        the packets on their way.
+      </p>
+
+      <h2 id="if-it-fails">If it doesn't arrive</h2>
+      <ul>
+        <li>
+          <strong>The address is not found.</strong> Check the pointer for
+          typos. A pointer starts with <code>$</code>, a wallet address with
+          <code>https://</code>.
+        </li>
+        <li>
+          <strong>No route, or the payment fails at once.</strong> Your node
+          may have no peer yet. Look at <strong>Network</strong>, wait a few
+          minutes, and try again.
+        </li>
+        <li>
+          <strong>Not enough money.</strong> Your node pays from the hub.
+          Check your balance on <strong>Hubs</strong>, and deposit more.
+        </li>
+        <li>
+          <strong>The payment stops part way.</strong> The amount that went
+          stays sent. Try the rest again later, or with a smaller amount.
+        </li>
+      </ul>
+      <p>
+        <a href="/docs/wallet/send/">Send money</a> covers sending in more
+        depth, and <a href="/docs/node/troubleshooting/">Troubleshooting</a>
+        helps when your node itself is stuck.
+      </p>
+
+      <h2 id="next">Next</h2>
+      <ul>
+        <li>
+          <a href="/docs/wallet/receive/">Receive money</a>: your wallet
+          addresses, and payment requests.
+        </li>
+        <li>
+          <a href="/docs/wallet/grants/">Connect apps</a>: let an app pay
+          through your node, within limits you set.
+        </li>
+        <li>
+          <a href="/docs/wallet/peg-guard/">Dollar tokens and the peg
+          guard</a>: pay in DSUSD, Dassie's test dollar.
+        </li>
+      </ul>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

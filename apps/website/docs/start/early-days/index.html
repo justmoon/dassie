@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How far along Dassie is: what works, what doesn't yet, and what must hold before real money."
+    />
+    <title>Early days · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Early days</h1>
+      <p class="lede">
+        Dassie is early. The sun is coming up; it isn't noon. This page says
+        plainly what works today, what doesn't yet, and what has to hold
+        before Dassie carries real money.
+      </p>
+
+      <h2 id="test-money-only">Test money only</h2>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/#before-real-money">What must hold first</a>
+        </p>
+      </aside>
+      <p>
+        Every Dassie node belongs to a realm: <code>test</code>, with test
+        money, or <code>live</code>, with real money. Your recovery phrase
+        names its realm, and a node keeps the realm it was set up in for
+        good.
+      </p>
+      <p>
+        Today a node refuses the live realm. It refuses to be set up in it,
+        refuses to start on a database that names it, and refuses to start
+        a ledger of real money. A release build has no way around that.
+        So everything you do with Dassie today happens on the XRP Ledger's
+        test network, where money costs nothing, and a bug, a lying peer or
+        a lying server costs nobody anything real.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/real-money.md">Why it works this way</a>
+      </p>
+
+      <h2 id="what-works">What works today</h2>
+      <ul>
+        <li>
+          <strong>Installing and updating.</strong> One command installs a
+          node on a Linux server. Releases are signed, and the node updates
+          itself every day, going back by itself if a new version does not
+          start. On NixOS a flake runs the same signed binary.
+        </li>
+        <li>
+          <strong>The wallet.</strong> Your node serves you a wallet in the
+          browser. Your 20-word recovery phrase is made there, fixes a word
+          or two you misread, and never leaves the browser.
+        </li>
+        <li>
+          <strong>Ledgers.</strong> Your node holds test XRP, and DSUSD,
+          Dassie's test dollar, on the XRP Ledger testnet. It checks what
+          its XRP Ledger server tells it against proofs from ledgers the
+          network's validators signed.
+        </li>
+        <li>
+          <strong>Settlement hubs.</strong> Peers settle through hubs that a
+          few validators keep together. A node can be a member of a hub, a
+          validator of one, or found a new one.
+        </li>
+        <li>
+          <strong>Payments.</strong> Nodes route payments across the network
+          and convert between currencies on the way. Other wallets and apps
+          pay your node with Open Payments, and ILP clients connect over BTP.
+        </li>
+        <li>
+          <strong>Nodes without a public address.</strong> A node without a
+          domain name connects out to core nodes and is reached through
+          them. The desktop app runs such a node on Linux.
+        </li>
+        <li>
+          <strong>Names.</strong> A node can register a name that people can
+          say, on the test network only.
+        </li>
+        <li>
+          <strong>Rates and market makers.</strong> A core node publishes the
+          rates it converts at, and <code>dassie market-maker</code> trades
+          against them to keep holdings in balance.
+        </li>
+      </ul>
+
+      <h2 id="test-network">The test network today</h2>
+      <p>
+        The project runs the test network's shared pieces: four bootstrap
+        nodes, <code>boot1</code> to <code>boot4.dassie.xyz</code>; a front door at
+        <code>dassiepay.net</code>, which reaches nodes without a domain
+        name; and a proof server for each XRP Ledger network.
+      </p>
+      <p>
+        A node ID commits to two keys, one of them post-quantum. The test
+        network starts again under new keys for the bootstrap nodes and the
+        front door.
+      </p>
+      <p class="not-yet">
+        Dassie names no default bootstrap nodes, relay or testnet hub yet. So
+        a new node runs alone, a node without a domain name keeps no relay
+        unless you name one, and the wallet offers no hub to join.
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      </p>
+      <p>Some things on the test network can change under you:</p>
+      <ul>
+        <li>
+          The XRP Ledger testnet is reset from time to time. Your node notices,
+          writes off what it held there, and asks the faucet again.
+        </li>
+        <li>
+          Names on the test network may be reset at any time.
+        </li>
+        <li>
+          A node does not read databases from the early test network, and
+          the test network may start again. Your recovery phrase brings back
+          the same node and the same XRP Ledger accounts.
+        </li>
+      </ul>
+
+      <h2 id="what-is-missing">What isn't there yet</h2>
+      <p>
+        Some of what Dassie is meant to be is designed but not built. Among
+        it:
+      </p>
+      <ul>
+        <li>real money, on the XRP Ledger's mainnet;</li>
+        <li>
+          the desktop app on macOS and Windows, packages for other Linux
+          distributions, and apps that reach your node from your phone;
+        </li>
+        <li>
+          your own domain name at a front door, and a guided setup in the
+          wallet that explains each choice;
+        </li>
+        <li>names that cost a small fee to register;</li>
+        <li>
+          nodes that start in the periphery and become core once they earn
+          it.
+        </li>
+      </ul>
+      <p>
+        <a href="/docs/project/roadmap/">What's next</a> has the whole list,
+        in plain words.
+      </p>
+
+      <h2 id="before-real-money">What must hold before real money</h2>
+      <p>
+        The live realm stays refused until every one of these holds. Here is
+        where each stands.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Condition</th>
+              <th>Where it stands</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Every peer message is authenticated</td>
+              <td>Done</td>
+            </tr>
+            <tr>
+              <td>
+                The node's books are durable and reconcile with the ledger
+                under them
+              </td>
+              <td>Done</td>
+            </tr>
+            <tr>
+              <td>
+                The XRP Ledger schemes handle reserves, fees and transaction
+                results
+              </td>
+              <td>Done</td>
+            </tr>
+            <tr>
+              <td>Releases are signed</td>
+              <td>Done</td>
+            </tr>
+            <tr>
+              <td>
+                The node checks the XRP Ledger's validators itself, on both
+                networks, so it books nothing on a server's word
+              </td>
+              <td>Mostly done; a few pieces are left</td>
+            </tr>
+            <tr>
+              <td>
+                A public proof server runs for each network, named in the
+                node's defaults
+              </td>
+              <td>Done</td>
+            </tr>
+            <tr>
+              <td>
+                Mainnet schemes for XRP and RLUSD, and each ledger runs only
+                in its own realm
+              </td>
+              <td>
+                Built; a live node that takes none of the test network's
+                defaults is left
+              </td>
+            </tr>
+            <tr>
+              <td>Settlement hubs run on mainnet, for XRP and for RLUSD</td>
+              <td>
+                Their schemes and the validator's side are built; no mainnet
+                hub is founded or built in yet
+              </td>
+            </tr>
+            <tr>
+              <td>An external review</td>
+              <td>Not yet</td>
+            </tr>
+            <tr>
+              <td>A list of mainnet bootstrap nodes</td>
+              <td>Not yet</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The spec keeps this list, with links to each piece of work, in the
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/roadmap.md#real-money">roadmap</a>.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/real-money.md">Why these, and not fewer</a>
+      </p>
+
+      <h2 id="trying-it">Trying it anyway</h2>
+      <p>
+        If you are still interested, we're glad. Running a node now, on test
+        money, is the most useful thing you can do for Dassie: it shows what
+        breaks while breaking costs nothing. Start with
+        <a href="/docs/start/pick-your-setup/">Pick your setup</a>, and tell
+        us what you find on <a href="/docs/project/help/">Get help</a>.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>
