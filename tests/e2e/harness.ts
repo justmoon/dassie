@@ -149,7 +149,7 @@ export async function missingTools(): Promise<string | undefined> {
  * xrpl +600, wallet +700, xrpl deposit +800, mainnet +900. Files whose
  * scenarios take more ports, each laid out in its own file, are moved by an
  * offset of their own instead: live hub 3000, two hubs 5000, hub 7000,
- * market maker with two targets 10000.
+ * market maker with two targets 10000, peer swaps 20000.
  */
 export const SCENARIO_PORT_OFFSET = 14_000;
 

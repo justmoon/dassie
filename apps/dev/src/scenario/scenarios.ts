@@ -202,12 +202,10 @@ export const UNLIMITED_STUB = JSON.stringify({ trust: "unlimited" });
 export const DSUSD_HUB_SCHEME = "hub-xrpl-testnet-dsusd";
 
 /**
- * What a member of the testnet's XRP hub runs, of its DSUSD hub, and of
- * both: each hub's scheme and the owner book of its asset, and the owner
- * book of XRP, which pays a DSUSD hub's gas (`hubs.ts`).
+ * What a member of both the testnet's XRP hub and its DSUSD hub runs: each
+ * hub's scheme and the owner book of its asset, the owner book of XRP also
+ * paying the DSUSD hub's gas (`hubs.ts`).
  */
-const IN_XRP_HUB = [HUB_OWNER_BOOK, HUB_SCHEME];
-const IN_DSUSD_HUB = [HUB_OWNER_BOOK, TOKEN_SCHEMES.DSUSD, DSUSD_HUB_SCHEME];
 const IN_BOTH_HUBS = [
   HUB_OWNER_BOOK,
   HUB_SCHEME,
@@ -216,18 +214,15 @@ const IN_BOTH_HUBS = [
 ];
 
 /**
- * The market maker's scenarios' XRP hub and DSUSD hub: four validators,
- * the first the sponsor, which found both on the fake ledger, and the
- * members of each, by index (spec/areas/rate-feed.md#market-maker).
+ * The XRP hub and the DSUSD hub of the scenarios that swap: four
+ * validators, the first the sponsor, which found both on the fake ledger,
+ * and the members of both, by index (spec/areas/rate-feed.md#market-maker).
  */
-function marketMakerHubs(
-  inXrp: readonly number[],
-  inDsusd: readonly number[],
-): ScenarioDef["hubs"] {
+function bothHubs(members: readonly number[]): ScenarioDef["hubs"] {
   const validators = [0, 1, 2, 3];
   return [
-    { validators, sponsor: 0, members: inXrp },
-    { validators, sponsor: 0, members: inDsusd, token: "DSUSD" },
+    { validators, sponsor: 0, members },
+    { validators, sponsor: 0, members, token: "DSUSD" },
   ];
 }
 
@@ -300,31 +295,30 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     id: "market-maker",
     name: "Market Maker",
     description:
-      "Four nodes validate an XRP hub and a DSUSD hub that the first of them founds on the fake ledger, beside its XRP/DSUSD pool at the dev rate; a core node joins both, most of its value in XRP, and a market maker's two periphery nodes pinned to it join one each, one with XRP and one with DSUSD",
+      "Four nodes validate an XRP hub and a DSUSD hub that the first of them founds on the fake ledger, beside its XRP/DSUSD pool at the dev rate; a core node joins both, most of its value in XRP, and a market maker's periphery node pinned to it joins both too, with XRP and DSUSD",
     schemes: [
       [HUB_OWNER_BOOK],
       [],
       [],
       [],
       IN_BOTH_HUBS,
-      IN_XRP_HUB,
-      IN_DSUSD_HUB,
+      IN_BOTH_HUBS,
     ],
     addedSchemes: IN_BOTH_HUBS,
     bootstrap: [4],
-    periphery: [{ node: 5, uplinks: [4] }, { node: 6, uplinks: [4] }],
+    periphery: [{ node: 5, uplinks: [4] }],
     // The faucet's 1000 XRP are worth 500 dollars at the dev rates, so the
     // core node holds about a twentieth of its value in DSUSD.
     mint: { token: "DSUSD", value: "25" },
     // Deep, so that the market maker's swaps hardly move its price.
     pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
-    hubs: marketMakerHubs([4, 5], [4, 6]),
+    hubs: bothHubs([4, 5]),
   },
   {
     id: "market-maker-two-targets",
     name: "Market Maker, Two Targets",
     description:
-      "Four nodes validate an XRP hub and a DSUSD hub that the first of them founds on the fake ledger, beside its XRP/DSUSD pool at the dev rate; two core nodes join both, most of their value in XRP, and a market maker's two periphery nodes each pinned to both join one each, one with XRP and one with DSUSD",
+      "Four nodes validate an XRP hub and a DSUSD hub that the first of them founds on the fake ledger, beside its XRP/DSUSD pool at the dev rate; two core nodes join both, most of their value in XRP, and a market maker's periphery node pinned to both joins both too, with XRP and DSUSD",
     schemes: [
       [HUB_OWNER_BOOK],
       [],
@@ -332,20 +326,38 @@ export const SCENARIOS: readonly ScenarioDef[] = [
       [],
       IN_BOTH_HUBS,
       IN_BOTH_HUBS,
-      IN_XRP_HUB,
-      IN_DSUSD_HUB,
+      IN_BOTH_HUBS,
     ],
     addedSchemes: IN_BOTH_HUBS,
     bootstrap: [4, 5],
-    periphery: [
-      { node: 6, uplinks: [4, 5] },
-      { node: 7, uplinks: [4, 5] },
-    ],
+    periphery: [{ node: 6, uplinks: [4, 5] }],
     // As in "market-maker": each core node holds about a twentieth of its
     // value in DSUSD.
     mint: { token: "DSUSD", value: "25" },
     pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
-    hubs: marketMakerHubs([4, 5, 6], [4, 5, 7]),
+    hubs: bothHubs([4, 5, 6]),
+  },
+  {
+    id: "peer-swaps",
+    name: "Peer Swaps",
+    description:
+      "Four nodes validate an XRP hub and a DSUSD hub that the first of them founds on the fake ledger; two core nodes join both and peer over both, each with XRP and DSUSD, and swap with each other toward their targets once their holdings are skewed apart",
+    schemes: [
+      [HUB_OWNER_BOOK],
+      [],
+      [],
+      [],
+      IN_BOTH_HUBS,
+      IN_BOTH_HUBS,
+    ],
+    addedSchemes: IN_BOTH_HUBS,
+    bootstrap: [4, 5],
+    // As in "market-maker": each holds about a twentieth of its value in
+    // DSUSD, until a test mints one of them more.
+    mint: { token: "DSUSD", value: "25" },
+    // DSUSD's peg guard reads its price from the pool.
+    pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
+    hubs: bothHubs([4, 5]),
   },
   {
     id: "hub",

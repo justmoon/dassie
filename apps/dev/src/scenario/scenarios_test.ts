@@ -69,16 +69,15 @@ test("every scenario's periphery nodes are pinned to its core nodes", () => {
   );
 });
 
-// spec/areas/dev.md#scenarios: the market maker on hubs. Four validators
-// found an XRP hub and a DSUSD hub; the core nodes, its targets, join both,
-// and its two periphery nodes, pinned to every target, one each: the XRP
-// node the XRP hub, the DSUSD node the DSUSD hub, each with the owner
-// books its hub needs. Only the fake ledger has the hubs, the mint and the
-// pool.
-async function marketMakerHubs(
+// spec/areas/dev.md#scenarios: the market maker and peer swaps on hubs.
+// Four validators found an XRP hub and a DSUSD hub; the core nodes join
+// both, and so does the market maker's one periphery node, if there is
+// one, pinned to every core node, its targets, each with the owner books
+// the hubs need. Only the fake ledger has the hubs, the mint and the pool.
+async function swappingHubs(
   def: ScenarioDef,
   cores: readonly number[],
-  [xrpNode, dsusdNode]: readonly [number, number],
+  marketMaker: number | undefined,
 ): Promise<void> {
   const { hubScheme, hubsOf, invalidHubs, joins, validatesAny } = await import(
     "./hubs.ts"
@@ -98,20 +97,24 @@ async function marketMakerHubs(
   );
   const members = (hub: typeof xrp) =>
     def.schemes.flatMap((_, index) => joins(def, hub, index) ? [index] : []);
-  assertEquals(members(xrp), [...cores, xrpNode]);
-  assertEquals(members(dsusd), [...cores, dsusdNode]);
-  // The targets are the bootstrap nodes, and core nodes; the market
-  // maker's two are periphery nodes pinned to every one of them.
+  const swapping = marketMaker === undefined ? cores : [...cores, marketMaker];
+  assertEquals(members(xrp), swapping);
+  assertEquals(members(dsusd), swapping);
+  // The core nodes are the bootstrap nodes; the market maker's node is a
+  // periphery node pinned to every one of them, its targets.
   assertEquals(def.bootstrap, cores);
   for (const core of cores) assertEquals(peripheryOf(def, core), undefined);
-  assertEquals(peripheryOf(def, xrpNode)?.uplinks, cores);
-  assertEquals(peripheryOf(def, dsusdNode)?.uplinks, cores);
-  assertEquals(def.schemes[xrpNode], [HUB_OWNER_BOOK, HUB_SCHEME]);
-  assertEquals(def.schemes[dsusdNode], [
-    HUB_OWNER_BOOK,
-    TOKEN_SCHEMES.DSUSD,
-    DSUSD_HUB_SCHEME,
-  ]);
+  if (marketMaker !== undefined) {
+    assertEquals(peripheryOf(def, marketMaker)?.uplinks, cores);
+  }
+  for (const node of swapping) {
+    assertEquals(def.schemes[node], [
+      HUB_OWNER_BOOK,
+      HUB_SCHEME,
+      TOKEN_SCHEMES.DSUSD,
+      DSUSD_HUB_SCHEME,
+    ]);
+  }
   // Only the nodes in the DSUSD hub are minted DSUSD, from which they fund
   // it.
   assertEquals(
@@ -131,16 +134,16 @@ async function marketMakerHubs(
   assertEquals(unavailable(def, true), undefined);
 }
 
-test("the market maker's scenario: a core node in both hubs, a node in each pinned to it", async () => {
-  await marketMakerHubs(findScenario("market-maker")!, [4], [5, 6]);
+test("the market maker's scenario: a core node and the market maker's node pinned to it, both in both hubs", async () => {
+  await swappingHubs(findScenario("market-maker")!, [4], 5);
 });
 
-test("the market maker's scenario with two targets: both nodes pinned to both", async () => {
-  await marketMakerHubs(
-    findScenario("market-maker-two-targets")!,
-    [4, 5],
-    [6, 7],
-  );
+test("the market maker's scenario with two targets: its node pinned to both", async () => {
+  await swappingHubs(findScenario("market-maker-two-targets")!, [4, 5], 6);
+});
+
+test("the peer swaps scenario: two core nodes in both hubs", async () => {
+  await swappingHubs(findScenario("peer-swaps")!, [4, 5], undefined);
 });
 
 // spec/decisions/hubs-only.md: no scenario that runs settles directly.
