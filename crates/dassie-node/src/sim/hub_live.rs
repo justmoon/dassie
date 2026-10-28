@@ -1,12 +1,11 @@
 //! The node simulation's runs over a settlement hub on the XRP Ledger's
-//! mainnet, in the live realm (spec/areas/testing.md#over-a-settlement-hub,
-//! spec/roadmap.md#mainnet-hubs): members of a hub of 4 to 7 honest
-//! validators run in the simulation, its escrow on the fake ledger's
-//! mainnet, which has no faucet. The nodes run in the live realm by the dev
-//! switch, as tests do (spec/decisions/mainnet-schemes.md). No default
-//! mainnet hub is founded yet, so each run founds its own, as the sponsor
-//! does on the fake ledger, and its members name its rules in their
-//! schemes' configs.
+//! mainnet, in the live realm (spec/areas/testing.md#over-a-settlement-hub):
+//! members of a hub of 4 to 7 honest validators run in the simulation, its
+//! escrow on the fake ledger's mainnet, which has no faucet. The nodes run
+//! in the live realm by the dev switch, as tests do
+//! (spec/decisions/mainnet-schemes.md). No default mainnet hub is founded
+//! yet, so each run founds its own, as the sponsor does on the fake ledger,
+//! and its members name its rules in their schemes' configs.
 //!
 //! - **`node-hub-live`:** a hub of XRP, which members join over
 //!   `hub-xrpl-xrp`, booking on `hub-xrpl-xrp+xrp`. Each runs the owner

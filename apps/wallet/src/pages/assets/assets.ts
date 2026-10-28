@@ -46,13 +46,13 @@ export function freezeText(holding: {
   globalFreeze: boolean;
 }): string | undefined {
   if (holding.deepFrozen) {
-    return "Its issuer froze this line deep: it neither pays nor receives. Peers cannot pay you on it until the issuer lifts the freeze.";
+    return "Its issuer froze this line deep: it neither pays nor receives, but to and from the issuer. The node pays nothing out of it, a move into a hub included, until the issuer lifts the freeze.";
   }
   if (holding.globalFreeze) {
-    return "Its issuer froze the token for every holder: it moves only to and from the issuer. Peers cannot pay you on it until the issuer lifts the freeze.";
+    return "Its issuer froze the token for every holder: it moves only to and from the issuer. The node pays nothing out of it, a move into a hub included, until the issuer lifts the freeze.";
   }
   if (holding.frozen) {
-    return "Its issuer froze this line: it pays only the issuer, and still receives. The node settles nothing in it until the issuer lifts the freeze.";
+    return "Its issuer froze this line: it pays only the issuer, and still receives. The node pays nothing out of it, a move into a hub included, until the issuer lifts the freeze.";
   }
   return undefined;
 }

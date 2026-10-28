@@ -236,14 +236,15 @@ pub enum Settling {
     /// A settlement hub of XRP of this many validators on the fake
     /// ledger's mainnet, in the live realm: each node funds its account in
     /// the hub from its `xrpl-xrp` owner book, which its owner's deposits
-    /// fund, and peers over the hub (spec/roadmap.md#mainnet-hubs).
+    /// fund, and peers over the hub
+    /// (spec/areas/testing.md#over-a-settlement-hub).
     HubLive(usize),
     /// A settlement hub of RLUSD of this many validators on the fake
     /// ledger's mainnet, in the live realm: each node runs the owner books
     /// of XRP and RLUSD on its mainnet account, peering on neither, funds
     /// its account in the hub from the RLUSD book, which the fake ledger's
     /// issuer mints, the escrow's gas from the XRP book, and peers over the
-    /// hub (spec/roadmap.md#mainnet-hubs).
+    /// hub (spec/areas/testing.md#over-a-settlement-hub).
     HubRlusd(usize),
 }
 
@@ -518,16 +519,6 @@ pub enum IssuerFreeze {
     Deep(usize),
     /// Every line: no holder pays another.
     Global,
-}
-
-impl IssuerFreeze {
-    /// Whether it stops what node `index` pays or is paid.
-    pub const fn stops(self, index: usize) -> bool {
-        match self {
-            Self::Line(node) | Self::Deep(node) => node == index,
-            Self::Global => true,
-        }
-    }
 }
 
 /// The rates of runs across currencies and on a token: a dollar buys two
@@ -923,9 +914,6 @@ pub struct Sim {
     /// in the ledger's internal units: the owner's deposits and
     /// withdrawals there.
     pub issued: BTreeMap<usize, (i128, i128)>,
-    /// Each freeze of the issuer, from when it applied to when it was
-    /// lifted, if it was.
-    pub freezes: Vec<(IssuerFreeze, u64, Option<u64>)>,
     /// Each stretch in which the ledger's servers or validators failed a
     /// node, or every node, from when it began to when it ended: a server
     /// lying to one node, or a quorum withheld or a list lapsed for all.
@@ -1122,7 +1110,6 @@ impl Sim {
                 })
                 .collect(),
             issued: BTreeMap::new(),
-            freezes: Vec::new(),
             outages: Vec::new(),
             payments: Vec::new(),
             abandoned: Vec::new(),
@@ -2103,22 +2090,12 @@ impl Sim {
             IssuerFreeze::Global => self.ledger.global_freeze(token.issuer, on),
         }
         .unwrap();
-        // It applies with the next ledger, and is lifted with it.
-        let at = self.next_close;
         if on {
-            self.freezes.push((freeze, at, None));
             self.count(match freeze {
                 IssuerFreeze::Line(_) => "issuer freezes",
                 IssuerFreeze::Deep(_) => "issuer deep freezes",
                 IssuerFreeze::Global => "issuer global freezes",
             });
-        } else if let Some(held) = self
-            .freezes
-            .iter_mut()
-            .rev()
-            .find(|(held, _, until)| *held == freeze && until.is_none())
-        {
-            held.2 = Some(at);
         }
         self.trace.push(format!(
             "{} the issuer {} {freeze:?}",
