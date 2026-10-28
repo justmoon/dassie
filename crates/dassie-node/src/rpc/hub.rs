@@ -107,6 +107,7 @@ fn hub_status(status: &HubStatus) -> proto::HubStatus {
         // The hub's clock is the Unix time its validators stamp blocks with.
         frozen_since_unix_ms: status.frozen_since_ms.map(convert::time),
         escrow_held: status.escrow_held,
+        settling: status.settling,
     }
 }
 

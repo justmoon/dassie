@@ -787,6 +787,13 @@ impl HubAccount {
         self.failed.is_none() && self.kept_up && !self.resync
     }
 
+    /// Whether an operation of the account waits or is on its way to the
+    /// hub, until a final block executed it or it failed.
+    #[must_use]
+    pub fn operating(&self) -> bool {
+        !self.queue.is_empty()
+    }
+
     /// What the operations waiting or on their way take from the balance,
     /// at most: amounts, hold reserves and fees.
     #[must_use]

@@ -185,6 +185,9 @@ pub struct HubStatus {
     /// Whether the issuer holds the escrow: frozen, or charging a transfer
     /// fee.
     pub escrow_held: bool,
+    /// Whether settling over the hub is under way
+    /// ([`Core::hub_settling`]).
+    pub settling: bool,
 }
 
 /// Internal units in the hub asset's smallest unit, rounded up: a floor is
@@ -1325,7 +1328,38 @@ impl Core {
             validators: account.answering(),
             frozen_since_ms: account.frozen(),
             escrow_held: account.escrow_held(),
+            settling: self.hub_settling(scheme, funding, account),
         })
+    }
+
+    /// Whether settling over the hub of `scheme` is under way: a move
+    /// between the hub and its owner book on its way, or due now; a check
+    /// or top-up of a token hub's escrow gas under way; an operation of the
+    /// account waiting or on its way to the hub; a packet over the hub not
+    /// settled yet by its promises; a settlement of ours on the hub
+    /// prepared and not final; or a peer's request to settle on it we could
+    /// not fund in full, which waits for funds
+    /// (spec/decisions/settle-when-funds-arrive.md). Once none is, nothing
+    /// the node does by itself changes its books of the hub or its owner
+    /// book until a packet, a peer or the owner acts.
+    fn hub_settling(&self, scheme: Name, funding: &Funding, account: &HubAccount) -> bool {
+        let now = self.now_ms;
+        let moving = funding.moving.is_some()
+            || funding.gas_checking()
+            || self
+                .standing(scheme)
+                .is_some_and(|standing| funding.due(now, &standing).is_some());
+        let packets = self
+            .schemes
+            .get(&scheme)
+            .is_some_and(|active| active.scheme.packets_unsettled());
+        let ours = self.settle.settling.keys().any(|(on, _)| *on == scheme);
+        let asked = self
+            .settle
+            .unanswered
+            .keys()
+            .any(|(_, method)| method.as_str() == scheme.as_str());
+        moving || account.operating() || packets || ours || asked
     }
 
     /// The owner deposits `amount` (internal units, whole units of the hub's

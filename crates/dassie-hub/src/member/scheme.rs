@@ -1891,6 +1891,12 @@ impl SettlementScheme for HubScheme {
         self.peer_account(peer).map(|number| number.0)
     }
 
+    fn packets_unsettled(&self) -> bool {
+        self.peers
+            .values()
+            .any(|peer| peer.payer.has_open_packets() || peer.payee.has_unclaimed())
+    }
+
     /// A peer without an account in our records names one in our hub: it
     /// is looked up at the account's next turn, not at its next
     /// [`LOOK_UP_EVERY_MS`]. The number it names is not taken: only f + 1

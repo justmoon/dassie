@@ -121,6 +121,18 @@ message HubStatus {
   // the token, or a transfer fee. While it does, the escrow pays out
   // nothing, and a hub that ended pays out only once the issuer lets go.
   bool escrow_held = 21;
+  // Whether settling over the hub is under way: a move between the hub and
+  // the owner book on its way (`moving`) or due now, a check or top-up of a
+  // token hub's escrow XRP under way, an operation of the account waiting
+  // or on its way to the hub (funding a hold, a redeem, a claim, a
+  // withdrawal), a packet over the hub not yet settled by its promises
+  // (ours in flight or waiting for the hub, or a peer's in flight or
+  // fulfilled with no claim of its covering it yet), a settlement of ours
+  // over the hub not yet final, or a peer's request to settle over it that
+  // the node could not fund in full and funds once it can. False once none
+  // is: until a packet, a peer or the owner acts, the node changes nothing
+  // in its books of the hub or of the owner book by itself.
+  bool settling = 22;
 }
 
 // Every hub the node is in whose scheme runs, in the order of their

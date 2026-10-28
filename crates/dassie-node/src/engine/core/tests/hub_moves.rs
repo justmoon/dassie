@@ -860,3 +860,35 @@ fn a_deposit_counts_nothing_while_its_hub_scheme_has_failed() {
     assert!(core.moves_on_their_way().is_empty());
     assert_eq!(prices(&core), priced_as_if(&core, |holding| holding));
 }
+
+// What the owner reads to tell that settling over a hub is over
+// (`HubStatus::settling`): nothing under way while the node's own moves are
+// off and nothing moves; an owner's deposit is under way from when it
+// leaves the book until the funding check finds the hub credited it.
+#[test]
+fn settling_lasts_while_a_move_is_on_its_way() {
+    let (mut ledger, _) = super::funded_ledger();
+    let mut hub = Hub::new(SCHEME_ID, TESTNET.id, Asset::Xrp);
+    let balance = 5_000_000;
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = xrp_hub_and_dollars(store, &mut ledger, &mut hub, balance);
+    assert!(!core.hub_status().unwrap().settling, "nothing under way");
+
+    let drops = 100_000_000;
+    deposit_applied(&mut core, &mut ledger, drops);
+    assert!(
+        core.hub_status().unwrap().settling,
+        "the deposit on its way"
+    );
+    hub.account(&mut core, balance + drops, balance + drops);
+    core.finish_step(&mut Vec::new());
+    assert!(core.hub_status().unwrap().settling, "not followed yet");
+
+    let scheme = Name::new(SCHEME_ID).unwrap();
+    let check = core.funding[&scheme].at_ms;
+    core.begin_step(check.max(core.now_ms() + 1_000));
+    core.finish_step(&mut Vec::new());
+    let status = core.hub_status().unwrap();
+    assert!(status.moving.is_none(), "the deposit done");
+    assert!(!status.settling, "nothing under way");
+}
