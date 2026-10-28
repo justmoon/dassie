@@ -181,7 +181,7 @@ export const SECTIONS: readonly Section[] = [
       { path: "/docs/build/grants/", title: "Grants and limits" },
       { path: "/docs/build/btp/", title: "Connect an ILP client over BTP" },
       { path: "/docs/build/stream/", title: "STREAM on Dassie" },
-      { path: "/docs/build/rate-feed/", title: "Read a rate feed" },
+      { path: "/docs/build/snapshots/", title: "Read a node's snapshot" },
       { path: "/docs/build/errors/", title: "Error codes" },
       { path: "/docs/build/dev-network/", title: "Local dev network" },
       { path: "/docs/build/owner-apps/", title: "Owner apps" },
@@ -210,7 +210,7 @@ export const SECTIONS: readonly Section[] = [
         path: "/docs/reference/open-payments/",
         title: "Open Payments endpoints",
       },
-      { path: "/docs/reference/feed-format/", title: "Rate feed wire format" },
+      { path: "/docs/reference/snapshot-format/", title: "Snapshot wire format" },
     ],
   },
   {

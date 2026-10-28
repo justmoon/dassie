@@ -106,7 +106,7 @@ function broken(path: string, href: string): string | undefined {
       : "no such file in the repository";
   } else if (
     target.startsWith(GITHUB) &&
-    !/\/(issues|pulls|discussions|releases)\b/.test(target)
+    !/\/(issues|pulls|discussions|releases|security)\b/.test(target)
   ) {
     return "a link into the repository names the main branch: /blob/main/<path>";
   }
