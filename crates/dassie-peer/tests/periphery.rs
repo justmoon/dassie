@@ -1048,3 +1048,51 @@ fn an_unregistered_downlink_with_a_url_stays_one_across_a_restart() {
     );
     assert!(!network.node(uplink).core_peers().any(|(id, _)| *id == node));
 }
+
+// spec/decisions/promotion-to-core.md: an uplink watches its downlink with
+// a URL, which asks to be promoted by having one: its good standing, the
+// heartbeats it answers, its room in our books, its settlement and its
+// clock. Registered it is not, cut off from the bootstrap node, so that is
+// all that is left once the time has passed and it has paid.
+#[test]
+fn an_uplink_watches_its_downlink_for_promotion() {
+    use dassie_peer::{PROMOTION_ROOM_PACKETS, PromotionCheck};
+
+    let (core, periphery) = (3, 1);
+    let mut network = Network::with_periphery(37, core, 1, periphery, Config::DEV);
+    settle(&mut network, 90_000);
+    let turning = core;
+    let node = id(turning);
+    let Some(uplink) = (1..core).find(|at| network.node(*at).is_downlink(&node)) else {
+        panic!("an uplink that is not the bootstrap node");
+    };
+    let room = std::cell::Cell::new(0);
+    let promotion = |network: &Network| network.node(uplink).promotion(&node, |_| room.get());
+    assert_eq!(promotion(&network), None, "no URL, no candidate");
+    network.cut_one_way.insert((turning, 0));
+    set_url(&mut network, turning, Some(dassie_peer::sim::url(turning)));
+    settle(&mut network, 30_000);
+    let early = promotion(&network).expect("a candidate");
+    let pending = early.pending(&Config::DEV);
+    for check in [
+        PromotionCheck::Registered,
+        PromotionCheck::Standing,
+        PromotionCheck::Room,
+        PromotionCheck::Settled,
+    ] {
+        assert!(pending.contains(&check), "{check:?} in {pending:?}");
+    }
+    assert!(early.skew_ms.is_some(), "its clock, from its link state");
+
+    room.set(PROMOTION_ROOM_PACKETS);
+    network.act_with_hooks(uplink, |peer, hooks, now| peer.paid_by(now, hooks, &node));
+    settle(&mut network, Config::DEV.promotion_standing_ms);
+    let later = promotion(&network).expect("a candidate still");
+    assert_eq!(
+        later.pending(&Config::DEV),
+        vec![PromotionCheck::Registered],
+        "{later:?}"
+    );
+    assert!(later.heartbeats.sent > 0 && later.heartbeats.answered > 0);
+    assert!(network.node(uplink).is_downlink(&node), "not acted on");
+}

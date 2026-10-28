@@ -599,6 +599,96 @@ pub struct Advertise {
     pub settle_unreached: bool,
 }
 
+/// How many buckets a peer's heartbeats are counted in, over the standing a
+/// promotion asks.
+pub const STANDING_BUCKETS: u64 = 6;
+
+/// Heartbeats to a peer within one bucket of time.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Beats {
+    /// Sent to it.
+    pub sent: u32,
+    /// Answered by it.
+    pub answered: u32,
+}
+
+/// What an uplink watches of a peer to promote it
+/// (spec/decisions/promotion-to-core.md), in memory only: a restart starts
+/// its good standing and its heartbeats' count again, which only delays a
+/// promotion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Standing {
+    /// Since when it has been in good standing without a break: healthy as
+    /// the advertise flag sees it, heard from, not banned, and with a
+    /// method available.
+    pub since_ms: Option<u64>,
+    /// Our heartbeats to it in the last [`STANDING_BUCKETS`] buckets, the
+    /// newest first.
+    pub beats: [Beats; 6],
+    /// When the newest bucket began.
+    pub bucket_ms: u64,
+    /// How far its clock was ahead of ours, negative behind, as the newest
+    /// sequence of its link state that came straight from it showed.
+    pub skew_ms: Option<i64>,
+}
+
+const _: () = assert!(STANDING_BUCKETS == 6, "the buckets' array");
+
+impl Standing {
+    /// Nothing watched yet.
+    pub const NEW: Self = Self {
+        since_ms: None,
+        beats: [Beats {
+            sent: 0,
+            answered: 0,
+        }; 6],
+        bucket_ms: 0,
+        skew_ms: None,
+    };
+
+    /// The newest bucket at `now_ms`, of buckets `bucket_ms` long: older
+    /// ones move down, and those past the window are forgotten.
+    fn bucket(&mut self, now_ms: u64, bucket_ms: u64) -> Option<&mut Beats> {
+        let bucket_ms = bucket_ms.max(1);
+        let passed = now_ms.saturating_sub(self.bucket_ms) / bucket_ms;
+        if passed > 0 {
+            let len = self.beats.len();
+            let shift = usize::try_from(passed).map_or(len, |passed| passed.min(len));
+            self.beats.rotate_right(shift);
+            for beats in self.beats.iter_mut().take(shift) {
+                *beats = Beats::default();
+            }
+            self.bucket_ms = now_ms - now_ms % bucket_ms;
+        }
+        self.beats.first_mut()
+    }
+
+    /// Counts a heartbeat sent at `now_ms`.
+    pub fn sent(&mut self, now_ms: u64, bucket_ms: u64) {
+        if let Some(newest) = self.bucket(now_ms, bucket_ms) {
+            newest.sent = newest.sent.saturating_add(1);
+        }
+    }
+
+    /// Counts a heartbeat answered at `now_ms`.
+    pub fn answered(&mut self, now_ms: u64, bucket_ms: u64) {
+        if let Some(newest) = self.bucket(now_ms, bucket_ms) {
+            newest.answered = newest.answered.saturating_add(1);
+        }
+    }
+
+    /// The heartbeats sent and answered over the window.
+    #[must_use]
+    pub fn counted(&self) -> Beats {
+        self.beats
+            .iter()
+            .fold(Beats::default(), |all, beats| Beats {
+                sent: all.sent.saturating_add(beats.sent),
+                answered: all.answered.saturating_add(beats.answered),
+            })
+    }
+}
+
 /// What a settlement check found of the room our books give a peer
 /// (spec/decisions/peering-lifecycle.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -710,6 +800,9 @@ pub struct Entry {
     pub bucket: Bucket,
     /// Whether, as a peer, it is our advertised neighbor.
     pub advertise: Advertise,
+    /// What an uplink watches of a peer to promote it
+    /// (spec/decisions/promotion-to-core.md): reset with each peering.
+    pub standing: Standing,
     /// Until when its peering requests are refused: an owner ended our
     /// peering with it.
     pub refuse_until_ms: u64,
@@ -743,6 +836,7 @@ impl Entry {
                 flaps: 0,
                 settle_unreached: false,
             },
+            standing: Standing::NEW,
             refuse_until_ms: 0,
         }
     }

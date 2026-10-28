@@ -788,6 +788,13 @@ impl PeerNode {
             let unavailable = peering.unavailable(config.advertise_short_grace_ms);
             let live = peering.heard_within(now, config.peer_confirm_ms) && !self.bans.contains(id);
             let healthy = live && !unavailable;
+            // Good standing, which a promotion counts the time of, is what
+            // listing a peer asks (spec/decisions/promotion-to-core.md).
+            if healthy {
+                entry.standing.since_ms.get_or_insert(now);
+            } else {
+                entry.standing.since_ms = None;
+            }
             let advertise = &mut entry.advertise;
             if advertise.on
                 && advertise

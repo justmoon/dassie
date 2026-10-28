@@ -42,12 +42,12 @@ pub use io::{
 };
 pub use node::{
     BanError, Bootstrap, MAX_METHODS, MAX_OWN_HUBS, MAX_SCHEMES, MAX_UPLINKS, NodeView, Offer,
-    OwnInfo, PeerNode, PeerStatus, RegisterError, RegistrationStatus, SUBSCRIPTION_CHECK_MS,
-    SUBSCRIPTION_REFUSED_MS, SUBSCRIPTION_RETRY_MS, SUBSCRIPTION_SILENCE_MS, SendError,
-    offers_keep_the_rules,
+    OwnInfo, PROMOTION_ROOM_PACKETS, PeerNode, PeerStatus, Promotion, PromotionCheck,
+    RegisterError, RegistrationStatus, SUBSCRIPTION_CHECK_MS, SUBSCRIPTION_REFUSED_MS,
+    SUBSCRIPTION_RETRY_MS, SUBSCRIPTION_SILENCE_MS, SendError, offers_keep_the_rules,
 };
 pub use persist::{PeerBatch, Stored, StoredChannel, StoredClosed, StoredNode};
 pub use table::{
-    Advertise, Depeering, Method, Network, Offered, Peering, Registration, Room, Sources,
-    Termination, Winding,
+    Advertise, Beats, Depeering, Method, Network, Offered, Peering, Registration, Room,
+    STANDING_BUCKETS, Sources, Standing, Termination, Winding,
 };

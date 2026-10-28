@@ -991,6 +991,16 @@ impl Core {
         })
     }
 
+    /// The room `node` has in our books on `scheme`, in the largest
+    /// packets: what it may still owe us there, our own position for it
+    /// (spec/decisions/promotion-to-core.md). None without accounts.
+    pub(super) fn room_packets(&self, node: NodeId, scheme: SchemeId) -> u64 {
+        self.position(node, scheme).map_or(0, |at| {
+            let packets = at.position / u128::from(self.settle.max_packet.max(1));
+            u64::try_from(packets).unwrap_or(u64::MAX)
+        })
+    }
+
     /// What we owe `node` net on `scheme`'s ledger: negative when it owes
     /// us.
     pub(super) fn owed(&self, node: NodeId, scheme: SchemeId) -> Option<i128> {

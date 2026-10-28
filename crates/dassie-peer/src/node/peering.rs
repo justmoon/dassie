@@ -529,6 +529,7 @@ impl PeerNode {
         };
         let first = Method::new(scheme, agreed.state, agreed.credit_out);
         entry.peer = PeerState::Peered(PeeringState::new(first, now, inbound));
+        entry.standing = crate::table::Standing::NEW;
         entry.peering_failures = 0;
         // Its further methods are asked for at once.
         entry.method_at_ms = now;

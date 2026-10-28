@@ -1,6 +1,6 @@
 # A node becomes core by registering and being promoted
 
-**Areas:** [Network](../areas/network.md), [Peer protocol](../areas/peer-protocol.md), [Periphery](../designs/periphery.md). Partly built ([roadmap](../roadmap.md#periphery)): every node computes the core ([Network](../areas/network.md#the-core)), and a peering changes kind in place ([Network](../areas/network.md#periphery-nodes)), but nothing acts on the core yet; on `main`, a node with a hostname is core and one without is periphery ([Network](../areas/network.md#periphery-nodes)).
+**Areas:** [Network](../areas/network.md), [Peer protocol](../areas/peer-protocol.md), [Periphery](../designs/periphery.md). Partly built ([roadmap](../roadmap.md#periphery)): every node computes the core ([Network](../areas/network.md#the-core)), a peering changes kind in place ([Network](../areas/network.md#periphery-nodes)), and an uplink holds what promotion checks ([Network](../areas/network.md#promotion)), but nothing acts on the core or the checks yet; on `main`, a node with a hostname is core and one without is periphery ([Network](../areas/network.md#periphery-nodes)).
 
 ## Facts
 

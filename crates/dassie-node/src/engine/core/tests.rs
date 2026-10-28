@@ -2290,6 +2290,48 @@ fn send_link_state(core: &mut Core, node: &Arc<IdentityKey>, at: u64, url: Optio
     core.finish_step(&mut Vec::new());
 }
 
+// spec/decisions/promotion-to-core.md: the owner sees where a downlink
+// with a URL stands toward its promotion, which a downlink without one is
+// not a candidate for: here registered it is not, it has no room in our
+// books, its accounts not opened yet, and it never paid us.
+#[test]
+fn the_owner_sees_a_downlinks_promotion() {
+    use dassie_peer::PromotionCheck;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_with_bootstrap(store);
+    let downlink = Arc::new(IdentityKey::from_bytes(&[12; 32]));
+    let id = downlink.node_id();
+    peer_as_downlink(&mut core, &downlink, NOW + 1_000);
+    let view = |core: &Core| {
+        let network = core.network();
+        network
+            .peers
+            .into_iter()
+            .find(|peer| peer.id == id)
+            .unwrap()
+    };
+    assert!(view(&core).promotion.is_none(), "no URL, no candidate");
+    send_link_state(
+        &mut core,
+        &downlink,
+        NOW + 2_000,
+        Some("https://d.example:4443"),
+    );
+    step_with_list(&mut core, NOW + 3_000, &[]);
+    let (promotion, pending) = view(&core).promotion.expect("a candidate");
+    assert_eq!(promotion.room_packets, 0);
+    for check in [
+        PromotionCheck::Registered,
+        PromotionCheck::Standing,
+        PromotionCheck::Room,
+        PromotionCheck::Settled,
+    ] {
+        assert!(pending.contains(&check), "{check:?} in {pending:?}");
+    }
+    assert!(!pending.contains(&PromotionCheck::NotBanned));
+}
+
 // spec/decisions/promotion-to-core.md: a peering's kind follows the peer's
 // status in place. A downlink that turns core, for now by a URL in its link
 // state, stays a downlink until it is registered, whose URL the bootstrap
