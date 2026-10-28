@@ -82,7 +82,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [RPC](areas/rpc.md) | The owner's RPC contract, its transports and live streams |
 | [Release](areas/release.md) | Builds, versions and channels, the mirror, signing, the installer and the updater |
 | [Wallet](areas/wallet.md) | The owner's web app and the shared UI package |
-| [Website](areas/website.md) | dassie.land, the STREAM toy and the architecture page |
+| [Website](areas/website.md) | dassie.land: the docs, the STREAM toy and the architecture page |
 | [Desktop](areas/desktop.md) | The desktop app: the owner's node in its process, the wallet's window, the tray and starting at login |
 | [Dev](areas/dev.md) | The local dev network and its dashboard |
 | [DSUSD keeper](areas/dsusd-keeper.md) | The testnet dollar token of our own: its issuer, its pool, and the keeper that holds the pool at the market |
