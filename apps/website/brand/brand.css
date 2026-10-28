@@ -2606,6 +2606,12 @@ html[data-theme="dark"] svg [fill="#62646B"]:not(:is(.tile, .card-stage, .merch,
 html[data-theme="dark"] svg [fill="#4F5158"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
   fill: #0E0B09;
 }
+html[data-theme="dark"] svg [fill="#90929A"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
+  fill: #241F1C;
+}
+html[data-theme="dark"] svg [fill="#6E7078"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
+  fill: #13100E;
+}
 html[data-theme="dark"] svg [fill="#74767D"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
   fill: #221D1A;
 }
