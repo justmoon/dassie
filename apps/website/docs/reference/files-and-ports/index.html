@@ -110,6 +110,11 @@
           443.
         </li>
         <li>
+          QUIC over UDP to its relay: by default, while the node has no
+          hostname, the front door at <code>relay.dassiepay.net</code>, on
+          port 443.
+        </li>
+        <li>
           A WebSocket over TCP 443 to its XRP Ledger server, by default the
           project's <a href="/docs/reference/proof-servers/">proof
           servers</a>.
@@ -126,9 +131,10 @@
       </ul>
       <p>
         A node without a public IP needs no inbound port at all: it dials out
-        to its uplinks, and to its relay if
+        to its uplinks, and to its relay, <code>relay.dassiepay.net</code>
+        unless
         <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
-        names one. Where UDP does not get through, it carries QUIC over a
+        names another or none. Where UDP does not get through, it carries QUIC over a
         WebSocket on TCP 443 instead, through an HTTP proxy if
         <code>https_proxy</code> names one. Only a node without a hostname
         falls back this way; a node with one needs UDP. See
@@ -142,7 +148,9 @@
         stays the same. If another program took that port, it picks a new
         one. It has no HTTP listener and no socket for snapshot requests.
         QUIC listens on every
-        address, at a port the system picks, and only dials out. See
+        address, at a port the system picks, and only dials out: to its
+        uplinks, and to its relay, <code>relay.dassiepay.net</code> by
+        default. See
         <a href="/docs/desktop/reach/">How others reach you</a>.
       </p>
 

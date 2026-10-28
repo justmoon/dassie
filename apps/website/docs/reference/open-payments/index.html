@@ -46,31 +46,33 @@
           hostname alone, such as <code>https://pay.example.com</code>.
         </li>
         <li>
-          <strong>A node without one</strong> answers through a front door,
-          at <code>https://&lt;node ID&gt;.dassiepay.net</code>, at each
-          name it holds, such as <code>https://alice.dassiepay.net</code>,
-          and at any other front door name its owner adds. A front door
-          reaches the node only while the node keeps a connection to it,
-          which it does when
-          <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
-          names that front door.
+          <strong>A node without one</strong> answers through a front door:
+          at <code>https://&lt;node ID&gt;.dassiepay.net</code>, at the
+          names its owner adds in
+          <a href="/docs/reference/environment/#DASSIE_PUBLIC_NAMES"><code>DASSIE_PUBLIC_NAMES</code></a>,
+          and at <code>&lt;name&gt;.&lt;domain&gt;</code> for each name it
+          holds, such as <code>https://alice.dassiepay.net</code>. Those
+          domains are <code>dassiepay.net</code> and the domain of each
+          other front door whose <code>&lt;node ID&gt;.&lt;domain&gt;</code>
+          its owner added, up to four front doors in all.
           <a href="/docs/reference/domains/#payment-names">Payment names</a>
           has more.
         </li>
       </ul>
       <p>
+        A front door reaches the node only while the node keeps a
+        connection to it, as its relay. By default, a node without a
+        hostname keeps the <code>dassiepay.net</code> front door, at
+        <code>relay.dassiepay.net</code>.
+        <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
+        names another relay, or none. While the node holds no connection
+        to a front door, that front door answers requests for it with
+        <code>503</code>.
+      </p>
+      <p>
         A request for a name the node doesn't answer to gets
         <code>421</code> with the code <code>misdirected_request</code>.
         Before the node is set up, every route answers <code>404</code>.
-      </p>
-      <p class="not-yet">
-        A default relay is not there yet: the release names none, so a node
-        without a hostname keeps no relay unless you set
-        <code>DASSIE_RELAY</code>. The <code>dassiepay.net</code> front
-        door has no entry a 0.3.0 node can name yet, so for now nothing
-        reaches a node at its <code>dassiepay.net</code> names, and the
-        front door answers requests for it with <code>503</code>.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
 
       <h2 id="wallet-addresses">Wallet addresses</h2>

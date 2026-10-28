@@ -57,10 +57,13 @@
         into Dassie, so the node finds the network with nothing to set.
       </p>
       <p>
-        There is no default relay yet, though. Until you name one, wallets
-        and apps can't reach the node over Open Payments
-        (<a href="#the-relay">below</a>). Payments over Interledger still
-        reach it through its uplinks, and it can send.
+        A relay is built in too: the front door at <code>dassiepay.net</code>.
+        So wallets and apps reach the node at
+        <code>&lt;node ID&gt;.dassiepay.net</code>, also with nothing to set.
+        That front door is run by the Dassie project, and it learns when
+        your node is online (<a href="#the-relay">below</a>). On 0.3.0, the
+        relay isn't built in yet, so you name it yourself
+        (<a href="/docs/start/early-days/#front-door-on-0-3-0">how</a>).
       </p>
       <p>
         This is how the desktop app runs its node too, with the same
@@ -88,14 +91,10 @@
           A settlement hub that core nodes are in too. On the test network,
           that's the XRP hub (<a href="#uplinks">below</a>).
         </li>
-        <li>
-          For Open Payments, a front door to be your relay
-          (<a href="#the-relay">below</a>).
-        </li>
       </ul>
       <p>
         You don't need a public address, a domain name, open ports on your
-        router, or a certificate.
+        router, a certificate, or a relay of your own.
       </p>
 
       <h2 id="install-and-set-up">Install and set up</h2>
@@ -146,10 +145,11 @@
             Open Payments:
           </p>
           <pre><code><span class="output">  Address      https://&lt;node ID&gt;.dassiepay.net/ (Open Payments only)
-  Network      a periphery node: it registers with no bootstrap node, and reaches the network through its uplinks</span></code></pre>
+  Network      a periphery node: it registers with no bootstrap node, and reaches the network through its uplinks
+  Relay        orksjbmxvscmvfv3apa6xwencnxw2rt7t655esa at https://relay.dassiepay.net, connected</span></code></pre>
           <p>
-            For now, that name reaches no one
-            (<a href="#the-relay">below</a>), so don't hand it out.
+            While the relay is connected, wallets and apps reach the node at
+            that name (<a href="#the-relay">below</a>).
           </p>
         </li>
       </ol>
@@ -233,29 +233,42 @@ Environment=DASSIE_UPLINKS=&lt;node ID&gt;,&lt;node ID&gt;</code></pre>
         Wallets and apps that pay with Open Payments find a node by its name,
         over HTTPS. A periphery node has no address they can reach, so it
         keeps a connection open to a front door, which passes their requests
-        on. Dassie names no default relay yet, so a new node keeps none, and
-        its status says so:
+        on.
       </p>
-      <pre><code><span class="prompt">$</span>dassie status
-<span class="comment"># …</span>
-<span class="output">  Relay        none (DASSIE_RELAY names none), so Open Payments clients cannot reach the node</span></code></pre>
       <p>
-        Payments over Interledger still reach the node through its uplinks,
-        and it can send. But its name at <code>dassiepay.net</code>, which its
-        status gives as its address, reaches no one: the front door there
-        reaches a node only over a connection the node keeps to it. For Open
-        Payments, name a front door as its relay.
+        By default, that is the front door at <code>dassiepay.net</code>,
+        whose entry is built into Dassie. Once the node is set up, it
+        connects there by itself, and its name,
+        <code>&lt;node ID&gt;.dassiepay.net</code>, reaches it. That is the
+        address its status gives, and the payment pointer the wallet shows.
+        The front door reaches the node only over this connection; it never
+        dials the node.
       </p>
       <p class="not-yet">
-        The <code>dassiepay.net</code> front door is to be the default relay
-        of every node without a domain name, so that it is reached at its
-        name with nothing to set. It isn't built in yet.
-        <a href="/docs/project/roadmap/#periphery">What's next</a>
+        Dassie 0.3.0 has no relay built in yet. On 0.3.0, name the front
+        door yourself in <code>DASSIE_RELAY</code>; the next release builds
+        it in.
+        <a href="/docs/start/early-days/#front-door-on-0-3-0">How</a>
+      </p>
+      <p>
+        Here is what the default costs you. The front door is a machine the
+        Dassie project runs. It learns when your node is online, from which
+        address, and since when. It also reads the Open Payments requests it
+        passes on to your node, as every front door does. While it is down,
+        nobody reaches your node at its name there; payments over
+        Interledger still reach the node through its uplinks, and it can
+        send. If that doesn't suit you, name another relay, or none
+        (<a href="#choosing-a-relay">below</a>).
+      </p>
+      <p class="not-yet">
+        The wallet doesn't ask you about the relay yet. A step in the wallet
+        that explains the choice, and what the default costs, is planned.
+        <a href="/docs/project/roadmap/#onboarding">What's next</a>
       </p>
 
       <h3 id="choosing-a-relay">Choosing a relay</h3>
       <p>
-        To use a front door, such as one you run yourself
+        To use another front door, such as one you run yourself
         (<a href="/docs/services/front-door/">Run a front door</a>), name it in
         <code>DASSIE_RELAY</code>, with the entry it prints, and add its name
         for your node to <code>DASSIE_PUBLIC_NAMES</code>:
@@ -285,15 +298,35 @@ Environment=DASSIE_PUBLIC_NAMES=&lt;node ID&gt;.example.com</code></pre>
         clients can't reach the node through it; payments over Interledger
         still reach it through its uplinks.
       </p>
-      <p class="why">
-        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">What a relay learns about your node</a>,
-        and why there is to be a default one.
+      <p>
+        A node keeps one relay. With another, the
+        <code>dassiepay.net</code> front door no longer reaches it, so its
+        name there reaches no one. The node still gives that name first,
+        and the wallet warns you not to hand it out: give its name at your
+        front door instead.
       </p>
       <p>
-        An empty <code>DASSIE_RELAY</code> keeps no relay, which is what a
-        new node does today. The variables are listed in
+        To keep no relay at all, set <code>DASSIE_RELAY</code> empty:
+      </p>
+      <figure class="file">
+        <figcaption>/etc/systemd/system/dassie.service.d/override.conf</figcaption>
+        <pre><code>[Service]
+Environment=DASSIE_RELAY=</code></pre>
+      </figure>
+      <p>
+        Then no wallet or app reaches the node over Open Payments, and its
+        status says so:
+      </p>
+      <pre><code><span class="output">  Relay        none (DASSIE_RELAY names none), so Open Payments clients cannot reach the node</span></code></pre>
+      <p>
+        Payments over Interledger still reach it through its uplinks, and it
+        can send. The variables are listed in
         <a href="/docs/reference/environment/#DASSIE_RELAY">Environment
         variables</a>.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why there is a default relay</a>,
+        and what it learns about your node.
       </p>
 
       <h2 id="behind-a-proxy">Behind a proxy</h2>

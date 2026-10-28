@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="What Dassie does not do yet, in plain words: real money, a default relay, mainnet hubs, names, nodes without a public IP, setup in the wallet, and more."
+      content="What Dassie does not do yet, in plain words: real money, mainnet hubs, names, nodes without a public IP, setup in the wallet, and more."
     />
     <title>What's next · Dassie</title>
     <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
@@ -55,21 +55,20 @@
       <p>
         The testnet was set up again for 0.3.0. Its four bootstrap nodes,
         <code>boot1</code> to <code>boot4</code>, are built in, and so are
-        its XRP hub and its DSUSD hub, which those four keep. A new node finds
-        the network on its own, and <code>dassie setup</code> joins the XRP
-        hub. Still missing:
+        its XRP hub and its DSUSD hub, which those four keep. The project
+        also runs the front door at <code>dassiepay.net</code>, which a node
+        without a hostname keeps as its relay by default, so that it is
+        reached at <code>&lt;node ID&gt;.dassiepay.net</code>. A new node
+        finds the network on its own, and <code>dassie setup</code> joins
+        the XRP hub. Still missing:
       </p>
       <ul>
         <li>
-          <strong>A default relay.</strong> A node ID also commits to a
-          post-quantum key, so the testnet's front door gets a new node ID
-          once it runs a release that makes it, and no release builds that in
-          yet. Until one does, a node
-          without a hostname, the desktop app's node included, keeps no relay
-          unless its owner names one in <code>DASSIE_RELAY</code>. It still
-          connects to its uplinks and pays through them, but nobody reaches
-          it at <code>&lt;node ID&gt;.dassiepay.net</code>, so no Open
-          Payments client can pay it there.
+          <strong>A release with the front door built in.</strong> 0.3.0
+          has no relay built in, so a node of 0.3.0 keeps the front door
+          only once its owner names it in <code>DASSIE_RELAY</code>
+          (<a href="/docs/start/early-days/#front-door-on-0-3-0">how</a>).
+          The next release builds it in.
         </li>
         <li>
           <strong>A domain of its own.</strong> Later, testnet names move to
@@ -115,11 +114,11 @@
       <p>
         <a href="/docs/concepts/names/">Names</a> are built, and on the
         testnet they are free, held for your node by a quorum of the
-        bootstrap nodes. A name reaches your node through a front door, so
-        until a default relay is built in
-        (<a href="#public-testnet">above</a>), it reaches only a node whose
-        owner names a front door as its relay. Testnet names may be reset at
-        any time. A live node has no names. Next:
+        bootstrap nodes. A name reaches a node through a front door: a node
+        without a hostname is reached at
+        <code>&lt;name&gt;.dassiepay.net</code>, through the front door it
+        keeps as its relay by default. Testnet names may be reset at any
+        time. A live node has no names. Next:
       </p>
       <ul>
         <li>
@@ -138,15 +137,12 @@
         A node without a public IP joins as a
         <a href="/docs/concepts/core-and-periphery/">periphery node</a>: it
         connects to core nodes as its uplinks, gets addresses beneath them,
-        and is reached through a relay. That works today, over UDP or, where
+        and is reached through a relay, by default the front door at
+        <code>dassiepay.net</code>. That works today, over UDP or, where
         UDP is blocked, a WebSocket, through an HTTP proxy where the network
         sets one. Not there yet:
       </p>
       <ul>
-        <li>
-          a default relay, so that a node without a hostname is reached with
-          no setup (<a href="#public-testnet">above</a>);
-        </li>
         <li>dialing a lost uplink again with a backoff;</li>
         <li>
           <strong>becoming core.</strong> Today a node with a hostname is a
@@ -178,12 +174,16 @@
         Today you set a node up with your recovery phrase and a first ledger, and
         every other choice is a default. A guided setup in the wallet is to
         walk you through each choice that matters, and what it costs. One
-        of them is your relay. Once a default relay is built in
-        (<a href="#public-testnet">above</a>), a node without a hostname
-        keeps a connection to the project's front door unless its owner says
-        otherwise. The front door then learns when your node is online, and
-        sees the Open Payments requests it passes on. The guided setup is to
-        say so, and let you keep it, name another relay, or keep none.
+        of them is your relay. A node without a hostname keeps a
+        connection to the project's front door at <code>dassiepay.net</code>
+        by default, unless its owner says otherwise in
+        <code>DASSIE_RELAY</code>; on 0.3.0, only once its owner names it
+        (<a href="#public-testnet">above</a>). The
+        front door then learns when your node is online, and reads the Open
+        Payments requests it passes on. The guided setup is to say so, and
+        let you keep it, name another relay, or keep none. Until then,
+        <a href="/docs/desktop/reach/#another-relay-or-none">How others
+        reach you</a> shows how to choose.
       </p>
 
       <h2 id="rates-and-swaps">Exchange rates</h2>

@@ -44,12 +44,13 @@
         A node with its own domain answers only under that domain, so a name
         adds nothing to it.
       </p>
-      <p class="not-yet">
-        No default relay is built in yet, so a node without a domain name
-        keeps no connection to Dassie's front door, and its names there reach
-        no one for now. You can register one all the same, and keep it for
-        when they do.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      <p>
+        The front door reaches your node over a connection your node keeps
+        to it, as its relay. A node without a domain name keeps one by
+        default, so its names work with nothing to set. If you
+        <a href="/docs/reference/environment/#DASSIE_RELAY">name another
+        relay, or none</a>, the front door can't reach your node, and its
+        names there reach no one.
       </p>
       <p>
         The network's bootstrap nodes keep the names, as its registrars. A

@@ -50,16 +50,25 @@
         <strong>Dashboard</strong>, under <strong>Payment Pointer</strong>.
         Swap pointers with your friend, and you can pay each other.
       </p>
-      <p class="not-yet">
-        No default relay is built in yet. A node without a domain name,
-        such as the desktop app, can send, but other wallets can't reach its
-        pointer, <code>$&lt;node ID&gt;.dassiepay.net</code>, or its name
-        under <code>dassiepay.net</code>. Nobody can reach it there until a
-        release builds in the front door at <code>dassiepay.net</code> as
-        the default relay. For now, pay a friend whose node has a domain
-        name.
+      <p>
+        A node without a domain name, such as the desktop app, has the
+        pointer <code>$&lt;node ID&gt;.dassiepay.net</code>. Other wallets
+        reach it there through the front door at <code>dassiepay.net</code>,
+        which your node keeps a connection to by default. Under the
+        pointer, the wallet says whether your node is connected to it now.
+        The front door is a machine the project runs: it learns when your
+        node is online and from which address, and reads the Open Payments
+        requests it passes on.
         <a href="/docs/concepts/names/">Names and addresses</a> ·
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+        <a href="/docs/desktop/reach/">How others reach you</a>
+      </p>
+      <p class="not-yet">
+        Dassie 0.3.0 has no relay built in: the next release is the first
+        to build in the front door. On 0.3.0, a node without a domain name
+        keeps no relay until you name one, so other wallets can't reach its
+        pointer, and the wallet warns you under it. You can still send.
+        <a href="/docs/start/early-days/#front-door-on-0-3-0">Name the front
+        door yourself</a>
       </p>
 
       <h2 id="faucet">1. Get test XRP</h2>

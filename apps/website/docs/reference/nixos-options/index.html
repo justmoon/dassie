@@ -162,13 +162,15 @@
         lists them all. A variable set here wins over
         <code>services.dassie.log</code>, so set <code>DASSIE_LOG</code>
         through <code>log</code>. The example is the module's own: an empty
-        <code>DASSIE_RELAY</code> means no relay.
-      </p>
-      <p class="not-yet">
-        Today the example changes nothing: the release names no default
-        relay yet, so a node keeps no relay unless
-        <code>DASSIE_RELAY</code> names one.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+        <code>DASSIE_RELAY</code> means no relay. Without it, a node without
+        a hostname keeps the front door at <code>relay.dassiepay.net</code>
+        as its relay. That front door is a machine the project runs: it
+        learns when the node is online, and reads the Open Payments requests
+        it passes on.
+        A node with a hostname keeps none either way, so on a server you
+        give a hostname the example changes nothing.
+        <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
+        has the details.
       </p>
 
       <h2 id="services.dassie.openFirewall">

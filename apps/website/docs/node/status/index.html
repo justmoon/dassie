@@ -138,17 +138,25 @@
         <code>dassie status</code> describes it differently: its addresses
         are its names for Open Payments, and instead of its membership it
         names its uplinks, the core nodes it reaches the network through,
-        and its relay, here one named in <code>DASSIE_RELAY</code>.
+        and its relay, here the built-in front door at
+        <code>dassiepay.net</code>
+        (<a href="/docs/node/configure/#a-relay">A relay</a>).
       </p>
       <pre><code><span class="output">  Address      https://454ml6lg4tjfcz4kaedcmpb5u4mos7af5r2fqui.dassiepay.net/ (Open Payments only)
   Certificate  a temporary one the node made, which browsers warn about; a periphery node needs no other
   Setup        done; the node ID is 454ml6lg4tjfcz4kaedcmpb5u4mos7af5r2fqui
   Network      a periphery node: it registers with no bootstrap node, and reaches the network through its uplinks
   Uplinks      topmkmy6f2dggcqpzq27sleio6ernnber24pdci at https://node.example.org, connected
-  Relay        i2yhz2nartbnlzgcjn4qavsyeefnpaxx5i6iyli at https://relay.example.net, connected</span></code></pre>
+  Relay        orksjbmxvscmvfv3apa6xwencnxw2rt7t655esa at https://relay.dassiepay.net, connected</span></code></pre>
       <p>
         A periphery node answers no requests for a snapshot, so it has no
         Rate feed line. The rest reads as above.
+      </p>
+      <p class="not-yet">
+        Dassie 0.3.0 has no relay built in, so a node of 0.3.0 shows this
+        Relay line only once you name the front door in
+        <code>DASSIE_RELAY</code>.
+        <a href="/docs/start/early-days/#front-door-on-0-3-0">How</a>
       </p>
 
       <h2 id="hints">Hints</h2>
@@ -234,7 +242,7 @@
       </ul>
 
       <h3 id="hint-uplinks-and-relay">Uplinks and relay</h3>
-      <p>These lines are a periphery node's, and a relay line shows on a core node only if you chose a relay for it.</p>
+      <p>These lines are a periphery node's. A core node keeps no connection to the built-in relay, so it has a Relay line only if you named a relay for it in <code>DASSIE_RELAY</code>.</p>
       <ul>
         <li>
           <samp>none yet, so no payment reaches the node</samp>, on Uplinks:
@@ -245,14 +253,22 @@
         <li>
           <samp>not connected, last heard from … ago</samp>, on an uplink:
           the node lost that connection. It dials again by itself; if it
-          stays this way, check that the server can send and receive UDP.
+          stays this way, check that the server can reach the internet on
+          UDP or TCP port 443.
         </li>
         <li>
           <samp>none (DASSIE_RELAY names none), so Open Payments clients cannot
-          reach the node</samp>: the node keeps no relay. No default relay
-          is built in yet, so a periphery node shows this until
-          <code>DASSIE_RELAY</code> names a relay's entry:
-          <a href="/docs/node/configure/#a-relay">Configure your node</a>.
+          reach the node</samp>: the node keeps no relay, because
+          <code>DASSIE_RELAY</code> is set empty. Nobody reaches it at its
+          name under <code>dassiepay.net</code>. If you didn't mean to opt
+          out, remove the variable to keep the built-in front door, or name
+          another relay:
+          <a href="/docs/node/configure/#a-relay">A relay</a>.
+          On 0.3.0, a node shows this with <code>DASSIE_RELAY</code> unset
+          too, because that release has no relay built in. There, name the
+          front door yourself, as
+          <a href="/docs/start/early-days/#front-door-on-0-3-0">On 0.3.0,
+          name the front door yourself</a> shows.
           The node still peers and sends payments through its uplinks.
         </li>
         <li>
@@ -262,9 +278,12 @@
         <li>
           <samp>not connected, so Open Payments clients cannot reach the
           node through it</samp>: the node has failed to reach its relay for
-          a while. Check that <code>DASSIE_RELAY</code> is exactly the entry
-          the front door logs, and that the server can reach the relay over
-          UDP. See <a href="/docs/node/troubleshooting/#relay-not-connected">Troubleshooting</a>.
+          a while. The rest of the line asks you to check
+          <code>DASSIE_RELAY</code>, which matters only if you set it, and
+          that the server can reach the relay. For the built-in front door,
+          the front door may also be down, which needs nothing from you, or
+          its key may have changed, which an update fixes. See
+          <a href="/docs/node/troubleshooting/#relay-not-connected">Troubleshooting</a>.
         </li>
       </ul>
 

@@ -98,18 +98,20 @@
 https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code></pre>
       <p>
         It needs no registration: any node has it, from the moment it has
-        its key. It reaches your node only while your node keeps its
-        connection to that front door, and the wallet warns you when it does
-        not. Typed into a browser, the name shows a short page from the front
-        door, saying whose node it is.
+        its key. Dassie has that front door built in as the default relay,
+        so a node without a hostname keeps a connection to it with nothing
+        to set. The name reaches your node only while that connection is
+        open, and the wallet warns you when it is not. Typed into a browser,
+        the name shows a short page from the front door, saying whose node
+        it is.
       </p>
-      <p class="not-yet">
-        The <code>dassiepay.net</code> front door has no identity a 0.3.0
-        node can name yet, and Dassie names no default relay, so for now
-        neither <code>&lt;node ID&gt;.dassiepay.net</code> nor a short name
-        there reaches your node. Another front door that runs 0.3.0 or later
-        works today (below).
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      <p>
+        The <code>dassiepay.net</code> front door is a machine the project
+        runs. While your node keeps it, it learns when your node is online,
+        and reads the Open Payments requests it passes on.
+        <a href="/docs/concepts/core-and-periphery/#what-a-front-door-sees">What
+        a front door can see</a> says more. With <code>DASSIE_RELAY</code>
+        set empty, your node keeps no relay, and this name reaches no one.
       </p>
       <p>
         This first name is your node's main name: the one your wallet shows,
@@ -140,8 +142,8 @@ https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code></pre>
       <p>
         A node ID is hard to say out loud. So your node can hold a
         <strong>name</strong>, such as <code>kai</code>, and be reached at
-        <code>$kai.dassiepay.net</code> too, once that front door is back and
-        while your node keeps its connection to it. You register it on the wallet's
+        <code>$kai.dassiepay.net</code> too, while your node keeps its
+        connection to that front door. You register it on the wallet's
         Names page, and your node does the rest:
         <a href="/docs/wallet/names/">Choose a name</a>.
       </p>

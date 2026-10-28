@@ -134,8 +134,15 @@
         <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>
         explains the difference.
       </p>
-      <p
-        class="not-yet">No default relay is built in yet. Until you name one with <code>DASSIE_RELAY</code> (<a href="/docs/node/configure/#a-relay">A relay</a>), a periphery node keeps none, so Open Payments clients can't reach it at its name under <code>dassiepay.net</code>. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
+      <p>
+        Wallets and apps reach a periphery node at
+        <code>&lt;node ID&gt;.dassiepay.net</code>, through a front door the
+        Dassie project runs. The node keeps a connection to it by default,
+        and you can name another relay, or none
+        (<a href="/docs/node/configure/#a-relay">A relay</a>). On 0.3.0,
+        you name the front door yourself
+        (<a href="/docs/start/early-days/#front-door-on-0-3-0">how</a>).
+      </p>
 
       <h2 id="ports">Ports</h2>
       <p>

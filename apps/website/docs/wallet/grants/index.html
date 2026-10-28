@@ -55,14 +55,18 @@
       <p>
         Apps reach your node at its address, over HTTPS. A node with a domain
         name answers there itself. A node without one, such as the
-        <a href="/docs/desktop/">desktop app</a>, is reached only through a
-        relay: until you name one, no app can ask it for a grant. See
+        <a href="/docs/desktop/">desktop app</a>, is reached through Dassie's
+        front door at <code>&lt;node ID&gt;.dassiepay.net</code>, its relay
+        by default, while it runs. See
         <a href="/docs/desktop/reach/">How others reach you</a>.
       </p>
       <p class="not-yet">
-        A relay built into Dassie, so that a node without a domain name is
-        reached with nothing to set, is not there yet.
-        <a href="/docs/project/roadmap/">What's next</a>
+        Through the front door, apps get only the grants that don't need you.
+        The consent screen below is on your node, and the front door can't
+        send you there yet: it answers that interactive grants need the
+        owner's Dassie app, which is not available yet. To approve apps, run
+        your node on a server with a domain name.
+        <a href="/docs/project/roadmap/#periphery">What's next</a>
       </p>
 
       <h2 id="the-consent-screen">The consent screen</h2>
@@ -149,8 +153,8 @@
       <p>
         Your node refuses some requests before you see them: a limit on what
         is delivered with no limit on what you send, and a sending limit in a
-        different currency than the wallet it sends from. No payment could
-        keep to either.
+        different currency than the wallet it sends from. The first puts no
+        bound on what you send, and no payment could keep to the second.
       </p>
       <p class="why">
         <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/payments.md#the-owners-consent">Why it works this way</a>:

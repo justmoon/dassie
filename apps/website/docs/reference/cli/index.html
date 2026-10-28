@@ -79,16 +79,17 @@
               <td><code>2</code></td>
               <td>
                 The command line was not understood: an unknown command or
-                option, a missing value, or no command at all. The usage
-                follows the reason.
+                option, or a missing value. The reason comes first, then the
+                usage, on standard error. With no command at all, it prints
+                only the usage, on standard output.
               </td>
             </tr>
             <tr>
               <td><code>3</code></td>
               <td>
                 Only <a href="#dassie-setup"><code>dassie setup</code></a>:
-                the node is already set up with another recovery phrase.
-                Nothing was changed.
+                the node is already set up with another recovery phrase of
+                the same realm. Nothing was changed.
               </td>
             </tr>
           </tbody>
@@ -157,16 +158,25 @@
         Gives a server node its public name and a certificate. It sets the
         hostname, asks the node to order a certificate from Let's Encrypt
         over ACME, shows how the order goes, and prints the link that
-        finishes setup in your browser. The node runs the order itself;
+        finishes setup in your browser, or, once the node is set up, its
+        address. The node runs the order itself;
         <code>init</code> only shows it. For the order to work, the name must
         point at this host and TCP port 80 must be reachable from the
         internet.
       </p>
       <p>
         In a terminal it asks for what you did not give as an option. Without
-        a terminal, <code>--hostname</code> and <code>--agree-tos</code> are
-        required. If the node already has a certificate from a CA, it asks
-        whether to skip ordering one; without a terminal it skips.
+        a terminal, <code>--hostname</code> is required, and so is
+        <code>--agree-tos</code> when it orders a certificate. If the node
+        already has a certificate from a CA, it asks whether to skip ordering
+        one; without a terminal it skips.
+      </p>
+      <p>
+        A node with a hostname answers under it alone. So once
+        <code>init</code> sets one, the node closes its connection to the
+        default relay, <code>relay.dassiepay.net</code>. A relay you named
+        in <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
+        stays.
       </p>
       <dl class="ref">
         <dt><code>--hostname &lt;name&gt;</code></dt>
@@ -186,13 +196,23 @@
         </dd>
         <dt><code>--acme-directory &lt;url&gt;</code></dt>
         <dd>
-          <p>Use another ACME directory than Let's Encrypt's.</p>
+          <p>
+            Order from this ACME directory. Once an order from it succeeds,
+            the node keeps it, for renewals and for every later
+            <code>init</code> that names none. Without this option, the node
+            orders from the directory it keeps, Let's Encrypt's at first.
+          </p>
         </dd>
         <dt><code>--acme-staging</code></dt>
         <dd>
           <p>
-            Use Let's Encrypt's staging directory, whose certificates
-            browsers do not trust. Useful for a trial run.
+            The same as <code>--acme-directory</code> with Let's Encrypt's
+            staging directory, whose certificates browsers do not trust.
+            Useful for a trial run. Once it succeeds, the node keeps staging
+            too. To go back, run <code>sudo dassie init</code> in a terminal
+            with
+            <code>--acme-directory https://acme-v02.api.letsencrypt.org/directory</code>,
+            and answer No when it asks whether to skip ordering.
           </p>
         </dd>
         <dt><code>--skip-acme</code></dt>
@@ -232,7 +252,9 @@
       <p>
         Running it again changes nothing that is already in place, so a unit
         can run it at every boot. A node already set up with another phrase is
-        refused with exit code <code>3</code>, and nothing is changed. A phrase
+        refused, and nothing is changed: with exit code <code>1</code> if
+        the node runs another realm than the phrase's, which it checks
+        first, and with <code>3</code> otherwise. A phrase
         that needs correcting is refused, since no one is there to confirm the
         correction, and so is one made more than a day after the host's clock.
       </p>
@@ -318,8 +340,10 @@
       <h2 id="dassie-status"><code>dassie status</code></h2>
       <p>
         Shows how the node is doing, in a few lines: its version, address and
-        certificate, whether it is set up, the network (or, for a node without
-        a public IP, its uplinks and relay), its settlement hubs, whether it
+        certificate, whether it is set up, the network (and, for a node
+        without a public IP, its uplinks), the relay it keeps and whether it
+        is connected (a node without a public IP that keeps none says so),
+        its settlement hubs, whether it
         answers requests for its snapshot (the line labeled
         <em>Rate feed</em>), the hubs it validates or founds,
         the last update, what its engine counted since it started, its peers
@@ -559,10 +583,13 @@ Success! Dassie appears to be installed correctly.</span></code></pre>
       <h2 id="dassie-front-door"><code>dassie front-door</code></h2>
       <p>
         Runs a front door, which is not a node. It serves Open Payments at
-        <code>&lt;node ID&gt;.&lt;domain&gt;</code> for the nodes that name
+        <code>&lt;node ID&gt;.&lt;domain&gt;</code> for the nodes that keep
         it as their relay, and at <code>&lt;name&gt;.&lt;domain&gt;</code> for
         whoever holds a name, as the registrars among the bootstrap nodes list
-        it. Each option overrides its
+        it. The project runs the one at <code>dassiepay.net</code>, which a
+        node without a hostname keeps by default; a node keeps yours when
+        its <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
+        names it. Each option overrides its
         <a href="/docs/reference/environment/#DASSIE_FRONT_DOOR_DOMAIN"><code>DASSIE_FRONT_DOOR_*</code></a>
         variable. Setting one up is in
         <a href="/docs/services/front-door/">Run a front door</a>.

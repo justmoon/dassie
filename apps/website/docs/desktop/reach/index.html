@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="How a node on a laptop joins the network through its uplinks and is paid at its name through a relay, what that relay learns, and how to choose one or none."
+      content="How a node on a laptop joins the network through its uplinks and is paid at its name through the built-in relay, what that relay learns, and how to choose another or none."
     />
     <title>How others reach you · Dassie</title>
     <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
@@ -19,7 +19,7 @@
       <p class="lede">
         Your laptop has no public address, and nobody can dial it. So your
         node does the dialing: it connects out to a few nodes on servers,
-        and it can keep a connection open to one machine through which other
+        and keeps a connection open to one machine through which other
         wallets reach your address. This page explains both, and what they
         cost you.
       </p>
@@ -51,8 +51,8 @@
           Leave the hostname empty in the desktop app. A hostname is for a
           node that others reach directly, on a server. A desktop node with
           one still cannot be reached there, and it then answers under that
-          hostname alone, so it is not reached through a relay, below,
-          either.
+          hostname alone. So it drops the built-in relay, below, and no
+          relay reaches it either.
         </p>
       </aside>
 
@@ -116,13 +116,18 @@
       </p>
       <ul>
         <li>
-          You choose a relay in <code>DASSIE_RELAY</code>, with the line of
-          JSON its operator gives you.
+          <strong>The default is <code>dassiepay.net</code>.</strong>
+          Dassie has that front door built in, with its key, so your node
+          dials it as soon as it is set up. You set nothing.
+        </li>
+        <li>
+          You can choose another relay, or none, in
+          <code>DASSIE_RELAY</code>.
           <a href="#another-relay-or-none">Below</a> shows how.
         </li>
         <li>
-          The connection is pinned to the key that line names. Nobody else
-          can pose as your relay.
+          The connection is pinned to the relay's key, the built-in one or
+          the one in the line you set. Nobody else can pose as your relay.
         </li>
         <li>
           Your node answers each request itself, and signs its answer with
@@ -138,31 +143,29 @@
         </li>
       </ul>
       <p>
-        Today a new node keeps no relay. Its <code>dassiepay.net</code>
-        address reaches no one, and the tray says <em>Running, without a
-        relay</em>. You can still send. With a relay, <code>dassie
-        status</code> names it and whether it is connected, and so does the
-        tray: <em>Online</em> means connected. The wallet's Receive page
-        says whether the <code>dassiepay.net</code> address reaches you.
+        <code>dassie status</code> names your relay and whether it is
+        connected, and so does the tray: <em>Online</em> means connected,
+        and <em>Connecting…</em> is what you see right after a start. The
+        wallet's Receive page says whether the <code>dassiepay.net</code>
+        address reaches you. Without a relay, the tray says <em>Running,
+        without a relay</em>, and you can still send.
       </p>
       <p class="not-yet">
-        A relay built into Dassie, the <code>dassiepay.net</code> front door
-        with its key, so that a new node is reached there with nothing to
-        set, is not there yet. Until it is, nobody can pay a node on a
-        laptop at an address, unless you
-        <a href="#another-relay-or-none">choose a front door</a> yourself.
-        Front doors also reach only the nodes that chose them; finding a node
-        through any relay is not there yet either. Later, testnet addresses
-        move to <code>&lt;node ID&gt;.test.dassiepay.net</code>, so that
+        Front doors reach only the nodes that keep them as their relay:
+        finding a node through any relay is not there yet. The wallet does
+        not ask you about your relay yet either; a guided setup that does is
+        still to be built. Later, testnet addresses move to
+        <code>&lt;node ID&gt;.test.dassiepay.net</code>, so that
         <code>dassiepay.net</code> is left for the live realm.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+        <a href="/docs/project/roadmap/">What's next</a>
       </p>
 
       <h2 id="what-the-front-door-learns">What the front door learns</h2>
       <p>
         A relay is a machine someone else runs, and it sees some of what you
-        do. By keeping a front door as your relay, you let its operator
-        learn:
+        do. The default one, <code>dassiepay.net</code>, is a machine the
+        Dassie project runs. By keeping a front door as your relay, you let
+        its operator learn:
       </p>
       <ul>
         <li>that your node is online, since when, and from which IP address;</li>
@@ -176,7 +179,9 @@
       <p>
         It does not see your recovery phrase, your wallet, your balances, or
         the payments you send. Peering, sending and your wallet work without
-        it: while it is down, only payments to your address there fail.
+        it: while it is down, only payments to your address there fail. If
+        that is more than you want to share, choose another front door, or
+        none, below.
       </p>
       <p class="why">
         <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why it works this way</a>:
@@ -184,7 +189,7 @@
         can always say no.
       </p>
 
-      <h2 id="another-relay-or-none">A relay, or none</h2>
+      <h2 id="another-relay-or-none">Another relay, or none</h2>
       <p>
         Two environment variables choose your relay. The node reads them
         when the app starts, and a second start only shows the window of the
@@ -194,10 +199,9 @@
       <h3>No relay</h3>
       <p>
         Set <code>DASSIE_RELAY</code> to nothing. Your node then keeps no
-        relay, nobody can pay you at an address under a front door, and the
-        tray says <em>Running, without a relay</em>. You can still send.
-        This is what a new node does today anyway, and it stays so once a
-        relay is built in.
+        relay, not even the built-in one. Nobody can pay you at an address
+        under a front door, and the tray says <em>Running, without a
+        relay</em>. You can still send.
       </p>
       <pre><code><span class="prompt">$</span>DASSIE_RELAY= dassie-desktop</code></pre>
       <h3>A front door</h3>
@@ -228,6 +232,11 @@
         <figcaption>~/.config/environment.d/dassie.conf</figcaption>
         <pre><code>DASSIE_RELAY=</code></pre>
       </figure>
+      <p>
+        To go back to the built-in relay, remove the line and log in again.
+        An empty value means no relay; only a variable that is not set at
+        all means the default.
+      </p>
       <p>
         <a href="/docs/reference/environment/">Environment variables</a>
         describes every variable the node reads.

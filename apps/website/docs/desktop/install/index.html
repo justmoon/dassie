@@ -74,9 +74,19 @@
         This builds the newest commit on Dassie's main branch. To build a
         release instead, which Nix builds once and then starts in a moment,
         put its tag after the repository's name, as in
-        <code>github:justmoon/dassie/v0.3.0#desktop</code>. The
+        <code>github:justmoon/dassie/&lt;tag&gt;#desktop</code>. The
         <a href="/docs/reference/releases/">release notes</a> list the
-        releases.
+        releases and their tags.
+      </p>
+      <p>
+        Releases up to 0.3.0 have no relay built in. A node built from one
+        keeps no relay, so nobody can pay it at its
+        <code>dassiepay.net</code> address, and its tray says
+        <em>Running, without a relay</em>, until you
+        <a href="/docs/start/early-days/#front-door-on-0-3-0">name the front
+        door yourself</a>. Build from the main branch, as above, to get the
+        relay that <a href="/docs/desktop/reach/">How others reach you</a>
+        describes.
       </p>
       <p>
         An app started with <code>nix run</code> does not start itself at

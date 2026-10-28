@@ -165,14 +165,11 @@ console.log(wallet);</code></pre>
         A node without a hostname, such as the
         <a href="/docs/desktop/install/">desktop app</a>, has its wallet
         addresses at <code>https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code>.
-        They reach it through the <code>dassiepay.net</code> front door, while
-        the node keeps that front door as its relay.
-      </p>
-      <p class="not-yet">
-        No relay is built in yet, so today nobody reaches a node without a
-        hostname at its <code>dassiepay.net</code> address. Use a node with a
-        hostname for this tutorial.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+        The <code>dassiepay.net</code> front door passes your requests there
+        on to the node, over a connection the node keeps to it as its relay.
+        A node without a hostname keeps that connection by default, so asking
+        to be paid, below, works there too, while the node is connected. If it
+        is not, the front door answers <code>503</code>.
       </p>
 
       <h2 id="ask-to-be-paid">Ask to be paid</h2>
@@ -262,10 +259,10 @@ console.log(payment.completed, payment.receivedAmount);</code></pre>
         wallet.
       </p>
       <p class="not-yet">
-        Consent through a front door is not there yet. So even once a node
-        without a hostname, such as the desktop app, is reached at
-        <code>&lt;node ID&gt;.dassiepay.net</code>, it cannot grant your app
-        outgoing payments: use a node with a hostname for this part.
+        Consent through a front door is not there yet. So a node without a
+        hostname, such as the desktop app, takes payments at
+        <code>&lt;node ID&gt;.dassiepay.net</code>, but it cannot grant your
+        app outgoing payments: use a node with a hostname for this part.
         <a href="/docs/project/roadmap/#periphery">What's next</a>
       </p>
       <ol class="steps">
@@ -500,6 +497,19 @@ console.log(outgoing.grantSpentDebitAmount);</code></pre>
                 your app or your network.
               </td>
               <td>Slow down, and try again later.</td>
+            </tr>
+            <tr>
+              <td><code>503 unavailable</code></td>
+              <td>
+                The node is not ready yet. Or, at
+                <code>&lt;node ID&gt;.dassiepay.net</code> or a name there,
+                the front door can't reach it: the node is not connected to
+                it now, or is busy.
+              </td>
+              <td>
+                Try again later. The node's owner sees in their wallet whether
+                it is connected.
+              </td>
             </tr>
             <tr>
               <td><code>502 unreachable</code></td>

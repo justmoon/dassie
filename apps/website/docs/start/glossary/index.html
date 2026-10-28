@@ -271,8 +271,11 @@
           <p>
             A node or a front door that your node keeps a connection to, so
             that apps and wallets reach it even without a public address.
-            No relay is built in yet: a node keeps one only if its owner
-            names it.
+            A node without a domain name keeps the front door at
+            <code>dassiepay.net</code> by default; its owner can name
+            another, or none. On 0.3.0, its owner
+            <a href="/docs/start/early-days/#front-door-on-0-3-0">names
+            it</a>.
             <a href="/docs/concepts/core-and-periphery/#relays-and-front-doors">Core and periphery</a>
           </p>
         </dd>
@@ -281,9 +284,8 @@
           <p>
             A relay that answers Open Payments under a domain for the nodes
             that keep it as their relay, at
-            <code>&lt;node ID&gt;.example.com</code>. The one at
-            <code>dassiepay.net</code> is to be the default, once a release
-            builds it in.
+            <code>&lt;node ID&gt;.example.com</code>. The project runs the
+            one at <code>dassiepay.net</code>, the default relay.
             <a href="/docs/services/front-door/">Run a front door</a>
           </p>
         </dd>

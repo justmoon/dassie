@@ -173,14 +173,17 @@
       <pre><code><span class="prompt">$</span>sudo dassie init --acme-staging</code></pre>
       <p>
         Browsers don't trust staging certificates, so they warn as they do
-        about the node's own. When you're done testing, run
-        <code>sudo dassie init --acme-directory
-        https://acme-v02.api.letsencrypt.org/directory</code> and answer
-        that you don't want to skip the order.
+        about the node's own. When you're done testing, run this in a
+        terminal, and answer No when it asks whether to skip the order:
       </p>
+      <pre><code><span class="prompt">$</span>sudo dassie init --acme-directory https://acme-v02.api.letsencrypt.org/directory</code></pre>
       <p>
         The server you name is kept: once an order through it succeeds, the
-        node renews through it too.
+        node renews through it too. So name Let's Encrypt's production
+        server, as above. A plain <code>sudo dassie init</code> would order
+        from staging again. Run from a script, <code>dassie init</code>
+        orders nothing while the node has a certificate, so it can't leave
+        staging.
       </p>
 
       <h2 id="another-acme-server">Another ACME server</h2>
@@ -222,8 +225,12 @@ Environment=DASSIE_ACME_CA_FILE=/etc/dassie/acme-root.pem</code></pre>
         A node without a domain name runs as a periphery node, and needs no
         certificate from a CA: it keeps the one it made. Open Payments clients
         reach it only through a front door it keeps as its relay, which has
-        its own certificate. Dassie names no default relay yet, so you name
-        one in <code>DASSIE_RELAY</code>. <a
+        its own certificate. By default that is the front door at
+        <code>dassiepay.net</code>, so the node is reached at
+        <code>&lt;node ID&gt;.dassiepay.net</code>
+        (<a href="/docs/node/configure/#a-relay">A relay</a>). On 0.3.0,
+        you name that front door yourself
+        (<a href="/docs/start/early-days/#front-door-on-0-3-0">how</a>). <a
         href="/docs/node/periphery/">A server without a public IP</a> shows
         how to run one.
       </p>

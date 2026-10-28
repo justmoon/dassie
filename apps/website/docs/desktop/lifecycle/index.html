@@ -57,7 +57,8 @@
               <td><em>Online</em></td>
               <td>
                 Your node is connected to its relay, the machine through
-                which other wallets reach your address.
+                which other wallets reach your address: by default the
+                <code>dassiepay.net</code> front door.
                 <a href="/docs/desktop/reach/">How others reach you</a>
                 explains it.
               </td>
@@ -80,11 +81,14 @@
               <td><em>Running, without a relay</em></td>
               <td>
                 Your node runs, and keeps no relay, so nobody reaches it at
-                its name. Today every new node shows this, since no relay is
-                built in yet; it is also what you get with
-                <code>DASSIE_RELAY</code> set empty. Nothing is wrong.
+                its name. You see this with <code>DASSIE_RELAY</code> set
+                empty, and then nothing is wrong. You also see it with a
+                hostname set in the wallet, since a node with a hostname
+                keeps no default relay: clear the hostname. In both cases,
+                <code>dassie status</code> and the wallet's Network page say
+                that <code>DASSIE_RELAY</code> names none.
                 <a href="/docs/desktop/reach/">How others reach you</a>
-                says how to choose a relay.
+                explains both.
               </td>
             </tr>
             <tr>

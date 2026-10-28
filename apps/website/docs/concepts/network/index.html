@@ -56,8 +56,17 @@
         the network through the core nodes it peers with. See
         <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>.
       </p>
-      <p
-        class="not-yet">A default relay is not built in yet. A node without a hostname still finds the network, peers and pays, but nobody reaches it at its default name, <code>&lt;node ID&gt;.dassiepay.net</code>: the <code>dassiepay.net</code> front door has no entry a 0.3.0 node can name yet. A front door you name in <code>DASSIE_RELAY</code> reaches it under that front door's own domain. That goes for the desktop app too. <a href="/docs/project/roadmap/#public-testnet">What's next</a></p>
+      <p>
+        Wallets and apps reach a node without a hostname through a relay.
+        Dassie has the <code>dassiepay.net</code> front door built in as the
+        default one, so such a node is paid at
+        <code>&lt;node ID&gt;.dassiepay.net</code> with nothing to set, the
+        desktop app's node too. That front door is a machine the project
+        runs: it learns when your node is online, and reads the Open
+        Payments requests it passes on.
+        <a href="/docs/concepts/core-and-periphery/#relays-and-front-doors">Relays and front doors</a>
+        says how to choose another relay, or none.
+      </p>
 
       <h2 id="bootstrap-nodes">Bootstrap nodes and the majority</h2>
       <p>

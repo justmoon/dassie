@@ -183,39 +183,56 @@
           <strong>A front door</strong> is a relay that also answers on the
           web. It takes Open Payments requests at a name under its domain
           and passes them through to the node. The project's front door
-          answers for <code>dassiepay.net</code>, where a node is to be
-          reached at its node ID, such as
-          <code>https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code>, though
-          not yet for 0.3.0 nodes (below). Anyone can run another:
+          answers for <code>dassiepay.net</code>, where a node without a
+          hostname is reached at its node ID, such as
+          <code>https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code>. Anyone
+          can run another:
           <a href="/docs/services/front-door/">Run a front door</a>.
         </li>
       </ul>
       <p>
-        A node keeps a relay only when <code>DASSIE_RELAY</code> holds the
-        relay's entry. Dassie names no relay by default, so a node without a
-        hostname, the desktop app among them, keeps none until you set it.
-        Without a relay, your node still pays through its uplinks, but no
-        Open Payments client can reach it, so other wallets and apps can't
-        pay it. The wallet and <code>dassie status</code> warn you about
-        that, and show which relay your node keeps and whether it is
-        connected.
+        Your node keeps one relay at a time. Dassie has the
+        <code>dassiepay.net</code> front door built in, with its key, as the
+        default relay. With <code>DASSIE_RELAY</code> unset, a node without
+        a hostname, the desktop app's among them, dials it once it has its
+        key, and is reached at <code>&lt;node ID&gt;.dassiepay.net</code>
+        with nothing to set. A node with a hostname answers under that
+        hostname alone, so it keeps no default relay: it closes the
+        connection when you set a hostname, and dials again if you clear it.
+      </p>
+      <ul>
+        <li>
+          <strong>Another relay:</strong> put its entry in
+          <code>DASSIE_RELAY</code>. Your node keeps that one, with a
+          hostname or without.
+        </li>
+        <li>
+          <strong>No relay:</strong> set <code>DASSIE_RELAY</code> empty.
+          Your node still pays through its uplinks, but no Open Payments
+          client can reach it, so other wallets and apps can't pay it.
+        </li>
+      </ul>
+      <p>
+        The wallet and <code>dassie status</code> show which relay your node
+        keeps and whether it is connected. The wallet also warns you when
+        your <code>dassiepay.net</code> name does not reach your node.
+      </p>
+      <p>
+        The default has a cost. The <code>dassiepay.net</code> front door is
+        a machine the project runs. While your node keeps it, that machine
+        learns when your node is online, and reads the Open Payments
+        requests it passes on. The next section says what it can and cannot
+        see.
       </p>
       <p class="not-yet">
-        The <code>dassiepay.net</code> front door has no entry a 0.3.0 node
-        can name yet. A node ID now also commits to a post-quantum key, so
-        the front door gets a new ID once it runs a release that makes one,
-        and no release builds that entry in yet. Until then, Dassie names no
-        default relay, and nobody reaches your node at
-        <code>dassiepay.net</code>. A node is reached at a name only through
-        a front door that runs 0.3.0 or later, named by the entry it logs.
-        Later, a node without a hostname keeps the
-        <code>dassiepay.net</code> front door unless you choose another relay
-        or none.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+        The wallet does not ask you about your relay yet. Choosing it during
+        setup, with what each choice costs, is part of a guided setup that
+        is not built.
+        <a href="/docs/project/roadmap/#onboarding">What's next</a>
       </p>
       <p class="why">
         <a
-          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why a node is to have a default relay</a>
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why a node without a hostname has a default relay</a>
       </p>
 
       <h2 id="what-a-front-door-sees">What dassiepay.net can see</h2>
@@ -256,9 +273,10 @@
         </li>
       </ul>
       <p>
-        Your node uses a front door only while it keeps it as its relay: today
-        only while <code>DASSIE_RELAY</code> names it. To stop, name another
-        front door, or none.
+        Your node uses a front door only while it keeps it as its relay: by
+        default the <code>dassiepay.net</code> front door, while your node
+        has no hostname. To stop, name another relay in
+        <code>DASSIE_RELAY</code>, or set it empty for none.
       </p>
 
       <h2 id="not-yet">What is not there yet</h2>

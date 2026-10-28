@@ -190,12 +190,17 @@
         how often a name may fail. While you try things out,
         <code>sudo dassie init --acme-staging</code> uses its staging
         service, whose certificates browsers don't trust but whose limits are
-        generous. When it works, run <code>sudo dassie init</code> once more
-        without the flag, in a terminal. It finds the staging certificate
-        and asks whether to skip getting one: answer No. Run from a script,
-        it skips without asking, so nothing replaces the staging
+        generous. The node keeps the server it got its certificate from,
+        and renews there, so once staging works, name Let's Encrypt's
+        production server, in a terminal:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie init --acme-directory https://acme-v02.api.letsencrypt.org/directory</code></pre>
+      <p>
+        It finds the staging certificate and asks whether to skip getting
+        one: answer No. Without the flag it would order from staging again.
+        Run from a script, it orders nothing while the node has a
         certificate. More in
-        <a href="/docs/node/certificates/">Certificates</a>.
+        <a href="/docs/node/certificates/#staging">Certificates</a>.
       </p>
 
       <h2 id="udp-and-quic">UDP and QUIC</h2>
@@ -322,34 +327,56 @@
         Open Payments clients cannot reach the node through it</samp>. Right
         after a start the node says <samp>connecting</samp>, which is fine;
         this hint comes only once it has failed to reach the relay for a
-        while.
+        while. Payments over Interledger don't need the relay, and the node
+        can still send.
+      </p>
+      <p>
+        The relay is the built-in front door, which the line names as
+        <samp>… at https://relay.dassiepay.net</samp>, unless
+        <code>DASSIE_RELAY</code> names another. On 0.3.0 no relay is built
+        in, so there the line names a relay only once you name one
+        (<a href="/docs/start/early-days/#front-door-on-0-3-0">On 0.3.0,
+        name the front door yourself</a>).
       </p>
       <ul>
         <li>
-          Check that <code>DASSIE_RELAY</code> is exactly the entry the front
-          door logs, with all four fields: the node ID, the URL and both
-          keys. An entry whose ID does not match its keys stops the node at
-          start, with a message naming <code>DASSIE_RELAY</code>
-          (<a href="#node-does-not-start">The node does not start</a>). An
-          entry that is whole but names another node than the relay at that
-          URL fails to connect.
+          Check that the server can reach the relay. The node connects over
+          UDP to the port in the relay's URL. Where UDP is blocked, a node
+          without a domain name tries a WebSocket over TCP to the same port
+          instead, through a proxy if the network sets one
+          (<a href="/docs/node/periphery/#behind-a-proxy">Behind a
+          proxy</a>). A node with a domain name uses UDP only.
         </li>
         <li>
-          Check that the server may send UDP to the relay's port. Some
-          networks block outgoing UDP.
+          For the built-in front door: if the server reaches the internet
+          and the line still says <samp>not connected</samp>, the front door
+          may be down. Then there is nothing to fix on your side. The node
+          dials again by itself, about once a minute, and connects once the
+          front door is back. If it stays this way, update the node
+          (<a href="/docs/node/updates/#update-now">Update now</a>). The
+          front door's key is built into each release, so a node keeps
+          dialing an old key until a newer release brings the new one.
+        </li>
+        <li>
+          For a relay you named: check that <code>DASSIE_RELAY</code> is
+          exactly the entry the front door logs, with all four fields: the
+          node ID, the URL and both keys. An entry whose ID does not match
+          its keys stops the node at start, with a message naming
+          <code>DASSIE_RELAY</code>
+          (<a href="#node-does-not-start">The node does not start</a>). An
+          entry that is whole but names another node than the relay at that
+          URL fails to connect. Check, too, that the relay runs 0.3.0 or
+          later. Nodes speak peer protocol <code>dassie/2</code>, which 0.2
+          releases don't.
         </li>
         <li>
           A <code>DASSIE_RELAY</code> that names your own node keeps no
-          relay, and the log says so.
-        </li>
-        <li>
-          Check that the relay runs 0.3.0 or later. Nodes speak peer
-          protocol <code>dassie/2</code>, which 0.2 releases don't.
+          relay connection, and the log says so.
         </li>
       </ul>
       <p>
         See <a href="/docs/node/configure/#a-relay">A relay</a> for how to
-        set one.
+        name another relay, or none.
       </p>
 
       <h2 id="ledgers">A ledger that won't sync</h2>

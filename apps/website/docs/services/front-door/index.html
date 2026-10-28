@@ -20,9 +20,11 @@
         A front door lets ordinary Open Payments clients pay nodes that
         have no public address, such as a desktop app on a laptop. Each
         node that picks it is reached at <code>&lt;node ID&gt;.&lt;your
-        domain&gt;</code>. Dassie keeps one for <code>dassiepay.net</code>,
-        which nodes of 0.3.0 cannot use until it is upgraded; this page is
-        for running your own.
+        domain&gt;</code>. The project runs one for
+        <code>dassiepay.net</code>, which a node without a hostname keeps as
+        its relay by default (on 0.3.0, once its owner
+        <a href="/docs/start/early-days/#front-door-on-0-3-0">names
+        it</a>). This page is for running your own.
       </p>
 
       <aside class="early">
@@ -242,9 +244,14 @@
 
       <h2 id="naming-it-as-a-relay">Naming it as a node's relay</h2>
       <p>
-        A node uses your front door once its owner puts your line in
-        <code>DASSIE_RELAY</code>, and its address under your domain in
-        <code>DASSIE_PUBLIC_NAMES</code>. On a server:
+        A node keeps one relay. Without a hostname, that is the
+        <code>dassiepay.net</code> front door by default, unless its owner
+        names another. A node uses your front door once its owner puts
+        your line in <code>DASSIE_RELAY</code>, and its address under your
+        domain in <code>DASSIE_PUBLIC_NAMES</code>. A node with a hostname
+        answers under its hostname alone, so it has no use for a front
+        door. On a server without a hostname, a
+        <a href="/docs/node/periphery/">periphery node</a>:
       </p>
       <pre><code><span class="prompt">$</span>sudo systemctl edit dassie</code></pre>
       <pre><code>[Service]
@@ -254,7 +261,11 @@ Environment=DASSIE_PUBLIC_NAMES=&lt;node ID&gt;.example.com</code></pre>
         The node then keeps a connection to your front door, and answers at
         <code>https://&lt;node ID&gt;.example.com</code>. The second variable
         also lets it answer at <code>&lt;name&gt;.example.com</code> for each
-        name it holds. For the desktop app, see
+        name it holds. Your front door takes the place of the default one,
+        so the node's address at <code>dassiepay.net</code>, still the
+        payment pointer its wallet shows, no longer reaches it. The wallet
+        says so; hand out the address under your domain instead. For the
+        desktop app, see
         <a href="/docs/desktop/reach/#another-relay-or-none">How others reach
         you</a>.
       </p>
@@ -265,7 +276,10 @@ Environment=DASSIE_PUBLIC_NAMES=&lt;node ID&gt;.example.com</code></pre>
         reads every request it passes on and every answer, including the
         secret that sets up an incoming payment. It also learns which nodes
         are online, since when, and from which address. Run it as you would
-        want others to run yours, on a host that runs nothing else. The unit
+        want others to run yours, on a host that runs nothing else. The
+        project's front door at <code>dassiepay.net</code> sees the same of
+        every node that keeps it, which a node without a hostname does by
+        default. The unit
         runs it as its own user, sandboxed, with nothing but
         the right to bind port 443.
       </p>
@@ -310,9 +324,7 @@ Environment=DASSIE_PUBLIC_NAMES=&lt;node ID&gt;.example.com</code></pre>
         yet. Neither is the consent page for owner apps (a front door answers
         that route with an error that says so), a node telling clients apart
         behind its front door, or a front door finding nodes that chose
-        another relay. Neither is a front door built into Dassie as the
-        default relay, so every node that uses one names it in
-        <code>DASSIE_RELAY</code> today.
+        another relay.
         <a href="/docs/project/roadmap/">What's next</a>
       </p>
       <p class="why">

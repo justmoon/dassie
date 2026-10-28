@@ -186,10 +186,12 @@
         <dd>
           <p>
             The most the payments may debit from the wallet address, every fee
-            and exchange on the way included. It must be in the wallet
-            address's own asset and scale. A limit in another asset is refused
-            with <code>400 invalid_request</code>, whose description names the
-            asset it must be in, since no payment could ever fit it.
+            and exchange on the way included. On an item that may create
+            payments, it must be in the wallet address's own asset and scale.
+            A limit in another asset there is refused with
+            <code>400 invalid_request</code>, whose description names the
+            asset it must be in, since no payment could ever fit it. An item
+            that only reads or lists is not checked for it.
           </p>
         </dd>
         <dt id="receiveAmount"><code>receiveAmount</code></dt>
@@ -404,7 +406,8 @@
           they reserve;
         </li>
         <li>
-          refuses a debit limit in another asset than its wallet address's;
+          refuses a debit limit in another asset than its wallet address's,
+          on an item that may create payments;
         </li>
         <li>
           takes at most three access items, and one item per wallet address

@@ -166,6 +166,7 @@
       <p>
         A snapshot is <code>02 81</code>, then its sequence and its
         <code>validUntil</code>, both milliseconds since 1970, the grid, the
+        number of methods in two bytes, <code>01</code> and the count, the
         methods, and a 64-byte Ed25519 signature. Take a snapshot only if all
         of these hold:
       </p>
@@ -560,8 +561,8 @@ ask();</code></pre>
       </ul>
       <p>
         If you run the node, <code>dassie status</code> has a Rate feed
-        line: where the node answers, and how many datagrams it took,
-        answered, refused for the budget and ignored. Under systemd the
+        line: where the node answers, how many datagrams it took, answered,
+        refused for the budget and ignored, and how many sends failed. Under systemd the
         socket is <code>dassie-feed.socket</code>, on UDP port 7768; open it
         in your firewall. See <a href="/docs/node/status/">Check on your node</a> and
         <a href="/docs/reference/files-and-ports/">Files, ports and sockets</a>.

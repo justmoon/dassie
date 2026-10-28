@@ -25,27 +25,25 @@
       <h2 id="why-check">Why check</h2>
       <p>
         A node without a hostname, such as the desktop app, is reached at
-        <code>&lt;node ID&gt;.dassiepay.net</code> through a front door, which
-        the node keeps as its relay. The front door ends the TLS connection, so it reads every request and
-        answer, and a client that takes answers as they come trusts it as
-        much as the node. The node's signature takes that trust away: a front
+        <code>&lt;node ID&gt;.dassiepay.net</code> through the front door
+        there, which it keeps as its relay by default. The project runs that
+        front door. It ends the TLS connection, so it reads every request
+        and answer, and a client that takes answers as they come trusts it
+        as much as the node. The node's signature takes that trust away: a front
         door, or anyone else in the middle, cannot make up an answer the node
         would sign. It can still read the answers, STREAM secrets included,
         and it can still refuse to pass them on.
       </p>
       <p>
         Checking is up to your client. Other Open Payments clients ignore the
-        signature, and work as before.
-      </p>
-      <p class="not-yet">
-        No relay is built in yet, and the <code>dassiepay.net</code> front
-        door has no entry for 0.3.0 nodes, so today no answer comes through
-        it. A node with a hostname signs its answers all the same.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+        signature, and work as before. A node with a hostname signs its
+        answers all the same.
       </p>
       <p class="why">
         <a
-          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/core-and-periphery.md">Why it works this way</a>
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/core-and-periphery.md">Why it works this way</a>,
+        and <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">why a node keeps the project's front door by default</a>.
       </p>
 
       <h2 id="the-nodes-names">The names a node answers to</h2>
@@ -63,7 +61,11 @@
           (<a href="/docs/reference/environment/">Environment variables</a>).
           It also answers under <code>&lt;name&gt;.dassiepay.net</code> for
           each name it holds, once the network's registrars list the name for
-          it. <a href="/docs/concepts/names/">Names and addresses</a> explains
+          it. Where its owner added its ID name at another front door,
+          <code>&lt;node ID&gt;.&lt;domain&gt;</code>, it answers under
+          <code>&lt;name&gt;.&lt;domain&gt;</code> there too, at up to three
+          front doors beside <code>dassiepay.net</code>.
+          <a href="/docs/concepts/names/">Names and addresses</a> explains
           names, which run on the testnet only.
         </li>
       </ul>

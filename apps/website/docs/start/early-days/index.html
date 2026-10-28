@@ -81,14 +81,18 @@
         <li>
           <strong>Nodes without a public address.</strong> A node without a
           domain name finds core nodes on its own, connects out to them and
-          pays through them. Apps and other wallets reach it through a relay
-          its owner names in <code>DASSIE_RELAY</code>; none is built in
-          yet. The desktop app runs such a node on Linux.
+          pays through them. Apps and other wallets reach it through a
+          relay: by default the project's front door at
+          <code>dassiepay.net</code>, at
+          <code>&lt;node ID&gt;.dassiepay.net</code>. On 0.3.0, you
+          <a href="#front-door-on-0-3-0">name it yourself</a>. The desktop
+          app runs such a node on Linux.
         </li>
         <li>
           <strong>Names.</strong> A node can register a name that people can
-          say, on the test network only. A name reaches its node through a
-          front door, and none does yet, as the note below says.
+          say, on the test network only. A name reaches a node without a
+          domain name through its front door, at
+          <code>&lt;name&gt;.dassiepay.net</code> by default.
         </li>
         <li>
           <strong>Swaps and market makers.</strong> A core node signs a
@@ -101,8 +105,8 @@
 
       <h2 id="test-network">The test network today</h2>
       <p>
-        The project runs the test network's shared pieces, and every node
-        has them built in:
+        The project runs the test network's shared pieces. Every node has
+        these built in:
       </p>
       <ul>
         <li>
@@ -117,6 +121,12 @@
         <li>a proof server for each XRP Ledger network.</li>
       </ul>
       <p>
+        The project also runs the front door at <code>dassiepay.net</code>.
+        A node without a domain name keeps it as its relay by default, and
+        is reached through it at <code>&lt;node ID&gt;.dassiepay.net</code>.
+        Its owner can name another relay, or none.
+      </p>
+      <p>
         The test network was reset for Dassie 0.3.0. Its bootstrap nodes
         have new IDs, which commit to two keys, one of them post-quantum.
         Nodes speak version 2 of the peer protocol, <code>dassie/2</code>,
@@ -128,15 +138,42 @@
         <a href="/docs/reference/releases/#v0-3-0">the notes for 0.3.0</a>
         say what else changed.
       </p>
+      <p>
+        The front door is a machine the project runs. It learns when your
+        node is online and from which address, and reads the Open Payments
+        requests it passes on.
+        <a href="/docs/desktop/reach/#another-relay-or-none">How others
+        reach you</a> shows how to name another relay, or keep none.
+      </p>
+      <h3 id="front-door-on-0-3-0">On 0.3.0, name the front door yourself</h3>
+      <p>
+        Dassie 0.3.0 has no relay built in. The front door's ID changed when
+        it moved to 0.3.0, after that release was made, so the next release
+        is the first to build it in. On 0.3.0, a node without a domain name
+        keeps no relay unless you name one, and nobody reaches it at
+        <code>&lt;node ID&gt;.dassiepay.net</code> or at its names there.
+        The wallet warns you of that under your payment pointer.
+      </p>
+      <p>
+        To be reached there now, set <code>DASSIE_RELAY</code> to the front
+        door's line. On a server, put it in a drop-in for the node's unit,
+        with <code>sudo systemctl edit dassie</code>, and restart the node:
+      </p>
+      <figure class="file">
+        <figcaption>/etc/systemd/system/dassie.service.d/override.conf</figcaption>
+        <pre><code>[Service]
+Environment='DASSIE_RELAY={"id":"orksjbmxvscmvfv3apa6xwencnxw2rt7t655esa","url":"https://relay.dassiepay.net","publicKey":"DliIZHngMG7GTDqfHBSP_dfSTmn8ziA9OE37FnxC7eo","slhDsaPublicKey":"1MCsetw1qOFmBxhuYN4lD_dPAnRH8iOZWIRnb1ezcv8"}'</code></pre>
+      </figure>
+      <p>
+        For the desktop app, set the same line as
+        <a href="/docs/desktop/reach/#another-relay-or-none">How others
+        reach you</a> shows. Once your node runs the next release, you can
+        remove it.
+      </p>
       <p class="not-yet">
-        The front door at <code>dassiepay.net</code> isn't upgraded for
-        0.3.0 yet, so it reaches no node until a release builds it in as the
-        default relay. Until then, a node without a domain name keeps no
-        relay unless you name one, and names and
-        <code>&lt;node ID&gt;.dassiepay.net</code> reach nobody.
-        Testnet names are still under <code>dassiepay.net</code>, which is
-        to be left for the live realm once they move to
-        <code>test.dassiepay.net</code>.
+        Testnet names and addresses are still under
+        <code>dassiepay.net</code>, which is to be left for the live realm
+        once they move to <code>test.dassiepay.net</code>.
         <a href="/docs/project/roadmap/#public-testnet">What's next</a>
       </p>
       <p>Some things on the test network can change under you:</p>
@@ -163,16 +200,12 @@
       <ul>
         <li>real money, on the XRP Ledger's mainnet, with its own hubs;</li>
         <li>
-          a default relay, so that a node without a domain name is reached
-          with no setup;
-        </li>
-        <li>
           the desktop app on macOS and Windows, packages for other Linux
           distributions, and apps that reach your node from your phone;
         </li>
         <li>
           your own domain name at a front door, and a guided setup in the
-          wallet that explains each choice;
+          wallet that explains each choice, your relay among them;
         </li>
         <li>names that cost a small fee to register;</li>
         <li>

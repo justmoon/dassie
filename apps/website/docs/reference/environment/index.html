@@ -48,9 +48,11 @@ Environment=DASSIE_LOG=info,dassie::peer=debug</code></pre>
         environment it was started in.
       </p>
       <p>
-        A path that is set but empty counts as unset. A switch is
-        <code>1</code> for on and <code>0</code> or unset for off; anything
-        else stops the node.
+        For the node, a path that is set but empty counts as unset. A switch
+        is <code>1</code> for on and <code>0</code> or unset for off;
+        anything else stops the node. <code>dassie update</code> takes its
+        variables as they are, so leave one of them unset rather than empty:
+        an empty <code>DASSIE_MIRROR_URL</code> is an error there.
       </p>
 
       <h2 id="the-node">The node</h2>
@@ -150,27 +152,56 @@ Environment=DASSIE_LOG=info,dassie::peer=debug</code></pre>
         <dd>
           <p>
             The relay the node keeps a connection to, so that others reach it
-            through the relay without a public address. One entry in the
-            format of <code>DASSIE_BOOTSTRAP_NODES</code>, without the
-            brackets; a front door prints its own with
+            through the relay, even without a public address. A node keeps
+            one relay at a time. A relay is named by one entry in the format
+            of <code>DASSIE_BOOTSTRAP_NODES</code>, without the brackets; a
+            front door prints its own with
             <a href="/docs/reference/cli/#dassie-front-door"><code>dassie front-door --make-key</code></a>.
-            An entry you set is kept whether or not the node has a hostname.
-            Empty keeps no relay. An entry naming the node itself keeps none
-            and says so in the log.
+          </p>
+          <ul>
+            <li>
+              <strong>Unset</strong>, the default: the
+              <code>dassiepay.net</code> front door, at
+              <code>relay.dassiepay.net</code>, whose entry is built into the
+              release. The node keeps it only while it has no hostname, so
+              that it is reached at <code>&lt;node ID&gt;.dassiepay.net</code>
+              and at its names there. The desktop app's node and a server
+              without a public IP keep it. A node you give a hostname with
+              <code>dassie init</code> closes the connection, and dials again
+              if the hostname is cleared.
+            </li>
+            <li>
+              <strong>An entry:</strong> that relay, kept whether or not the
+              node has a hostname. If it names a relay outside
+              <code>dassiepay.net</code>, the <code>dassiepay.net</code> front
+              door no longer reaches the node, and the wallet says so beside
+              its <code>dassiepay.net</code> address.
+            </li>
+            <li>
+              <strong>Empty:</strong> no relay. The node still dials its
+              uplinks and pays, but no payment reaches it at its
+              <code>dassiepay.net</code> names, and the wallet says so.
+            </li>
+          </ul>
+          <p>
+            An entry naming the node itself keeps none and says so in the
+            log. <a href="/docs/reference/cli/#dassie-status"><code>dassie status</code></a>
+            shows the relay the node keeps, and whether it is connected.
           </p>
           <p>
-            Default: none. This release has no default relay built in, so a
-            node without a hostname, the desktop app's among them, keeps no
-            relay unless you set one here. It still dials its uplinks and
-            pays, but no payment reaches it at its default name,
-            <code>&lt;node ID&gt;.dassiepay.net</code>, and the wallet warns
-            of that.
+            <strong>What the default costs.</strong> The front door is a
+            machine the project runs. While your node keeps it, that machine
+            learns when your node is online, and from which address. It also
+            reads the Open Payments requests and answers it passes on, as
+            every front door does. Your node signs its answers, so a client
+            that checks the signature can tell if the front door made one
+            up. Other Open Payments clients take what the front door passes
+            on. If that isn't for you, set
+            <code>DASSIE_RELAY</code> empty, or name a front door you trust.
           </p>
-          <p class="not-yet">
-            The <code>dassiepay.net</code> front door is not built in as the
-            default relay yet. Once it is, an unset
-            <code>DASSIE_RELAY</code> keeps it while the node has no
-            hostname. <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+          <p class="why">
+            <a
+              href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why there is a default relay</a>
           </p>
         </dd>
 
@@ -333,8 +364,10 @@ Environment=DASSIE_LOG=info,dassie::peer=debug</code></pre>
         <dd>
           <p>
             A PEM file of roots the node trusts, beside the system's, for
-            every server it reaches: peers, relays, front doors and the rest.
-            For a dev or test CA. Default: none.
+            the HTTPS and WebSocket servers it reaches: ledger servers, rate
+            sources and Open Payments servers, front doors among them. Peers
+            and relays need none, since QUIC checks their node keys. For a
+            dev or test CA. Default: none.
           </p>
         </dd>
         <dt id="DASSIE_PEER_ALLOW_PRIVATE"><code>DASSIE_PEER_ALLOW_PRIVATE</code></dt>

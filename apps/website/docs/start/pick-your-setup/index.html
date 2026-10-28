@@ -73,8 +73,8 @@
                 tray icon
               </td>
               <td>
-                Through a relay you name, while the app runs. None is built
-                in yet.
+                At <code>$&lt;node ID&gt;.dassiepay.net</code>, through
+                Dassie's front door, while the app runs
               </td>
             </tr>
             <tr>
@@ -89,7 +89,10 @@
                 A periphery node that runs all the time, at home or behind a
                 firewall
               </td>
-              <td>Through a relay you name. None is built in yet.</td>
+              <td>
+                At <code>$&lt;node ID&gt;.dassiepay.net</code>, through
+                Dassie's front door
+              </td>
             </tr>
           </tbody>
         </table>
@@ -151,15 +154,28 @@
         Every node knows the testnet's four bootstrap nodes from the start,
         so a new periphery node finds core nodes to connect to on its own.
       </p>
+      <p>
+        It knows its relay from the start too. Unless you choose another, a
+        node without a domain name keeps a connection to Dassie's front door
+        at <code>relay.dassiepay.net</code>, so apps and other wallets reach
+        it at its default name, <code>$&lt;node ID&gt;.dassiepay.net</code>,
+        with nothing to set. That has a cost: the front door is a machine
+        the project runs, so it learns when your node is online, and it
+        reads the Open Payments requests it passes on. You can name another
+        relay, or keep none, in <code>DASSIE_RELAY</code>.
+        <a href="/docs/node/periphery/#the-relay">The relay</a> shows how.
+        A node with a domain name keeps no relay unless you name one.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why there is a default relay</a>
+      </p>
       <p class="not-yet">
-        No default relay is built in yet. Until one is, a node without a
-        domain name keeps no relay unless you name one in
-        <code>DASSIE_RELAY</code>, so apps and other wallets can't reach it
-        at its default name, <code>&lt;node ID&gt;.dassiepay.net</code>.
-        It still peers, pays, and serves you its wallet. Nodes that start in
-        the periphery and become core once they earn it are not there yet
-        either.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+        Choosing the relay while you set up in the wallet is not there yet,
+        nor are nodes that start in the periphery and become core once they
+        earn it.
+        <a href="/docs/project/roadmap/#onboarding">Setting up in the wallet</a>,
+        <a href="/docs/project/roadmap/#periphery">becoming core</a>
       </p>
 
       <h2 id="the-desktop-app">The desktop app is always periphery</h2>
@@ -168,7 +184,9 @@
         use every day, and shows the wallet in its window. Its wallet listens
         only on your own machine, and it has no listener a certificate
         authority could reach. So it stays a periphery node, even if you
-        give it a domain name in the wallet.
+        give it a domain name with <code>dassie init</code>. With a domain
+        name, though, it keeps no default relay, since it then answers only
+        under that name.
       </p>
       <p>
         It keeps running in the tray when you close its window, and once

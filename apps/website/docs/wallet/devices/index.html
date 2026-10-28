@@ -41,9 +41,12 @@
         An owner app makes a key of its own, on its device. You give it a
         pairing code from your node. The app uses the code once to introduce
         its key, and from then on your node knows the device by that key and
-        lets it call your node as you. The app reaches your node even when it
-        has no public address, through the node's relay or its peers, and
-        nothing in between can read or change what it sends.
+        lets it call your node as you. The code also says where to find your
+        node: at its domain name for a core node, or, for a periphery node,
+        through the peers it is connected to, which relay for it. Nothing in
+        between can read or change what the app sends. The front door at
+        <code>dassiepay.net</code>, a node's default relay, passes on Open
+        Payments only, never an owner app.
       </p>
       <p>
         Only you, on the node's own machine, can start a pairing. A wallet

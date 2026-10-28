@@ -191,13 +191,18 @@
           the graph, your node has a line to each uplink it reaches directly.
         </li>
         <li>
-          <strong>Relay.</strong> The front door that apps and wallets using
-          Open Payments reach your node through, with <em>connected</em>,
-          <em>connecting</em> or <em>unreachable</em>. Dassie builds in no
-          relay yet, so a new node keeps none and the card says
-          <em>None</em>. Until you name one in <code>DASSIE_RELAY</code>, no
-          one can reach your node through Open Payments, at its
-          <code>dassiepay.net</code> address or anywhere else. You can still
+          <strong>Relay.</strong> The relay that apps and wallets using Open
+          Payments reach your node through, by its URL, with
+          <em>connected</em>, <em>connecting</em> or <em>unreachable</em>.
+          By default it is Dassie's front door,
+          <code>https://relay.dassiepay.net</code>, which reaches your node
+          at its <code>dassiepay.net</code> address. <em>Connecting</em>
+          right after a start is normal; <em>unreachable</em> means your node
+          has not reached it for a while. The card says <em>None</em> when
+          your node keeps no relay: when <code>DASSIE_RELAY</code> is set
+          empty, or when your node has a domain name and keeps the default,
+          which it then drops. Then no one reaches your node through Open
+          Payments at its <code>dassiepay.net</code> address. You can still
           send, and Interledger payments still reach it through its uplinks.
         </li>
         <li>
@@ -206,17 +211,19 @@
         </li>
       </ul>
       <p>
-        For setting a relay or pinning uplinks on a server, see
+        The default relay has a cost: it is a machine the project runs, so
+        it learns when your node is online, and it reads the Open Payments
+        requests it passes on. To name another relay, keep none, or pin
+        uplinks on a server, see
         <a href="/docs/node/periphery/">A server without a public IP</a>; in
         the desktop app, see
         <a href="/docs/desktop/reach/">How others reach you</a>. For how it
         fits together, see
         <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>.
       </p>
-      <p class="not-yet">
-        A relay built into Dassie, so that a new node is reached at its
-        <code>dassiepay.net</code> address with nothing to set, is not there
-        yet. <a href="/docs/project/roadmap/">What's next</a>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why there is a default relay</a>
       </p>
 
       <h2 id="peers-and-methods">Peers and how they settle</h2>

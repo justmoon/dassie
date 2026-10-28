@@ -72,9 +72,10 @@
             <tr>
               <td><code>relay.dassiepay.net</code></td>
               <td>
-                Where a node connects to the project's front door as its
-                relay, so that it can be reached at its payment names. The
-                release doesn't name it yet
+                The project's front door, which a node without a hostname
+                keeps as its relay by default, so that it is reached at its
+                payment names. Its entry, with its keys, is built into the
+                release
               </td>
               <td>With a release</td>
             </tr>
@@ -129,19 +130,23 @@
       </p>
       <p>
         The node answers to these names, but a request reaches it only
-        while it keeps a connection to the front door, which it does when
+        while it keeps a connection to the front door. It does by default:
+        a node without a hostname, the desktop app's too, keeps the front
+        door at <code>relay.dassiepay.net</code> as its relay, unless
         <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
-        names that front door. Without one, the front door answers requests
-        for the node with <code>503</code>.
-      </p>
-      <p class="not-yet">
-        A default relay is not there yet: the release names none, so a node
-        without a hostname, the desktop app's too, keeps no relay unless
-        you set <code>DASSIE_RELAY</code>. The <code>dassiepay.net</code>
-        front door has no entry a 0.3.0 node can name yet, so for now
-        nothing reaches a node at its <code>dassiepay.net</code> names. It
+        names another relay or none. While the node holds no connection to
+        it, the front door answers requests for the node with
+        <code>503</code>. The wallet warns that its
+        <code>dassiepay.net</code> address may reach no one when the node
+        keeps another relay or none, or can't reach the front door. The node
         still peers, and pays others, through its uplinks.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      </p>
+      <p>
+        The front door is a machine the project runs. While your node keeps
+        it, that machine learns when your node is online, and from which
+        address, and it reads the Open Payments requests it passes on.
+        <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
+        says how to choose another relay, or none.
       </p>
       <ul>
         <li>
@@ -250,17 +255,15 @@
 
       <h2 id="the-projects-machines">The project's own machines</h2>
       <p>
-        The bootstrap nodes and the proof servers are named in the release,
-        the bootstrap nodes with their keys, and nothing outside a release
-        stores them. So a release can move them, and nodes follow when they
-        update. A new testnet node finds the network through the four
-        bootstrap nodes, and <code>dassie setup</code> joins the testnet's
-        XRP hub, which they keep, unless you name other hubs or none.
-      </p>
-      <p class="not-yet">
-        The front door's relay entry is not built into the release yet, so
-        a node keeps no relay unless you set <code>DASSIE_RELAY</code>.
-        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+        The bootstrap nodes, the default relay and the proof servers are
+        named in the release, the bootstrap nodes and the relay with their
+        keys, and nothing outside a release stores them. So a release can
+        move them, and nodes follow when they update. A new testnet node
+        finds the network through the four bootstrap nodes, and
+        <code>dassie setup</code> joins the testnet's XRP hub, which they
+        keep, unless you name other hubs or none. A node without a hostname
+        keeps the front door at <code>relay.dassiepay.net</code> as its
+        relay.
       </p>
       <p>You can name machines of your own, or the project's:</p>
       <ul>

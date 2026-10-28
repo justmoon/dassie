@@ -114,14 +114,15 @@
         <code>https://&lt;name&gt;/.well-known/pay</code>, the asset the owner
         picked as the default. The name is the node's hostname, such as
         <code>node.example.com</code>. A node without one, such as the desktop
-        app, is named <code>&lt;node ID&gt;.dassiepay.net</code>, and is
-        reached there through a front door it keeps as its relay.
+        app, is named <code>&lt;node ID&gt;.dassiepay.net</code>. The
+        <code>dassiepay.net</code> front door reaches it there over a
+        connection the node keeps to it as its relay, which it does by
+        default.
       </p>
       <p class="not-yet">
-        No relay is built in yet, and the <code>dassiepay.net</code> front
-        door has no entry for 0.3.0 nodes, so today nobody reaches a node
-        without a hostname at <code>&lt;node ID&gt;.dassiepay.net</code>.
-        Build against a node with a hostname. <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+        A node reached through a front door can't ask its owner for consent
+        yet, so it grants nothing its owner must approve, such as outgoing
+        payments. Build those against a node with a hostname. <a href="/docs/project/roadmap/#periphery">What's next</a>
       </p>
       <p>
         A node does not speak SPSP: Open Payments replaced it, so a wallet
@@ -285,9 +286,9 @@
         </li>
         <li>
           The <a href="/docs/desktop/install/">desktop app</a>, through BTP
-          on <code>localhost</code> from a client on the same computer. Others
-          can't reach it at <code>&lt;node ID&gt;.dassiepay.net</code> yet,
-          since no relay is built in.
+          on <code>localhost</code> from a client on the same computer, and
+          for incoming payments at <code>&lt;node ID&gt;.dassiepay.net</code>
+          while it is connected to the front door there.
         </li>
       </ul>
       <p>
