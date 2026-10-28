@@ -728,6 +728,17 @@ pub trait SettlementScheme: Send {
         None
     }
 
+    /// Over a settlement hub: whether a packet over it is not settled yet,
+    /// by the promises it carried: one of ours in flight or waiting for the
+    /// hub to decide it, or one of a peer's in flight through us or
+    /// fulfilled with no claim of the peer's covering it, which the scheme
+    /// claims on the hub itself once the peer's claim is late
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). False by
+    /// default.
+    fn packets_unsettled(&self) -> bool {
+        false
+    }
+
     /// Over a settlement hub: `peer`, which peers with us on the scheme,
     /// names `account` in the hub `hub` in its link state, which it did not
     /// before. Only the hub says which account a key has: a scheme that

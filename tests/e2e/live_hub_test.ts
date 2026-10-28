@@ -1,22 +1,21 @@
 /**
- * End to end (spec/areas/testing.md#end-to-end): the `live-hub` scenario's
- * nodes run in the live realm, by the dev switch, and found a hub of XRP
- * and a hub of RLUSD on the fake XRP Ledger's mainnet, where every account
- * is funded by a deposit, as mainnet has no faucet. Four validators, whose
- * files name mainnet, run both hubs, which their sponsor founds through
- * its owner's RPC on its realm's network, funding the escrows from its
- * `xrpl-xrp` book, the RLUSD hub's terms naming RLUSD's issuer. Two members
- * join both with `hub-xrpl-xrp` and `hub-xrpl-rlusd`, the founded rules in
- * their config, since no mainnet hub is built in; each funds its accounts
- * from its owner books of XRP and RLUSD, which peer with nobody, and the
- * two peer over both hubs, a method each.
+ * End to end (spec/areas/testing.md#end-to-end): a smoke test of hubs on
+ * mainnet in the live realm, on the shipped binary. The `live-hub`
+ * scenario's nodes run in the live realm by the dev switch
+ * (`DASSIE_DEV_LIVE_REALM`), every account funded by a deposit, as mainnet
+ * has no faucet. Four validators, whose validator files name mainnet, run
+ * an XRP hub and an RLUSD hub that their sponsor founds through its
+ * owner's RPC on the fake ledger's mainnet; two members join both with the
+ * founded rules in their config, from their owner books of XRP and RLUSD,
+ * and peer over both. Their hub ledgers are of the live realm, and a
+ * client of one, the JS STREAM sender over BTP, pays the other in XRP over
+ * the XRP hub, under `g.`.
  *
- * A node of the live realm is offered mainnet's books, and no scheme of
- * the testnet; a mainnet hub's scheme only once a default hub of it is
- * built in, which the schemes' own tests check either way. A client of one member pays the other's receiver in XRP
- * over the XRP hub, and the other pays back in RLUSD over the RLUSD hub:
- * each payment keeps its ledger, so what arrived is what was sent, and
- * each owner's books show it, in step with what its accounts hold.
+ * That is all: what the members do over the hubs, the RLUSD payment back
+ * and the books included, is the daemon tests'
+ * (`hub_owner_books.rs`,
+ * `live_realm_members_pay_over_mainnet_hubs_of_xrp_and_rlusd`, on paused
+ * time: spec/areas/testing.md#members-of-settlement-hubs-on-paused-time).
  */
 
 import { test } from "node:test";
@@ -29,31 +28,19 @@ import {
   missingScenarioTools,
   PORT_OFFSETS,
 } from "./harness.ts";
-import {
-  booksOverHubs,
-  HUB_WITHIN_MS,
-  hubMembers,
-  hubOf,
-  joinedHubs,
-  ledger,
-  pay,
-  peerLedgers,
-  settledOverHubs,
-} from "./settling.ts";
+import { hubMembers, hubOf, joinedHubs, ledger, pay } from "./settling.ts";
 import { hubLedger, Scenario } from "@dassie/dev/scenario";
 
 /** 2 XRP: twenty of the largest packets, so the payer funds its hold
  * toward the payee over the hub as it pays. */
 const XRP_PAYMENT = 2_000_000_000n;
-/** 1 RLUSD, at the ledger's scale of 9. */
-const RLUSD_PAYMENT = 1_000_000_000n;
 /** Clear of every other file's ports (`PORT_OFFSETS`, which ports_test.ts checks). */
 const PORT_OFFSET = PORT_OFFSETS["live_hub_test.ts"];
 
 const missing = await missingScenarioTools();
 
 test(
-  "live-hub founds an XRP hub and an RLUSD hub on mainnet in the live realm, and its members pay each other over both",
+  "live-hub founds an XRP hub and an RLUSD hub on mainnet in the live realm, and a STREAM client pays over one",
   { skip: missing !== undefined },
   async () => {
     const scenario = await Scenario.temporary("live-hub", {
@@ -65,107 +52,33 @@ test(
       const xrpHub = hubOf(scenario, "hub-xrpl-xrp");
       const rlusdHub = hubOf(scenario, "hub-xrpl-rlusd");
       const [xrpLedger, rlusdLedger] = [xrpHub, rlusdHub].map(hubLedger);
-      assertEquals([xrpLedger, rlusdLedger], [
-        "hub-xrpl-xrp+xrp",
-        "hub-xrpl-rlusd+usd",
-      ]);
       const members = hubMembers(scenario, xrpHub);
       assertEquals(hubMembers(scenario, rlusdHub), members);
       const [first, second] = members;
       assert(first && second, "two members");
-
-      // A node of the live realm is offered mainnet's books, and beside
-      // them only a mainnet hub's scheme, once a default hub of it is
-      // built in: none of the testnet's.
-      const validator = scenario.nodes.find((node) =>
-        !members.includes(node) && node.index !== xrpHub.sponsor
-      );
-      assert(validator, "a validator that sponsors nothing");
-      const { schemes } = await validator.rpc.call("listSettlementSchemes", {});
-      const offered = schemes.map((scheme) => scheme.id);
-      const books = ["xrpl-rlusd", "xrpl-xrp"];
-      assertEquals(offered.filter((id) => books.includes(id)).sort(), books);
-      for (const id of offered) {
-        assert(
-          books.includes(id) || ["hub-xrpl-xrp", "hub-xrpl-rlusd"].includes(id),
-          `${id} offered in the live realm`,
-        );
-      }
-
       await joinedHubs(scenario);
 
       // The hubs are on mainnet: the members' ledgers of them are of the
-      // live realm, and the two peer over both, a method each.
+      // live realm.
       for (const node of members) {
         for (const id of [xrpLedger, rlusdLedger]) {
           assertEquals((await ledger(node, id)).realm, Realm.LIVE, id);
         }
       }
-      for (const [node, peer] of [[first, second], [second, first]]) {
-        assertEquals(
-          await peerLedgers(node, peer),
-          [rlusdLedger, xrpLedger].sort(),
-          `${node.name} with ${peer.name}`,
-        );
-      }
 
-      const before = await Promise.all(
-        members.map((node) => booksOverHubs(scenario, node)),
+      const address = await pay(
+        scenario,
+        [first, second],
+        xrpLedger,
+        XRP_PAYMENT,
+        xrpLedger,
       );
-      // Each payment keeps the ledger it came in on, so it converts
-      // nowhere: what arrived is what was sent.
-      for (
-        const [payer, payee, id, amount] of [
-          [first, second, xrpLedger, XRP_PAYMENT],
-          [second, first, rlusdLedger, RLUSD_PAYMENT],
-        ] as const
-      ) {
-        const address = await pay(scenario, [payer, payee], id, amount, id);
-        assert(address.startsWith("g."), address);
-        const { payments } = await payee.rpc.call("listIncomingPayments", {});
-        const incoming = payments.find((p) => p.destinationAccount === address);
-        assert(incoming, `no incoming payment on ${id}`);
-        assertEquals(incoming.ledger, id);
-        assertEquals(incoming.receivedAmount, amount, `what arrived on ${id}`);
-      }
-      await scenario.until(
-        "settled",
-        () => settledOverHubs(scenario),
-        HUB_WITHIN_MS,
-      );
-
-      // Each owner's books show both payments, in what it has on a hub and
-      // the owner book of its asset taken together, as the node moves funds
-      // between them by itself: the payer of each paid what was sent, and
-      // the fees of its moves and operations; the payee got what arrived,
-      // less those of its own.
-      const after = await Promise.all(
-        members.map((node) => booksOverHubs(scenario, node)),
-      );
-      const moved = (index: number, ids: readonly string[]) =>
-        ids.reduce(
-          (sum, id) =>
-            sum + (after[index][id]?.[1] ?? 0n) -
-            (before[index][id]?.[1] ?? 0n),
-          0n,
-        );
-      const xrpBooks = [xrpLedger, "xrpl-xrp+xrp"];
-      const dollarBooks = [rlusdLedger, "xrpl-rlusd+usd"];
-      const [firstXrp, secondXrp] = [0, 1].map((i) => moved(i, xrpBooks));
-      const [firstUsd, secondUsd] = [0, 1].map((i) => moved(i, dollarBooks));
-      assert(-firstXrp >= XRP_PAYMENT, `${first.name} paid ${-firstXrp} XRP`);
-      assert(
-        secondXrp > 0n && secondXrp <= XRP_PAYMENT,
-        `${second.name} got ${secondXrp} XRP`,
-      );
-      assert(
-        -secondUsd >= RLUSD_PAYMENT,
-        `${second.name} paid ${-secondUsd} RLUSD`,
-      );
-      assert(
-        firstUsd > 0n && firstUsd <= RLUSD_PAYMENT,
-        `${first.name} got ${firstUsd} RLUSD`,
-      );
+      assert(address.startsWith("g."), address);
+      const { payments } = await second.rpc.call("listIncomingPayments", {});
+      const incoming = payments.find((p) => p.destinationAccount === address);
+      assert(incoming, "no incoming payment");
+      assertEquals(incoming.ledger, xrpLedger);
+      assertEquals(incoming.receivedAmount, XRP_PAYMENT, "what arrived");
     } finally {
       const failures = await scenario.stop();
       assertEquals(failures, [], failures.join("\n"));

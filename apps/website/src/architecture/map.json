@@ -248,11 +248,10 @@
         "A fresh install through `dassie init` and browser setup, with Pebble as the certificate authority",
         "BTP payments, and the two-node and six-node scenarios routing across hops on the stub with unlimited trust, which never settles",
         "Open Payments, including a third party's full flow with consent in the wallet",
-        "A settlement hub founded on the fake XRP Ledger: the faucet funds its members' own XRP, from which they fund their accounts in the hub, peer and settle over it alone, and keep their books across restarts; the wallet shows a member where to deposit",
+        "Settlement hubs as smoke tests of the real binary, whose members' logic the node's daemon tests check: a hub founded on the fake XRP Ledger through its sponsor's RPC and run by validators from their validator files, its members joining and peering over it, and a STREAM client paying dollars on the stub across it as XRP; an XRP hub and a DSUSD hub whose members, in one or both, join and peer over the hubs they share; the wallet shows a member its hub and where to deposit",
         "DSUSD in an owner book on the XRP Ledger: the issuer's mint booked, the peg guard pausing its conversions while still booking what arrives, and the issuer freezing the line and clawing back",
-        "Payments across currencies: dollars on the stub with unlimited trust, converted by a node in both and paid in XRP over a settlement hub, which the converter settles over; and across two hubs, of XRP and of DSUSD: a payment from a member of the XRP hub alone to a receiver in DSUSD of a member of the DSUSD hub alone, through a member of both that converts",
         "Mainnet's schemes in the live realm, by the dev switch, on the fake ledger's mainnet: a node holds XRP and RLUSD in owner books on one account, at addresses under `g.`, and books a deposit once, across a restart too; RLUSD pauses while its pool gives no price and runs again once it reads one, and pauses while the pool prices it off its peg, still booking what arrives",
-        "Mainnet hubs in the live realm: an XRP hub and an RLUSD hub founded on the fake ledger's mainnet, and their members paying each other over both",
+        "Mainnet hubs in the live realm: an XRP hub and an RLUSD hub founded on the fake ledger's mainnet, their members joining both, and one paying the other over the XRP hub",
         "Passive rebalancing end to end, over an XRP hub and a DSUSD hub: a market maker of one node swaps through a core node short of dollars and back through the fake ledger's pool, which moves the node toward balance and earns the market maker, and a swap at what a snapshot promises gets no less; with two such core nodes, it trades through each and moves each toward balance",
         "Peer swaps: two core nodes skewed opposite ways swap with each other until neither gains, and each ends closer to an even split",
         "The wallet, the dev dashboard and dassie.land in a browser",
@@ -1824,7 +1823,7 @@
     },
     {
       "t": "End to end",
-      "p": "Real binaries and real sockets: a fresh install, payments and settlement across nodes and across two hubs, mainnet's schemes in the live realm on the fake ledger, nodes that book nothing while its server lies, Open Payments, the wallet in a browser, and the installer and updater on four Linux distributions.",
+      "p": "Real binaries and real sockets: a fresh install, payments across nodes, settlement hubs founded and paid across as smoke tests, waiting on what the nodes report rather than on time, mainnet's schemes in the live realm on the fake ledger, nodes that book nothing while its server lies, Open Payments, the wallet in a browser, and the installer and updater on four Linux distributions.",
       "ev": "tests/e2e · dassie-node/tests · dassie-cli/tests"
     }
   ],
