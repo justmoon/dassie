@@ -9,6 +9,7 @@
 //! that book nothing, as `HubScheme::BOOKS_MESSAGES` says, which a test
 //! checks against the real scheme.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
@@ -17,12 +18,15 @@ use dassie_peer::wire::{Endpoint, Kind};
 use dassie_peer::{Channel, Outgoing, PeerBatch, Response, StoredChannel};
 
 use super::super::settlement::Settling;
+use super::super::trust::raise_trust;
 use super::super::{Core, Event, SettlementEvent};
 use super::{
     NOW, STUB_THREE, STUB_TWO, StubTwo, add_stub, core_on, hub_config, scheme_id, stub_two_as_hub,
 };
 use crate::engine::Output;
 use crate::node::Policies;
+use crate::sim::checks::{check_delivered, check_held, check_ledgers};
+use crate::sim::{START, Settling as Run, Sim, key};
 use crate::store::{LedgerBatch, Store};
 
 /// The config of each stub with commitments here.
@@ -92,12 +96,19 @@ fn ledger_of(scheme: &str) -> LedgerId {
 /// scheme and booked pending, to execute in the next step, as the node
 /// makes one when the peer asks it to settle.
 fn settle(core: &mut Core, scheme: &str) {
+    settle_to(core, scheme, peer(), NOW);
+    core.flush();
+}
+
+/// Our settlement of [`AMOUNT`] to `to` on `scheme` at `now`, as
+/// [`settle`] makes one, within a step.
+fn settle_to(core: &mut Core, scheme: &str, to: NodeId, now: u64) {
     let ledger = ledger_of(scheme);
-    let name = Name::new(peer().as_str()).unwrap();
+    let name = Name::new(to.as_str()).unwrap();
     let path = AccountPath::new(ledger, AccountName::AssetsInterledger(name));
     let interledger = match core.ledger.find(&path) {
         Some(account) => account,
-        None => core.ledger.open_peer(NOW, ledger, name, 1_000).unwrap().0,
+        None => core.ledger.open_peer(now, ledger, name, 1_000).unwrap().0,
     };
     let settlement = core.account(ledger, AccountName::AssetsSettlement).unwrap();
     let scheme = Name::new(scheme).unwrap();
@@ -121,18 +132,17 @@ fn settle(core: &mut Core, scheme: &str) {
             id: prepared.id,
         },
     };
-    let transfer = core.ledger.create(NOW, &spec).unwrap();
+    let transfer = core.ledger.create(now, &spec).unwrap();
     core.settle.settling.insert(
         (scheme, prepared.id),
         Settling {
-            peer: peer(),
+            peer: to,
             transfer,
             amount: AMOUNT,
             message: prepared.message,
         },
     );
     core.settle.to_execute.push((scheme, prepared.id));
-    core.flush();
 }
 
 /// What the books hold in settlement on `scheme`'s ledger, and what the
@@ -386,4 +396,71 @@ fn a_settlement_whose_message_books_behind_another_message_does_not_stop_the_nod
         ("stub", 2, AMOUNT)
     );
     assert!(core.settle.notices.is_empty());
+}
+
+// spec/areas/testing.md#the-simulations: the checks of a run over the stub
+// with commitments count a settlement whose message waits behind another
+// as on its way. The payer's stub paid it and the payee's has not taken it,
+// so the stubs' total counts it, and it is not delivered until it went and
+// the peer applied it: while the message before it is on its way, and once
+// that one arrived and the channel is free but it still waits to go.
+#[test]
+fn a_settlement_message_that_waits_is_on_its_way_until_delivered() {
+    let mut sim = Sim::with(1, 2, 1, BTreeMap::new(), Run::StubHub(1));
+    sim.loss_per_mille = 0;
+    let busy = |sim: &Sim| {
+        (0..2).find(|&index| {
+            sim.core(index)
+                .network()
+                .channels
+                .iter()
+                .any(|(_, channel)| channel.outbox.is_some())
+        })
+    };
+    assert!(
+        sim.run_until_or(START + 60_000, |sim| busy(sim).is_some()),
+        "no settlement went"
+    );
+    let from = busy(&sim).unwrap();
+    let to = key(1 - from).node_id();
+    let now = sim.now;
+    // Another settlement to the same peer, which funds our hold toward it
+    // as the node's does: the credit raised by it first, so the books take
+    // it, then following the holds.
+    sim.step(from, |core| {
+        let name = Name::new(to.as_str()).unwrap();
+        raise_trust(&mut core.ledger, now, LedgerId::StubUsd, name, AMOUNT).unwrap();
+        settle_to(core, "stub", to, now);
+        core.sync_credit_with(Name::new("stub").unwrap(), to);
+    });
+    sim.step(from, |_| {});
+    let total = 2 * Run::deposit(LedgerId::StubUsd);
+    let stubs = |sim: &Sim| -> i128 {
+        (0..2)
+            .map(|index| check_held(sim, index, LedgerId::StubUsd).unwrap())
+            .sum()
+    };
+    let waiting = |sim: &Sim| !sim.core(from).waiting_notices().is_empty();
+    let behind = |sim: &Sim| sim.core(from).peer.channel(&to).unwrap().outbox.is_some();
+    // Behind the message before it.
+    assert!(waiting(&sim) && behind(&sim), "the message did not wait");
+    assert!(stubs(&sim) < total);
+    assert_eq!(check_ledgers(&sim), Ok(()));
+    assert!(check_delivered(&sim).is_err());
+    // Every channel free, the message still waiting.
+    assert!(sim.run_until_or(sim.now + 10_000, |sim| busy(sim).is_none()));
+    assert!(waiting(&sim), "the message went with the acknowledgement");
+    assert!(stubs(&sim) < total);
+    assert_eq!(check_ledgers(&sim), Ok(()));
+    assert_eq!(
+        check_delivered(&sim),
+        Err(format!(
+            "node {from}'s settlement to {to} on stub waits to go"
+        ))
+    );
+    // Delivered.
+    let delivered = |sim: &Sim| check_delivered(sim).is_ok();
+    assert!(sim.run_until_or(sim.now + 60_000, delivered));
+    assert_eq!(stubs(&sim), total);
+    assert_eq!(check_ledgers(&sim), Ok(()));
 }

@@ -10,6 +10,7 @@ use dassie_kit::sim::Outcome;
 use dassie_payments::amount::{paid_in_full, payment_tolerance};
 use dassie_settlement::policy;
 
+use dassie_identity::NodeId;
 use dassie_ledger::LedgerId;
 
 use super::{
@@ -791,17 +792,26 @@ pub fn check_pegged(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
-/// No settlement is still on its way.
+/// No settlement is still on its way: none in a channel's outbox, and
+/// none whose message waits to go behind another, the settlements
+/// [`on_its_way`] counts.
 pub fn check_delivered(sim: &Sim) -> Result<(), String> {
     for index in 0..sim.nodes.len() {
-        let network = sim.core(index).network();
-        if let Some((peer, _)) = network
+        let core = sim.core(index);
+        if let Some((peer, _)) = core
+            .network()
             .channels
             .iter()
             .find(|(_, channel)| channel.outbox.is_some())
         {
             return Err(format!(
                 "node {index}'s settlement to {peer} is still on its way"
+            ));
+        }
+        if let Some((peer, scheme, _)) = core.waiting_notices().first() {
+            return Err(format!(
+                "node {index}'s settlement to {peer} on {} waits to go",
+                scheme.as_str()
             ));
         }
     }
@@ -862,11 +872,66 @@ fn check_fake_ledger(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
+/// What node `index` settled on `ledger` that its peer's scheme has not
+/// taken yet: its message on its way to each peer until the peer applied
+/// it, and the messages that wait for one before them. The stub pays when
+/// a settlement executes on the payer's side and is paid when the payee
+/// applies its message, so this much is between the two stubs, and no
+/// stub holds it (spec/areas/settlement.md#the-stub-scheme).
+pub fn on_its_way(sim: &Sim, index: usize, ledger: LedgerId) -> i128 {
+    let core = sim.core(index);
+    let Some(scheme) = core
+        .ledger_views()
+        .into_iter()
+        .find(|view| view.id == ledger)
+        .map(|view| view.scheme)
+    else {
+        return 0;
+    };
+    let own = key(index).node_id();
+    // The highest sequence `peer` applied from us, over its channel open or
+    // closed.
+    let applied = |peer: &NodeId| {
+        let Some(at) = (0..sim.nodes.len()).find(|at| key(*at).node_id() == *peer) else {
+            return 0;
+        };
+        sim.core(at)
+            .network()
+            .channels
+            .into_iter()
+            .find(|(node, _)| *node == own)
+            .map(|(_, channel)| channel.settled_in)
+            .or_else(|| {
+                let closed = sim.nodes[at].store.closed_channel(&own).unwrap();
+                closed.map(|closed| closed.settled_in)
+            })
+            .unwrap_or(0)
+    };
+    let sent = core
+        .network()
+        .channels
+        .into_iter()
+        .filter_map(|(peer, channel)| Some((peer, channel.outbox?)))
+        .filter(|(peer, outgoing)| {
+            outgoing.scheme.as_str() == scheme && outgoing.sequence > applied(peer)
+        })
+        .map(|(_, outgoing)| outgoing.amount);
+    let waiting = core
+        .waiting_notices()
+        .into_iter()
+        .filter(|(_, method, _)| method.as_str() == scheme)
+        .map(|(_, _, amount)| amount);
+    sent.chain(waiting).map(i128::from).sum()
+}
+
 /// Each node books in settlement what its scheme holds, on the XRP Ledger
 /// exactly its account's balance less the reserve, on a token exactly its
 /// line, and the underlying ledger neither made nor lost money. On the stub
 /// with unlimited trust nothing settles, so each node's stub holds what it
-/// started with.
+/// started with. On the stub with commitments, the stubs together hold
+/// what they started with but for the settlements on their way between
+/// them, which a run checked before the network is calm may find: those
+/// are [`check_delivered`]'s to report.
 pub fn check_ledgers(sim: &Sim) -> Result<(), String> {
     let count = sim.nodes.len();
     let ledger = sim.settling.ledger();
@@ -882,9 +947,12 @@ pub fn check_ledgers(sim: &Sim) -> Result<(), String> {
         stubs += held;
     }
     if ledger == USD {
+        let between: i128 = (0..count).map(|index| on_its_way(sim, index, ledger)).sum();
         let total = Settling::deposit(USD) * i128::try_from(count).unwrap();
-        if stubs != total {
-            return Err(format!("the stubs hold {stubs}, not {total}"));
+        if stubs + between != total {
+            return Err(format!(
+                "the stubs hold {stubs} and {between} is on its way, not {total}"
+            ));
         }
     }
     if sim.settling.on_xrpl() {
@@ -1019,6 +1087,8 @@ fn check_assets(sim: &Sim) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
 
     #[test]
@@ -1028,5 +1098,37 @@ mod tests {
         assert_eq!(first_failure([Ok(()), liveness(), safety()]), safety());
         assert_eq!(first_failure([liveness(), Ok(())]), liveness());
         assert_eq!(first_failure([Ok(()), Ok(())]), Ok(()));
+    }
+
+    /// What the stubs of a run hold together.
+    fn stubs(sim: &Sim) -> i128 {
+        (0..sim.nodes.len())
+            .map(|index| check_held(sim, index, USD).unwrap())
+            .sum()
+    }
+
+    // A settlement over the stub with commitments leaves the payer's stub
+    // when it executes and reaches the payee's when its message is applied:
+    // a run checked in between, before the network is calm, finds it on its
+    // way, which is no loss but a settlement not yet delivered.
+    #[test]
+    fn a_settlement_on_its_way_between_stubs_is_not_lost() {
+        let mut sim = Sim::with(1, 2, 1, BTreeMap::new(), Settling::StubHub(1));
+        sim.loss_per_mille = 0;
+        let total = 2 * Settling::deposit(USD);
+        let apart = |sim: &Sim| stubs(sim) != total;
+        assert!(
+            sim.run_until_or(START + 60_000, apart),
+            "no settlement left a stub"
+        );
+        let between: i128 = (0..2).map(|index| on_its_way(&sim, index, USD)).sum();
+        assert!(between > 0);
+        assert_eq!(stubs(&sim) + between, total);
+        assert_eq!(check_ledgers(&sim), Ok(()));
+        assert!(check_delivered(&sim).is_err());
+        let delivered = |sim: &Sim| check_delivered(sim).is_ok();
+        assert!(sim.run_until_or(sim.now + 10_000, delivered));
+        assert_eq!(stubs(&sim), total);
+        assert_eq!(check_ledgers(&sim), Ok(()));
     }
 }
