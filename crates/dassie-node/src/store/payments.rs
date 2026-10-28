@@ -409,25 +409,92 @@ impl Store {
         Ok((revision.map_or(0, from_sql_time), rows))
     }
 
-    /// The ledger `$host` names, if one was chosen.
-    pub fn default_ledger(&self) -> Result<Option<LedgerId>, StoreError> {
-        let stored: Option<String> = self.lock().query_row_cached(
-            "SELECT default_ledger FROM payment_settings WHERE id = 1",
+    /// The name of the wallet address `$host` names, its asset's (such as
+    /// `xrp`), if one was chosen.
+    pub fn default_address(&self) -> Result<Option<String>, StoreError> {
+        Ok(self.lock().query_row_cached(
+            "SELECT default_address FROM payment_settings WHERE id = 1",
             [],
             |row| row.get(0),
-        )?;
-        stored
-            .map(|text| LedgerId::parse(&text).ok_or(StoreError::Corrupt("default ledger")))
-            .transpose()
+        )?)
     }
 
-    /// Chooses the ledger `$host` names, or goes back to the lowest active.
-    pub fn set_default_ledger(&self, ledger: Option<LedgerId>) -> Result<(), StoreError> {
+    /// Chooses the wallet address `$host` names, by its name, or goes back
+    /// to the first active one.
+    pub fn set_default_address(&self, name: Option<&str>) -> Result<(), StoreError> {
         self.lock().execute_cached(
-            "UPDATE payment_settings SET default_ledger = ?1 WHERE id = 1",
-            [ledger.map(|ledger| ledger.as_str())],
+            "UPDATE payment_settings SET default_address = ?1 WHERE id = 1",
+            [name],
         )?;
         Ok(())
+    }
+
+    /// Where the node keeps what it receives over Interledger in the asset
+    /// of wallet address `name`: in the hub unless the owner chose
+    /// otherwise.
+    pub fn funds_kept(&self, name: &str) -> Result<FundsKept, StoreError> {
+        let stored: Option<String> = self
+            .lock()
+            .query_row_cached(
+                "SELECT kept FROM funds_kept WHERE asset = ?1",
+                [name],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match stored.as_deref() {
+            None => Ok(FundsKept::default()),
+            Some(text) => FundsKept::parse(text).ok_or(StoreError::Corrupt("funds kept")),
+        }
+    }
+
+    /// Keeps what the node receives in the asset of each wallet address of
+    /// `names` where `kept` says.
+    pub fn set_funds_kept(&self, names: &[&str], kept: FundsKept) -> Result<(), StoreError> {
+        let mut connection = self.lock();
+        let transaction = connection.transaction()?;
+        for name in names {
+            transaction.execute_cached(
+                "INSERT INTO funds_kept (asset, kept) VALUES (?1, ?2) \
+                 ON CONFLICT (asset) DO UPDATE SET kept = excluded.kept",
+                [*name, kept.as_str()],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+}
+
+/// Where the node keeps what it receives in an asset over Interledger,
+/// which arrives on the ledger of the asset's settlement hub
+/// (spec/areas/payments.md#where-received-money-is-kept).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FundsKept {
+    /// In the hub, where it arrives: the default.
+    #[default]
+    Hub,
+    /// On the owner's own account on the hub's underlying ledger: the node
+    /// withdraws there what its hub account holds beyond the ceiling.
+    OwnAccount,
+}
+
+impl FundsKept {
+    /// As the database keeps it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Hub => "hub",
+            Self::OwnAccount => "own",
+        }
+    }
+
+    /// From what the database keeps.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "hub" => Some(Self::Hub),
+            "own" => Some(Self::OwnAccount),
+            _ => None,
+        }
     }
 }
 

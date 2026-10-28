@@ -14,7 +14,7 @@
 
 - **One grammar for scheme IDs:** `<ledger>-<network>-<asset>`, the network left out on mainnet, and `hub-` before it for a settlement hub's scheme. The XRP schemes become `xrpl-testnet-xrp` and `xrpl-xrp`, with their ledgers, `xrpl-testnet-xrp+xrp` and `xrpl-xrp+xrp`, so a hub scheme's ID is `hub-` before the ID of the owner's book it sits on.
 - **A settlement's memo type names its scheme by ID:** `https://dassie.land/settlement/<scheme ID>/v1`. No scheme on the XRP Ledger settles with peers any more ([hubs-only](hubs-only.md)), so no node writes one: the only memo a node writes is the hub's, `https://dassie.land/hub/open/v1`, on the deposit that opens its hub account ([Settlement hubs](../areas/hubs.md#the-escrow)), and a Payment that carries a `settlement/` memo is a deposit like any other ([XRPL](../areas/xrpl.md#following-the-account)). The `settlement/` paths stay reserved under dassie.land for schemes' memo types, by this grammar ([public-domains](public-domains.md)). A token scheme whose memo type changed kept its ID, so it changed only with a new version of the peer protocol, which a node that wrote the old memo type does not speak: the two never peered, and neither read the other's settlements wrong ([Peer protocol](../areas/peer-protocol.md#versions)).
-- **A wallet address names its ledger for people,** by its asset: `/pay/xrp`, `/pay/dsusd`, `/pay/rlusd`, `/pay/usd` for the stub, and `/pay/hub-xrp` for a hub's, unique within a realm, which is all a node runs (`LedgerId::wallet_name`). The slug stays plumbing: the receiver's and payer's addresses, and the receiver's seed path until the identity work keys it by something stable.
+- **A wallet address names its asset for people,** never a ledger's slug: `/pay/xrp`, `/pay/dsusd`, `/pay/rlusd`, and `/pay/usd` for the stub (`LedgerId::wallet_name`). A hub's ledger shares its asset's name with the owner's book of the asset, and the address books on the hub's ledger where the node runs one ([one-address-per-asset](one-address-per-asset.md)). The slug stays plumbing: the receiver's and payer's addresses, and the receiver's seed path until the identity work keys it by something stable.
 
 ## Accepted
 
@@ -26,6 +26,5 @@
 ## Rejected
 
 - *Keeping `xrpl-testnet` and `xrpl` as the one exception:* every hub scheme and every memo type would read differently from the scheme beneath it, and the asset of the most common scheme would be implicit.
-- *The asset code alone as the wallet name, hubs included:* a node runs a hub's XRP ledger beside the owner's book of XRP, and two ledgers would share `/pay/xrp`.
 - *The scheme ID as the wallet name, as before:* wallet addresses would keep naming plumbing, and move whenever a scheme is renamed.
 - *Keying the receiver's secret by the wallet name:* it would move whenever a ledger is renamed for people; the secret is to be keyed by something stable instead.

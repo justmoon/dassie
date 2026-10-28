@@ -441,8 +441,9 @@ fn a_live_hub_is_funded_from_the_live_book() {
         "from the live book: {spent}"
     );
 
-    // Credited, then taken past the ceiling: withdrawn to the midpoint, to
-    // the node's mainnet account.
+    // Credited, then taken past the ceiling: what the node receives stays
+    // in the hub by default (spec/areas/payments.md#where-received-money-is-kept),
+    // where a deposit names the account by its number.
     let p = Policies::DEFAULT.connector.max_packet_amount;
     let credit = Policies::DEFAULT.peer_credit;
     let floor = policy::hub_floor(p, credit, 0) / UNITS_PER_DROP;
@@ -450,6 +451,23 @@ fn a_live_hub_is_funded_from_the_live_book() {
     hub.account(&mut core, floor + 1_000, opening);
     let balance = 12_000_000;
     hub.account(&mut core, balance, opening);
+    let kept = super::wait_and_close(&mut core, &mut ledger, 4_000);
+    assert_eq!(super::withdrawals(&kept), [], "kept in the hub");
+    let hub_view = core
+        .ledger_views()
+        .into_iter()
+        .find(|view| view.id == LedgerId::HubXrplXrp)
+        .unwrap();
+    assert_eq!(
+        (hub_view.deposit_address, hub_view.deposit_tag),
+        (Some(escrow.to_address()), Some(5))
+    );
+    assert!(!core.hub_status().unwrap().sweeps);
+
+    // Kept on the owner's own account: withdrawn to the midpoint, to the
+    // node's mainnet account.
+    super::keep_xrp_on_own_account(&mut core);
+    assert!(core.hub_status().unwrap().sweeps);
     let outputs = super::wait_and_close(&mut core, &mut ledger, 4_000);
     let exposure = balance + hub.rules.terms.fees.account_reserve;
     let to = dassie_hub::operation::Destination {

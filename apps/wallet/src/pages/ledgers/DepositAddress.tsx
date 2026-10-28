@@ -1,6 +1,8 @@
 /**
- * A ledger's deposit address: its QR code, the address to copy, and what
- * the ledger holds back (spec/areas/wallet.md#pages).
+ * A ledger's deposit address: its QR code, the address to copy, the
+ * destination tag a deposit must carry where the node reports one (a
+ * settlement hub's escrow), and what the ledger holds back
+ * (spec/areas/wallet.md#pages).
  */
 
 import type { JSX } from "@solidjs/web";
@@ -35,6 +37,19 @@ export function DepositAddress(props: {
           </code>{" "}
           <CopyButton text={props.address} label="Copy address" />
         </p>
+        <Show when={props.ledger.depositTag}>
+          {(tag) => (
+            <>
+              <p>Destination tag, required</p>
+              <p>
+                <code data-testid={`${props.testid}-tag-${props.ledger.id}`}>
+                  {tag()}
+                </code>{" "}
+                <CopyButton text={String(tag())} label="Copy tag" />
+              </p>
+            </>
+          )}
+        </Show>
         <Show when={props.reserve && props.ledger.reserve > 0n}>
           <p class="muted">
             The ledger holds back{" "}

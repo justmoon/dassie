@@ -123,41 +123,47 @@ test("the move on its way says which way, how much, who and since when", () => {
 });
 
 test("whether the node moves funds by itself, and its pause", () => {
+  const sweeping = { automatic: true, sweeps: true };
+  const between =
+    "Your node keeps this account between its floor and ceiling by itself. What is beyond goes to your own account.";
   assertMatch(
     automaticText({ automatic: false }, NOW),
     /moves nothing by itself/,
   );
+  assertEquals(automaticText(sweeping, NOW), between);
+  // What the node receives stays in the hub unless the owner keeps it on
+  // the own account (spec/areas/payments.md#where-received-money-is-kept).
   assertEquals(
     automaticText({ automatic: true }, NOW),
-    "Your node keeps this account between its floor and ceiling by itself.",
+    "Your node keeps this account above its floor by itself. What you receive stays here.",
   );
   // A pause that is over says nothing of it.
   assertEquals(
     automaticText(
-      { automatic: true, pausedUntilUnixMs: BigInt(NOW - 1) },
+      { ...sweeping, pausedUntilUnixMs: BigInt(NOW - 1) },
       NOW,
     ),
-    "Your node keeps this account between its floor and ceiling by itself.",
+    between,
   );
   assertEquals(
     automaticText(
-      { automatic: true, pausedUntilUnixMs: BigInt(NOW + 3_600_000) },
+      { ...sweeping, pausedUntilUnixMs: BigInt(NOW + 3_600_000) },
       NOW,
     ),
-    "Your last move pauses your node's own moves for 1 h more. Then it keeps this account between its floor and ceiling by itself again.",
+    "Your last move pauses your node's own moves for 1 h more. Then it keeps this account between its floor and ceiling by itself again. What is beyond goes to your own account.",
   );
   // Less than a second left is no pause; a second or more never reads as
   // nothing.
   assertEquals(
     automaticText(
-      { automatic: true, pausedUntilUnixMs: BigInt(NOW + 400) },
+      { ...sweeping, pausedUntilUnixMs: BigInt(NOW + 400) },
       NOW,
     ),
-    "Your node keeps this account between its floor and ceiling by itself.",
+    between,
   );
   assertMatch(
     automaticText(
-      { automatic: true, pausedUntilUnixMs: BigInt(NOW + 1_200) },
+      { ...sweeping, pausedUntilUnixMs: BigInt(NOW + 1_200) },
       NOW,
     ),
     /for 2 s more/,

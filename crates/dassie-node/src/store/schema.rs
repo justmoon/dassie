@@ -29,6 +29,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     MIGRATION_4,
     MIGRATION_5,
     MIGRATION_6,
+    MIGRATION_7,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -754,6 +755,36 @@ CREATE TABLE hub_founding_records (
 ) STRICT, WITHOUT ROWID;
 ";
 
+/// Migration 7: a wallet address per asset
+/// (spec/areas/payments.md#wallet-addresses). The default names the asset
+/// of a wallet address, its name, no longer a ledger: a ledger kept as the
+/// default becomes its asset's name, which a hub's ledger shares with the
+/// owner book of its asset. Where the node keeps what it receives of each
+/// asset over Interledger, in the asset's settlement hub or on the owner's
+/// own account, is a row per asset the owner chose for; an asset without
+/// one keeps it in the hub.
+const MIGRATION_7: &str = "
+ALTER TABLE payment_settings RENAME COLUMN default_ledger TO default_address;
+
+UPDATE payment_settings SET default_address = CASE default_address
+  WHEN 'stub+usd' THEN 'usd'
+  WHEN 'xrpl-testnet-xrp+xrp' THEN 'xrp'
+  WHEN 'xrpl-xrp+xrp' THEN 'xrp'
+  WHEN 'hub-xrpl-testnet-xrp+xrp' THEN 'xrp'
+  WHEN 'hub-xrpl-xrp+xrp' THEN 'xrp'
+  WHEN 'xrpl-testnet-rlusd+usd' THEN 'rlusd'
+  WHEN 'xrpl-rlusd+usd' THEN 'rlusd'
+  WHEN 'hub-xrpl-rlusd+usd' THEN 'rlusd'
+  WHEN 'xrpl-testnet-dsusd+usd' THEN 'dsusd'
+  WHEN 'hub-xrpl-testnet-dsusd+usd' THEN 'dsusd'
+  ELSE NULL END;
+
+CREATE TABLE funds_kept (
+  asset TEXT NOT NULL PRIMARY KEY CHECK (length(asset) BETWEEN 1 AND 16),
+  kept TEXT NOT NULL CHECK (kept IN ('hub', 'own'))
+) STRICT, WITHOUT ROWID;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1198,9 +1229,14 @@ pub const TABLES: &[Table] = &[
         without_rowid: false,
         columns: &[
             ("id", "INTEGER", false, true),
-            ("default_ledger", "TEXT", false, false),
+            ("default_address", "TEXT", false, false),
             ("display_currency", "TEXT", false, false),
         ],
+    },
+    Table {
+        name: "funds_kept",
+        without_rowid: true,
+        columns: &[("asset", "TEXT", true, true), ("kept", "TEXT", true, false)],
     },
     Table {
         name: "peer_settings",

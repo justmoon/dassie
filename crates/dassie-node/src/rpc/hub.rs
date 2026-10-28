@@ -88,6 +88,7 @@ fn hub_status(status: &HubStatus) -> proto::HubStatus {
         floor: status.floor,
         ceiling: status.ceiling,
         automatic: status.automatic,
+        sweeps: status.sweeps,
         paused_until_unix_ms: status.paused_until_ms.map(convert::time),
         moving: status.moving.map(|moving| proto::HubMove {
             direction: direction_of(moving.direction).into(),

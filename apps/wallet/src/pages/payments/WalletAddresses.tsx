@@ -1,7 +1,7 @@
 /**
- * The node's wallet addresses (spec/decisions/open-payments.md): one per
- * ledger, with the default one at `$host`, and a way to choose which ledger
- * that is.
+ * The node's wallet addresses (spec/areas/payments.md#wallet-addresses):
+ * one per asset, each with the ledger what arrives is booked on, the
+ * default one at `$host`, and a way to choose which asset that is.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -103,7 +103,7 @@ function useRelay(): () => Relay | null | undefined {
 }
 
 /** The ledger's name in the wallet: its scheme's, from the ledger ID. */
-function ledgerName(ledger: string): string {
+export function ledgerName(ledger: string): string {
   return schemeName(ledger.split("+")[0]);
 }
 
@@ -111,10 +111,10 @@ export function WalletAddresses(): JSX.Element {
   const client = useClient();
   const state = useWalletAddresses();
   const [error, setError] = createSignal<string>();
-  const makeDefault = async (ledger: string) => {
+  const makeDefault = async (name: string) => {
     setError(undefined);
     try {
-      const response = await client.call("setDefaultLedger", { ledger });
+      const response = await client.call("setDefaultWalletAddress", { name });
       state.set(response.walletAddresses);
     } catch (failure) {
       setError(describe(failure));
@@ -123,18 +123,20 @@ export function WalletAddresses(): JSX.Element {
   return (
     <div class="stack" data-testid="wallet-addresses">
       <p>
-        Other wallets pay you at these addresses, through Open Payments. A
-        payment pointer is the same address, shorter.
+        Other wallets pay you at these addresses, through Open Payments: one per
+        asset. A payment pointer is the same address, shorter.
       </p>
       <ErrorText message={state.error() ?? error()} />
       <FrontDoorNote pointer={state.addresses()?.[0]?.paymentPointer} />
       <ul class="addresses">
-        <For each={state.addresses() ?? []} keyed={(entry) => entry.ledger}>
+        <For each={state.addresses() ?? []} keyed={(entry) => entry.name}>
           {(address) => (
-            <li data-testid={`wallet-address-${address().ledger}`}>
+            <li data-testid={`wallet-address-${address().name}`}>
               <div class="address-head">
-                <strong>{ledgerName(address().ledger)}</strong>
-                <span class="muted">{address().assetCode}</span>
+                <strong>{assetLabel(address().name)}</strong>
+                <span class="muted">
+                  arrives in {ledgerName(address().ledger)}
+                </span>
                 <Show when={address().isDefault}>
                   <Badge tone="good" testid="default-address">default</Badge>
                 </Show>
@@ -151,10 +153,11 @@ export function WalletAddresses(): JSX.Element {
               <Show when={!address().isDefault}>
                 <button
                   type="button"
-                  data-testid={`make-default-${address().ledger}`}
-                  onClick={() => makeDefault(address().ledger)}
+                  data-testid={`make-default-${address().name}`}
+                  onClick={() => makeDefault(address().name)}
                 >
-                  Make {address().paymentPointer.split("/")[0]} this ledger
+                  Make {address().paymentPointer.split("/")[0]} pay in{" "}
+                  {assetLabel(address().name)}
                 </button>
               </Show>
             </li>
@@ -163,4 +166,9 @@ export function WalletAddresses(): JSX.Element {
       </ul>
     </div>
   );
+}
+
+/** A wallet address's asset for people, from its name: `xrp` is XRP. */
+export function assetLabel(name: string): string {
+  return name.toUpperCase();
 }

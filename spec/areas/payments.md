@@ -11,10 +11,20 @@ Not supported: SPSP ([open-payments](../decisions/open-payments.md)), card autho
 
 ## Wallet addresses
 
-- **One wallet address per ledger,** since a wallet address has one asset: `https://<name>/pay/<ledger name>`, where the ledger's name is its name for people, its asset (`usd`, `xrp`, `dsusd`, `rlusd`, or `hub-xrp` for a hub's; `LedgerId::wallet_name`), never its slug, and the name before it is one of [the node's names](#the-nodes-names) ([scheme-names](../decisions/scheme-names.md)).
-- **`$name` names the default ledger:** the one the owner chose, or else the lowest active one. Grants and resources record every wallet address as its `/pay/<ledger name>` form, so changing the default never moves a grant or a payment to another ledger.
+- **One wallet address per asset,** since a wallet address has one asset: `https://<name>/pay/<asset>`, where the asset is named for people (`usd`, `xrp`, `dsusd`, `rlusd`; `LedgerId::wallet_name`), never by a ledger's slug, and the name before it is one of [the node's names](#the-nodes-names) ([scheme-names](../decisions/scheme-names.md), [one-address-per-asset](../decisions/one-address-per-asset.md)). No address names a hub, or any other place where the owner keeps money, so that choice never shows in a URL that payers and grants keep.
+- **It books on the ledger the asset arrives on:** its settlement hub's where the node runs one, since peers settle only over hubs and so everything that arrives over Interledger arrives there ([hubs-only](../decisions/hubs-only.md)), and the asset's own ledger otherwise, such as the stub's in a debug build. What arrives is booked there, with no conversion into the owner book of the asset; where it stays is the owner's choice ([below](#where-received-money-is-kept)). An incoming payment the owner creates is on the ledger of one of the addresses, and on no other.
+- **`$name` names the default asset:** the one the owner chose, or else the first active one, in the order of the ledgers. Grants and resources record every wallet address as its `/pay/<asset>` form, so changing the default, or where the owner keeps the money, never moves a grant or a payment to another asset.
 - **The key in `jwks.json`** signs the node's own requests to other wallets. It derives from the node key at `node/open-payments-client` ([identity.md](identity.md)), so restoring from the passphrase restores the key other wallets know the node by.
 - Open Payments is served only once the node is set up, under its names.
+
+## Where received money is kept
+
+What the node receives in an asset over Interledger arrives in its settlement hub. Where it stays is the owner's choice for each asset, a setting of the node's own that no URL shows (`SetFundsKept` in `proto/dassie/owner/v1/payments.proto`):
+
+- **In the hub, the default.** It stays where it arrived, ready to settle and to spend from: the node's own moves keep the hub account above its floor and withdraw nothing ([Settlement hubs](hubs.md#in-the-node)).
+- **On the owner's own account.** The node withdraws to the owner's account on the hub's underlying ledger what the hub account holds beyond its ceiling, back to the midpoint: the hub's own funding, whose floor and ceiling are the float, sweeps the rest.
+- **Kept per asset,** for a hub joined later too, and chosen by the owner over RPC, in the wallet's Settings, or for every asset with `dassie setup --keep-funds` ([Node](node.md#the-dassie-command)). An asset no hub of the node's realm holds, such as the stub's dollars, has no choice: it stays where it arrives.
+- **Deposits on the underlying ledger follow it.** Receive shows, for each asset, where the owner sends money on the XRP Ledger: while it is kept in the hub and the node's account there has its number, the hub's escrow with that number as the destination tag, which the node reports as the hub ledger's deposit address; otherwise the owner's own account. Only tag 0 needs the memo that opens an account, which the node's own first deposit writes; a later deposit names the account by its tag, from any wallet, and the hub credits it to that account ([The escrow](hubs.md#the-escrow)), which reads it from its counters as the owner's deposit ([The member's side](hubs.md#the-members-side)).
 
 ## The node's names
 
@@ -132,7 +142,7 @@ The node pays and creates incoming payments on other wallets as an Open Payments
 
 ## The owner's side
 
-The owner reaches all of this over RPC ([rpc.md](rpc.md)), without a grant, through the same code third-party clients go through: Receive creates an incoming payment on a ledger the owner picks, and the owner's pages list incoming and outgoing payments, owner's and clients' alike.
+The owner reaches all of this over RPC ([rpc.md](rpc.md)), without a grant, through the same code third-party clients go through: Receive creates an incoming payment at a wallet address the owner picks, on the ledger it books on, and the owner's pages list incoming and outgoing payments, owner's and clients' alike.
 
 ### The owner's Send
 
@@ -163,6 +173,7 @@ The owner may pay an ILP address and a shared secret, as Receive hands them out 
 ## Decisions
 
 - [open-payments](../decisions/open-payments.md): Open Payments in full as its specs define it, no SPSP, and GNAP tokens even to create incoming payments.
+- [one-address-per-asset](../decisions/one-address-per-asset.md): one wallet address per asset, booking on the ledger it arrives on, and where received money is kept the owner's setting, in the hub by default.
 - [owner-ledger](../decisions/owner-ledger.md): the owner's group, which the receiver and payer book into, and why the owner's endpoints never convert.
 - [exchange-rates](../decisions/exchange-rates.md): rates and fees, which make quotes probe.
 - [secrets-at-rest](../decisions/secrets-at-rest.md): tokens stored as hashes.

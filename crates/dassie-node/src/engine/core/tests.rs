@@ -5017,6 +5017,18 @@ fn funding_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
     core
 }
 
+/// The owner of `core` keeps what it receives in XRP on the own account,
+/// so its XRP hub withdraws what is beyond the ceiling
+/// (spec/areas/payments.md#where-received-money-is-kept).
+fn keep_xrp_on_own_account(core: &mut Core) {
+    use crate::store::FundsKept;
+
+    core.store
+        .set_funds_kept(&["xrp"], FundsKept::OwnAccount)
+        .unwrap();
+    core.set_funds_kept(Some("xrp"), FundsKept::OwnAccount);
+}
+
 /// Moves the core's time on by `ms`, then by a few ledgers' closes, each
 /// a funding check: the XRP Ledger account, silent for long, connects
 /// again and syncs first. What was submitted is validated.
@@ -5132,8 +5144,10 @@ fn the_node_keeps_its_hub_between_floor_and_ceiling() {
     assert_eq!((made[1].tag, made[1].key), (5, None));
     assert_eq!(made[1].amount, middle - 100_000);
 
-    // Credited, then peers' settlements taken past the ceiling: withdrawn
-    // to the midpoint, counting the account reserve.
+    // Credited, then peers' settlements taken past the ceiling, with what
+    // the node receives kept on the owner's own account: withdrawn to the
+    // midpoint, counting the account reserve.
+    keep_xrp_on_own_account(&mut core);
     hub.account(&mut core, middle, opening + made[1].amount);
     let balance = 12_000_000;
     hub.account(&mut core, balance, opening + made[1].amount);
@@ -5835,8 +5849,10 @@ fn an_owner_book_funds_the_hub_and_never_peers() {
     );
     assert_eq!(owner_xrp(&core).1, 0, "and is no longer held");
 
-    // Credited, then taken past the ceiling: withdrawn to the owner book's
+    // Credited, then taken past the ceiling, with what the node receives
+    // kept on the owner's own account: withdrawn to the owner book's
     // account.
+    keep_xrp_on_own_account(&mut core);
     let fees = hub.rules.terms.fees;
     let p = Policies::DEFAULT.connector.max_packet_amount;
     let credit = Policies::DEFAULT.peer_credit;

@@ -737,8 +737,16 @@ fn hub() -> BoxedStrategy<Method> {
 /// Open Payments: the wallet addresses, payments and grants.
 fn payments() -> BoxedStrategy<Method> {
     prop_oneof![
-        field(LEDGERS)
-            .prop_map(|ledger| Method::SetDefaultLedger(proto::SetDefaultLedgerRequest { ledger })),
+        field(&["usd", "xrp", "dsusd", "hub-xrp", "stub+usd"]).prop_map(|name| {
+            Method::SetDefaultWalletAddress(proto::SetDefaultWalletAddressRequest { name })
+        }),
+        (
+            field(&["usd", "xrp", "dsusd", "rlusd", "hub-xrp"]),
+            any::<i32>()
+        )
+            .prop_map(|(name, funds_kept)| {
+                Method::SetFundsKept(proto::SetFundsKeptRequest { name, funds_kept })
+            }),
         (
             field(LEDGERS),
             proptest::option::of(number()),

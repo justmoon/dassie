@@ -124,8 +124,14 @@ pub struct LedgerView {
     /// What the underlying ledger holds back, never spendable.
     pub reserve: u64,
     /// Where the owner sends money to fund it, if anywhere: its asset's
-    /// address.
+    /// address, or for a hub's ledger, the hub's escrow, once the node's
+    /// account there has its number.
     pub deposit_address: Option<String>,
+    /// The destination tag a deposit to `deposit_address` must carry: for
+    /// a hub's ledger, the number of the node's account, which names it to
+    /// the hub (spec/areas/hubs.md#the-escrow). `None` where any payment
+    /// to the address arrives.
+    pub deposit_tag: Option<u32>,
     /// Who issues what it settles in, for a token: an address on its
     /// underlying ledger.
     pub issuer: Option<String>,
@@ -1219,6 +1225,19 @@ impl Core {
         let owner = self.account(ledger, AccountName::EquityOwner).ok()?;
         let group = self.ledger.group_balance(owner)?;
         let asset = active.asset.and_then(|asset| self.assets.get(&asset));
+        // A deposit to a hub's escrow names the node's account by its tag,
+        // once the account has its number and the hub agreed on it; the
+        // first deposit, which opens it, is the node's own.
+        let (deposit_address, deposit_tag) = match self.hub_account(*id) {
+            Some(account) => match (account.number(), account.view()) {
+                (Some(number), Some(_)) => (
+                    Some(dassie_xrpl::AccountId(account.terms().escrow).to_address()),
+                    Some(number.0),
+                ),
+                _ => (None, None),
+            },
+            None => (asset.and_then(|asset| asset.asset.address()), None),
+        };
         Some(LedgerView {
             id: ledger,
             scheme: id.as_str().to_string(),
@@ -1226,7 +1245,8 @@ impl Core {
             owner_pending: group.debits_pending,
             on_ledger_balance: active.scheme.balance(),
             reserve: active.scheme.reserve(),
-            deposit_address: asset.and_then(|asset| asset.asset.address()),
+            deposit_address,
+            deposit_tag,
             issuer: active.scheme.issuer(),
             faucet: asset.is_some_and(|asset| asset.asset.has_faucet()),
             status: match active.failed {

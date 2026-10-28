@@ -4,8 +4,10 @@
 //! the DSUSD hub), over the IPC socket (spec/areas/hubs.md#in-the-node).
 //! Amounts are in the hub's asset, which its scheme names.
 //!
-//! - `dassie hub status` shows each hub's account, its holds, the floor and
-//!   the ceiling the node keeps it between, and the move on its way.
+//! - `dassie hub status` shows each hub's account, its holds, the floor it
+//!   keeps the account above, and the ceiling it withdraws beyond when the
+//!   owner keeps what the node receives on the own account, and the move
+//!   on its way.
 //! - `dassie hub deposit <scheme> <amount>` and `dassie hub withdraw
 //!   <scheme> <amount>` move funds now, which pauses the node's own moves
 //!   of that hub for a while. A token hub's withdrawal may first have the
@@ -308,7 +310,8 @@ fn issuer_text(status: &proto::HubStatus) -> Option<String> {
     }
 }
 
-/// The floor, the ceiling, and whether the node moves funds by itself.
+/// The floor, the ceiling where the node withdraws beyond it, and whether
+/// the node moves funds by itself.
 fn keeps(status: &proto::HubStatus, now_ms: i64) -> String {
     let who = match (status.automatic, status.paused_until_unix_ms) {
         (false, _) => format!(
@@ -325,11 +328,21 @@ fn keeps(status: &proto::HubStatus, now_ms: i64) -> String {
         }
         (true, _) => "the node moves funds by itself".into(),
     };
-    format!(
-        "between {} and {}; {who}",
-        text(status, status.floor),
-        text(status, status.ceiling)
-    )
+    // spec/areas/payments.md#where-received-money-is-kept: what the node
+    // receives stays in the hub unless the owner keeps it on the own
+    // account, beyond the ceiling.
+    if status.sweeps {
+        format!(
+            "between {} and {}, what is beyond going to your own account; {who}",
+            text(status, status.floor),
+            text(status, status.ceiling)
+        )
+    } else {
+        format!(
+            "above {}, with what the node receives; {who}",
+            text(status, status.floor)
+        )
+    }
 }
 
 /// A move the owner gave up: what the other side may still show.
@@ -463,7 +476,13 @@ mod tests {
         );
         assert_eq!(
             keeps(&status, 0),
-            "between 0.4 XRP and 10 XRP; the node moves funds by itself"
+            "above 0.4 XRP, with what the node receives; the node moves funds by itself"
+        );
+        status.sweeps = true;
+        assert_eq!(
+            keeps(&status, 0),
+            "between 0.4 XRP and 10 XRP, what is beyond going to your own account; the node \
+             moves funds by itself"
         );
         status.paused_until_unix_ms = Some(60_000);
         assert!(keeps(&status, 0).contains("wait until 1970-01-01 00:01 UTC"));

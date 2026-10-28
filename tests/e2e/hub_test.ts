@@ -5,8 +5,10 @@
  * its owner's RPC; the two members fund their accounts in it from their
  * owner books of XRP, which peer with nobody, and peer over the hub alone.
  *
- * A client of one member pays the other's receiver twenty of the largest
- * packets, so the payer funds its hold toward the payee over the hub as it
+ * The payee's one wallet address for XRP books on the hub's ledger, where
+ * what it receives stays, and deposits there name its account by a tag. A
+ * client of one member pays the other's receiver on that ledger twenty of
+ * the largest packets, so the payer funds its hold toward the payee over the hub as it
  * pays; what arrived is what was sent, each member's books hold what its
  * accounts hold, and both members' books are unchanged once they restart.
  * The validators keep running meanwhile, so the hub does too. A node added
@@ -23,6 +25,7 @@ import {
   HUB_WITHIN_MS,
   hubBooks,
   joinedHub,
+  ledger,
   members,
   ownerFunds,
   pay,
@@ -30,6 +33,7 @@ import {
   peersOverHub,
   settledOverHub,
 } from "./settling.ts";
+import { FundsKept } from "@dassie/rpc/proto";
 import { HUB_LEDGER, HUB_SCHEME, Scenario } from "@dassie/dev/scenario";
 
 /** 2 XRP: twenty of the largest packets, so the payer funds its hold
@@ -59,6 +63,26 @@ test(
       const [payer, payee] = members(scenario);
       await joinedHub(scenario);
 
+      // The payee has one wallet address for XRP, which books on the hub's
+      // ledger, where what its peers pay arrives, and none names the hub;
+      // what it receives stays there, so a deposit goes to the escrow
+      // with its account's tag (spec/areas/payments.md#wallet-addresses).
+      const { walletAddresses } = await payee.rpc.call(
+        "listWalletAddresses",
+        {},
+      );
+      const xrp = walletAddresses.find((address) => address.name === "xrp");
+      assert(xrp, "no XRP wallet address");
+      assertEquals(xrp.ledger, HUB_LEDGER);
+      assertEquals(xrp.fundsKept, FundsKept.HUB);
+      assertEquals(xrp.depositLedger, HUB_LEDGER);
+      assert(
+        !walletAddresses.some((address) => address.url.includes("/pay/hub-")),
+        "an address names the hub",
+      );
+      const hubAccount = await ledger(payee, HUB_LEDGER);
+      assert(hubAccount.depositTag, "no destination tag for deposits");
+
       const [paid, received] = await Promise.all(
         [payer, payee].map(ownerFunds),
       );
@@ -67,7 +91,7 @@ test(
         [payer, payee],
         HUB_LEDGER,
         PAYMENT,
-        HUB_LEDGER,
+        xrp.ledger,
       );
       const { payments } = await payee.rpc.call("listIncomingPayments", {});
       const incoming = payments.find((p) => p.destinationAccount === address);
