@@ -176,6 +176,9 @@ fn swaps() {
                 vector["amountOut"].as_u64(),
                 "{vector}"
             );
+        } else if let Some(start) = vector["start"].as_u64() {
+            let out = snapshot.packet_out(from, to, start, amount_in);
+            assert_eq!(out, vector["amountOut"].as_u64(), "{vector}");
         } else {
             let out = snapshot.swap_out(from, to, amount_in);
             assert_eq!(out, vector["amountOut"].as_u64(), "{vector}");

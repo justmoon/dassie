@@ -155,10 +155,10 @@ Snapshots replace the feed ([peer-swaps](../decisions/peer-swaps.md)): a node's 
 - **The grid:** the drops each ladder's amounts are for, strictly ascending and each below 100%. It is in the snapshot, so tuning it needs no new version.
 - **Per method** the node offers whose ledger it prices, a tag of its scheme's ID, a bid, an ask, and a ladder for each:
   - **The tag** is a truncated SHA-256 of the scheme's ID under a domain of its own (`method_tag`). A reader can use only methods whose schemes it runs, so it knows their IDs and computes their tags. Methods are in ascending order of their tags, each once, and a node never offers two methods whose tags collide.
-  - **The bid** is the least the node gives, in its virtual accounting unit, for a unit of the method's ledger that comes in; **the ask** the most it asks for a unit that goes out; its fee and spread folded into both. A quote of zero closes its side: the node does not convert it.
-  - **The bid ladder** says, for each drop of the grid, the most that can come in on the method with its last unit still given at least the bid less the drop. **The ask ladder** says the most that can go out with its last unit still costing at most the ask over one less the drop: what a unit of the virtual unit buys, less the drop. A closed side's ladder is all zero.
+  - **The bid** is the least the node gives, in its virtual accounting unit, for a unit of the method's ledger that comes in; **the ask** the most it asks for a unit that goes out; its fee and spread folded in. A quote of zero closes its side: the node does not convert it.
+  - **The bid ladder** says, for each drop of the grid, the most that can come in on the method with its last unit still given at least the bid less the drop. **The ask ladder** says the most that can go out with its last unit still costing at most the ask over one less the drop: what a unit of the virtual unit buys, less the drop. A swap's position on the ask ladder is what has come in, valued at the top-of-book price: the amount in times its method's bid over this ask, in this method's units. So both ladders are read by what has come in, and where a swap stands on each needs nothing but the quotes. A closed side's ladder is all zero.
 
-The promise is only that a pair's bid over ask never says more than the node gives, at any size both ladders cover ([peer-swaps](../decisions/peer-swaps.md#decision)). How a node keeps it is its own; the format carries no curve.
+The promise is only that a pair's bid over ask never says more than the node gives, at any size both ladders cover ([peer-swaps](../decisions/peer-swaps.md#decision)): a packet gets at least the rate of the levels its last unit falls in, counting the swap's packets before it, since a node prices a packet at its last unit. How a node keeps it is its own; the format carries no curve.
 
 ### Numbers
 
@@ -182,7 +182,9 @@ Anyone may ask a node for its snapshot over UDP, once. A request is padded with 
 
 ### Reading a snapshot
 
-A reader prices a swap from one method to another as the one's bid over the other's ask, walked along the one's bid ladder and the other's ask ladder as steps (`src/swap.rs`): within the levels both have reached, a unit in gets at least the bid less its level's drop, times one less the other's, over the ask. Every step rounds against the reader. `Snapshot::swap_out` gives the least an amount gets, and nothing for an amount beyond what both ladders cover; `Snapshot::swap_at_least` gives the largest swap whose every unit still gets a rate the reader names, such as its own curve and costs ask for. Property tests check both against the ladders' promise exactly.
+A reader prices a swap from one method to another as the one's bid over the other's ask, walked along the one's bid ladder and the other's ask ladder as steps (`src/swap.rs`), each indexed by what has come in: the bid ladder by the amount, the ask ladder by its worth at the top-of-book price. Within the levels both have reached, a unit in gets at least the bid less its level's drop, times one less the other's, over the ask; a step ends where a level of either ladder does. Every step rounds against the reader. `Snapshot::swap_out` gives the least an amount gets, and nothing for an amount beyond what both ladders cover; `Snapshot::swap_at_least` gives the largest swap whose every unit still gets a rate the reader names, such as its own curve and costs ask for.
+
+A node prices a packet at its last unit, so the walk's sum is what a swap gets sent as one packet per step, not as one packet across steps. A packet across steps gets at least the rate of the step its last unit falls in, on all of it: `Snapshot::packet_out` gives that, the minimum a sender sets on each packet, from where the packet starts in the swap and its size. Property tests check all three against the ladders' promise exactly.
 
 ## Test vectors
 

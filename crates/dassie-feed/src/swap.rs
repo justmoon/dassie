@@ -3,15 +3,24 @@
 //! another's.
 //!
 //! A swap from method `a` to method `b` is priced as `a`'s bid over `b`'s
-//! ask, walked along both ladders as steps. While what has come in on `a`
-//! is within its bid ladder's amount at drop `d_i`, each unit of it is
-//! worth at least `bid · (1 − d_i)`; while what has gone out on `b` is
-//! within its ask ladder's amount at drop `d_j`, each unit of it costs at
-//! most `ask / (1 − d_j)`. So within both, a unit of `a` gets at least
+//! ask, walked along both ladders as steps. Both ladders are indexed by
+//! what has come in on `a`: the bid ladder by the amount, the ask ladder by
+//! what it is worth at the top-of-book price, `amount · bid / ask`, in `b`'s
+//! units. While what has come in is within the bid ladder's amount at drop
+//! `d_i`, each unit of it is worth at least `bid · (1 − d_i)`; while it is
+//! worth at most the ask ladder's amount at drop `d_j`, each unit out costs
+//! at most `ask / (1 − d_j)`. So within both, a unit of `a` gets at least
 //! `bid · (1 − d_i) · (1 − d_j) / ask` of `b`, and the walk adds that up a
-//! step at a time, rounding every step against the reader: what it gets
-//! down, what it pays up. A swap beyond either ladder's last amount is not
-//! covered, and is not priced.
+//! step at a time, each step ending where a level of either ladder does,
+//! and rounds what each step gets down. A swap beyond either ladder's last
+//! amount is not covered, and is not priced.
+//!
+//! **A node prices a packet at its last unit,** after the swap's packets
+//! before it, so a swap sent as one packet per step gets at least the
+//! walk's sum. One packet across several steps gets at least the rate of
+//! the step its last unit falls in on all of it, not the walk's sum:
+//! [`Snapshot::packet_out`] is the least any packet is promised, the
+//! minimum to set on it.
 //!
 //! Everything is exact integer arithmetic, so every reader prices a
 //! snapshot alike.
@@ -65,6 +74,36 @@ impl Snapshot {
         (swap.amount_in == amount_in).then_some(swap.amount_out)
     }
 
+    /// The least a packet of `amount` on the method tagged `from` gets out
+    /// on the one tagged `to`, when `start` came in on the swap's packets
+    /// before it: `amount` at the rate of the step the packet's last unit,
+    /// `start + amount`, falls in, rounded down. A node prices a packet at
+    /// its last unit, so this is the minimum to set on it. `None` when the
+    /// snapshot does not price the pair or the last unit is beyond what the
+    /// ladders cover, as for [`swap_out`](Self::swap_out).
+    #[must_use]
+    pub fn packet_out(
+        &self,
+        from: MethodTag,
+        to: MethodTag,
+        start: u64,
+        amount: u64,
+    ) -> Option<u64> {
+        let walk = Walk::new(self, from, to)?;
+        if amount == 0 {
+            return Some(0);
+        }
+        let last = start.checked_add(amount)?;
+        let level = |tops: &[u64; LEVELS]| tops.iter().position(|&top| last <= top);
+        let (level_in, level_out) = (level(&walk.bid_amounts)?, level(&walk.ask_tops)?);
+        let (Some(&keep_in), Some(&keep_out)) =
+            (walk.keep_bp.get(level_in), walk.keep_bp.get(level_out))
+        else {
+            return None;
+        };
+        Some(StepRate::new(walk.bid, walk.ask, keep_in, keep_out).out_floor(amount))
+    }
+
     /// The largest swap from the method tagged `from` to the one tagged
     /// `to` whose every unit still gets at least `threshold`, at the lower
     /// bound the ladders give, and the least it gets out; or `None` when
@@ -82,7 +121,10 @@ struct Walk {
     bid: Quote,
     ask: Quote,
     bid_amounts: [u64; LEVELS],
-    ask_amounts: [u64; LEVELS],
+    /// The most that can come in within each level of the ask ladder: the
+    /// largest amount worth at most the level's amount at the top-of-book
+    /// price, `amount · bid ≤ level · ask`.
+    ask_tops: [u64; LEVELS],
     /// One less each drop, in basis points: at least 1.
     keep_bp: [u16; LEVELS],
 }
@@ -105,11 +147,22 @@ impl Walk {
             .grid_bp
             .map(|drop| DROP_BP_LIMIT.saturating_sub(drop));
         assert!(keep_bp.iter().all(|&keep| keep > 0), "a checked grid");
+        let ask_tops = ask_ladder.amounts().map(|amount| {
+            // `amount · ask / bid`, rounded down: below 2^64 · 2^24.
+            let scaled = u128::from(amount) * u128::from(ask.mantissa());
+            let shift = ask.exponent() - bid.exponent();
+            saturate(div_shifted(
+                scaled,
+                u128::from(bid.mantissa()),
+                shift,
+                false,
+            ))
+        });
         Some(Self {
             bid,
             ask,
             bid_amounts: bid_ladder.amounts(),
-            ask_amounts: ask_ladder.amounts(),
+            ask_tops,
             keep_bp,
         })
     }
@@ -124,7 +177,7 @@ impl Walk {
         for _ in 0..2 * LEVELS + 2 {
             let (Some(&top_in), Some(&top_out), Some(&keep_in), Some(&keep_out)) = (
                 self.bid_amounts.get(level_in),
-                self.ask_amounts.get(level_out),
+                self.ask_tops.get(level_out),
                 self.keep_bp.get(level_in),
                 self.keep_bp.get(level_out),
             ) else {
@@ -138,7 +191,7 @@ impl Walk {
                 level_in += 1;
                 continue;
             }
-            let room_out = top_out.saturating_sub(swap.amount_out);
+            let room_out = top_out.saturating_sub(swap.amount_in);
             if room_out == 0 {
                 level_out += 1;
                 continue;
@@ -147,20 +200,11 @@ impl Walk {
             if threshold.is_some_and(|threshold| !rate.at_least(threshold)) {
                 return swap;
             }
-            let take_in = room_in.min(limit_in - swap.amount_in);
-            let gets = rate.out_floor(take_in);
-            if gets <= room_out {
-                swap.amount_in += take_in;
-                swap.amount_out += gets;
-                if take_in == room_in {
-                    level_in += 1;
-                }
-            } else {
-                // The ask ladder's level ends first: pay what reaches it.
-                swap.amount_in += rate.in_ceil(room_out).min(take_in);
-                swap.amount_out += room_out;
-                level_out += 1;
-            }
+            let take_in = room_in.min(room_out).min(limit_in - swap.amount_in);
+            swap.amount_in += take_in;
+            swap.amount_out = swap.amount_out.saturating_add(rate.out_floor(take_in));
+            level_in += usize::from(take_in == room_in);
+            level_out += usize::from(take_in == room_out);
         }
         assert!(
             swap.amount_in >= limit_in || level_in >= LEVELS || level_out >= LEVELS,
@@ -198,13 +242,6 @@ impl StepRate {
         // Below 2^64 · 2^52.
         let scaled = u128::from(amount) * self.numerator;
         saturate(div_shifted(scaled, self.denominator, self.shift, false))
-    }
-
-    /// What must go in for `amount` out, rounded up, at most `u64::MAX`.
-    fn in_ceil(&self, amount: u64) -> u64 {
-        // Below 2^64 · 2^51.
-        let scaled = u128::from(amount) * self.denominator;
-        saturate(div_shifted(scaled, self.numerator, -self.shift, true))
     }
 
     /// Whether the rate is at least `threshold`:

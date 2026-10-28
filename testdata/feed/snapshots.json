@@ -661,7 +661,7 @@
     },
     {
       "amountIn": 50000000,
-      "amountOut": 19847333,
+      "amountOut": 19847287,
       "from": "hub-xrpl-testnet-dsusd",
       "to": "hub-xrpl-testnet-xrp"
     },
@@ -672,8 +672,29 @@
       "to": "hub-xrpl-testnet-xrp"
     },
     {
-      "amountIn": 5117050880,
-      "amountOut": 1635622683,
+      "amountIn": 1000000,
+      "amountOut": 397212,
+      "from": "hub-xrpl-testnet-dsusd",
+      "start": 0,
+      "to": "hub-xrpl-testnet-xrp"
+    },
+    {
+      "amountIn": 49000000,
+      "amountOut": 19404997,
+      "from": "hub-xrpl-testnet-dsusd",
+      "start": 1000000,
+      "to": "hub-xrpl-testnet-xrp"
+    },
+    {
+      "amountIn": 50000000,
+      "amountOut": 19801018,
+      "from": "hub-xrpl-testnet-dsusd",
+      "start": 0,
+      "to": "hub-xrpl-testnet-xrp"
+    },
+    {
+      "amountIn": 4821246051,
+      "amountOut": 1543013476,
       "from": "hub-xrpl-testnet-dsusd",
       "threshold": [
         0,
@@ -682,8 +703,8 @@
       "to": "hub-xrpl-testnet-xrp"
     },
     {
-      "amountIn": 305354557,
-      "amountOut": 119930880,
+      "amountIn": 301327878,
+      "amountOut": 118357819,
       "from": "hub-xrpl-testnet-dsusd",
       "threshold": [
         39,
@@ -741,7 +762,7 @@
     },
     {
       "amountIn": 50000000,
-      "amountOut": 123636396,
+      "amountOut": 123635529,
       "from": "hub-xrpl-testnet-xrp",
       "to": "hub-xrpl-testnet-dsusd"
     },
@@ -752,8 +773,29 @@
       "to": "hub-xrpl-testnet-dsusd"
     },
     {
+      "amountIn": 1000000,
+      "amountOut": 2482539,
+      "from": "hub-xrpl-testnet-xrp",
+      "start": 0,
+      "to": "hub-xrpl-testnet-dsusd"
+    },
+    {
+      "amountIn": 49000000,
+      "amountOut": 120672261,
+      "from": "hub-xrpl-testnet-xrp",
+      "start": 1000000,
+      "to": "hub-xrpl-testnet-dsusd"
+    },
+    {
+      "amountIn": 50000000,
+      "amountOut": 123134960,
+      "from": "hub-xrpl-testnet-xrp",
+      "start": 0,
+      "to": "hub-xrpl-testnet-dsusd"
+    },
+    {
       "amountIn": 1918894080,
-      "amountOut": 3868098876,
+      "amountOut": 3840607863,
       "from": "hub-xrpl-testnet-xrp",
       "threshold": [
         0,
@@ -763,7 +805,7 @@
     },
     {
       "amountIn": 1918894080,
-      "amountOut": 3868098876,
+      "amountOut": 3840607863,
       "from": "hub-xrpl-testnet-xrp",
       "threshold": [
         39,
@@ -773,7 +815,7 @@
     },
     {
       "amountIn": 1918894080,
-      "amountOut": 3868098876,
+      "amountOut": 3840607863,
       "from": "hub-xrpl-testnet-xrp",
       "threshold": [
         2,
@@ -783,7 +825,7 @@
     },
     {
       "amountIn": 29982720,
-      "amountOut": 74325753,
+      "amountOut": 74325628,
       "from": "hub-xrpl-testnet-xrp",
       "threshold": [
         247,
