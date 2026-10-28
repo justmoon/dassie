@@ -809,4 +809,14 @@ fn a_registration_whose_url_fails_ends() {
     settle(&mut network, failing + 2 * bucket);
     assert!(!registered(&network, 2), "its registration ended");
     assert!(registered(&network, 1), "one whose URL answers stays");
+    // Its URL answers again: it registers again, and stays registered,
+    // its failures before counting no more.
+    network.cut_one_way.clear();
+    let start = network.now;
+    while !registered(&network, 2) {
+        settle(&mut network, 10_000);
+        assert!(network.now < start + 10 * failing, "it registers again");
+    }
+    settle(&mut network, failing + 2 * bucket);
+    assert!(registered(&network, 2), "and stays registered");
 }

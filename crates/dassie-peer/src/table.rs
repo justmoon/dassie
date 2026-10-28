@@ -727,11 +727,13 @@ impl UrlCheck {
     }
 
     /// Takes in what a check found at `now_ms`: failing since the first
-    /// failure, until it passes both ways again.
+    /// failure, until it answers over QUIC with nothing failing. An HTTPS
+    /// check we could not make, its client busy or missing, says nothing
+    /// either way.
     pub fn settle(&mut self, now_ms: u64) {
         if self.quic == Some(false) || self.https == Some(false) {
             self.failing_since_ms.get_or_insert(now_ms);
-        } else if self.passes() {
+        } else if self.quic == Some(true) {
             self.failing_since_ms = None;
         }
     }

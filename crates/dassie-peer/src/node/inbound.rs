@@ -659,6 +659,11 @@ impl PeerNode {
         let expires_ms = now.saturating_add(self.config.registration_ttl_ms);
         if let Some(entry) = self.table.get_mut(&sender) {
             entry.key.get_or_insert(key);
+            // A registration probed anew counts its URL's failures from
+            // now: only failures while registered end it.
+            if entry.registration.is_none() {
+                entry.url = crate::table::UrlCheck::NEW;
+            }
             let registered_ms = entry.registration.as_ref().map_or(now, |r| r.registered_ms);
             entry.registration = Some(Registration {
                 registered_ms,

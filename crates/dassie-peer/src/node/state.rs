@@ -503,6 +503,8 @@ impl PeerNode {
         for id in expired {
             if let Some(entry) = self.table.get_mut(&id) {
                 entry.registration = None;
+                // What ended it says nothing of a registration to come.
+                entry.url = crate::table::UrlCheck::NEW;
             }
             self.drop_source(&id, Sources::REGISTERED);
             self.lists.served_changed = true;
