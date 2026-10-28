@@ -147,7 +147,11 @@
             </tr>
             <tr>
               <td>You hold for your peers; Your peers hold for you</td>
-              <td>The holds, peer by peer, with their total.</td>
+              <td>
+                The holds, peer by peer, with their total. Beside each of
+                your holds, Share: that peer's share of what you have in the
+                hub.
+              </td>
             </tr>
           </tbody>
         </table>
@@ -165,6 +169,18 @@
         for you works the same way round: it is what that peer can spend
         through your node, and your node is paid from it. Holds start at
         nothing, and grow when a peer asks to be settled with.
+      </p>
+      <p>
+        <strong>Share</strong> is each peer's allotment, its share of what
+        you have in the hub, your balance and your holds. While that covers
+        every peer in full, every share is the full amount. When it does
+        not, every peer first gets enough to carry a full load of payments,
+        core peers before the peers that use your node as their way in, and
+        the rest goes to those that earned you the most fees. Every peer can
+        always count on one largest packet. A busy peer may get more than
+        its share, up to the full amount, from what the others leave unused,
+        but never another peer's packet. A hold above its share stays, and
+        shrinks as the peer takes from it.
       </p>
       <p>
         Your node keeps a generous amount in the hub, its target: a thousand

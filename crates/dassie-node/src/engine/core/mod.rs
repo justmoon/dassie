@@ -14,6 +14,7 @@
 
 mod downlinks;
 mod events;
+mod hub_allotment;
 mod hub_events;
 mod hub_funding;
 mod hub_moves;

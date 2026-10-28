@@ -260,17 +260,35 @@ export interface HoldRow {
   /** The other side's account in the hub. */
   account: number;
   amount: bigint;
+  /**
+   * For a hold of ours toward a peer: the peer's share of what the node can
+   * hold in the hub.
+   */
+  allotment?: bigint;
 }
 
 /** The holds, in the node's order: by peer when there is one. */
 export function holdRows(
-  holds: readonly { peer: string; account: number; amount: bigint }[],
+  holds: readonly {
+    peer: string;
+    account: number;
+    amount: bigint;
+    allotment?: bigint;
+  }[],
 ): HoldRow[] {
   return holds.map((hold) => ({
     peer: hold.peer === "" ? undefined : hold.peer,
     account: hold.account,
     amount: hold.amount,
+    allotment: hold.allotment,
   }));
+}
+
+/** Whether any hold says its peer's share. */
+export function holdsAllotted(
+  holds: readonly { allotment?: bigint }[],
+): boolean {
+  return holds.some((hold) => hold.allotment !== undefined);
 }
 
 /** The sum of the holds' amounts. */

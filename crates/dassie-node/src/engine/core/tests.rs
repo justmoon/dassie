@@ -7380,6 +7380,10 @@ mod deposit_on_demand;
 // operations race them.
 mod move_races;
 
+// How a node shares what it can hold toward its peers over a hub among
+// them.
+mod hold_allotment;
+
 /// The package's directory, as cargo and nextest name it to a test they
 /// run, never `env!`'s from when the test compiled: a build is reused in
 /// other checkouts of the repository, whose files are their own.

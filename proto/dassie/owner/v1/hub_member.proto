@@ -33,6 +33,14 @@ message HubHold {
   uint32 account = 2;
   // What is left in it.
   uint64 amount = 3;
+  // For a hold of ours toward a peer the node peers with over the hub: the
+  // peer's allotment, its share of what the node can hold there. While that
+  // covers every peer, the default credit; otherwise first the least hold,
+  // core peers before downlinks, then the rest by the fees each earned the
+  // node. A busy peer may take more, up to the default credit, from what
+  // the others leave unused, never what another needs for a largest packet.
+  // A hold above it is not taken back: it shrinks as the peer takes from it.
+  optional uint64 allotment = 4;
 }
 
 // A move between the hub and the owner book of its asset, on the node's XRP

@@ -242,10 +242,22 @@ pub struct Held {
     /// What the node keeps in the hub, what it put in: the balance, the
     /// reserves and its holds toward peers.
     pub kept: u64,
+    /// What the node holds toward its peers: the credit it extends them,
+    /// paid in advance.
+    pub ours: u64,
     /// What deposits credited it.
     pub deposited: u64,
     /// What withdrawals took from it, ledger fees included.
     pub withdrawn: u64,
+}
+
+impl Held {
+    /// What the node can have on hold toward its peers: its balance and its
+    /// holds toward them.
+    #[must_use]
+    pub const fn pool(&self) -> u64 {
+        self.balance.saturating_add(self.ours)
+    }
 }
 
 /// What the moves are decided from, in the hub asset's smallest unit.
@@ -861,6 +873,7 @@ mod tests {
             held: Some(Held {
                 balance,
                 kept,
+                ours: 0,
                 deposited: 7,
                 withdrawn: 3,
             }),

@@ -393,6 +393,9 @@ fn moving_text(status: &proto::HubStatus, moving: &proto::HubMove) -> String {
     said
 }
 
+/// Each hold, and for one of ours toward a peer, the peer's allotment: its
+/// share of what the node can hold in the hub
+/// (spec/decisions/hold-allotment.md).
 fn holds(status: &proto::HubStatus, holds: &[proto::HubHold], way: &str) -> String {
     if holds.is_empty() {
         return "no holds".into();
@@ -403,7 +406,11 @@ fn holds(status: &proto::HubStatus, holds: &[proto::HubHold], way: &str) -> Stri
         } else {
             format!("{} (account {})", hold.peer, hold.account)
         };
-        format!("{} {way} {who}", text(status, hold.amount))
+        let mut said = format!("{} {way} {who}", text(status, hold.amount));
+        if let Some(allotment) = hold.allotment {
+            said.push_str(&format!(", its share {}", text(status, allotment)));
+        }
+        said
     }))
 }
 
@@ -554,6 +561,40 @@ mod tests {
         status.frozen_since_unix_ms = None;
         assert!(issuer_text(&status).is_some_and(|text| text.contains("pays out nothing")));
         assert!(brief(&status).contains("catching up"));
+    }
+
+    // spec/decisions/hold-allotment.md: a hold of ours toward a peer says
+    // the peer's share; a peer's toward us, and one toward an account the
+    // node does not peer with, have none.
+    #[test]
+    fn holds_say_their_allotment() {
+        let status = proto::HubStatus {
+            scheme: "hub-xrpl-testnet-xrp".into(),
+            ..Default::default()
+        };
+        let paying = [
+            proto::HubHold {
+                peer: "dA".into(),
+                account: 7,
+                amount: 500_000_000,
+                allotment: Some(450_000_000),
+            },
+            proto::HubHold {
+                account: 9,
+                amount: 300_000_000,
+                ..Default::default()
+            },
+        ];
+        let said = holds(&status, &paying, "to");
+        let lines: Vec<&str> = said.lines().map(str::trim).collect();
+        assert_eq!(
+            lines,
+            [
+                "0.5 XRP to dA (account 7), its share 0.45 XRP",
+                "0.3 XRP to account 9"
+            ]
+        );
+        assert_eq!(holds(&status, &[], "from"), "no holds");
     }
 
     // A hub's amounts are in its asset, which its scheme names last.
