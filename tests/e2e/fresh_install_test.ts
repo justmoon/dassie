@@ -25,6 +25,7 @@ import {
 import type { Page } from "puppeteer-core";
 import { click, text, type } from "./browser.ts";
 import {
+  ANY_FEED_PORT,
   DASSIE,
   dassie,
   HTTPS_PORT,
@@ -33,8 +34,11 @@ import {
   NO_RELAY,
   PEBBLE_API_ROOT,
   PEBBLE_DIRECTORY,
+  PEBBLE_ISSUING_ROOT,
   Process,
   run,
+  STANDALONE_HTTP_PORT,
+  STANDALONE_HTTPS_PORT,
   startActivated,
   startBrowser,
   startPebble,
@@ -72,7 +76,7 @@ function expectedNodeId(phrase: string): string {
 async function assertServedByPebble(): Promise<void> {
   const apiRoot = await readFile(PEBBLE_API_ROOT, "utf8");
   const dispatcher = new Agent({ connect: { ca: apiRoot } });
-  const response = await fetch("https://localhost:15000/roots/0", {
+  const response = await fetch(PEBBLE_ISSUING_ROOT, {
     dispatcher,
   });
   const issuingRoot = await response.text();
@@ -218,9 +222,11 @@ test(
     const daemon = new Process("dassie", DASSIE, [
       "daemon",
       "--http-port",
-      "18880",
+      `${STANDALONE_HTTP_PORT}`,
       "--https-port",
-      "18843",
+      `${STANDALONE_HTTPS_PORT}`,
+      "--feed-listen",
+      ANY_FEED_PORT,
     ], {
       env: {
         DASSIE_STATE_DIRECTORY: `${dir}/state`,
@@ -231,7 +237,7 @@ test(
     });
     // The daemon listens on its ports before it publishes its IPC socket,
     // which it does only once it answers there, so `init` waits for both.
-    await waitForPort(18843);
+    await waitForPort(STANDALONE_HTTPS_PORT);
     await waitForSocket(`${dir}/ipc.sock`);
     const browser = await startBrowser(dir);
     try {
@@ -246,7 +252,9 @@ test(
       );
       assertMatch(
         setupUrl ?? "",
-        /^https:\/\/localhost:18843\/setup\/[0-9a-f]{64}$/,
+        new RegExp(
+          `^https://localhost:${STANDALONE_HTTPS_PORT}/setup/[0-9a-f]{64}$`,
+        ),
       );
       const page = await browser.newPage();
       await page.goto(setupUrl!, { waitUntil: "load" });

@@ -38,7 +38,6 @@ import { DASSIE, missingTools, PORT_OFFSETS, startBrowser } from "./harness.ts";
 
 /** Ports of their own, beside the other suites'. */
 const PORT_OFFSET = PORT_OFFSETS["third_party_test.ts"];
-const CLIENT_PORT = 18_961;
 /** Several packets, within the credit the nodes extend each other. */
 const AMOUNT = 250_000_000n;
 /** What a quote for it debits: the probed one for one, less STREAM's 1%
@@ -70,10 +69,12 @@ async function serveClient(scenario: Scenario, jwk: object) {
     ["localhost"],
     layout.caRoot,
   );
-  const origin = `https://localhost:${CLIENT_PORT}`;
+  // At a port from the system: it is known once the server listens, before
+  // anything asks it.
+  let origin = "";
   const finished: URLSearchParams[] = [];
   const server = await serve({
-    port: CLIENT_PORT,
+    port: 0,
     hostname: "127.0.0.1",
     cert: tls.certificatePem,
     key: tls.keyPem,
@@ -100,6 +101,7 @@ async function serveClient(scenario: Scenario, jwk: object) {
     }
     return new Response("Not Found", { status: 404 });
   });
+  origin = `https://localhost:${server.addr.port}`;
   return {
     server,
     walletAddress: `${origin}/client`,

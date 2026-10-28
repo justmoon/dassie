@@ -21,9 +21,16 @@ import type { Page } from "puppeteer-core";
 import { RpcClient } from "@dassie/rpc";
 import { ipcConnector } from "@dassie/rpc/ipc";
 import { ChildProcess, type Exit, STOP_GRACE_MS } from "@dassie/dev/process";
-import { layout, socketPath } from "@dassie/dev/scenario";
+import { HTTPS_PORT_BASE, layout, socketPath } from "@dassie/dev/scenario";
 import { attribute, click, count, text, until } from "./browser.ts";
-import { DASSIE, missingTools, PORT_OFFSETS, startBrowser } from "./harness.ts";
+import {
+  DASSIE,
+  DEV_DASHBOARD_PORT,
+  DEV_PROXY_PORT,
+  missingTools,
+  PORT_OFFSETS,
+  startBrowser,
+} from "./harness.ts";
 
 const missing = await missingTools();
 if (missing) console.warn(`skipping the dev environment tests: ${missing}`);
@@ -31,9 +38,9 @@ if (missing) console.warn(`skipping the dev environment tests: ${missing}`);
 const ROOT = new URL("../../", import.meta.url).pathname;
 /** Away from the dev environment's own ports and the other tests'. */
 const OFFSET = PORT_OFFSETS["dev_test.ts"];
-const PROXY = 443 + OFFSET;
-const DASHBOARD = 10_100 + OFFSET;
-const httpsPort = (index: number) => 5_001 + index + OFFSET;
+const PROXY = DEV_PROXY_PORT;
+const DASHBOARD = DEV_DASHBOARD_PORT;
+const httpsPort = (index: number) => HTTPS_PORT_BASE + 1 + index + OFFSET;
 /** How soon a second dev server on the same state exits. */
 const STOPS_AT_ONCE_MS = 30_000;
 /**
@@ -264,7 +271,9 @@ test(
         const href = await attribute(page, "wallet-d1", "href");
         assertMatch(
           href ?? "",
-          /^https:\/\/d1\.localhost:16443\/#dassie-dev-login=[0-9a-f]{64}$/,
+          new RegExp(
+            `^https://d1\\.localhost:${PROXY}/#dassie-dev-login=[0-9a-f]{64}$`,
+          ),
         );
         const wallet = await browser.newPage();
         await wallet.goto(href!, { waitUntil: "load" });
