@@ -6,6 +6,7 @@ mod prepare;
 mod response;
 mod swaps;
 
+pub use prepare::MONEY_IN_FLIGHT;
 pub use response::{Posted, Responded};
 pub use swaps::{SWAP_PREFIX, swap_scheme};
 

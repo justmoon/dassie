@@ -44,6 +44,22 @@ describe("swapsView", () => {
     assertEquals(view.details, []);
   });
 
+  it("says when the node waited, and waits now, for room of its own", () => {
+    const status = create(GetSwapStatusResponseSchema, {
+      byItself: true,
+      sent: 5n,
+      rejected: 3n,
+      shortOfRoom: 3n,
+      waitingForRoom: 1n,
+    });
+    const view = swapsView(status, false)!;
+    assertEquals(view.tone, "good");
+    assertEquals(view.details.slice(2), [
+      "Waited 3 times for room of its own: a funding of its hold toward a peer, or its packets in flight to finish.",
+      "Waiting for room of its own with 1 peer now: it swaps again as soon as there is.",
+    ]);
+  });
+
   it("names a swap that paid though rejected, and dropped outcomes", () => {
     const status = create(GetSwapStatusResponseSchema, {
       byItself: true,

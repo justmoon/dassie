@@ -25,15 +25,19 @@
 //!   an owner's, never less than its size at the owner's rate, rounded
 //!   up.
 //!   At most [`PACKETS_PER_PEER`] are in flight with a peer, within the cap
-//!   on money in flight with it, and at most
-//!   [`MAX_SWAPS_IN_FLIGHT`](super::MAX_SWAPS_IN_FLIGHT) in all.
-//! - **Refusals.** A T04 or T05 the node gave itself, before the swap
-//!   left, is for want of room on its own way out: its hold toward the
-//!   peer on the method it pays on, or its cap on money in flight there.
-//!   That method waits until the room grows, a funding of the hold landing
-//!   or packets in flight resolving, and no longer. The peer's T04 and T05,
-//!   or the way back's, back off from the peer, doubling, as STREAM does,
-//!   but for at most a hub funding's landing ([`MAX_ROOM_BACKOFF_MS`]);
+//!   on money in flight with it, at most
+//!   [`MAX_SWAPS_IN_FLIGHT`](super::MAX_SWAPS_IN_FLIGHT) in all, and none
+//!   while the swap endpoint of its ledger holds its share of the
+//!   connector's packets in flight.
+//! - **Refusals.** The node's own T04 for its hold toward the peer, and its
+//!   connector's T05 at its cap on money in flight there, given before the
+//!   swap left, are for want of room it follows on its own way out
+//!   (`SwapOutcome::short_of_own_room`). That method waits until the room
+//!   grows, a funding of the hold landing or packets in flight resolving,
+//!   and no longer. Every other T04 and T05, the peer's, the way back's or
+//!   another of the node's own bounds', backs off from the peer, doubling,
+//!   as STREAM does, but for at most a hub funding's landing
+//!   ([`MAX_ROOM_BACKOFF_MS`]);
 //!   every other temporary or relative error backs off as STREAM does. F08
 //!   sizes the next packets by the amounts it names; F02 and every other
 //!   final error stop the swaps with the peer until its snapshot changes,
@@ -85,8 +89,9 @@ pub const OWNER_SWAP_MS: u64 = 60_000;
 const FIRST_BACKOFF_MS: u64 = dassie_stream::Policy::DEFAULT.retry_delay_start_ms;
 const MAX_BACKOFF_MS: u64 = dassie_stream::Policy::DEFAULT.retry_delay_max_ms;
 
-/// The longest wait after the peer, or the way back, refused a swap for
-/// want of room (T04, T05): one hub operation's landing, as long as a hub
+/// The longest wait after a swap was refused for want of room the node
+/// does not follow (T04, T05), the peer's, the way back's or one of the
+/// node's own bounds': one hub operation's landing, as long as a hub
 /// member waits for one before it sends it again. Settlement runs over
 /// hubs, so the peer's room comes back as a funding lands on its hub or
 /// its packets resolve, which take less: a longer wait would leave room
@@ -379,7 +384,7 @@ impl PeerSwaps {
             stats.below_minimum += 1;
             self.stopped = Some(Stop::BelowMinimum);
             None
-        } else if for_room(code) && outcome.refused_here {
+        } else if for_room(code) && outcome.short_of_own_room {
             stats.short_of_room += 1;
             self.wait_for_room(sent, now_ms);
             None
@@ -738,6 +743,17 @@ impl Core {
             in_flight: slot.map_or(0, |slot| slot.money_to),
             available: slot.is_some_and(|slot| slot.available),
         }
+    }
+
+    /// Whether the swap endpoint on `ledger` has room for another packet in
+    /// flight, within its share of the connector's table: past it the
+    /// connector refuses the swap (T05), which a swap ending on the ledger,
+    /// an outcome the service looks again at, frees.
+    fn swap_endpoint_has_room(&self, ledger: LedgerId) -> bool {
+        let most = self.connector.config().max_pending_per_endpoint;
+        self.connector
+            .swap_endpoint(ledger)
+            .is_some_and(|endpoint| self.connector.pending_from(endpoint) < most)
     }
 
     /// Ends the wait of each method short of the node's own room whose
@@ -1144,6 +1160,7 @@ impl Core {
         if !peer.open(now)
             || peer.short_on(pay_on, now)
             || self.swaps.in_flight() >= MAX_SWAPS_IN_FLIGHT
+            || !self.swap_endpoint_has_room(pay_on)
         {
             return Err(Drive::Waiting);
         }
@@ -1248,7 +1265,7 @@ mod tests {
             result,
             came_back: None,
             too_large: None,
-            refused_here: false,
+            short_of_own_room: false,
         }
     }
 
@@ -1271,9 +1288,11 @@ mod tests {
         peer.heard(sent, outcome, stats, NOW)
     }
 
-    // The peer's T04 and T05, or the way back's, back off as STREAM does,
-    // the first wait, then twice the last, but for at most a hub funding's
-    // landing; a swap fulfilled starts it again.
+    // The peer's T04 and T05, the way back's, and the node's own at a bound
+    // whose room it does not follow, such as its swap endpoint's share of
+    // packets in flight, back off as STREAM does, the first wait, then
+    // twice the last, but for at most a hub funding's landing; a swap
+    // fulfilled starts it again.
     #[test]
     fn the_peers_refusals_for_room_back_off_up_to_a_landing() {
         let mut peer = PeerSwaps::default();
@@ -1325,12 +1344,7 @@ mod tests {
             );
         }
         assert_eq!(peer.until_ms, NOW + MAX_BACKOFF_MS);
-        // Refused here, they are no want of room either.
-        let mut here = outcome(Err(ErrorCode::T01_PEER_UNREACHABLE));
-        here.refused_here = true;
-        hear(&mut peer, &here, 10);
         assert!(peer.short.is_empty());
-        assert_eq!(peer.until_ms, NOW + MAX_BACKOFF_MS);
     }
 
     // A T04 or T05 the node gave itself backs off from nothing: the method
@@ -1352,7 +1366,7 @@ mod tests {
                 available: true,
             };
             let mut here = outcome(Err(code));
-            here.refused_here = true;
+            here.short_of_own_room = true;
             assert_eq!(hear_counted(&mut peer, &here, &swap, &mut stats), None);
             assert_eq!((stats.short_of_room, stats.backoffs), (1, 0));
             assert!(peer.open(NOW), "no backoff");

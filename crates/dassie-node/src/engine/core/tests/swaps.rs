@@ -23,13 +23,18 @@ const HUB: LedgerId = LedgerId::HubXrplTestnetXrp;
 /// Two nodes peered over the stub and [`StubTwo`](super::StubTwo), each
 /// hold funded, with the rates both learn, so a swap converts.
 pub(super) fn pair(seed: u64) -> Sim {
-    let mut sim = Sim::with(seed, 2, 1, BTreeMap::new(), Settling::StubHub(4));
+    pair_with(seed, 4)
+}
+
+/// [`pair`], each stub taking up to `commitments` of a peer's packets.
+pub(super) fn pair_with(seed: u64, commitments: usize) -> Sim {
+    let mut sim = Sim::with(seed, 2, 1, BTreeMap::new(), Settling::StubHub(commitments));
     sim.loss_per_mille = 0;
     for index in 0..2 {
         let now = sim.now;
         sim.step(index, |core| {
-            core.add_scheme(STUB_TWO, r#"{"commitments":4}"#.into())
-                .unwrap();
+            let config = format!(r#"{{"commitments":{commitments}}}"#);
+            core.add_scheme(STUB_TWO, config).unwrap();
             let rates = crate::sim::RATES.map(|(code, rate)| (code, rate, now));
             core.set_rates(&rates);
         });

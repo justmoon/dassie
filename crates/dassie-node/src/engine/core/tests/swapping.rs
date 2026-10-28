@@ -15,13 +15,14 @@ use dassie_ilp::ErrorCode;
 use dassie_ledger::{LedgerId, Name};
 
 use super::super::{
-    EngineError, MAX_ROOM_BACKOFF_MS, OwnerSwap, PACKETS_PER_PEER, Quoting, SnapshotSource,
-    SwapEnd, SwapStats,
+    EngineError, MAX_ROOM_BACKOFF_MS, NewSwap, OwnerSwap, PACKETS_PER_PEER, Quoting,
+    SnapshotSource, SwapEnd, SwapStats,
 };
-use super::swaps::{holds, pair};
+use super::swaps::{holds, pair, pair_with};
 use super::{STUB_TWO, stub_two_room_toward};
 use crate::sim::{Sim, key};
 use crate::store::PeerSettings;
+use dassie_settlement::MAX_STUB_COMMITMENTS;
 
 const USD: LedgerId = LedgerId::StubUsd;
 /// [`StubTwo`](super::StubTwo)'s ledger.
@@ -59,6 +60,13 @@ fn deposit(sim: &mut Sim, index: usize, scheme: &str, amount: u64) {
 /// them they hold as much of each.
 fn skewed(seed: u64) -> Sim {
     let mut sim = pair(seed);
+    deposit(&mut sim, 1, STUB_TWO, 200 * UNIT);
+    sim
+}
+
+/// [`skewed`], each stub taking up to `commitments` of a peer's packets.
+fn skewed_with(seed: u64, commitments: usize) -> Sim {
+    let mut sim = pair_with(seed, commitments);
     deposit(&mut sim, 1, STUB_TWO, 200 * UNIT);
     sim
 }
@@ -428,6 +436,73 @@ fn a_peer_that_stays_short_is_tried_once_a_landing() {
         // And it still tries: it backs off from it now.
         assert!(tried > 0, "seed {seed}");
         stub_two_room_toward(name(0), None);
+    }
+}
+
+// A swap that finds its swap endpoint's share of the packets in flight full
+// waits for a swap on that ledger to end, not for a long wait: the service
+// sends again as soon as one does. The connector's T05 at that share is no
+// want of room the node follows, so a swap it refuses there backs off for
+// at most a landing, as the peer's does.
+#[test]
+fn a_swap_at_its_endpoints_share_goes_once_another_ends() {
+    for seed in SEEDS {
+        let mut sim = skewed_with(seed, MAX_STUB_COMMITMENTS);
+        assert!(
+            sim.run_until_or(sim.now + 60_000, both_read_snapshots),
+            "seed {seed}"
+        );
+        // Swaps take seconds to answer meanwhile.
+        sim.latency_ms = (2_000, 2_000);
+        let most = sim.core(0).connector.config().max_pending_per_endpoint;
+        let endpoint = sim.core(0).connector.swap_endpoint(USD).unwrap();
+        let pending = |sim: &Sim| sim.core(0).connector.pending_from(endpoint);
+        let swap = NewSwap {
+            peer: key(1).node_id(),
+            pay_on: USD,
+            back_on: HUB,
+            amount: 100_000,
+            minimum: 1,
+            timeout_ms: 30_000,
+        };
+        let mut refused = None;
+        sim.step(0, |core| {
+            for _ in 0..2 * most {
+                if core.connector.pending_from(endpoint) >= most {
+                    break;
+                }
+                core.send_swap(swap).unwrap();
+            }
+            let sent = core.send_swap(swap).unwrap();
+            while let Some(outcome) = core.poll_swap_outcome() {
+                if outcome.request_id == sent.request_id {
+                    refused = Some(outcome);
+                }
+            }
+        });
+        assert_eq!(pending(&sim), most, "seed {seed}");
+        let refused = refused.expect("refused at once");
+        assert_eq!(refused.result, Err(ErrorCode::T05_RATE_LIMITED));
+        assert!(!refused.short_of_own_room, "seed {seed}");
+        // While the share is full, the service sends nothing; once a swap
+        // on the ledger ends, it sends at once.
+        let (filled_at, sent) = (sim.now, stats(&sim, 0).sent);
+        let swapped = |sim: &Sim| stats(sim, 0).sent > sent;
+        assert!(sim.run_until_or(filled_at + 60_000, swapped), "seed {seed}");
+        let went = sim.now;
+        let ended = sim
+            .core(0)
+            .packets(None, 100_000)
+            .into_iter()
+            .filter(|record| record.source == endpoint)
+            .filter_map(|record| record.resolved_at_ms)
+            .filter(|&resolved| resolved > filled_at)
+            .min();
+        let ended = ended.expect("a swap on the ledger ended");
+        assert!(
+            ended <= went && went - ended <= MAX_ROOM_BACKOFF_MS,
+            "seed {seed}: one ended at {ended}, the next went at {went}"
+        );
     }
 }
 

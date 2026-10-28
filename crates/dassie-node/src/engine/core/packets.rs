@@ -306,8 +306,8 @@ impl Core {
     /// Sends an ILP packet to a peer, on its method on `ledger`: a
     /// Prepare's is the slot the connector chose, a response's the one its
     /// Prepare came on. A Prepare that cannot be sent fails at once; a
-    /// response that cannot leaves the peer to time out. Returns whether
-    /// the Prepare failed so, before it left the node.
+    /// response that cannot leaves the peer to time out. Returns the code a
+    /// Prepare failed with so, before it left the node.
     fn send_to_peer(
         &mut self,
         now: u64,
@@ -315,10 +315,8 @@ impl Core {
         request_id: u32,
         prepare: Option<usize>,
         response: Option<usize>,
-    ) -> bool {
-        let Some(&node) = self.endpoint_peers.get(&endpoint) else {
-            return false;
-        };
+    ) -> Option<ErrorCode> {
+        let &node = self.endpoint_peers.get(&endpoint)?;
         let (packet, timeout_ms) = match (prepare, response) {
             (Some(length), _) => {
                 let packet = self.out.get(..length).unwrap_or_default();
@@ -326,7 +324,7 @@ impl Core {
                 (packet, expiry.saturating_sub(now))
             }
             (None, Some(length)) => (self.up.get(..length).unwrap_or_default(), u64::MAX),
-            (None, None) => return false,
+            (None, None) => return None,
         };
         let packet = packet.to_vec();
         // The method the connector chose, by structure, never by room: one
@@ -339,7 +337,7 @@ impl Core {
             self.peer
                 .send_released(now, &node, request_id, &packet, &release);
             self.after_peer();
-            return false;
+            return None;
         }
         let sent = match self.method_on(&node, ledger) {
             None => HubSent::Unreachable,
@@ -372,7 +370,7 @@ impl Core {
                 "the peer could not be reached",
             )),
         };
-        let failed = failure.is_some();
+        let failed = failure.map(|(code, _)| code);
         if let Some((code, message)) = failure {
             self.connector.fail_forwarded(
                 now,
@@ -403,13 +401,13 @@ impl Core {
 
     /// Sends a Prepare the connector forwarded to a BTP client or a peer.
     /// What is for the node's own endpoints, its callers deliver. Returns
-    /// whether it failed before it left the node: a peer's method over a
-    /// hub whose hold toward the peer does not cover it, or a peer that
-    /// could not be reached.
+    /// the code it failed with before it left the node: T04 for a peer's
+    /// method over a hub whose hold toward the peer does not cover it, T01
+    /// for a peer that could not be reached.
     // Panics only on a broken invariant: callers send out only what goes
     // out.
     #[allow(clippy::panic)]
-    pub(super) fn forward_out(&mut self, now: u64, forwarded: Forwarded) -> bool {
+    pub(super) fn forward_out(&mut self, now: u64, forwarded: Forwarded) -> Option<ErrorCode> {
         match forwarded.to {
             EndpointId::Btp(link) => {
                 let packet = self
@@ -424,7 +422,7 @@ impl Core {
                         packet,
                     },
                 ));
-                false
+                None
             }
             EndpointId::Local(_) => panic!("a packet for a local endpoint sent out"),
             EndpointId::Peer(endpoint) => self.send_to_peer(

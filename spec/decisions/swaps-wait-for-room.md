@@ -11,9 +11,10 @@
 
 ## Decision
 
-- **Room on the node's own way out: wait for it to grow.** A T04 or T05 the node gave its own swap before it left is for want of its own room on the method it pays on. That method waits, sending nothing, until the room grows from what it was when the swap went: the hold has more room, as a funding lands or a packet is rejected, less is in flight, or the method comes back. The swap goes in the step that sees it. The peer is not backed off from, and its other methods go on.
+- **Room on the node's own way out: wait for it to grow.** Two refusals the node gives its own swap before it leaves are for want of room it follows on the method it pays on: a T04 for its hold toward the peer, which did not cover the swap, and its connector's T05 at its cap on money in flight there. That method waits, sending nothing, until the room grows from what it was when the swap went: the hold has more room, as a funding lands or a packet is rejected, less is in flight, or the method comes back. The swap goes in the step that sees it. The peer is not backed off from, and its other methods go on.
 - **At most STREAM's longest backoff,** for a cause the room does not show, such as the owner's funds on that ledger.
-- **Room on the peer's side: back off, for at most a hub landing.** A T04 or T05 from the peer, or from the way back, backs off from the peer as STREAM does, the first wait, then twice the last, but never longer than a hub member waits for an operation to land. The peer's room comes back as a funding lands on its hub or its packets resolve, both within that.
+- **Room it does not follow: back off, for at most a hub landing.** A T04 or T05 from the peer, from the way back, or from another of the node's own bounds, such as a spending cap, backs off from the peer as STREAM does, the first wait, then twice the last, but never longer than a hub member waits for an operation to land. The peer's room comes back as a funding lands on its hub or its packets resolve, both within that.
+- **A swap endpoint's share of packets in flight is never met:** while it is full, no swap goes on that ledger, and one goes again in the step a swap there ends. Its room frees with any swap on the ledger, with any peer, which no wait on one peer's method follows.
 - **Every other temporary or relative error backs off as STREAM does,** up to its longest wait: a peer that cannot be reached or does not answer is no question of room.
 
 ## Accepted
@@ -26,6 +27,7 @@
 
 - *STREAM's backoff for every T04 and T05:* it waits out its backoff after room came back, a growing share of the time as settlement keeps up.
 - *A short backoff for every refusal:* the node's own room would be tried blind, and still late by up to a wait after its funding landed.
+- *Waiting for the node's own room on every T04 and T05 its connector gives:* some of its bounds, the swap endpoint's share of packets in flight and a spending cap, free in ways the room a method waits on does not show, so the method would sit out the longest wait.
 - *A longest wait tuned to the landings measured:* it would fit one network's hubs; a hub member's wait for an operation is a rule every hub runs.
 - *Learning the peer's landings from the node's own fundings on that hub:* state per hub for a bound the hub's rule gives, and a peer's T04 may be for its hub's balance, which a deposit on the XRP Ledger refills, not the hub.
 - *Ending the backoff when the peer's hold toward the node grows,* which the node sees as payee: the peer's refusal does not say it lacked that hold, and the peer may not yet have read its funding when the node does.

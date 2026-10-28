@@ -34,6 +34,13 @@ pub(super) struct Refusal {
     too_large: Option<AmountTooLarge>,
 }
 
+/// The message of the T05 at the cap on money in flight with a peer
+/// ([`Config::max_in_flight`]), which a node reads in a Reject of its own
+/// connector to tell it from the other T05s: the one want of room on its way
+/// out that its packets in flight to the peer show
+/// (spec/areas/connector.md#the-swap-service).
+pub const MONEY_IN_FLIGHT: &str = "too much money in flight";
+
 pub(super) const fn refuse(code: ErrorCode, message: &'static str) -> Refusal {
     Refusal {
         code,
@@ -520,10 +527,7 @@ impl Connector {
             .map_or(0, |slot| slot.money_to);
         if (source.is_peer() && over(from, amount_in)) || (to.is_peer() && over(onward, amount_out))
         {
-            return Err(refuse(
-                ErrorCode::T05_RATE_LIMITED,
-                "too much money in flight",
-            ));
+            return Err(refuse(ErrorCode::T05_RATE_LIMITED, MONEY_IN_FLIGHT));
         }
         Ok(())
     }

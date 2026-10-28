@@ -114,12 +114,14 @@ pub struct SwapOutcome {
     pub came_back: Option<u64>,
     /// With F08, the amounts the reject named: the swap scales by them.
     pub too_large: Option<AmountTooLarge>,
-    /// Whether this node refused it before it left for the peer: its
-    /// connector at once, or its hold toward the peer, which did not cover
-    /// it. A T04 or T05 so is for want of room on the node's own way out,
-    /// which only the node's own hold, packets in flight or method can
-    /// give back; any other is the peer's, or the way back's.
-    pub refused_here: bool,
+    /// Whether this node refused it before it left for the peer, for want
+    /// of room on its own way out that it can see come back: T04 for its
+    /// hold toward the peer, which did not cover it, or T05 for its cap on
+    /// money in flight to the peer there. Every other refusal is not: the
+    /// peer's, the way back's, or one of this node's whose room it does
+    /// not follow, such as the swap endpoint's share of packets in flight
+    /// or a spending cap.
+    pub short_of_own_room: bool,
 }
 
 /// One of the node's swaps in flight: what its outcome says.
@@ -129,8 +131,8 @@ struct InFlight {
     back_on: LedgerId,
     condition: [u8; 32],
     came_back: Option<u64>,
-    /// Refused before it left the node.
-    refused_here: bool,
+    /// Refused before it left the node, for want of room it follows.
+    short_of_own_room: bool,
 }
 
 /// The node's swaps: the secret their fulfillments derive from, the next
@@ -295,7 +297,7 @@ impl Core {
             back_on: swap.back_on,
             condition,
             came_back: None,
-            refused_here: false,
+            short_of_own_room: false,
         };
         assert!(self.swaps.in_flight.insert(request_id, sent).is_none());
         let outcome = self.connector.send_swap(
@@ -310,16 +312,19 @@ impl Core {
         );
         match outcome {
             Outcome::Forward(forwarded) => {
-                // Failed before it left: its outcome comes as the
-                // connector expires it.
-                if self.forward_out(now, forwarded) {
-                    self.refused_here(request_id);
+                // Failed before it left, for want of room in the hold: its
+                // outcome comes as the connector expires it.
+                if self.forward_out(now, forwarded) == Some(ErrorCode::T04_INSUFFICIENT_LIQUIDITY) {
+                    self.short_of_own_room(request_id);
                 }
             }
             Outcome::Respond(length) => {
                 let response = self.out.get(..length).unwrap_or_default();
+                let short = in_flight_refusal(response);
                 let (result, too_large) = result_of(response);
-                self.refused_here(request_id);
+                if short {
+                    self.short_of_own_room(request_id);
+                }
                 self.swap_outcome(request_id, swap.pay_on, result, too_large);
             }
             // The request ID is new, as above; the source is the swap
@@ -357,10 +362,10 @@ impl Core {
     }
 
     /// Marks the swap sent with `request_id` as refused before it left the
-    /// node.
-    fn refused_here(&mut self, request_id: u32) {
+    /// node, for want of room it follows.
+    fn short_of_own_room(&mut self, request_id: u32) {
         if let Some(sent) = self.swaps.in_flight.get_mut(&request_id) {
-            sent.refused_here = true;
+            sent.short_of_own_room = true;
         }
     }
 
@@ -391,7 +396,7 @@ impl Core {
     ) {
         let sent = self.swaps.in_flight.remove(&request_id);
         let came_back = sent.and_then(|sent| sent.came_back);
-        let refused_here = sent.is_some_and(|sent| sent.refused_here);
+        let short_of_own_room = sent.is_some_and(|sent| sent.short_of_own_room);
         if self.swaps.outcomes.len() >= MAX_SWAP_OUTCOMES {
             self.swaps.outcomes.pop_front();
             self.swaps.dropped = self.swaps.dropped.saturating_add(1);
@@ -402,7 +407,7 @@ impl Core {
             result,
             came_back,
             too_large,
-            refused_here,
+            short_of_own_room,
         });
     }
 
@@ -501,6 +506,17 @@ impl Core {
             );
         }
     }
+}
+
+/// Whether `response`, the node's own connector's answer, is its T05 at the
+/// cap on money in flight with the peer, not at another of its bounds.
+fn in_flight_refusal(response: &[u8]) -> bool {
+    matches!(
+        Response::decode_exact(response),
+        Ok(Response::Reject(reject))
+            if reject.code == ErrorCode::T05_RATE_LIMITED
+                && reject.message == dassie_connector::MONEY_IN_FLIGHT
+    )
 }
 
 /// Fulfilled, or the code of the Reject and, for F08, the amounts it
