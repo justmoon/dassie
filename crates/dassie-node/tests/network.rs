@@ -824,15 +824,27 @@ fn an_error_event_fails_the_run() {
 
 // spec/decisions/crash-drift.md: over a pretend hub, the payer crashes again
 // and again while it pays the payee, each time with Fulfills on their way
-// to it, until the books drifted past what the link survives: the default
-// credit the payer answers with, less two triggers and twice the least
-// settlement, since over a hub the payee extends nothing of its own. The payee's room for the payer stays
-// short while the payer's books leave it nothing to settle, and the payee
-// withdraws it: the link is not saved (spec/decisions/own-fulfills.md). A
-// network that does not settle down for that is a run the simulation rules
-// out, not a failure.
+// to it, until the books drifted past what the link survives and the
+// payee's room for the payer is short, below one largest packet. What the
+// link survives is the default credit the payer answers with, plus the
+// payee's hold toward the payer, less two triggers and twice the least
+// settlement. The payee funded that hold when the payer asked it at the
+// start, the more if it had booked the payer's opening settlement first,
+// so it is read, never assumed. The payer's books leave it nothing to
+// settle, and the payee withdraws it: the link is not saved
+// (spec/decisions/own-fulfills.md). A network that does not settle down
+// for that is a run the simulation rules out, not a failure. It runs each
+// way, so it holds whichever of the two has the lower node ID, which wins
+// when both ask to peer at once.
 #[test]
 fn a_link_crashes_drifted_past_what_it_survives_is_ruled_out() {
+    crashes_past_what_it_survives(0, 1);
+    crashes_past_what_it_survives(1, 0);
+}
+
+/// [`a_link_crashes_drifted_past_what_it_survives_is_ruled_out`], with
+/// node `payer` paying node `payee`.
+fn crashes_past_what_it_survives(payer: usize, payee: usize) {
     let mut sim = Sim::with(78, 2, 1, BTreeMap::new(), Settling::StubHub(4));
     sim.loss_per_mille = 0;
     let peered = |sim: &Sim| !sim.peers(0).is_empty() && !sim.peers(1).is_empty();
@@ -840,15 +852,39 @@ fn a_link_crashes_drifted_past_what_it_survives_is_ruled_out() {
         sim.run_until_or(START + 600_000, peered),
         "the nodes did not peer"
     );
-    let (payer, payee) = (0, 1);
-    // The payee extends nothing of its own over a hub, so the link
-    // survives less than the default credit.
-    let credit = u128::from(Policies::DEFAULT.peer_credit);
+    let withdrawn = key(payer).node_id();
+    let packet = Policies::DEFAULT.connector.max_packet_amount;
+    let settles = 2 * u128::from(policy::trigger(packet)) + 2 * u128::from(policy::minimum(packet));
+    // The payee's hold toward the payer, which is the credit it extends,
+    // and its room for the payer, by its books.
+    let standing = |sim: &Sim| {
+        let peer = sim
+            .core(payee)
+            .network()
+            .peers
+            .into_iter()
+            .find(|peer| peer.id == withdrawn)
+            .unwrap();
+        let hold = peer.peering.first().credit_out;
+        (hold, peer.owed.unwrap() + i128::from(hold))
+    };
+    // What the link survives (spec/areas/settlement.md#credit), and whether
+    // the drift is past it with the payee's room for the payer short
+    // (spec/areas/network.md#advertised-peers).
+    let survives = |sim: &Sim| {
+        let (hold, _) = standing(sim);
+        (u128::from(Policies::DEFAULT.peer_credit) + u128::from(hold)).saturating_sub(settles)
+    };
+    let stuck = |sim: &mut Sim| {
+        let (_, room) = standing(sim);
+        sim.drift(payer, payee).crashes > survives(sim)
+            && room < i128::from(policy::minimum(packet))
+    };
     // The payee's receiver took money: it posted a packet, and its Fulfill
     // is on its way.
     let took = |sim: &Sim| sim.payments.last().is_some_and(|p| received(sim, p) > 0);
     for _ in 0..60 {
-        if sim.drift(payer, payee).crashes > credit {
+        if stuck(&mut sim) {
             break;
         }
         sim.pay(payer, payee, 3_000_000_000, None, None);
@@ -859,10 +895,13 @@ fn a_link_crashes_drifted_past_what_it_survives_is_ruled_out() {
         }
         sim.run_until(sim.now + 30_000);
     }
-    let drift = sim.drift(payer, payee);
-    assert!(drift.crashes > credit, "{drift:?}");
+    assert!(
+        stuck(&mut sim),
+        "{:?} {:?}",
+        sim.drift(payer, payee),
+        standing(&sim)
+    );
     sim.run_until(sim.now + 600_000);
-    let withdrawn = key(payer).node_id();
     assert!(
         sim.withdrawn
             .iter()
