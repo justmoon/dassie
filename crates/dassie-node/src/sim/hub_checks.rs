@@ -212,13 +212,64 @@ pub(super) fn check_each(
 
 /// What a run over hubs still waits for before its books may be judged,
 /// if anything: a member's account that has not read its hub up to a
-/// recent block, or a move of its funds into or out of a hub on its way.
+/// recent block, a move of its funds into or out of a hub on its way, or,
+/// in a hub other than its first, an account in step that does not yet
+/// see what the hub last applied to it ([`read_up_in`]). In its first hub
+/// [`check_books_in`] tells by itself whether the member read up to the
+/// newest block; in another it cannot, so a run that judges the books as
+/// soon as nothing waits, as the `node` simulation's do after the heal,
+/// waits for that instead of judging a member a block behind.
 pub(super) fn waiting(sim: &Sim) -> Option<String> {
     places(sim).into_iter().find_map(|place| {
         check_in_step_in(sim, place, None)
             .err()
             .or_else(|| check_moved_in(sim, place, None).err())
+            .or_else(|| {
+                members_of(sim, place)
+                    .filter(|index| in_step_in(sim, *index, place) && !first_of(sim, *index, place))
+                    .find(|index| !read_up_in(sim, *index, place))
+                    .map(|index| {
+                        format!(
+                            "node {index} has not read its account in the hub at {place} up to \
+                             what the hub applied to it"
+                        )
+                    })
+            })
     })
+}
+
+/// Whether node `index` sees its account in the hub at `place` as the
+/// hub's honest validators have it: its balance, and each of its peers'
+/// holds toward it, the two its books in the hub hold
+/// ([`check_books_in`]). With no honest validator running, or no account
+/// there, there is nothing to read, and the checks say so.
+fn read_up_in(sim: &Sim, index: usize, place: usize) -> bool {
+    let hub = sim.hub_at(place);
+    let Some(ledger) = hub.ledger() else {
+        return true;
+    };
+    let member = dassie_hub::member::member_key(&key(index), &hub.id()).public_key();
+    let (Some(status), Some(number)) = (status_in(sim, index, place), ledger.account_of(&member))
+    else {
+        return true;
+    };
+    let Some(account) = ledger.account(number) else {
+        return true;
+    };
+    let units = dassie_hub::member::units;
+    let mut hub_has: Vec<(u32, u64)> = ledger
+        .holds()
+        .filter(|(_, hold)| hold.payee == number)
+        .map(|(_, hold)| (hold.payer.0, units(hold.amount)))
+        .collect();
+    let mut sees: Vec<(u32, u64)> = status
+        .taking
+        .iter()
+        .map(|hold| (hold.account, hold.amount))
+        .collect();
+    hub_has.sort_unstable();
+    sees.sort_unstable();
+    status.balance == units(account.balance) && sees == hub_has
 }
 
 /// How the run's hubs and their members stand, for a failure's message:
@@ -366,8 +417,11 @@ pub(super) fn check_losses(sim: &Sim) -> Result<(), String> {
 /// liar's claims, held back to just before their commitments expire, may
 /// land after, and its books are checked once it read them. How far it
 /// read, the node shows a simulation of its first hub only; in another,
-/// its books are checked once its account is in step. One whose account is
-/// not in step at all is left to [`check_in_step_in`].
+/// its books are checked once its account is in step, so a run first leaves
+/// the network calm long enough for it to read the hub, as the scripted
+/// runs' settling down does, or waits until it sees its account as the hub
+/// has it ([`waiting`]), as the `node` simulation does. One whose account
+/// is not in step at all is left to [`check_in_step_in`].
 pub(super) fn check_books_in(sim: &Sim, place: usize, liar: Option<usize>) -> Result<(), String> {
     let hub = sim.hub_at(place);
     let ledger = hub.ledger().ok_or("no honest validator runs")?;
@@ -478,6 +532,13 @@ fn outgoing_on(sim: &Sim) -> impl Iterator<Item = Moved> + '_ {
 /// them, paid what it sent, as
 /// [`checks::check_owner_books`](super::checks::check_owner_books) has it:
 /// a token's books follow its packets, not what the node read of the hub.
+///
+/// It leaves out the XRP an owner's XRP book pays a token hub's escrow as
+/// gas, which leaves that book for good (spec/decisions/token-hubs.md): a
+/// run that has a member top a token escrow up must not judge that
+/// member's XRP hub by it. None does: every run founds a token escrow with
+/// as much XRP as the testnet's faucet gives, far above the least gas, and
+/// only `node-hub-dsusd` drains it, which has no XRP hub.
 pub(super) fn check_owners_in(sim: &Sim, place: usize, paid_in: &[usize]) -> Result<(), String> {
     let hub = sim.hub_at(place);
     let ledger = ledger_of(hub);

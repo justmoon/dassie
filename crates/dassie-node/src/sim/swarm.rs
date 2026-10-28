@@ -373,15 +373,16 @@ fn settling(seed: u64) -> Settling {
 /// How rarely a seed draws a run over hubs: one in this many. A run over a
 /// hub takes ten times the wall time of one on the stub, or more, as its
 /// validators make a block every block interval, so that the runs over
-/// hubs, one in this many, take about as much of the `node` simulation's
-/// time in a campaign as the rest together.
+/// one hub, one in this many, would take about as much of the `node`
+/// simulation's time in a campaign as the rest together; the runs over two
+/// ([`TWO_HUBS_ONE_IN`]) add a quarter to that.
 const HUB_ONE_IN: u64 = 8;
 
 /// How rarely a run over hubs is over two: one in this many. Two hubs run
 /// two sets of validators, and each member reads both, so that such a run
-/// takes about twice the wall time of one over a hub: one in this many
-/// keeps the runs over hubs to about as much of a campaign as before, a
-/// quarter more.
+/// takes about twice the wall time of one over a hub: one in four makes
+/// the runs over hubs take about a quarter more of a campaign than runs
+/// over one hub alone would.
 const TWO_HUBS_ONE_IN: u64 = 4;
 
 /// The salt of the generator that draws a second hub: "hubs".
@@ -1205,6 +1206,13 @@ fn heal(
     if over_hub(options.settling) {
         peered_over_hub(sim)?;
     }
+    // Over two hubs, this check and the drift a heal that did not settle
+    // down is excused for ([`not_settled_down`]) are weaker than the books:
+    // what a node said it had on its way is in its peering's first
+    // method's units, while a settlement booked does not say on which
+    // method it came, so the bookings of both count toward it; and the
+    // credit and room of a link are its first method's alone. Telling the
+    // methods apart needs the ledger in the booking's event.
     for end in ends.iter().filter(|end| !end.ban) {
         // A ban of the peer while the node collects tells it at once.
         let banned = ends
@@ -1513,32 +1521,32 @@ mod tests {
     }
 
     // A share of the seeds over hubs draws two, from a generator of its
-    // own: the validators, and every other draw, are what the seed drew
-    // over one hub.
+    // own: which seeds are over hubs, and their validators, are what the
+    // hub's generator draws, as before there were two.
     #[test]
     fn a_share_of_the_runs_over_hubs_draws_two() {
-        let over: Vec<(u64, Settling)> = (0..800)
-            .map(|seed| (seed, settling(seed)))
-            .filter(|(_, settling)| over_hub(*settling))
-            .collect();
-        let two: Vec<u64> = over
-            .iter()
-            .filter(|(_, settling)| matches!(settling, Settling::Hubs(_)))
-            .map(|(seed, _)| *seed)
-            .collect();
-        eprintln!("seeds over two hubs: {two:?}");
-        assert!(
-            !two.is_empty() && two.len() < over.len() / 2,
-            "{} of {} runs over hubs are over two",
-            two.len(),
-            over.len()
-        );
-        for (seed, drawn) in over {
+        let mut over = 0;
+        let mut two = 0;
+        for seed in 0..800 {
+            let drawn = settling(seed);
             let mut hub = SeededRng::new(seed ^ 0x6875_6241);
-            assert_eq!(hub.below(HUB_ONE_IN), 0);
+            assert_eq!(
+                over_hub(drawn),
+                hub.below(HUB_ONE_IN) == 0,
+                "seed {seed}: {drawn:?}"
+            );
+            if !over_hub(drawn) {
+                continue;
+            }
+            over += 1;
+            two += usize::from(matches!(drawn, Settling::Hubs(_)));
             let validators = 4 + usize::try_from(hub.below(4)).unwrap();
             assert_eq!(drawn.hub_validators(), Some(validators), "seed {seed}");
         }
+        assert!(
+            two > 0 && two < over / 2,
+            "{two} of {over} runs over hubs are over two"
+        );
     }
 
     #[test]

@@ -16,8 +16,8 @@ const HUB_SEED: u64 = 33;
 
 /// The seed of a run over two hubs the tests run: one of the shortest in
 /// wall time, two members of an XRP hub and a DSUSD hub of 6 validators
-/// each, paying in both currencies through crashes mid-payment, a cut,
-/// failed commits and dropped connections to the fake XRP Ledger.
+/// each, paying in both currencies through crashes mid-payment, a cut and
+/// dropped connections to the fake XRP Ledger.
 const TWO_HUBS_SEED: u64 = 130;
 
 /// A seed passes, and run twice at once on two threads makes the same run:
@@ -80,6 +80,8 @@ fn a_random_seed_runs_over_two_hubs() {
         "prepares over the XRP hub",
         "prepares over the DSUSD hub",
         "settlements taken",
+        "crashes mid-payment",
+        "cuts",
         "ledger drops",
     ] {
         assert!(
