@@ -12,7 +12,7 @@ use crate::store::{BtpTokenRow, LedgerBatch};
 
 fn node(seed: u8) -> StoredNode {
     StoredNode {
-        id: IdentityKey::from_bytes(&[seed; 32]).node_id(),
+        id: dassie_identity::NodeId::from_bytes(&[seed; 24]),
         link_state: Some(vec![seed; 40]),
         sources: Sources::from_bits(Sources::MAJORITY.bits() | Sources::PEER.bits()),
         first_seen_ms: 10,
@@ -405,7 +405,7 @@ fn closing_a_channel_without_its_row_is_refused() {
 
 fn logged(seed: u8, position: u64, unsealed: bool) -> dassie_peer::names::Logged {
     use dassie_peer::names::{Commitment, Logged, Name, Unsealing};
-    let holder = IdentityKey::from_bytes(&[seed; 32]).node_id();
+    let holder = dassie_identity::NodeId::from_bytes(&[seed; 24]);
     Logged {
         commitment: Commitment([seed; 32]),
         position,
@@ -486,7 +486,7 @@ fn the_holders_round_trip() {
     assert!(store.load_peer().unwrap().holders.is_empty());
     let held = |name: &str, seed: u8| HeldName {
         name: Name::parse(name).unwrap(),
-        holder: IdentityKey::from_bytes(&[seed; 32]).node_id(),
+        holder: dassie_identity::NodeId::from_bytes(&[seed; 24]),
         expires_ms: 4_000 + u64::from(seed),
     };
     let (alice, bob) = (held("alice", 1), held("bob", 2));

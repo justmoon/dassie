@@ -43,7 +43,7 @@ export function relayState(relay: Relay | null): {
   if (relay === null) {
     return {
       text:
-        "None (DASSIE_RELAY is empty), so Open Payments clients cannot reach this node.",
+        "None (DASSIE_RELAY names none), so Open Payments clients cannot reach this node.",
       tone: "bad",
     };
   }

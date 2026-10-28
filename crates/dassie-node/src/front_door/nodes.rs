@@ -350,12 +350,11 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
-    use dassie_identity::IdentityKey;
 
     fn node(index: usize) -> NodeId {
-        let mut seed = [7u8; 32];
+        let mut seed = [7u8; 24];
         seed[..8].copy_from_slice(&u64::try_from(index).unwrap().to_le_bytes());
-        IdentityKey::from_bytes(&seed).node_id()
+        NodeId::from_bytes(&seed)
     }
 
     /// An open HTTP/1.1 connection's sender, and the other end, which

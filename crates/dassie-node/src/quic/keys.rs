@@ -408,6 +408,34 @@ mod tests {
         }
     }
 
+    // A server that proves the node's own Ed25519 key but names a foreign
+    // SLH-DSA key in its certificate is another node ID, and refused.
+    #[test]
+    fn a_foreign_slh_dsa_key_is_another_node() {
+        let wanted = key(1);
+        let der = wanted.to_pkcs8_der();
+        let pkcs8 = PrivatePkcs8KeyDer::from(der.as_bytes().as_slice());
+        let pair = KeyPair::from_pkcs8_der_and_sign_algo(&pkcs8, &PKCS_ED25519).unwrap();
+        let mut params = CertificateParams::new(vec!["dassie".to_owned()]).unwrap();
+        let mut value = SLH_DSA_EXTENSION_PREFIX.to_vec();
+        value.extend_from_slice(&[9; 32]);
+        params
+            .custom_extensions
+            .push(CustomExtension::from_oid_content(
+                &SLH_DSA_EXTENSION_ARC,
+                value,
+            ));
+        let certificate = params.self_signed(&pair).unwrap();
+        let identity = node_identity_of(certificate.der()).unwrap();
+        assert_eq!(identity.key(), wanted.public_key());
+        assert_ne!(identity.node_id(), wanted.node_id());
+        let verifier = PinnedServer::new(wanted.node_id());
+        let name = ServerName::try_from("dassie").unwrap();
+        let refused =
+            verifier.verify_server_cert(certificate.der(), &[], &name, &[], UnixTime::now());
+        assert!(refused.is_err());
+    }
+
     #[test]
     fn a_server_with_another_key_is_refused() {
         let wanted = key(1);

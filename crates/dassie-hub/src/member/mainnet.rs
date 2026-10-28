@@ -38,14 +38,14 @@ pub struct ListedValidator {
 /// until then it is kept here, beside the default hubs it vouches for.
 ///
 /// Empty until the project's mainnet validators run: an operator's step,
-/// which adds an entry for each, by its node ID, key, operator and
+/// which adds an entry for each, by its node ID, its two keys, operator and
 /// jurisdiction.
 pub const DEFAULT_MAINNET_VALIDATORS: &[ListedValidator] = &[];
 
 /// Why a list of validators is refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ListError {
-    /// Entry `i`'s key is no node key, or its ID is not the key's.
+    /// Entry `i`'s keys are no node's, or its ID is not the keys'.
     Entry(usize),
     /// Entry `i` names a node or an operator an earlier entry names.
     Repeated(usize),

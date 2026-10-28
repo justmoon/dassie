@@ -1342,7 +1342,7 @@ fn peers_accounts_leave_room_for_the_nodes_own() {
     });
     let mut downlinks = super::downlinks::Downlinks::default();
     for (seed, downlink) in [(1, false), (2, true), (3, false), (4, true)] {
-        let node = IdentityKey::from_bytes(&[seed; 32]).node_id();
+        let node = dassie_identity::NodeId::from_bytes(&[seed; 24]);
         let name = Name::new(node.as_str()).unwrap();
         if downlink {
             assert!(downlinks.fit(max_accounts, &node));
@@ -1376,9 +1376,9 @@ fn peers_accounts_leave_room_for_the_nodes_own() {
 
 /// The node of key `[seed, 1, ..]`.
 fn seeded_node(seed: u32) -> dassie_identity::NodeId {
-    let mut bytes = [1; 32];
+    let mut bytes = [1; 24];
     bytes[..4].copy_from_slice(&seed.to_be_bytes());
-    IdentityKey::from_bytes(&bytes).node_id()
+    dassie_identity::NodeId::from_bytes(&bytes)
 }
 
 /// Accepts a peering request from [`seeded_node`] `seed` on the stub, with

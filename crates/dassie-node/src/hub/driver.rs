@@ -35,7 +35,7 @@ use crate::store::{HubStep, Store, StoreError};
 /// A validator to send to: its node, and where it is reached.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Peer {
-    /// Its node key, which the connection is pinned to.
+    /// Its identity, whose node ID the connection is pinned to.
     pub key: NodeIdentity,
     /// Its node.
     pub node: NodeId,

@@ -997,6 +997,26 @@ pub(crate) mod tests {
         (Rules { terms, validators }, consensus)
     }
 
+    // spec/areas/hubs.md#the-rules: two acceptances are of two validators
+    // only if their Ed25519 keys differ. A node that signs a second
+    // acceptance under a foreign SLH-DSA key, which is another node ID,
+    // still counts once, and the rules do not check.
+    #[test]
+    fn one_ed25519_key_under_two_slh_dsa_keys_counts_once() {
+        let (mut rules, _) = rules(4);
+        let terms = rules.terms.clone();
+        let mut twice = rules.validators[1].clone();
+        twice.node = NodeIdentity::new(
+            node_key(1).public_key(),
+            dassie_identity::SlhDsaPublicKey::from_bytes([9; 32]),
+        );
+        assert_ne!(twice.node.node_id(), rules.validators[0].node.node_id());
+        twice.signature = node_key(1).sign(twice.digest(&terms.digest(), &terms.nonce).as_bytes());
+        assert!(twice.verifies(&terms.digest(), &terms.nonce));
+        rules.validators[1] = twice;
+        assert_eq!(rules.check(), Err(RulesError::Validators));
+    }
+
     // spec/areas/hubs.md#consensus: the margin covers what finality takes
     // with f validators faulty, the precision and an honest leader's block
     // after f skipped views, or the rules do not check, for validators and

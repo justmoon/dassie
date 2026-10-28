@@ -157,6 +157,15 @@ impl IdentityKey {
         self.identity.node_id()
     }
 
+    /// The SLH-DSA public key, as computed once. This shadows
+    /// [`NodeKey::slh_dsa_public_key`], which the dereference would reach
+    /// otherwise and which generates the key again; [`identity`](Self::identity)
+    /// shadows [`NodeKey::identity`] the same way.
+    #[must_use]
+    pub const fn slh_dsa_public_key(&self) -> SlhDsaPublicKey {
+        self.identity.slh_dsa()
+    }
+
     /// The node key.
     #[must_use]
     pub const fn key(&self) -> &NodeKey {
@@ -253,6 +262,12 @@ mod tests {
             identity.node_id(),
             NodeId::from_keys(key.public_key().as_bytes(), identity.slh_dsa().as_bytes())
         );
+        // A held key answers with the identity it computed once, through
+        // the methods that would otherwise reach the node key's.
+        let held = IdentityKey::new(NodeKey::from_bytes(&[1; 32]));
+        assert_eq!(held.identity(), identity);
+        assert_eq!(held.slh_dsa_public_key(), identity.slh_dsa());
+        assert_eq!(held.node_id(), identity.node_id());
         // Another SLH-DSA key, another node.
         let other = NodeIdentity::new(key.public_key(), SlhDsaPublicKey::from_bytes([0; 32]));
         assert_ne!(other.node_id(), identity.node_id());

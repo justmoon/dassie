@@ -20,9 +20,9 @@ import {
   type PhraseErrorCode,
   phraseFromSecret,
   publicKey,
-  slhDsaPublicKey,
   readPhrase,
   sign,
+  slhDsaPublicKey,
 } from "@dassie/wasm";
 
 const crates = new URL("../../crates/", import.meta.url);

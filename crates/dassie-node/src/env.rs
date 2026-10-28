@@ -618,26 +618,16 @@ mod tests {
         entry.to_string()
     }
 
-    // spec/decisions/bootstrap-network.md: the default list names the
-    // testnet's bootstrap nodes, each at its host, and each passes the same
-    // checks as a configured entry. It is empty until the testnet's reset
-    // gives them their new identities.
+    // spec/decisions/bootstrap-network.md: the default list is empty until
+    // the testnet's reset gives its bootstrap nodes identities whose IDs
+    // commit to their SLH-DSA keys, so a node with nothing configured runs
+    // alone. The reset fills the list, and this test then checks that it
+    // names boot1–boot4, each passing the checks of a configured entry.
     #[test]
-    fn the_default_bootstrap_nodes_are_the_testnet() {
-        let listed: Vec<serde_json::Value> = serde_json::from_str(DEFAULT_BOOTSTRAP_NODES).unwrap();
-        let urls = settings(&[("HOME", "/h")]).map(|s| {
-            s.bootstrap_nodes
-                .iter()
-                .map(|node| node.endpoint.url())
-                .collect::<Vec<_>>()
-        });
-        let expected = ["boot1", "boot2", "boot3", "boot4"]
-            .map(|host| format!("https://{host}.dassie.xyz"))
-            .into_iter()
-            .take(listed.len())
-            .collect::<Vec<_>>();
-        assert!(listed.is_empty() || listed.len() == 4);
-        assert_eq!(urls, Ok(expected));
+    fn the_default_bootstrap_list_is_empty_until_the_reset() {
+        assert_eq!(DEFAULT_BOOTSTRAP_NODES, "[]");
+        let nodes = settings(&[("HOME", "/h")]).map(|s| s.bootstrap_nodes.len());
+        assert_eq!(nodes, Ok(0));
     }
 
     #[test]
@@ -861,25 +851,17 @@ mod tests {
         assert!(relay(&http).is_err());
     }
 
-    // spec/decisions/default-relay.md: unset, the relay is the front door of
-    // the default name, checked as any entry and kept only without a
-    // hostname; empty, there is none. There is no default until the
-    // testnet's reset gives the front door its new identity.
+    // spec/decisions/default-relay.md: there is no default relay until the
+    // testnet's reset gives the front door of the default name an identity
+    // whose ID commits to its SLH-DSA key, so unset, as empty, keeps none.
+    // The reset builds the front door's entry in, and this test then checks
+    // that unset names it, checked as any entry and kept only without a
+    // hostname.
     #[test]
-    fn the_default_relay_is_the_default_names_front_door() {
-        let unset = settings(&[("HOME", "/h")]).unwrap().relay;
-        assert_eq!(unset.is_some(), DEFAULT_RELAY.is_some());
-        if let Some(unset) = unset {
-            assert!(unset.is_default);
-            assert_eq!(
-                unset.node.endpoint.url(),
-                format!(
-                    "https://relay.{}",
-                    crate::open_payments::DEFAULT_FRONT_DOOR_DOMAIN
-                )
-            );
-            assert_eq!(unset.node.identity.node_id(), unset.node.id);
-        }
+    fn the_default_relay_is_none_until_the_reset() {
+        assert_eq!(DEFAULT_RELAY, None);
+        let unset = settings(&[("HOME", "/h")]);
+        assert_eq!(unset.map(|s| s.relay), Ok(None));
         let empty = settings(&[("HOME", "/h"), ("DASSIE_RELAY", "")]);
         assert_eq!(empty.map(|s| s.relay), Ok(None));
     }

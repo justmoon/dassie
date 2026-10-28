@@ -429,13 +429,23 @@ mod tests {
     }
 
     /// What `founding` answers `request` from `from`, as the node of `key`.
+    /// The node key of the seed `seed` repeated, made once per seed: its
+    /// SLH-DSA key takes a key generation.
+    fn node_key(seed: u8) -> Arc<IdentityKey> {
+        static KEYS: [std::sync::OnceLock<Arc<IdentityKey>>; 256] =
+            [const { std::sync::OnceLock::new() }; 256];
+        Arc::clone(
+            KEYS[usize::from(seed)].get_or_init(|| Arc::new(IdentityKey::from_bytes(&[seed; 32]))),
+        )
+    }
+
     async fn decide(
         founding: &Founding,
         store: &Arc<Store>,
-        (key, from): (&IdentityKey, &NodeIdentity),
+        (key, from): (&Arc<IdentityKey>, &NodeIdentity),
         request: &FoundingRequest,
     ) -> FoundingAnswer {
-        let key = Arc::new(IdentityKey::from_bytes(key.as_bytes()));
+        let key = Arc::clone(key);
         let decision = founding.decision(key, Some("v.example:443".into()), NOW);
         founding
             .decide(decision, Arc::clone(store), *from, request.clone())
@@ -449,10 +459,10 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::too_many_lines)]
     async fn a_founded_hub_is_kept_and_run() {
-        let sponsor = IdentityKey::from_bytes(&[100; 32]);
+        let sponsor = node_key(100);
         let store = Arc::new(Store::open_in_memory().unwrap());
         let founding = Founding::new(&config(&sponsor));
-        let nodes: Vec<IdentityKey> = (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
+        let nodes: Vec<Arc<IdentityKey>> = (1..=4).map(node_key).collect();
         let terms = terms(&sponsor);
         let from = sponsor.identity();
         let ours = (&nodes[0], &from);
@@ -531,12 +541,13 @@ mod tests {
     // The validator accepts terms only on its file's network.
     #[tokio::test]
     async fn terms_on_another_network_are_refused() {
-        let sponsor = IdentityKey::from_bytes(&[100; 32]);
+        let sponsor = node_key(100);
         let store = Arc::new(Store::open_in_memory().unwrap());
         let mut on_mainnet = terms(&sponsor);
         on_mainnet.network = dassie_xrpl::network::MAINNET.id;
         let from = sponsor.identity();
-        let ours = (&IdentityKey::from_bytes(&[1; 32]), &from);
+        let node = node_key(1);
+        let ours = (&node, &from);
         let propose = FoundingRequest::Propose(on_mainnet);
         let founding = Founding::new(&config(&sponsor));
         let refused = decide(&founding, &store, ours, &propose).await;
@@ -551,7 +562,7 @@ mod tests {
     fn deciding_leaves_the_runtime_free() {
         use std::sync::atomic::{AtomicU64, Ordering};
 
-        let sponsor = IdentityKey::from_bytes(&[100; 32]);
+        let sponsor = node_key(100);
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(dir.path()).unwrap());
         let other =
@@ -562,6 +573,10 @@ mod tests {
             other.execute_batch("COMMIT").unwrap();
         });
         let founding = Founding::new(&config(&sponsor));
+        // Made ahead, as the node makes its own once at its start: the
+        // runtime is to be free while it decides, not while a test makes
+        // keys.
+        let node = node_key(1);
         let ticks = Arc::new(AtomicU64::new(0));
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -576,7 +591,6 @@ mod tests {
                 }
             });
             tokio::task::yield_now().await;
-            let node = IdentityKey::from_bytes(&[1; 32]);
             let propose = FoundingRequest::Propose(terms(&sponsor));
             decide(&founding, &store, (&node, &sponsor.identity()), &propose).await
         });

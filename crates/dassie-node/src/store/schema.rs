@@ -733,8 +733,12 @@ ALTER TABLE hub_escrow ADD COLUMN verifier BLOB
 /// its identity, its Ed25519 key and its SLH-DSA key, as hub rules now do
 /// (spec/decisions/post-quantum-node-id.md). A record kept before names
 /// the Ed25519 key alone, with rules in the layout before, which no longer
-/// decode, so it is dropped with the table its length check is part of.
+/// decode, so it is dropped with the table its length check is part of. A
+/// sponsor's foundings kept before hold terms in that layout too, which no
+/// longer decode either, so they go as well.
 const MIGRATION_6: &str = "
+DELETE FROM hub_foundings;
+
 DROP TABLE hub_founding_records;
 
 CREATE TABLE hub_founding_records (

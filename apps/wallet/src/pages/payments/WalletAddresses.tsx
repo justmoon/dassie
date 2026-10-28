@@ -61,7 +61,7 @@ function FrontDoorStatus(props: { pointer?: string }): JSX.Element {
       case "other-relay":
         return "Your node keeps another relay, so the front door cannot reach it: don't hand this address out, or set a hostname.";
       case "no-relay":
-        return "Your node keeps no relay (DASSIE_RELAY is empty), so the front door cannot reach it: don't hand this address out, or set a hostname.";
+        return "Your node keeps no relay (DASSIE_RELAY names none), so the front door cannot reach it: don't hand this address out, or set a hostname.";
       default:
         return undefined;
     }

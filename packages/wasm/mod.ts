@@ -34,8 +34,8 @@ export {
   phraseWords,
   publicKey,
   readPhrase,
-  slhDsaPublicKey,
   sign,
+  slhDsaPublicKey,
 } from "./gen/web/dassie_identity.js";
 
 export {

@@ -248,12 +248,7 @@ mod tests {
     fn a_code_names_a_bounded_number_of_relays() {
         let node = IdentityKey::from_bytes(&[1; 32]).node_id();
         let relays = (0..10u8)
-            .map(|seed| {
-                (
-                    IdentityKey::from_bytes(&[seed + 10; 32]).node_id(),
-                    "https://r".into(),
-                )
-            })
+            .map(|seed| (NodeId::from_bytes(&[seed + 10; 24]), "https://r".into()))
             .collect();
         let code = pairing_code(
             &node,
