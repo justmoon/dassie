@@ -574,6 +574,7 @@
       "desc": "The Interledger connector. A packet comes in from an endpoint; the connector picks a route, reserves the amount in the ledger, and settles the outcome when the answer comes back.",
       "does": [
         "Endpoints: BTP clients, the local STREAM receiver, ILDCP",
+        "Swaps with peers at `peer.swap`: a peer's converted as transit and sent back to it on the method it names, the node's own sent from a swap endpoint per ledger and fulfilled from its own data when they come back",
         "One endpoint per peer, with a slot for each settlement method of the peering: its ledger and account, its money in flight, and whether it is over a hub and available",
         "Peers and the route table, with each packet's next hop drawn at random among a route's first hops with a method on the ledger it came in on, weighted by the fees each earned the node on that ledger, and a share of the draws even, so no one node can stop a payment; a packet goes on that method, or, where no hop has one, on the drawn hop's method with the best rate, and never moves to another method for room",
         "Downlinks at child addresses below the node's own; a periphery node's addresses beneath its uplinks, forwarding nothing",

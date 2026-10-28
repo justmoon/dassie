@@ -223,6 +223,10 @@ pub(crate) struct Endpoint {
     /// of the node, or a peer that is our downlink
     /// (spec/areas/connector.md#addresses-and-endpoints). Set when added.
     pub child: bool,
+    /// Packets reach it by its address. A swap endpoint's are not: only
+    /// the node's own swaps coming back reach it
+    /// (spec/areas/connector.md#swaps).
+    pub routed: bool,
 }
 
 impl Endpoint {
@@ -237,6 +241,7 @@ impl Endpoint {
             refusing: false,
             unreached: false,
             child: false,
+            routed: true,
         }
     }
 
@@ -337,7 +342,7 @@ impl Endpoints {
     pub fn route_child(&self, destination: Address<'_>) -> Option<EndpointId> {
         self.by_id
             .iter()
-            .filter(|(_, endpoint)| endpoint.child && !endpoint.draining)
+            .filter(|(_, endpoint)| endpoint.child && endpoint.routed && !endpoint.draining)
             .find(|(_, endpoint)| {
                 Address::parse(&endpoint.address)
                     .is_ok_and(|address| destination.has_prefix(address))
@@ -351,7 +356,7 @@ impl Endpoints {
     pub fn route_child_below(&self, own: &str, below: &str) -> Option<EndpointId> {
         self.by_id
             .iter()
-            .filter(|(_, endpoint)| endpoint.child && !endpoint.draining)
+            .filter(|(_, endpoint)| endpoint.child && endpoint.routed && !endpoint.draining)
             .find(|(_, endpoint)| {
                 endpoint
                     .address

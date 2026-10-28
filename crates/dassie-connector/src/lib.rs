@@ -53,7 +53,7 @@ pub use charges::Charges;
 pub use config::Config;
 pub use connector::{
     Connector, Forwarded, HubWait, MAX_CHILD_ADDRESSES, MAX_ROUTE_OPTIONS, OpensAccounts,
-    OpensNone, Outcome, Posted, Responded, RoutesError, Stats, Upstream,
+    OpensNone, Outcome, Posted, Responded, RoutesError, SWAP_PREFIX, Stats, Upstream, swap_scheme,
 };
 pub use endpoint::{EndpointError, EndpointId, MAX_SLOTS, SlotError, SlotView};
 pub use fx::{RATE_PRECISION, Rates, convert, convert_at};

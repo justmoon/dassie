@@ -4,8 +4,10 @@ mod hops;
 mod invariants;
 mod prepare;
 mod response;
+mod swaps;
 
 pub use response::{Posted, Responded};
+pub use swaps::{SWAP_PREFIX, swap_scheme};
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
@@ -214,6 +216,13 @@ pub struct Connector {
     /// Packets to peers over a hub that expired, for the hub's scheme to
     /// watch, oldest first.
     hub_waits: alloc::collections::VecDeque<HubWait>,
+    /// Whether the owner lets the node offer swaps to its peers: on by
+    /// default; a periphery node never does
+    /// (spec/areas/connector.md#swaps).
+    offer_swaps: bool,
+    /// The node's swap endpoints, one per ledger at most: what its own
+    /// swaps are sent from, and what they reach when they come back.
+    swap_endpoints: BTreeMap<LedgerId, EndpointId>,
 }
 
 /// A packet to a peer over a hub that expired without a response. Its
@@ -263,6 +272,8 @@ impl Connector {
             periphery: None,
             rewritten: String::new(),
             hub_waits: alloc::collections::VecDeque::new(),
+            offer_swaps: true,
+            swap_endpoints: BTreeMap::new(),
         }
     }
 
@@ -546,6 +557,7 @@ impl Connector {
         if self.endpoints.remove(id).is_none() {
             return false;
         }
+        self.swap_endpoints.retain(|_, swap| *swap != id);
         let doomed: Vec<(u64, EndpointId, u32)> = self
             .pending
             .iter()

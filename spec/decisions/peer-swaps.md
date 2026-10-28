@@ -1,6 +1,6 @@
 # Nodes swap assets with their peers, priced by snapshots of ladders per asset
 
-**Areas:** [Connector](../areas/connector.md#routing), [Rate feed](../areas/rate-feed.md), [Peer protocol](../areas/peer-protocol.md), [Network](../areas/network.md#settlement-methods), [Market maker VM](../areas/market-maker-vm.md). Not built yet ([roadmap](../roadmap.md#peer-swaps)). Once built, it replaces [feed-by-method](feed-by-method.md), and the market makers' two nodes and "the node itself never trades" of [passive-rebalancing](passive-rebalancing.md).
+**Areas:** [Connector](../areas/connector.md#routing), [Rate feed](../areas/rate-feed.md), [Peer protocol](../areas/peer-protocol.md), [Network](../areas/network.md#settlement-methods), [Market maker VM](../areas/market-maker-vm.md). Partly built: swaps in the connector, sent from and fulfilled by the node's swap endpoints ([Connector](../areas/connector.md#swaps)); the rest is on the [roadmap](../roadmap.md#peer-swaps). Once built, it replaces [feed-by-method](feed-by-method.md), and the market makers' two nodes and "the node itself never trades" of [passive-rebalancing](passive-rebalancing.md).
 
 ## Facts
 

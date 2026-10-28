@@ -83,6 +83,7 @@ impl Connector {
         self.check_endpoints(&from, &on_slots);
         self.check_caps();
         self.check_earnings();
+        self.check_swaps();
         self.trace.check_invariants();
     }
 

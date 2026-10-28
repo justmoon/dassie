@@ -44,6 +44,7 @@ impl Core {
             );
         }
         self.check_receivers();
+        self.check_swaps();
         self.check_peer_endpoints();
         self.check_tokens();
         self.check_links();
