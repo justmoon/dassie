@@ -140,25 +140,23 @@ pub(crate) fn owner_memos(payment: &OwnerPayment) -> Result<Vec<Memo>, SchemeErr
     }])
 }
 
-/// What an XRPL scheme's config says: nothing that changes it
-/// (spec/areas/xrpl.md#owner-books). Nothing writes one but empty. It may
-/// say `"peers"`, a boolean, which a stored config may still say: it is
-/// read, so that config loads, and has no effect, since every XRPL scheme
-/// is an owner book. The account it books has a config of its own
-/// ([`crate::account::Config`]), set apart from any scheme's
+/// What an XRPL scheme's config says: nothing, since every XRPL scheme is
+/// an owner book that nothing configures (spec/areas/xrpl.md#owner-books).
+/// Nothing writes one but empty. The account it books has a config of its
+/// own ([`crate::account::Config`]), set apart from any scheme's
 /// (spec/areas/settlement.md#external-assets).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SchemeConfig;
 
 impl SchemeConfig {
-    /// The config in `text`: empty, or a JSON object with at most
-    /// `peers`, a boolean, which it reads and ignores.
+    /// The config in `text`: empty, or a JSON object with nothing in it.
     ///
     /// # Errors
     ///
     /// [`SchemeError::InvalidConfig`] if it is no JSON object, is longer
-    /// than a config may be, `peers` is no boolean, or it names anything
-    /// else, such as the account's server, which is the account's config.
+    /// than a config may be, or names anything, such as `peers`, which an
+    /// owner book never does, or the account's server, which is the
+    /// account's config.
     pub fn parse(text: &str) -> Result<Self, SchemeError> {
         let text = text.trim();
         if text.is_empty() {
@@ -168,17 +166,10 @@ impl SchemeConfig {
             return Err(SchemeError::InvalidConfig);
         }
         let value: Value = serde_json::from_str(text).map_err(|_| SchemeError::InvalidConfig)?;
-        let Value::Object(mut object) = value else {
-            return Err(SchemeError::InvalidConfig);
-        };
-        match object.remove("peers") {
-            None | Some(Value::Bool(_)) => {}
-            Some(_) => return Err(SchemeError::InvalidConfig),
+        match value {
+            Value::Object(object) if object.is_empty() => Ok(Self),
+            _ => Err(SchemeError::InvalidConfig),
         }
-        if !object.is_empty() {
-            return Err(SchemeError::InvalidConfig);
-        }
-        Ok(Self)
     }
 
     /// Whether `text`, a config the scheme refuses, names what is the
@@ -791,12 +782,12 @@ mod tests {
         }
     }
 
-    // spec/areas/xrpl.md#owner-books: a scheme's config may say `peers`,
-    // which is read and changes nothing; what is the account's, its server,
-    // faucet and publishers, is the account's own config, and refused here.
+    // spec/areas/xrpl.md#owner-books: a scheme's config says nothing: not
+    // `peers`, since an owner book never peers, nor what is the account's,
+    // its server, faucet and publishers, which is the account's own config.
     #[test]
-    fn a_config_may_say_only_whether_the_scheme_peers() {
-        for accepted in ["", "  ", r#"{"peers": false}"#, r#"{"peers": true}"#, "{}"] {
+    fn a_config_says_nothing() {
+        for accepted in ["", "  ", "{}", " { } "] {
             assert_eq!(
                 SchemeConfig::parse(accepted),
                 Ok(SchemeConfig),
@@ -804,8 +795,9 @@ mod tests {
             );
         }
         for refused in [
+            r#"{"peers": false}"#,
+            r#"{"peers": true}"#,
             r#"{"peers": 0}"#,
-            r#"{"peers": "no"}"#,
             r#"{"server": "wss://a", "peers": false}"#,
             r#"{"faucet": null}"#,
             "[]",
@@ -822,7 +814,7 @@ mod tests {
         assert!(SchemeConfig::names_the_account(r#"{"faucet": null}"#));
         assert!(SchemeConfig::names_the_account(r#"{"publishers": []}"#));
         assert!(!SchemeConfig::names_the_account(r#"{"other": 1}"#));
-        let long = alloc::format!(r#"{{"peers":{}}}"#, " ".repeat(crate::account::MAX_CONFIG));
+        let long = alloc::format!("{{{}}}", " ".repeat(crate::account::MAX_CONFIG));
         assert_eq!(SchemeConfig::parse(&long), Err(SchemeError::InvalidConfig));
     }
 

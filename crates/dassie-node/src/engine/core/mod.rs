@@ -302,8 +302,8 @@ pub struct Core {
     schemes: BTreeMap<Name, ActiveScheme>,
     /// What the books last kept for each scheme.
     checkpoints: BTreeMap<Name, Checkpoint>,
-    /// The stored schemes whose config no longer makes a scheme, left out
-    /// at start: the owner may add each again or remove it.
+    /// The stored schemes whose config or state no longer makes a scheme,
+    /// left out at start: the owner may add each again or remove it.
     unusable: BTreeSet<Name>,
     /// The external assets the active schemes settle through.
     assets: BTreeMap<dassie_settlement::AssetId, schemes::ActiveAsset>,

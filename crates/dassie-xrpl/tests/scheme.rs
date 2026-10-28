@@ -428,12 +428,12 @@ fn a_new_account_is_funded_and_its_reserve_never_booked() {
     }
 }
 
-// spec/areas/xrpl.md#owner-books: the scheme is an owner book, whatever its
-// config says: it peers with no one.
+// spec/areas/xrpl.md#owner-books: the scheme is an owner book: it peers
+// with no one, and its config cannot say otherwise.
 #[test]
 fn the_scheme_peers_with_no_one() {
-    for config in ["", r#"{"peers": true}"#, r#"{"peers": false}"#] {
-        dassie_xrpl::scheme::SchemeConfig::parse(config).unwrap();
+    for config in [r#"{"peers": true}"#, r#"{"peers": false}"#] {
+        assert!(dassie_xrpl::scheme::SchemeConfig::parse(config).is_err());
     }
     let world = funded();
     for node in &world.nodes {

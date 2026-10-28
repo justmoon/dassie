@@ -1865,8 +1865,7 @@ fn a_claim_goes_beside_an_operation_that_waits_for_the_thaw() {
     account.check_invariants();
 }
 
-// The freeze is kept with the books, so a restart during it knows it; a
-// state of version 1 knows none.
+// The freeze is kept with the books, so a restart during it knows it.
 #[test]
 fn the_freeze_is_kept_across_a_restart() {
     let hub = Hub::new();
@@ -1886,16 +1885,51 @@ fn the_freeze_is_kept_across_a_restart() {
         .unwrap()
     };
     let state = account.state();
-    assert_eq!(state.first(), Some(&2));
     assert_eq!(state.last(), Some(&0), "no issuer's hold known");
-    let mut old = state[..state.len() - 1].to_vec();
-    old[0] = 1;
-    assert_eq!(restore(&old).state(), state);
+    assert_eq!(restore(&state).state(), state);
     issuer_says(&hub, &mut account, 0..2, 6, Some(1_006));
     let restored = restore(&account.state());
     assert_eq!(restored.frozen(), Some(1_006));
     assert!(restored.escrow_held());
     assert_eq!(restored.state(), account.state());
+}
+
+// spec/decisions/hub-named-when-added.md: the account's state names its
+// hub, and an account restores only a state of its own hub, of this
+// version: another hub's number, holds and operations are not its own, and
+// a state of an older version names no hub.
+#[test]
+fn an_account_restores_only_its_own_hubs_state() {
+    let hub = Hub::new();
+    let account = synced(&hub);
+    let restore = |state: &[u8]| {
+        HubAccount::new(
+            FIRST,
+            hub.rules.clone(),
+            Arc::clone(&hub.key),
+            Destination {
+                account: [5; 20],
+                tag: None,
+            },
+            Name::new(SCHEME_ID).unwrap(),
+            state,
+        )
+    };
+    let state = account.state();
+    assert_eq!(state.first(), Some(&3), "the version");
+    assert_eq!(super::hub_of_state(&state), Some(hub.rules.id()));
+    assert_eq!(restore(&state).unwrap().state(), state);
+    let mut other = state.clone();
+    other[1] ^= 1;
+    assert_ne!(super::hub_of_state(&other), Some(hub.rules.id()));
+    assert!(matches!(restore(&other), Err(SchemeError::InvalidData)));
+    for version in [1, 2, 4] {
+        let mut older = state.clone();
+        older[0] = version;
+        assert_eq!(super::hub_of_state(&older), None, "version {version}");
+        assert!(matches!(restore(&older), Err(SchemeError::InvalidData)));
+    }
+    assert_eq!(super::hub_of_state(&[3; 32]), None, "too short");
 }
 
 // The account reckons what a frozen hub takes as its ledger does, for

@@ -346,28 +346,18 @@ fn xrpl_network(scheme: &str) -> &'static dassie_xrpl::Network {
     }
 }
 
-/// Adds the XRPL scheme `scheme` to `core` with `config` as an owner might
-/// have written it before an account's config was its own: what it says of
+/// Adds the XRPL scheme `scheme` to `core`, with `config`, what it says of
 /// the account (its server and faucet), trusting the fake ledger's
-/// validators, is the account's config, and `peers`, which a stored config
-/// may still say, the scheme's
+/// validators, as the account's config; the scheme's own is empty
 /// (spec/areas/settlement.md#external-assets).
 fn add_xrpl(
     core: &mut Core,
     scheme: &str,
     config: &str,
 ) -> Result<super::LedgerView, super::EngineError> {
-    let mut account: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(config).unwrap();
-    let peers = account.remove("peers");
-    let account = serde_json::Value::Object(account).to_string();
     let asset = xrpl_network(scheme).first().to_string();
-    core.set_asset_config(&asset, &trusting_fake(scheme, &account))?;
-    let config = match peers {
-        Some(peers) => serde_json::json!({ "peers": peers }).to_string(),
-        None => String::new(),
-    };
-    core.add_scheme(scheme, config)
+    core.set_asset_config(&asset, &trusting_fake(scheme, config))?;
+    core.add_scheme(scheme, String::new())
 }
 
 /// What a fetch of `url` from `ledger`'s list site gives.
@@ -3980,14 +3970,11 @@ fn a_stored_scheme_whose_config_is_refused_does_not_run() {
     a_stored_hub_scheme_does_not_run("not a hub");
 }
 
-// The case this release makes: a node joined the default hub, whose config
-// is empty, and no default hub is built in now, so the empty config names no
-// hub. Once a default hub is built in again, the empty config names it.
+// spec/decisions/hub-named-when-added.md: a hub scheme is stored with the
+// rules of its hub, so an empty stored config names none, whatever default
+// hub the build carries.
 #[test]
-fn a_stored_hub_scheme_with_no_default_hub_does_not_run() {
-    if dassie_hub::member::DEFAULT_TESTNET_HUB.is_some() {
-        return;
-    }
+fn a_stored_hub_scheme_with_an_empty_config_does_not_run() {
     a_stored_hub_scheme_does_not_run("");
 }
 
@@ -4030,6 +4017,123 @@ fn a_stored_hub_scheme_does_not_run(config: &str) {
         .collect();
     assert_eq!(stored, [stub]);
     assert!(core.remove_scheme(hub.as_str()).is_err());
+}
+
+/// The default hubs of a build whose default testnet XRP hub is the tests'
+/// hub of `margin` and `allowance` ([`hub_config`]).
+fn default_hubs(margin: u64, allowance: u64) -> super::schemes::DefaultHubs {
+    let config: serde_json::Value = serde_json::from_str(&hub_config(margin, allowance)).unwrap();
+    let hex: &'static str = config["rules"].as_str().unwrap().to_owned().leak();
+    [Some(hex), None, None, None]
+}
+
+// spec/decisions/hub-named-when-added.md: a hub's scheme added without
+// rules is stored with those of the default hub of its asset, and refused
+// while none is built in. Restarted by a build with another default hub, or
+// none, it stays in the hub it joined.
+#[test]
+fn a_hub_scheme_added_without_rules_stays_in_the_default_hub_it_joined() {
+    let hub = dassie_ledger::Name::new(dassie_hub::member::SCHEME_ID).unwrap();
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 4);
+    core.settle.default_hubs = [None; 4];
+    assert!(matches!(
+        core.add_scheme(hub.as_str(), String::new()),
+        Err(super::EngineError::Invalid(reason)) if reason.contains("no default hub")
+    ));
+    assert!(core.ledger_views().is_empty());
+    core.settle.default_hubs = default_hubs(600, 300);
+    core.add_scheme(hub.as_str(), String::new()).unwrap();
+    core.finish_step(&mut Vec::new());
+    core.flush();
+    assert_eq!(
+        store.settlement_schemes().unwrap(),
+        [(hub, hub_config(600, 300))]
+    );
+    let joined = hub_rules(600, 300).id();
+    assert_eq!(
+        core.hub_rules()
+            .iter()
+            .map(dassie_hub::Rules::id)
+            .collect::<Vec<_>>(),
+        [joined]
+    );
+    drop(core);
+
+    // This build's default hubs are not the tests' hub.
+    assert_ne!(super::schemes::DEFAULT_HUBS, default_hubs(600, 300));
+    let core = core_on(store, 5);
+    assert_eq!(core.ledger_views().len(), 1);
+    assert_eq!(
+        core.hub_rules()
+            .iter()
+            .map(dassie_hub::Rules::id)
+            .collect::<Vec<_>>(),
+        [joined]
+    );
+}
+
+// spec/decisions/hub-named-when-added.md: the state kept of a node's account
+// in a hub names that hub. A stored scheme whose config names another hub is
+// left out at start, saying why, and is added again only with its own hub's
+// rules: the account's number, holds and operations are that hub's.
+#[test]
+fn a_hub_accounts_state_of_another_hub_is_refused() {
+    use dassie_ledger::Name;
+
+    use super::{Event, SettlementEvent};
+    use crate::store::LedgerBatch;
+
+    let hub = Name::new(dassie_hub::member::SCHEME_ID).unwrap();
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 4);
+    core.add_scheme(hub.as_str(), hub_config(600, 300)).unwrap();
+    core.finish_step(&mut Vec::new());
+    core.flush();
+    drop(core);
+    assert_eq!(store.asset_checkpoints().unwrap().len(), 1);
+    // What a node that once followed the default hub would have kept, had
+    // the default moved under it.
+    let other = hub_config(700, 300);
+    store
+        .commit_ledger(&LedgerBatch {
+            at_ms: NOW,
+            schemes_removed: vec![hub],
+            schemes_added: vec![(hub, other.clone())],
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+
+    let mut core = core_on(Arc::clone(&store), 5);
+    assert!(core.ledger_views().is_empty());
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let reasons: Vec<&String> = outputs
+        .iter()
+        .filter_map(|output| match output {
+            Output::Event(Event::Settlement(SettlementEvent::Unusable { scheme, reason }))
+                if *scheme == hub =>
+            {
+                Some(reason)
+            }
+            _ => None,
+        })
+        .collect();
+    let joined = hub_rules(600, 300).id().0.to_string();
+    let named = hub_rules(700, 300).id().0.to_string();
+    assert_eq!(reasons.len(), 1, "{outputs:?}");
+    assert!(
+        reasons[0].contains(&joined) && reasons[0].contains(&named),
+        "{}",
+        reasons[0]
+    );
+    assert!(matches!(
+        core.add_scheme(hub.as_str(), other),
+        Err(super::EngineError::Invalid(reason)) if reason.contains(&joined)
+    ));
+    assert!(core.ledger_views().is_empty());
+    core.add_scheme(hub.as_str(), hub_config(600, 300)).unwrap();
+    assert_eq!(core.ledger_views().len(), 1);
 }
 
 // A scheme left out at start is added again with a config that works: its
@@ -5843,10 +5947,9 @@ fn asks_a_core_node_to_peer_on(
 }
 
 // spec/areas/settlement.md#owner-books: the node never asks to peer on an
-// owner book, though a core node it knows lists it, whatever its config
-// says of `peers`: every XRPL scheme is an owner book
-// (spec/areas/xrpl.md#owner-books). On a scheme that peers, the same node
-// asks.
+// owner book, though a core node it knows lists it: every XRPL scheme is an
+// owner book (spec/areas/xrpl.md#owner-books), whose config cannot say
+// `peers`. On a scheme that peers, the same node asks.
 #[test]
 fn an_owner_book_is_never_asked_for() {
     let stub = |core: &mut Core, _: &mut dassie_xrpl::fake::FakeLedger| {
@@ -5856,20 +5959,28 @@ fn an_owner_book_is_never_asked_for() {
         asks_a_core_node_to_peer_on("stub", stub),
         "not asked on a scheme that peers"
     );
-    for peers in ["", r#","peers":true"#, r#","peers":false"#] {
-        let xrpl = |core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger| {
-            let config = format!(r#"{{"server":"ws://ledger.test","faucet":null{peers}}}"#);
-            add_xrpl(core, "xrpl-testnet-xrp", &config).unwrap();
-            follow_xrpl(core, ledger);
-            close_xrpl(core, ledger);
-            let xrpl = dassie_ledger::Name::new("xrpl-testnet-xrp").unwrap();
-            assert!(core.schemes[&xrpl].scheme.has_synced());
-        };
+    let xrpl = |core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger| {
+        add_xrpl(core, "xrpl-testnet-xrp", SHARED_CONFIG).unwrap();
+        follow_xrpl(core, ledger);
+        close_xrpl(core, ledger);
+        let xrpl = dassie_ledger::Name::new("xrpl-testnet-xrp").unwrap();
+        assert!(core.schemes[&xrpl].scheme.has_synced());
+    };
+    assert!(
+        !asks_a_core_node_to_peer_on("xrpl-testnet-xrp", xrpl),
+        "asked on an owner book"
+    );
+    let mut core = core(3);
+    for peers in [r#"{"peers":true}"#, r#"{"peers":false}"#] {
         assert!(
-            !asks_a_core_node_to_peer_on("xrpl-testnet-xrp", xrpl),
-            "asked on an owner book, its config saying {peers:?}"
+            matches!(
+                core.add_scheme("xrpl-testnet-xrp", peers.into()),
+                Err(super::EngineError::Invalid(_))
+            ),
+            "{peers}"
         );
     }
+    assert!(core.ledger_views().is_empty());
 }
 
 // spec/areas/xrpl.md#owner-books: a settlement message on an XRPL scheme,

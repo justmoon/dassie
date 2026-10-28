@@ -237,7 +237,8 @@ impl Core {
 
     /// Activates the stored schemes, booking what changed while the node was
     /// down. One whose config or state no longer makes a scheme, such as a
-    /// hub's that is no longer built in, is left out and reported, so that
+    /// hub's whose rules no longer decode, or whose account's state is of
+    /// another hub, is left out and reported, so that
     /// the owner can add it again or remove it. One of another realm than the node's, which the node's realm
     /// was changed past, is left as it is, and does not run: the owner is
     /// told, and the node starts with the rest
@@ -301,11 +302,16 @@ impl Core {
     }
 
     /// Activates a settlement scheme. Its ID must be one the node knows,
-    /// where the original's RPC took any text.
+    /// where the original's RPC took any text. A hub's scheme added without
+    /// rules is stored with those of the default hub of its asset, so it
+    /// stays in that hub whatever default a later release carries
+    /// (spec/decisions/hub-named-when-added.md).
     ///
     /// # Errors
     ///
-    /// The scheme is unknown, disabled, refuses its config, or is active.
+    /// The scheme is unknown, disabled, refuses its config, or is active;
+    /// a hub's scheme added without rules while no default hub of its asset
+    /// is built in.
     pub fn add_scheme(&mut self, id: &str, config: String) -> Result<LedgerView, EngineError> {
         if let Some(why) = super::schemes::not_run(id) {
             return Err(EngineError::Precondition(why.into()));
@@ -315,6 +321,8 @@ impl Core {
         if self.schemes.contains_key(&id) {
             return Err(EngineError::Precondition("the scheme is active".into()));
         }
+        let config =
+            super::schemes::config_to_store(id.as_str(), config, &self.settle.default_hubs)?;
         let checkpoint = self.checkpoints.get(&id).cloned();
         let ledger = self.activate(id, config, checkpoint, true)?;
         // One left out at start is still stored: its old config goes, as

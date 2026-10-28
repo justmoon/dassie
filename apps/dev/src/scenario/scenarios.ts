@@ -50,8 +50,8 @@ export interface ScenarioDef {
   /**
    * Each scheme's config, by scheme ID, where it is not empty, for every
    * node that runs it: such as the stub's kind. An XRP Ledger scheme, an
-   * owner book whatever its config (spec/areas/xrpl.md#owner-books), needs
-   * none. The hub scheme's is the founded hub's rules, never set here.
+   * owner book (spec/areas/xrpl.md#owner-books), takes none. The hub
+   * scheme's is the founded hub's rules, never set here.
    */
   readonly configs?: Readonly<Record<string, string>>;
   /**

@@ -368,7 +368,7 @@ fn activation(severity: Severity, event: &SettlementEvent) {
             emit!(severity, target: target::SETTLEMENT, %scheme, "the scheme is of another realm than the node's: it does not run");
         }
         SettlementEvent::Unusable { scheme, reason } => {
-            emit!(severity, target: target::SETTLEMENT, %scheme, %reason, "the scheme's stored config no longer makes a scheme: it does not run, and its books stay as they are");
+            emit!(severity, target: target::SETTLEMENT, %scheme, %reason, "the scheme's stored config or state no longer makes a scheme: it does not run, and its books stay as they are");
         }
         SettlementEvent::Disabled { scheme } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, "the scheme does not run in this build: its books and its line stay as they are");

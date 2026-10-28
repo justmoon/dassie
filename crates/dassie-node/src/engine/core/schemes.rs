@@ -86,12 +86,15 @@ const HUB_SCHEMES: [&str; 4] = [
 /// hex of the rules built in, or `None` while none is
 /// (spec/designs/settlement-hubs.md#11-choosing-a-hub). Mainnet's are
 /// placeholders until the project's validators found them
-/// (spec/roadmap.md#mainnet-hubs): while one is `None`, its scheme runs
-/// only with the rules its config names, and is not offered.
-type DefaultHubs = [Option<&'static str>; HUB_SCHEMES.len()];
+/// (spec/roadmap.md#mainnet-hubs): while one is `None`, its scheme is added
+/// only with the rules its config names, and is not offered. A scheme
+/// added without rules stores the default's ([`config_to_store`]), so a
+/// default only ever names the hub a scheme joins when it is added
+/// (spec/decisions/hub-named-when-added.md).
+pub(super) type DefaultHubs = [Option<&'static str>; HUB_SCHEMES.len()];
 
 /// The default hubs this build carries.
-const DEFAULT_HUBS: DefaultHubs = [
+pub(super) const DEFAULT_HUBS: DefaultHubs = [
     dassie_hub::member::DEFAULT_TESTNET_HUB,
     dassie_hub::member::DEFAULT_TESTNET_DSUSD_HUB,
     dassie_hub::member::DEFAULT_MAINNET_HUB,
@@ -197,25 +200,84 @@ fn asset_of(id: &str) -> Option<AssetId> {
     .then_some(dassie_xrpl::account::FIRST)
 }
 
-/// The rules of the hub the config of hub scheme `id` names: the hex of
-/// their encoding as `{"rules": "…"}`, or nothing for the scheme's default
-/// hub among `hubs`, while one is built in
-/// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
-fn hub_rules(id: &str, config: &str, hubs: &DefaultHubs) -> Result<dassie_hub::Rules, SchemeError> {
-    let hex = if config.trim().is_empty() {
-        default_hub(id, hubs)
-            .flatten()
-            .ok_or(SchemeError::InvalidConfig)?
-    } else {
-        let value: serde_json::Value =
-            serde_json::from_str(config).map_err(|_| SchemeError::InvalidConfig)?;
-        return value
-            .get("rules")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|hex| decode_rules(hex).ok())
-            .ok_or(SchemeError::InvalidConfig);
+/// The config hub scheme `id` is stored with when the owner adds it with
+/// `config`: with none, the rules of the default hub of its asset among
+/// `hubs`, as `{"rules": "…"}`, so that the stored scheme names its hub for
+/// good, whatever default a later release carries
+/// (spec/decisions/hub-named-when-added.md); any other config, and that of
+/// a scheme that is no hub's, as it is.
+///
+/// # Errors
+///
+/// [`EngineError::Invalid`] for a hub's scheme added without rules while
+/// no default hub of its asset is built in.
+pub(super) fn config_to_store(
+    id: &str,
+    config: String,
+    hubs: &DefaultHubs,
+) -> Result<String, EngineError> {
+    match default_hub(id, hubs) {
+        Some(hub) if config.trim().is_empty() => hub
+            .map(|hex| serde_json::json!({ "rules": hex.trim() }).to_string())
+            .ok_or_else(|| {
+                EngineError::Invalid(
+                    "no default hub of the scheme's asset is built in: \
+                     name the hub's rules in its config"
+                        .into(),
+                )
+            }),
+        _ => Ok(config),
+    }
+}
+
+/// The rules of the hub the config of a hub scheme names: the hex of their
+/// encoding as `{"rules": "…"}`. Every stored hub scheme names its rules,
+/// since one added without them stores the default hub's
+/// ([`config_to_store`]); an empty config names no hub
+/// (spec/decisions/hub-named-when-added.md).
+fn hub_rules(config: &str) -> Result<dassie_hub::Rules, SchemeError> {
+    let value: serde_json::Value =
+        serde_json::from_str(config).map_err(|_| SchemeError::InvalidConfig)?;
+    value
+        .get("rules")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|hex| decode_rules(hex).ok())
+        .ok_or(SchemeError::InvalidConfig)
+}
+
+/// Refuses the state the books kept of hub account `asset` if it is of
+/// another hub than the one `config` names, or names none: its number,
+/// holds and operations are of the hub it was kept in, and the account
+/// restores none of them into another (spec/decisions/hub-named-when-added.md).
+/// The account would refuse it too; this says why. A config that names no
+/// hub is the account's to refuse.
+///
+/// # Errors
+///
+/// [`EngineError::Invalid`] for a state of another hub, or of none.
+fn check_hub_state(asset: AssetId, config: &str, state: &[u8]) -> Result<(), EngineError> {
+    let hub_account = matches!(
+        asset.kind,
+        AssetKind::HubTestnetAccount | AssetKind::HubAccount
+    );
+    if !hub_account || state.is_empty() {
+        return Ok(());
+    }
+    let Ok(rules) = hub_rules(config) else {
+        return Ok(());
     };
-    decode_rules(hex)
+    let named = rules.id();
+    match dassie_hub::member::hub_of_state(state) {
+        Some(kept) if kept == named => Ok(()),
+        Some(kept) => Err(EngineError::Invalid(format!(
+            "the node's account {asset} is in hub {}, not in hub {} that the scheme's config \
+             names: a scheme stays in the hub it was added with",
+            kept.0, named.0
+        ))),
+        None => Err(EngineError::Invalid(format!(
+            "the state kept of the node's account {asset} names no hub this version reads"
+        ))),
+    }
 }
 
 fn decode_rules(hex: &str) -> Result<dassie_hub::Rules, SchemeError> {
@@ -243,24 +305,13 @@ fn create_hub_account(
     id: AssetId,
     config: &str,
     state: &[u8],
-    with: (&NodeKey, u64),
-) -> Result<Box<dyn ExternalAsset>, SchemeError> {
-    create_hub_account_in(id, config, state, with, &DEFAULT_HUBS)
-}
-
-/// [`create_hub_account`], with the default hubs `hubs` built in.
-fn create_hub_account_in(
-    id: AssetId,
-    config: &str,
-    state: &[u8],
     (key, window_ms): (&NodeKey, u64),
-    hubs: &DefaultHubs,
 ) -> Result<Box<dyn ExternalAsset>, SchemeError> {
     let scheme = HUB_SCHEMES
         .into_iter()
         .find(|scheme| dassie_hub::member::account_id(scheme) == Some(id))
         .ok_or(SchemeError::UnknownScheme)?;
-    let rules = hub_rules(scheme, config, hubs)?;
+    let rules = hub_rules(config)?;
     if dassie_hub::member::scheme_of(&rules.terms).map(|(named, _)| named) != Some(scheme) {
         return Err(SchemeError::InvalidConfig);
     }
@@ -454,8 +505,7 @@ fn create(
             .ok_or(SchemeError::InvalidConfig)
     };
     let state = checkpoint.map_or(&[][..], |c| c.state.as_slice());
-    // Every XRPL scheme is an owner book: its config may still say
-    // `peers`, which is read and has no effect
+    // Every XRPL scheme is an owner book, whose config says nothing
     // (spec/areas/xrpl.md#owner-books).
     let owner_book = || dassie_xrpl::scheme::SchemeConfig::parse(config).map(|_| ());
     match id {
@@ -650,6 +700,7 @@ impl Core {
                 .get(&asset)
                 .cloned()
                 .unwrap_or_default();
+            check_hub_state(asset, &asset_config, &state)?;
             let window_ms = self.connector.config().message_window_ms;
             #[allow(unused_mut)]
             let mut made = create_asset(asset, &asset_config, &state, (&self.key, window_ms))
@@ -1392,7 +1443,7 @@ mod tests {
         use dassie_oer::Encode;
 
         let xrp = super::super::tests::hub_config(600, 300);
-        let mut rules = hub_rules(dassie_hub::member::SCHEME_ID, &xrp, &DEFAULT_HUBS).unwrap();
+        let mut rules = hub_rules(&xrp).unwrap();
         rules.terms.network = network;
         rules.terms.asset = asset;
         if asset != Asset::Xrp {
@@ -1446,12 +1497,12 @@ mod tests {
                 Err(SchemeError::InvalidConfig)
             ));
         }
-        if dassie_hub::member::DEFAULT_TESTNET_DSUSD_HUB.is_none() {
-            assert!(matches!(
-                create_hub_account(dsusd_account, "", &[], (&key, window)),
-                Err(SchemeError::InvalidConfig)
-            ));
-        }
+        // An empty config names no hub: a scheme added without rules is
+        // stored with the default hub's (spec/decisions/hub-named-when-added.md).
+        assert!(matches!(
+            create_hub_account(dsusd_account, "", &[], (&key, window)),
+            Err(SchemeError::InvalidConfig)
+        ));
         let further = AssetId {
             kind: AssetKind::HubTestnetAccount,
             index: 2,
@@ -1530,11 +1581,7 @@ mod tests {
             accounts.push(account);
             let made = create_hub_account(account, config, &[], (&key, window)).unwrap();
             let built_in = default_hub(id, &DEFAULT_HUBS).flatten().is_some();
-            let empty = if built_in { None } else { Some("") };
-            for wrong in [Some(other.as_str()), Some(testnet.as_str()), empty]
-                .into_iter()
-                .flatten()
-            {
+            for wrong in [other.as_str(), testnet.as_str(), ""] {
                 assert!(
                     matches!(
                         create_hub_account(account, wrong, &[], (&key, window)),
@@ -1571,8 +1618,9 @@ mod tests {
 
     // spec/designs/settlement-hubs.md#11-choosing-a-hub: once a default
     // mainnet hub is built in, a node of the live realm is offered its
-    // scheme, and the scheme added with an empty config joins it; while
-    // none is, neither. A test-realm node is offered neither either way.
+    // scheme, and the scheme added with an empty config is stored with the
+    // default hub's rules, and joins it; while none is, neither. A
+    // test-realm node is offered neither either way.
     #[test]
     fn a_built_in_mainnet_hub_is_offered_and_joined_with_an_empty_config() {
         use dassie_hub::member::{MAINNET_SCHEME_ID, RLUSD_SCHEME_ID};
@@ -1600,24 +1648,40 @@ mod tests {
             assert!(!offered_in(info, Realm::Test, &built_in), "{id}");
             assert!(!offered_in(info, Realm::Live, &none), "{id}");
             let account = asset_of(id).unwrap();
-            let made = create_hub_account_in(account, "", &[], (&key, window), &built_in).unwrap();
+            let stored = config_to_store(id, String::new(), &built_in).unwrap();
+            assert_eq!(stored, serde_json::json!({ "rules": hex }).to_string());
+            let made = create_hub_account(account, &stored, &[], (&key, window)).unwrap();
             let any: &dyn core::any::Any = made.as_ref();
             let member = any
                 .downcast_ref::<dassie_hub::member::HubAccount>()
                 .unwrap();
             assert_eq!(member.hub(), decode_rules(hex).unwrap().id(), "{id}");
             assert!(matches!(
-                create_hub_account_in(account, "", &[], (&key, window), &none),
-                Err(SchemeError::InvalidConfig)
+                config_to_store(id, " ".into(), &none),
+                Err(EngineError::Invalid(_))
             ));
+            // A config of its own is stored as it is.
+            let own = hub_config_on(MAINNET.id, Asset::Xrp);
+            assert_eq!(config_to_store(id, own.clone(), &built_in).unwrap(), own);
         }
         // A default of one asset is no default of the other.
         let swapped: DefaultHubs = [None, None, Some(rlusd), Some(xrp)];
         let account = asset_of(MAINNET_SCHEME_ID).unwrap();
+        let stored = config_to_store(MAINNET_SCHEME_ID, String::new(), &swapped).unwrap();
         assert!(matches!(
-            create_hub_account_in(account, "", &[], (&key, window), &swapped),
+            create_hub_account(account, &stored, &[], (&key, window)),
             Err(SchemeError::InvalidConfig)
         ));
+        // Not a hub's scheme: its config is stored as it is.
+        assert_eq!(
+            config_to_store(
+                dassie_xrpl::scheme::MAINNET_SCHEME_ID,
+                String::new(),
+                &built_in
+            )
+            .unwrap(),
+            ""
+        );
         // Not a hub's scheme: no default to look up.
         assert_eq!(
             default_hub(dassie_xrpl::scheme::MAINNET_SCHEME_ID, &built_in),

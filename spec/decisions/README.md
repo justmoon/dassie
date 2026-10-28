@@ -29,6 +29,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [headless-setup](headless-setup.md) | An owner who keeps the passphrase on the node's host sets the node up with `dassie setup`, through the node's own setup route | node, http, identity, overview |
 | [hub-founding](hub-founding.md) | The sponsor founds a hub over a stream of its own, and a quorum's signatures of the genesis found it | hubs, peer-protocol, designs/settlement-hubs |
 | [hub-keys-by-network](hub-keys-by-network.md) | A hub's keys name its network, and a validator validates on its owner's network | hubs, identity, node |
+| [hub-named-when-added](hub-named-when-added.md) | A hub scheme names its hub from the moment it is added (moving a scheme to another hub not built) | hubs, settlement, designs/settlement-hubs |
 | [hub-protocol-version](hub-protocol-version.md) | A hub runs one version of the hub protocol, which its ID commits to (moving a hub to another version not built) | hubs, overview, designs/settlement-hubs |
 | [hub-scheme-names](hub-scheme-names.md) | A hub scheme's ID names its underlying ledger and its asset | hubs, settlement, xrpl |
 | [hubs-only](hubs-only.md) | Peers settle only over settlement hubs | designs/settlement-hubs, settlement, network, xrpl, testing |
