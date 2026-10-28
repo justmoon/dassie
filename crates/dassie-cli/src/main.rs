@@ -16,7 +16,7 @@
 //! - `dassie verify-install` checks that this binary works here.
 //! - `dassie front-door` runs a front door, which is no node.
 //! - `dassie market-maker` trades through a core node with two nodes of
-//!   its own, from the node's rate feed.
+//!   its own, from the node's snapshot.
 
 mod client;
 mod founding;
@@ -56,8 +56,8 @@ Commands:
                       --https-port <port>            (default: 80 and 443)
                       --listen <address>             standalone: only this
                                                      address (default: all)
-                      --feed-listen <addr:port>      standalone: the rate
-                                                     feed's UDP socket (the
+                      --feed-listen <addr:port>      standalone: the UDP
+                                                     socket for snapshots (the
                                                      HTTPS address, port 7768)
   init              Configure the node: hostname and TLS certificate.
                       --hostname <name>      the node's public DNS name
@@ -179,7 +179,7 @@ Commands:
                                                 is none, print the entry for
                                                 DASSIE_RELAY, and exit
   market-maker      Trade through a core node with two nodes of your own
-                    when its rate feed and an AMM pool on the XRP Ledger
+                    when its snapshot and an AMM pool on the XRP Ledger
                     leave a margin, and move your funds back on the ledger.
                       --config <file>           the JSON config
 

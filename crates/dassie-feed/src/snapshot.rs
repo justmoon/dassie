@@ -1,4 +1,4 @@
-//! Snapshots and the requests for them (spec/areas/rate-feed.md#snapshots,
+//! Snapshots and the requests for them (spec/areas/rate-feed.md#wire-format,
 //! spec/decisions/peer-swaps.md).
 //!
 //! ```text
@@ -25,16 +25,15 @@
 //! }
 //! ```
 //!
-//! A snapshot is signed by the node key over [`FEED_OID`] followed by every
-//! byte of the datagram before the signature, the version byte first. The
-//! OID is not sent: a reader knows it, as it knows the node's key, which is
-//! not sent either. A snapshot's bytes are the same whether a node answers
-//! a request with them or sends them to a peer, so it signs each once.
+//! A snapshot is signed by the node key over [`SNAPSHOT_OID`] followed by
+//! every byte of the datagram before the signature, the version byte first.
+//! The OID is not sent: a reader knows it, as it knows the node's key,
+//! which is not sent either. A snapshot's bytes are the same whether a node
+//! answers a request with them or sends them to a peer, so it signs each
+//! once.
 //!
-//! These datagrams replace the feed's ([`crate::wire`]) as version 2, which
-//! no release carries (spec/decisions/peer-swaps.md#decision). Until the
-//! node serves them, both decoders read version 2, and each refuses the
-//! other's datagrams: a test checks it.
+//! These datagrams took the place of the rate feed's as version 2, which
+//! no release carried (spec/decisions/peer-swaps.md#decision).
 //!
 //! Every value has exactly one encoding, so a snapshot's bytes are what was
 //! signed, and a decoded datagram re-encodes to its bytes. Decoding borrows
@@ -44,14 +43,26 @@
 use alloc::vec::Vec;
 
 use dassie_identity::{NodeKey, PublicKey, Signature};
-use dassie_oer::{DecodeError, DecodeErrorKind, Reader, Writer, size};
+use dassie_oer::{DecodeError, DecodeErrorKind, Reader, Writer, oid, size};
 use sha2::{Digest, Sha256};
 
 use crate::number::{LADDER_BYTES, LEVELS, Ladder, Quote};
-use crate::wire::{FEED_OID, MAX_DATAGRAM_BYTES};
 
-/// The version byte a snapshot and a request start with.
+/// The version byte a snapshot and a request start with. A datagram of any
+/// other version is refused, so a new layout is a new byte, signed under a
+/// new OID.
 pub const SNAPSHOT_VERSION: u8 = 2;
+
+/// The OID a snapshot's signature covers first,
+/// `1.3.6.1.4.1.54392.5.1399.3.2`
+/// (spec/areas/identity.md#object-identifiers), so that a snapshot's
+/// signature never passes for a link state's, or for anything else the
+/// node signs.
+pub const SNAPSHOT_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 3, 2]);
+
+/// Most bytes in a datagram, sent or taken: what fits in one packet on any
+/// path IPv6 runs on, so a snapshot is never fragmented.
+pub const MAX_DATAGRAM_BYTES: usize = 1200;
 
 /// Bytes in a method's tag.
 pub const TAG_BYTES: usize = 4;
@@ -303,34 +314,34 @@ impl SignedSnapshot<'_> {
             .bytes
             .get(..unsigned_length)
             .ok_or(InvalidSnapshot::Signature)?;
-        let mut buffer = [0u8; FEED_OID.len() + MAX_SNAPSHOT_BYTES];
+        let mut buffer = [0u8; SNAPSHOT_OID.len() + MAX_SNAPSHOT_BYTES];
         let message = signing_message(unsigned, &mut buffer).ok_or(InvalidSnapshot::Signature)?;
         key.verify(message, &Signature::from_bytes(self.signature))
             .map_err(|_| InvalidSnapshot::Signature)
     }
 }
 
-/// [`FEED_OID`] followed by `unsigned`, in `buffer`: what a snapshot's
+/// [`SNAPSHOT_OID`] followed by `unsigned`, in `buffer`: what a snapshot's
 /// signature covers. `None` if `unsigned` is longer than a snapshot.
 fn signing_message<'b>(
     unsigned: &[u8],
-    buffer: &'b mut [u8; FEED_OID.len() + MAX_SNAPSHOT_BYTES],
+    buffer: &'b mut [u8; SNAPSHOT_OID.len() + MAX_SNAPSHOT_BYTES],
 ) -> Option<&'b [u8]> {
-    let length = FEED_OID.len() + unsigned.len();
+    let length = SNAPSHOT_OID.len() + unsigned.len();
     let message = buffer.get_mut(..length)?;
-    let (oid, rest) = message.split_at_mut(FEED_OID.len());
-    oid.copy_from_slice(&FEED_OID);
+    let (oid, rest) = message.split_at_mut(SNAPSHOT_OID.len());
+    oid.copy_from_slice(&SNAPSHOT_OID);
     rest.copy_from_slice(unsigned);
     Some(message)
 }
 
 /// What a snapshot's signature covers, given every byte of its datagram
-/// before the signature ([`Snapshot::unsigned_bytes`]): [`FEED_OID`]
+/// before the signature ([`Snapshot::unsigned_bytes`]): [`SNAPSHOT_OID`]
 /// followed by them.
 #[must_use]
 pub fn snapshot_signing_message(unsigned: &[u8]) -> Vec<u8> {
-    let mut message = Vec::with_capacity(FEED_OID.len() + unsigned.len());
-    message.extend_from_slice(&FEED_OID);
+    let mut message = Vec::with_capacity(SNAPSHOT_OID.len() + unsigned.len());
+    message.extend_from_slice(&SNAPSHOT_OID);
     message.extend_from_slice(unsigned);
     message
 }
@@ -407,7 +418,7 @@ pub fn decode_snapshot_datagram(datagram: &[u8]) -> Result<SnapshotMessage<'_>, 
             read_padding(&mut reader, datagram.len())?;
             SnapshotMessage::Request
         }
-        TAG_SNAPSHOT => SnapshotMessage::Snapshot(read_snapshot(&mut reader, datagram)?),
+        TAG_SNAPSHOT => SnapshotMessage::Snapshot(read_body(&mut reader, datagram)?),
         _ => {
             let error = DecodeError::new(offset, DecodeErrorKind::UnexpectedTag);
             return Err(error.into());
@@ -433,7 +444,7 @@ fn read_padding(reader: &mut Reader<'_>, length: usize) -> Result<(), DecodeErro
 
 /// Reads a snapshot after its version and tag, every list within its
 /// bound, and checks its content.
-fn read_snapshot<'a>(
+fn read_body<'a>(
     reader: &mut Reader<'a>,
     datagram: &'a [u8],
 ) -> Result<SignedSnapshot<'a>, SnapshotWireError> {
@@ -530,26 +541,39 @@ impl SnapshotReader {
     ///
     /// Why it was not taken; nothing changes then.
     pub fn receive(&mut self, bytes: &[u8], now_ms: u64) -> Result<Snapshot, SnapshotRejected> {
-        let signed = match decode_snapshot_datagram(bytes).map_err(SnapshotRejected::Wire)? {
-            SnapshotMessage::Request => return Err(SnapshotRejected::NotSnapshot),
-            SnapshotMessage::Snapshot(signed) => signed,
-        };
-        // The cheap checks first, so a stale snapshot costs no signature
-        // check.
-        let snapshot = &signed.snapshot;
-        if self
-            .last_sequence_ms
-            .is_some_and(|last| snapshot.sequence_ms <= last)
-        {
-            return Err(SnapshotRejected::Old);
-        }
-        if now_ms >= snapshot.valid_until_ms {
-            return Err(SnapshotRejected::Expired);
-        }
-        signed
-            .verify(&self.key)
-            .map_err(SnapshotRejected::Invalid)?;
-        self.last_sequence_ms = Some(signed.snapshot.sequence_ms);
-        Ok(signed.snapshot)
+        let snapshot = take_snapshot(&self.key, bytes, self.last_sequence_ms, now_ms)?;
+        self.last_sequence_ms = Some(snapshot.sequence_ms);
+        Ok(snapshot)
     }
+}
+
+/// The snapshot of `bytes`, if a reader of the node whose key is `key`
+/// takes it at `now_ms`, having taken one of `last_sequence_ms` before: it
+/// decodes, its sequence is after that one, it has not expired, and it
+/// verifies under the key. What [`SnapshotReader`] does, for a caller that
+/// keeps the last sequence itself, as a node keeps a peer's snapshot.
+///
+/// # Errors
+///
+/// Why it is not taken.
+pub fn take_snapshot(
+    key: &PublicKey,
+    bytes: &[u8],
+    last_sequence_ms: Option<u64>,
+    now_ms: u64,
+) -> Result<Snapshot, SnapshotRejected> {
+    let signed = match decode_snapshot_datagram(bytes).map_err(SnapshotRejected::Wire)? {
+        SnapshotMessage::Request => return Err(SnapshotRejected::NotSnapshot),
+        SnapshotMessage::Snapshot(signed) => signed,
+    };
+    // The cheap checks first, so a stale snapshot costs no signature check.
+    let snapshot = &signed.snapshot;
+    if last_sequence_ms.is_some_and(|last| snapshot.sequence_ms <= last) {
+        return Err(SnapshotRejected::Old);
+    }
+    if now_ms >= snapshot.valid_until_ms {
+        return Err(SnapshotRejected::Expired);
+    }
+    signed.verify(key).map_err(SnapshotRejected::Invalid)?;
+    Ok(signed.snapshot)
 }

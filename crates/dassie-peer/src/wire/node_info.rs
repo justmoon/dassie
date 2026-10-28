@@ -237,10 +237,10 @@ impl NodeInfo<'_> {
         self.has_extension(super::EXTENSION_PERIPHERY)
     }
 
-    /// The UDP port of its rate feed, at its URL's host, if it names one:
-    /// the first feed extension's, when that is a port. One that is not, of
-    /// another length or 0, names none; it is still kept and forwarded, as
-    /// the signature covers it.
+    /// The UDP port it answers requests for its snapshot on, at its URL's
+    /// host, if it names one: the first feed extension's, when that is a
+    /// port. One that is not, of another length or 0, names none; it is
+    /// still kept and forwarded, as the signature covers it.
     #[must_use]
     pub fn feed_port(&self) -> Option<u16> {
         let value = self.entries.iter().find_map(|entry| match entry {

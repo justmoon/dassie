@@ -1,7 +1,8 @@
 /**
- * What the network page says of a core node's rate feed
- * (spec/areas/rate-feed.md#what-the-owner-sees): whether the node serves it,
- * to how many, and what it sent, from the counters `GetStatus` reports.
+ * What the network page says of a core node's UDP endpoint for its snapshot
+ * (spec/areas/rate-feed.md#what-the-owner-sees): whether the node answers
+ * there, and what it took and answered, from the counters `GetStatus`
+ * reports.
  */
 
 import type { RateFeed } from "@dassie/rpc/proto";
@@ -26,32 +27,29 @@ export function feedView(feed: RateFeed | undefined): FeedView {
     return {
       badge: "none",
       tone: "bad",
-      text: "The node has no UDP socket for it, so it publishes no feed.",
+      text:
+        "The node has no UDP socket for it, so it answers no request for its snapshot.",
       details: [],
     };
   }
   if (!feed.serving) {
     return {
-      badge: "not served",
+      badge: "not answering",
       tone: "plain",
       text:
-        `The node publishes it at ${feed.address} once it has a domain name.`,
+        `The node answers at ${feed.address} once it has a domain name and offers swaps.`,
       details: [],
     };
   }
-  const failed = feed.sendFailed + feed.unsent > 0n;
+  const failed = feed.sendFailed > 0n;
   return {
-    badge: failed ? "sends failed" : "served",
+    badge: failed ? "sends failed" : "answering",
     tone: failed ? "bad" : "good",
-    text: `At ${feed.address}, to ${count(feed.subscribers, "subscriber")}.`,
+    text: `At ${feed.address}.`,
     details: [
-      `Published ${count(feed.published, "feed")}; sent ${
-        count(feed.sent, "datagram")
-      }, ${feed.sendFailed} failed, ${feed.unsent} out of time.`,
       `Took ${
         count(feed.received, "datagram")
-      }: ${feed.challenged} challenged, ${feed.subscribed} subscribed, ${feed.renewed} renewed, ${feed.ignored} ignored; ${feed.expired} lapsed.`,
-      `Refused ${feed.refusedFull} for a full table, ${feed.refusedClient} for a client's share.`,
+      }: answered ${feed.answered}, ${feed.overBudget} over the budget, ${feed.ignored} ignored; ${feed.sendFailed} sends failed.`,
     ],
   };
 }

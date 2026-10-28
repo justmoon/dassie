@@ -1,10 +1,11 @@
 //! `GET /.well-known/dassie/node` (spec/areas/http.md#the-nodes-discovery-document):
-//! who the node is and where its rate feed is, for anyone.
+//! who the node is and where it answers requests for its snapshot, for
+//! anyone.
 //!
 //! It needs no authentication and is not signed: whoever fetches it over
 //! HTTPS already trusts the node's name by its certificate, and the ID is
 //! the key's hash, which a reader checks. It names only what the node
-//! knows without its engine, so it costs no more than a static file.
+//! holds without asking its engine, so it costs no more than a static file.
 
 use hyper::StatusCode;
 use hyper::header::{self, HeaderValue};
@@ -26,8 +27,9 @@ struct Discovery {
     /// The node's SLH-DSA public key, in base64url
     /// (spec/areas/identity.md#node-id).
     slh_dsa_public_key: String,
-    /// The UDP port of its rate feed, at the host it was fetched from, on
-    /// a core node that has one (spec/areas/rate-feed.md#finding-a-feed).
+    /// The UDP port it answers requests for its snapshot on, at the host it
+    /// was fetched from, while it answers: a core node that offers swaps
+    /// and has the socket (spec/areas/rate-feed.md#finding-a-node).
     #[serde(skip_serializing_if = "Option::is_none")]
     feed_port: Option<u16>,
 }
@@ -49,7 +51,11 @@ pub fn serve(node: &Node) -> hyper::Response<Body> {
         id: identity.node_id().to_string(),
         public_key: encode(identity.key().as_bytes()),
         slh_dsa_public_key: encode(identity.slh_dsa().as_bytes()),
-        feed_port: node.own_info().checked().feed_port,
+        feed_port: node
+            .own_info()
+            .checked()
+            .feed_port
+            .filter(|_| crate::feed::serving(node)),
     };
     let body = serde_json::to_string(&document).unwrap_or_default();
     let mut response = response::with_body(StatusCode::OK, "application/json", body);

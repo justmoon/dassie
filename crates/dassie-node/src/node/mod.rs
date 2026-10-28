@@ -117,8 +117,9 @@ pub struct Policies {
     /// How often a dollar token's peg guard reads its pool, and how long
     /// its holds are (spec/areas/xrpl.md#the-peg-guard).
     pub peg: dassie_xrpl::peg::Timings,
-    /// The rate feed's subscriber table (spec/areas/rate-feed.md#the-table).
-    pub feed: dassie_feed::Limits,
+    /// The budget on answers to requests for the node's snapshot
+    /// (spec/areas/rate-feed.md#requests).
+    pub feed: dassie_feed::AnswerLimits,
     /// How long a tunnel taken may hold its place among the QUIC
     /// connections being set up (spec/areas/peer-protocol.md#quic-over-websocket).
     pub tunnel_bounds: crate::quic::tunnel::TunnelBounds,
@@ -167,7 +168,7 @@ impl Policies {
         incoming: crate::engine::IncomingPolicy::DEFAULT,
         rates_every_ms: 60_000,
         peg: dassie_xrpl::peg::Timings::DEFAULT,
-        feed: dassie_feed::Limits::DEFAULT,
+        feed: dassie_feed::AnswerLimits::DEFAULT,
         tunnel_bounds: crate::quic::tunnel::TunnelBounds::DEFAULT,
     };
 
@@ -302,6 +303,9 @@ struct PeerSide {
     /// The nodes peered with us, by kind, as the engine last said: what
     /// gives their QUIC connections places of their own.
     peerings: watch::Sender<Arc<Classes>>,
+    /// The node's snapshot, signed, as the engine last made it: what its
+    /// UDP endpoint answers requests with (spec/areas/rate-feed.md#requests).
+    snapshot: watch::Sender<Option<Arc<[u8]>>>,
 }
 
 impl PeerSide {
@@ -323,6 +327,7 @@ impl PeerSide {
             by_client: Arc::new(Mutex::new(BTreeMap::new())),
             limiter: Mutex::new(RateLimiter::new(PEER_ANONYMOUS)),
             peerings: watch::Sender::new(Arc::new(Classes::default())),
+            snapshot: watch::Sender::new(None),
         })
     }
 }
@@ -432,7 +437,8 @@ pub struct Node {
     rates_wake: Notify,
     /// The QUIC endpoint, where the node has a UDP socket.
     quic: std::sync::OnceLock<Arc<crate::quic::Quic>>,
-    /// The rate feed's socket, where the node has one.
+    /// The UDP socket that answers requests for the node's snapshot, where
+    /// the node has one.
     feed: std::sync::OnceLock<Arc<crate::feed::FeedEndpoint>>,
     /// The settlement hubs the node validates, which the hub's stream
     /// reaches (spec/areas/hubs.md#the-validator-in-the-node).
@@ -717,6 +723,38 @@ impl Node {
         });
     }
 
+    /// The node's snapshot as it changes: none while the node offers no
+    /// swaps, or its engine is down (spec/areas/rate-feed.md#requests).
+    #[must_use]
+    pub fn snapshots(&self) -> watch::Receiver<Option<Arc<[u8]>>> {
+        self.peer.snapshot.subscribe()
+    }
+
+    /// The node's snapshot now, if it has one that has not expired: whether
+    /// its UDP endpoint answers requests.
+    #[must_use]
+    pub fn current_snapshot(&self) -> Option<Arc<[u8]>> {
+        let snapshot = self.peer.snapshot.borrow().clone()?;
+        let valid_until_ms = crate::feed::valid_until_ms(&snapshot)?;
+        (self.now_ms() < valid_until_ms).then_some(snapshot)
+    }
+
+    /// Says what the node's snapshot is now; those who follow hear of it
+    /// only if that changed.
+    pub fn set_snapshot(&self, snapshot: Option<&Arc<[u8]>>) {
+        self.peer.snapshot.send_if_modified(|held| {
+            let changed = match (&*held, snapshot) {
+                (Some(old), Some(new)) => !Arc::ptr_eq(old, new),
+                (None, None) => false,
+                _ => true,
+            };
+            if changed {
+                *held = snapshot.cloned();
+            }
+            changed
+        });
+    }
+
     /// The configuration as it changes.
     #[must_use]
     pub fn subscribe_config(&self) -> watch::Receiver<NodeConfig> {
@@ -741,8 +779,10 @@ impl Node {
         });
         let url = dassie_node_core::urls::node_url(config.hostname.as_ref(), https_port)
             .filter(|_| at_url);
-        // Subscribers find the feed at the URL's host, so only a node with
-        // a URL names its port (spec/areas/rate-feed.md#finding-a-feed).
+        // Readers find the endpoint at the URL's host, so only a node with
+        // a URL names its port (spec/areas/rate-feed.md#finding-a-node); the
+        // engine names it in the link state only while the node offers
+        // swaps.
         let feed_port = self
             .feed()
             .and_then(|feed| feed.local_addr().ok())

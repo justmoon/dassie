@@ -7,8 +7,8 @@
 //! pays from the node of asset `a` through one target to the node of `b`,
 //! over their hubs; it pays when the `b` it delivers, swapped back to `a`
 //! on the XRP Ledger's AMM pool, comes to more than it cost by the margin.
-//! Each target's trade is scored at that target's rates, and the best
-//! taken; a target that is not a confirmed uplink of both nodes is passed
+//! Each target's trade is scored at what that target's snapshot says the
+//! swap between the two hubs' methods gives at least, and the best taken; a target that is not a confirmed uplink of both nodes is passed
 //! over. A rebalance moves a node's holding back into its band: one Payment
 //! from its owner book's XRPL account to the other node's, which delivers
 //! the other asset, no more than the other node's band has room for, and
@@ -20,6 +20,9 @@
 //! units. Converting to the ledger's amounts rounds down, so the market
 //! maker never counts on more than it gets. Nothing passes through a float.
 
+use std::sync::Arc;
+
+use dassie_feed::{MethodTag, Snapshot, method_tag};
 use dassie_xrpl::UNITS_PER_DROP;
 use dassie_xrpl::amm::{self, SwapError};
 use dassie_xrpl::amount::{Amount, IssuedAsset, TokenAmount, TokenValue};
@@ -32,9 +35,6 @@ const MICRO_DECIMALS: u8 = 6;
 
 /// Parts per million.
 pub const MILLION: u32 = 1_000_000;
-
-/// A rate's scale: a feed's rates are out per in, × 10^15.
-const RATE_SCALE: u128 = 1_000_000_000_000_000;
 
 /// The largest margin a config may ask for: half again what a trade costs.
 pub const MAX_MARGIN_PPM: u32 = 500_000;
@@ -135,27 +135,52 @@ impl Params {
     }
 }
 
-/// What a target's feed says it converts at between the two nodes'
-/// ledgers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Rates {
-    /// Its fee, in parts per million of what comes in.
-    pub fee_ppm: u32,
-    /// From the XRP hub's method to the token hub's, × 10^15, in their
-    /// ledgers' units, if it converts.
-    pub xrp_to_token_e15: Option<u64>,
-    /// From the token hub's method to the XRP hub's.
-    pub token_to_xrp_e15: Option<u64>,
+/// What a target's snapshot says it gives between the two nodes' methods,
+/// the hubs' (spec/areas/rate-feed.md#reading-a-snapshot).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Quotes {
+    snapshot: Arc<Snapshot>,
+    /// The tag of the XRP hub's method.
+    xrp: MethodTag,
+    /// The tag of the token hub's method.
+    token: MethodTag,
 }
 
-impl Rates {
-    /// The rate from `side`'s method to the other's.
+impl Quotes {
+    /// What `snapshot` says between the methods whose schemes' IDs are
+    /// `xrp` and `token`.
     #[must_use]
-    pub const fn from(&self, side: Side) -> Option<u64> {
-        match side {
-            Side::Xrp => self.xrp_to_token_e15,
-            Side::Token => self.token_to_xrp_e15,
+    pub fn new(snapshot: Arc<Snapshot>, xrp: &str, token: &str) -> Self {
+        Self {
+            snapshot,
+            xrp: method_tag(xrp),
+            token: method_tag(token),
         }
+    }
+
+    /// The tags of `side`'s method and the other's.
+    const fn tags(&self, side: Side) -> (MethodTag, MethodTag) {
+        match side {
+            Side::Xrp => (self.xrp, self.token),
+            Side::Token => (self.token, self.xrp),
+        }
+    }
+
+    /// Whether the snapshot prices a swap from `side`'s method to the
+    /// other's: it quotes both, and neither side is closed.
+    #[must_use]
+    pub fn prices(&self, side: Side) -> bool {
+        let (from, to) = self.tags(side);
+        self.snapshot.swap_out(from, to, 0).is_some()
+    }
+
+    /// The least `amount` of `side`'s method gets out on the other's, by
+    /// the snapshot's ladders, sent as a packet per step; `None` beyond
+    /// what they cover, or for a pair it does not price.
+    #[must_use]
+    pub fn out(&self, side: Side, amount: u64) -> Option<u64> {
+        let (from, to) = self.tags(side);
+        self.snapshot.swap_out(from, to, amount)
     }
 }
 
@@ -221,15 +246,15 @@ impl Holdings {
     }
 }
 
-/// What one target offers: its rates, and whether a trade can go through
+/// What one target offers: its quotes, and whether a trade can go through
 /// it now.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetQuote {
     /// Which target, as the caller counts them; a trade through it names
     /// it.
     pub target: usize,
-    /// Its rates, from a current feed.
-    pub rates: Rates,
+    /// Its quotes, from a current snapshot.
+    pub quotes: Quotes,
     /// Whether it is a confirmed uplink of both nodes, so the payee's
     /// credentials can name the address beneath it and the payer's first
     /// hop is it (spec/areas/rate-feed.md#market-maker).
@@ -239,7 +264,7 @@ pub struct TargetQuote {
 /// Everything a decision looks at.
 #[derive(Clone, Copy, Debug)]
 pub struct Inputs<'a> {
-    /// The targets with a current feed, at most
+    /// The targets with a current snapshot, at most
     /// [`MAX_TARGETS`](super::config::MAX_TARGETS).
     pub targets: &'a [TargetQuote],
     /// The target the last trade went through, if any: of trades that gain
@@ -263,7 +288,8 @@ pub struct Trade {
     pub from: Side,
     /// What it sends, in its ledger's units.
     pub debit: u64,
-    /// What the feed says the other node receives, in its units.
+    /// What the snapshot says the other node receives at least, in its
+    /// units.
     pub receive: u64,
     /// What that swaps back to on the pool, in `from`'s units.
     pub back: u64,
@@ -284,10 +310,10 @@ pub struct Rebalance {
 /// Why nothing is done.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hold {
-    /// No target with a current feed is a confirmed uplink of both nodes
-    /// yet.
+    /// No target with a current snapshot is a confirmed uplink of both
+    /// nodes yet.
     Unpeered,
-    /// No feed names a rate between the two methods.
+    /// No snapshot prices a swap between the two methods.
     NoRate,
     /// No node may send: each is at the bottom of its band.
     Bands,
@@ -372,9 +398,9 @@ fn trade(inputs: &Inputs<'_>, from: &[Side]) -> Decision {
     for quote in after.iter().chain(before).filter(|quote| quote.peered) {
         hold = further(hold, Hold::NoRate);
         for &from in from {
-            let Some(rate) = quote.rates.from(from) else {
+            if !quote.quotes.prices(from) {
                 continue;
-            };
+            }
             // What a node may send does not depend on the target: its band
             // is its own.
             let node = inputs.params.node(from);
@@ -384,7 +410,8 @@ fn trade(inputs: &Inputs<'_>, from: &[Side]) -> Decision {
                 hold = further(hold, Hold::Bands);
                 continue;
             }
-            let Some(receive) = through_target(debit, quote.rates.fee_ppm, rate) else {
+            // Beyond what the ladders cover, the snapshot says nothing.
+            let Some(receive) = quote.quotes.out(from, debit) else {
                 hold = further(hold, Hold::Range);
                 continue;
             };
@@ -545,16 +572,6 @@ pub fn least_spent(rebalance: &Rebalance, slippage_ppm: u32) -> u64 {
     u64::try_from(least).unwrap_or(u64::MAX).max(1)
 }
 
-/// What `debit` sent through the target delivers at `rate_e15`, as its
-/// feed says a packet gets: `floor((debit − fee) × rate / 10^15)`, the fee
-/// rounded down. `None` beyond a `u64`.
-#[must_use]
-pub fn through_target(debit: u64, fee_ppm: u32, rate_e15: u64) -> Option<u64> {
-    let fee = u128::from(debit) * u128::from(fee_ppm.min(MILLION)) / u128::from(MILLION);
-    let net = u128::from(debit) - fee;
-    u64::try_from(net * u128::from(rate_e15) / RATE_SCALE).ok()
-}
-
 /// What `paid` units of `side`'s asset yield of the other's on the pool,
 /// in the other's units, rounded down.
 fn swap_back(pool: &Pool, side: Side, paid: u64) -> Result<u64, Hold> {
@@ -693,24 +710,67 @@ mod tests {
     }
 
     /// One target, peered, at `rates`.
-    const fn one(rates: Rates) -> [TargetQuote; 1] {
-        [quote(0, rates, true)]
+    fn one(quotes: Quotes) -> [TargetQuote; 1] {
+        [quote(0, quotes, true)]
     }
 
-    const fn quote(target: usize, rates: Rates, peered: bool) -> TargetQuote {
+    fn quote(target: usize, quotes: Quotes, peered: bool) -> TargetQuote {
         TargetQuote {
             target,
-            rates,
+            quotes,
             peered,
         }
     }
 
-    fn rates(xrp_to_token: u64, token_to_xrp: u64) -> Rates {
-        Rates {
-            fee_ppm: 0,
-            xrp_to_token_e15: Some(xrp_to_token),
-            token_to_xrp_e15: Some(token_to_xrp),
-        }
+    /// The two hubs' methods.
+    const XRP_METHOD: &str = "hub-xrpl-testnet-xrp";
+    const TOKEN_METHOD: &str = "hub-xrpl-testnet-dsusd";
+
+    /// A snapshot that quotes the two methods, each with an ask of one and
+    /// ladders `depth` deep at a first drop of nothing, and a bid of
+    /// `xrp_bid` and `token_bid`, × 10^15.
+    fn quoting(xrp_bid: u64, token_bid: u64, depth: u64) -> Quotes {
+        use dassie_feed::{LEVELS, Ladder, MethodQuotes, Quote};
+        let ladder = Ladder::floor([depth; LEVELS]);
+        let method = |id: &str, bid: u64| MethodQuotes {
+            tag: method_tag(id),
+            bid: Quote::floor(u128::from(bid), u128::from(10u64.pow(15))),
+            ask: Quote::ceil(1, 1),
+            bid_ladder: ladder,
+            ask_ladder: ladder,
+        };
+        let mut methods = vec![method(XRP_METHOD, xrp_bid), method(TOKEN_METHOD, token_bid)];
+        methods.sort_by_key(|method| method.tag);
+        let snapshot = Snapshot {
+            sequence_ms: 1,
+            valid_until_ms: 2,
+            grid_bp: [0, 1, 2, 3, 4, 5, 6, 7],
+            methods,
+        };
+        Quotes::new(Arc::new(snapshot), XRP_METHOD, TOKEN_METHOD)
+    }
+
+    /// A snapshot whose swaps give `xrp_to_token` and `token_to_xrp`, ×
+    /// 10^15, at any size, less the quotes' rounding.
+    fn rates(xrp_to_token: u64, token_to_xrp: u64) -> Quotes {
+        quoting(xrp_to_token, token_to_xrp, u64::MAX)
+    }
+
+    /// A snapshot that prices neither way: it quotes no method.
+    fn no_rates() -> Quotes {
+        let snapshot = Snapshot {
+            sequence_ms: 1,
+            valid_until_ms: 2,
+            grid_bp: [0, 1, 2, 3, 4, 5, 6, 7],
+            methods: Vec::new(),
+        };
+        Quotes::new(Arc::new(snapshot), XRP_METHOD, TOKEN_METHOD)
+    }
+
+    /// Whether `got` is `expected` less at most a millionth of it, as the
+    /// quotes round it: never more.
+    fn near(got: u64, expected: u64) -> bool {
+        got <= expected && expected - got <= expected / 1_000_000
     }
 
     /// Holdings whose accounts hold all the books say.
@@ -770,7 +830,7 @@ mod tests {
         };
         assert_eq!(trade.from, Side::Xrp);
         assert_eq!(trade.debit, 2 * ONE);
-        assert_eq!(trade.receive, 1_020_000_000);
+        assert!(near(trade.receive, 1_020_000_000), "{}", trade.receive);
         assert!(clears(trade.debit, trade.back, params.margin_ppm));
         assert!(trade.back > trade.debit);
 
@@ -787,23 +847,22 @@ mod tests {
         assert_eq!(trade.debit, ONE);
     }
 
+    // spec/areas/rate-feed.md#reading-a-snapshot: a trade beyond what the
+    // ladders cover is not priced; one within them is.
     #[test]
-    fn the_targets_fee_counts_against_the_margin() {
+    fn a_trade_beyond_the_ladders_is_not_priced() {
         let params = params();
         let rate = POOL_XRP_TO_TOKEN / 100 * 102;
-        let mut with_fee = rates(rate, POOL_TOKEN_TO_XRP);
-        // A fee of 2 % eats the gain.
-        with_fee.fee_ppm = 20_000;
+        let shallow = quoting(rate, POOL_TOKEN_TO_XRP, ONE);
         assert_eq!(
-            decide(&inputs(&one(with_fee), MIDDLE, &params)),
-            Decision::Hold(Hold::Margin)
+            decide(&inputs(&one(shallow), MIDDLE, &params)),
+            Decision::Hold(Hold::Range)
         );
-        assert_eq!(
-            through_target(1_000, 20_000, 1_000_000_000_000_000),
-            Some(980)
-        );
-        // The fee rounds down, as the connector takes it.
-        assert_eq!(through_target(49, 20_000, 1_000_000_000_000_000), Some(49));
+        let deep = quoting(rate, POOL_TOKEN_TO_XRP, 3 * ONE);
+        assert!(matches!(
+            decide(&inputs(&one(deep), MIDDLE, &params)),
+            Decision::Trade(_)
+        ));
     }
 
     #[test]
@@ -882,13 +941,8 @@ mod tests {
     #[test]
     fn no_rate_no_trade() {
         let params = params();
-        let none = Rates {
-            fee_ppm: 0,
-            xrp_to_token_e15: None,
-            token_to_xrp_e15: None,
-        };
         assert_eq!(
-            decide(&inputs(&one(none), MIDDLE, &params)),
+            decide(&inputs(&one(no_rates()), MIDDLE, &params)),
             Decision::Hold(Hold::NoRate)
         );
     }
@@ -900,14 +954,14 @@ mod tests {
         // target 2 gives 3 %: the trade goes through 2.
         let good = rates(POOL_XRP_TO_TOKEN / 100 * 102, POOL_TOKEN_TO_XRP);
         let better = rates(POOL_XRP_TO_TOKEN / 100 * 103, POOL_TOKEN_TO_XRP);
-        let targets = [quote(1, good, true), quote(2, better, true)];
+        let targets = [quote(1, good.clone(), true), quote(2, better.clone(), true)];
         let Decision::Trade(trade) = decide(&inputs(&targets, MIDDLE, &params)) else {
             panic!("a trade");
         };
         assert_eq!((trade.target, trade.from), (2, Side::Xrp));
-        assert_eq!(trade.receive, 1_030_000_000);
+        assert!(near(trade.receive, 1_030_000_000), "{}", trade.receive);
         // In either order.
-        let targets = [quote(2, better, true), quote(1, good, true)];
+        let targets = [quote(2, better.clone(), true), quote(1, good, true)];
         let Decision::Trade(trade) = decide(&inputs(&targets, MIDDLE, &params)) else {
             panic!("a trade");
         };
@@ -927,9 +981,9 @@ mod tests {
         let params = params();
         let good = rates(POOL_XRP_TO_TOKEN / 100 * 102, POOL_TOKEN_TO_XRP);
         let targets = [
-            quote(4, good, true),
-            quote(3, good, false),
-            quote(7, good, true),
+            quote(4, good.clone(), true),
+            quote(3, good.clone(), false),
+            quote(7, good.clone(), true),
         ];
         let after = |last| {
             let mut inputs = inputs(&targets, MIDDLE, &params);
@@ -964,12 +1018,15 @@ mod tests {
         let better = rates(POOL_XRP_TO_TOKEN / 100 * 103, POOL_TOKEN_TO_XRP);
         // The better target is not peered yet: the trade goes through the
         // other.
-        let targets = [quote(0, better, false), quote(1, good, true)];
+        let targets = [
+            quote(0, better.clone(), false),
+            quote(1, good.clone(), true),
+        ];
         let Decision::Trade(trade) = decide(&inputs(&targets, MIDDLE, &params)) else {
             panic!("a trade");
         };
         assert_eq!(trade.target, 1);
-        assert_eq!(trade.receive, 1_020_000_000);
+        assert!(near(trade.receive, 1_020_000_000), "{}", trade.receive);
         // None peered: nothing to trade through.
         let targets = [quote(0, better, false), quote(1, good, false)];
         assert_eq!(
@@ -995,7 +1052,7 @@ mod tests {
     fn a_rebalance_comes_first_whatever_the_targets_offer() {
         let params = params();
         let better = rates(POOL_XRP_TO_TOKEN / 100 * 110, POOL_TOKEN_TO_XRP / 100 * 110);
-        let targets = [quote(0, better, true), quote(1, better, true)];
+        let targets = [quote(0, better.clone(), true), quote(1, better, true)];
         let full = held(50 * ONE, 60 * ONE);
         assert!(matches!(
             decide(&inputs(&targets, full, &params)),
@@ -1009,17 +1066,19 @@ mod tests {
     #[test]
     fn the_reason_to_hold_is_the_furthest_any_target_got() {
         let params = params();
-        let none = Rates {
-            fee_ppm: 0,
-            xrp_to_token_e15: None,
-            token_to_xrp_e15: None,
-        };
+        let none = no_rates();
         let at_pool = rates(POOL_XRP_TO_TOKEN, POOL_TOKEN_TO_XRP);
         // One names no rate, the other's trades miss the margin: whichever
         // comes first, the margin is the reason.
         for targets in [
-            [quote(0, none, true), quote(1, at_pool, true)],
-            [quote(1, at_pool, true), quote(0, none, true)],
+            [
+                quote(0, none.clone(), true),
+                quote(1, at_pool.clone(), true),
+            ],
+            [
+                quote(1, at_pool.clone(), true),
+                quote(0, none.clone(), true),
+            ],
         ] {
             assert_eq!(
                 decide(&inputs(&targets, MIDDLE, &params)),
@@ -1257,18 +1316,19 @@ mod tests {
 
     /// The VM's rates, as its log has them: the target pays 0.8045 XRP for
     /// the token, and 1.179 of the token for an XRP.
-    const VM_RATES: Rates = Rates {
-        fee_ppm: 0,
-        xrp_to_token_e15: Some(1_179_291_322_564_294),
-        token_to_xrp_e15: Some(804_523_721_956_600),
-    };
+    fn vm_rates() -> Quotes {
+        rates(1_179_291_322_564_294, 804_523_721_956_600)
+    }
+
+    /// The VM's target.
+    static VM_TARGETS: std::sync::LazyLock<[TargetQuote; 1]> =
+        std::sync::LazyLock::new(|| one(vm_rates()));
 
     /// A pool at the testnet's price then: 0.76 XRP for the token, with a
     /// fee of half a percent.
     fn vm_inputs<'a>(holdings: Holdings, params: &'a Params) -> Inputs<'a> {
-        const TARGETS: [TargetQuote; 1] = one(VM_RATES);
         Inputs {
-            targets: &TARGETS,
+            targets: &*VM_TARGETS,
             last_target: None,
             pool: Pool {
                 drops: 7_600 * 1_000_000,
@@ -1309,7 +1369,7 @@ mod tests {
         };
         assert_eq!(trade.from, Side::Token);
         assert_eq!(trade.debit, 2 * ONE);
-        assert_eq!(trade.receive, 1_609_047_443);
+        assert!(near(trade.receive, 1_609_047_443), "{}", trade.receive);
         assert!(clears(trade.debit, trade.back, params.margin_ppm));
 
         // Once the target has paid it, the token node has room, and the
@@ -1367,11 +1427,7 @@ mod tests {
         // Only the trade the other way clears the margin: from the XRP node
         // into the token node, which has no room. It would take the token
         // node above its band, both above theirs: the rebalance holds.
-        let targets = one(Rates {
-            fee_ppm: 0,
-            xrp_to_token_e15: Some(1_400_000_000_000_000),
-            token_to_xrp_e15: Some(700_000_000_000_000),
-        });
+        let targets = one(rates(1_400_000_000_000_000, 700_000_000_000_000));
         let mut inputs = vm_inputs(VM_STALLED, &params);
         inputs.targets = &targets;
         assert_eq!(decide(&inputs), Decision::Hold(Hold::Full));

@@ -40,9 +40,10 @@
         <li>a domain name that points to that address</li>
         <li>TCP ports 80 and 443 and UDP port 443 open to the world: nodes talk to each other over QUIC, on UDP</li>
         <li>
-          UDP port 7768 open too, for the node's rate feed: a node with a
-          domain name publishes there the rates it converts at, for market
-          makers to read. Without it the node runs, and publishes no feed.
+          UDP port 7768 open too, for the node's snapshot: a node with a
+          domain name answers there with the prices it swaps at, for market
+          makers to read. Without it the node runs, and its peers still get
+          its snapshot over the peer protocol.
         </li>
       </ul>
 

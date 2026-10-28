@@ -8,9 +8,9 @@
  * most of its value in XRP; the market maker's two periphery nodes, each
  * pinned to both, join one each: one with XRP, one with DSUSD.
  *
- * Both core nodes lack DSUSD, so both feeds price it above the pool, alike,
+ * Both core nodes lack DSUSD, so both snapshots price it above the pool, alike,
  * at their curve's cap. `dassie market-maker`, from the e2e build, follows
- * both feeds, and pays DSUSD from its DSUSD node to its XRP node through
+ * both snapshots, and pays DSUSD from its DSUSD node to its XRP node through
  * whichever pays best; targets that pay alike take turns. So both core
  * nodes take DSUSD in, through two nodes of the market maker's, each with
  * an uplink to both, and each holds a larger share of its value in DSUSD.

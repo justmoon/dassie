@@ -14,7 +14,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/node.proto.
  */
 export const file_dassie_owner_v1_node: GenFile = /*@__PURE__*/
-  fileDesc("ChpkYXNzaWUvb3duZXIvdjEvbm9kZS5wcm90bxIPZGFzc2llLm93bmVyLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrgBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USKQoFc3RhdGUYASABKA4yGi5kYXNzaWUub3duZXIudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IsMEChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEikKB3J1bnRpbWUYAiABKA4yGC5kYXNzaWUub3duZXIudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSMQoLY2VydGlmaWNhdGUYBCABKAsyHC5kYXNzaWUub3duZXIudjEuQ2VydGlmaWNhdGUSKQoEYWNtZRgFIAEoCzIbLmRhc3NpZS5vd25lci52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIrCgVyZWxheRgJIAEoCzIcLmRhc3NpZS5vd25lci52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkSJwoEZmVlZBgLIAEoCzIZLmRhc3NpZS5vd25lci52MS5SYXRlRmVlZBIxCgp2YWxpZGF0aW5nGAwgAygLMh0uZGFzc2llLm93bmVyLnYxLkh1YlZhbGlkYXRvchIuCghmb3VuZGluZxgNIAMoCzIcLmRhc3NpZS5vd25lci52MS5IdWJGb3VuZGluZxIwCgdwYWNrZXRzGA4gASgLMh8uZGFzc2llLm93bmVyLnYxLlBhY2tldENvdW50ZXJzEjQKDXBlZXJfcHJvdG9jb2wYDyABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlckNvdW50ZXJzIssBCg5QYWNrZXRDb3VudGVycxIQCghwcmVwYXJlcxgBIAEoBBIRCglmb3J3YXJkZWQYAiABKAQSEAoIYW5zd2VyZWQYAyABKAQSEQoJZnVsZmlsbGVkGAQgASgEEhAKCHJlamVjdGVkGAUgASgEEg8KB2V4cGlyZWQYBiABKAQSGgoSd3JvbmdfZnVsZmlsbG1lbnRzGAcgASgEEhwKFHVuZXhwZWN0ZWRfcmVzcG9uc2VzGAggASgEEhIKCmR1cGxpY2F0ZXMYCSABKAQi6gQKDFBlZXJDb3VudGVycxIVCg1yZXF1ZXN0c19zZW50GAEgASgEEhcKD3JlcXVlc3RzX2ZhaWxlZBgCIAEoBBIYChByZXF1ZXN0c19kcm9wcGVkGAMgASgEEhcKD2luYm91bmRfcmVmdXNlZBgEIAEoBBIcChRsaW5rX3N0YXRlc19hY2NlcHRlZBgFIAEoBBIbChNsaW5rX3N0YXRlc19kcm9wcGVkGAYgASgEEhAKCHBlZXJpbmdzGAcgASgEEhQKDHRlcm1pbmF0aW9ucxgIIAEoBBIXCg9hbnN3ZXJzX2Ryb3BwZWQYCSABKAQSHQoVc2V0dGxlbWVudHNfZGVsaXZlcmVkGAogASgEEhsKE3NldHRsZW1lbnRzX2FwcGxpZWQYCyABKAQSHQoVc2V0dGxlbWVudHNfZHVwbGljYXRlGAwgASgEEh0KFXNldHRsZW1lbnRzX3JlcXVlc3RlZBgNIAEoBBIXCg9jaGFubmVsc19jbG9zZWQYDiABKAQSGgoSY29tbWl0bWVudHNfbG9nZ2VkGA8gASgEEhoKEmNvbW1pdG1lbnRzX2xhcHNlZBgQIAEoBBIVCg1uYW1lc19ncmFudGVkGBEgASgEEhUKDW5hbWVzX3JlbmV3ZWQYEiABKAQSEwoLbmFtZXNfZnJlZWQYEyABKAQSFgoObmFtZXNfcmVsZWFzZWQYFCABKAQSHQoVcmVnaXN0cmF0aW9uc19zdGFydGVkGBUgASgEEh8KF3JlZ2lzdHJhdGlvbnNfYWJhbmRvbmVkGBYgASgEEhUKDXJlbmV3YWxzX3NlbnQYFyABKAQi3gEKDEh1YlZhbGlkYXRvchILCgNodWIYASABKAkSDQoFaW5kZXgYAiABKA0SEgoKdmFsaWRhdG9ycxgDIAEoDRIOCgZoZWlnaHQYBCABKAQSFQoNZmluYWxfdW5peF9tcxgFIAEoAxIMCgR2aWV3GAYgASgEEigKBXBoYXNlGAcgASgOMhkuZGFzc2llLm93bmVyLnYxLkh1YlBoYXNlEg8KB3N0YWxsZWQYCCABKAgSFgoOZXNjcm93X2NoZWNrZWQYCSABKAgSFgoOeHJwbF9jb25uZWN0ZWQYCiABKAgiogIKCFJhdGVGZWVkEg8KB3NlcnZpbmcYASABKAgSDwoHYWRkcmVzcxgCIAEoCRITCgtzdWJzY3JpYmVycxgDIAEoDRIRCglwdWJsaXNoZWQYBCABKAQSDAoEc2VudBgFIAEoBBITCgtzZW5kX2ZhaWxlZBgGIAEoBBIOCgZ1bnNlbnQYByABKAQSEAoIcmVjZWl2ZWQYCCABKAQSEgoKY2hhbGxlbmdlZBgJIAEoBBISCgpzdWJzY3JpYmVkGAogASgEEg8KB3JlbmV3ZWQYCyABKAQSFAoMcmVmdXNlZF9mdWxsGAwgASgEEhYKDnJlZnVzZWRfY2xpZW50GA0gASgEEg8KB2lnbm9yZWQYDiABKAQSDwoHZXhwaXJlZBgPIAEoBCJeCgtDaG9zZW5SZWxheRIMCgRub2RlGAEgASgJEgsKA3VybBgCIAEoCRI0Cgpjb25uZWN0aW9uGAQgASgOMiAuZGFzc2llLm93bmVyLnYxLlJlbGF5Q29ubmVjdGlvbiJRCgpBY21lU3RhdHVzEhMKC2hhc19hY2NvdW50GAEgASgIEhoKEm5leHRfY2hlY2tfdW5peF9tcxgCIAEoAxISCgpsYXN0X2Vycm9yGAMgASgJKn0KCU5vZGVTdGF0ZRIaChZOT0RFX1NUQVRFX1VOU1BFQ0lGSUVEEAASHAoYTk9ERV9TVEFURV9VTklOSVRJQUxJWkVEEAESGAoUTk9ERV9TVEFURV9BTk9OWU1PVVMQAhIcChhOT0RFX1NUQVRFX0FVVEhFTlRJQ0FURUQQAypuCghIdWJQaGFzZRIZChVIVUJfUEhBU0VfVU5TUEVDSUZJRUQQABIVChFIVUJfUEhBU0VfUlVOTklORxABEhsKF0hVQl9QSEFTRV9TSFVUVElOR19ET1dOEAISEwoPSFVCX1BIQVNFX0VOREVEEAMqlgEKD1JlbGF5Q29ubmVjdGlvbhIgChxSRUxBWV9DT05ORUNUSU9OX1VOU1BFQ0lGSUVEEAASHgoaUkVMQVlfQ09OTkVDVElPTl9DT05ORUNURUQQARIfChtSRUxBWV9DT05ORUNUSU9OX0NPTk5FQ1RJTkcQAhIgChxSRUxBWV9DT05ORUNUSU9OX1VOUkVBQ0hBQkxFEAMqTwoHUnVudGltZRIXChNSVU5USU1FX1VOU1BFQ0lGSUVEEAASFgoSUlVOVElNRV9TVEFOREFMT05FEAESEwoPUlVOVElNRV9TWVNURU1EEAJiBnByb3RvMw", [file_dassie_owner_v1_hub_founding, file_dassie_owner_v1_tls]);
+  fileDesc("ChpkYXNzaWUvb3duZXIvdjEvbm9kZS5wcm90bxIPZGFzc2llLm93bmVyLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrgBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USKQoFc3RhdGUYASABKA4yGi5kYXNzaWUub3duZXIudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IsMEChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEikKB3J1bnRpbWUYAiABKA4yGC5kYXNzaWUub3duZXIudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSMQoLY2VydGlmaWNhdGUYBCABKAsyHC5kYXNzaWUub3duZXIudjEuQ2VydGlmaWNhdGUSKQoEYWNtZRgFIAEoCzIbLmRhc3NpZS5vd25lci52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIrCgVyZWxheRgJIAEoCzIcLmRhc3NpZS5vd25lci52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkSJwoEZmVlZBgLIAEoCzIZLmRhc3NpZS5vd25lci52MS5SYXRlRmVlZBIxCgp2YWxpZGF0aW5nGAwgAygLMh0uZGFzc2llLm93bmVyLnYxLkh1YlZhbGlkYXRvchIuCghmb3VuZGluZxgNIAMoCzIcLmRhc3NpZS5vd25lci52MS5IdWJGb3VuZGluZxIwCgdwYWNrZXRzGA4gASgLMh8uZGFzc2llLm93bmVyLnYxLlBhY2tldENvdW50ZXJzEjQKDXBlZXJfcHJvdG9jb2wYDyABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlckNvdW50ZXJzIssBCg5QYWNrZXRDb3VudGVycxIQCghwcmVwYXJlcxgBIAEoBBIRCglmb3J3YXJkZWQYAiABKAQSEAoIYW5zd2VyZWQYAyABKAQSEQoJZnVsZmlsbGVkGAQgASgEEhAKCHJlamVjdGVkGAUgASgEEg8KB2V4cGlyZWQYBiABKAQSGgoSd3JvbmdfZnVsZmlsbG1lbnRzGAcgASgEEhwKFHVuZXhwZWN0ZWRfcmVzcG9uc2VzGAggASgEEhIKCmR1cGxpY2F0ZXMYCSABKAQi6gQKDFBlZXJDb3VudGVycxIVCg1yZXF1ZXN0c19zZW50GAEgASgEEhcKD3JlcXVlc3RzX2ZhaWxlZBgCIAEoBBIYChByZXF1ZXN0c19kcm9wcGVkGAMgASgEEhcKD2luYm91bmRfcmVmdXNlZBgEIAEoBBIcChRsaW5rX3N0YXRlc19hY2NlcHRlZBgFIAEoBBIbChNsaW5rX3N0YXRlc19kcm9wcGVkGAYgASgEEhAKCHBlZXJpbmdzGAcgASgEEhQKDHRlcm1pbmF0aW9ucxgIIAEoBBIXCg9hbnN3ZXJzX2Ryb3BwZWQYCSABKAQSHQoVc2V0dGxlbWVudHNfZGVsaXZlcmVkGAogASgEEhsKE3NldHRsZW1lbnRzX2FwcGxpZWQYCyABKAQSHQoVc2V0dGxlbWVudHNfZHVwbGljYXRlGAwgASgEEh0KFXNldHRsZW1lbnRzX3JlcXVlc3RlZBgNIAEoBBIXCg9jaGFubmVsc19jbG9zZWQYDiABKAQSGgoSY29tbWl0bWVudHNfbG9nZ2VkGA8gASgEEhoKEmNvbW1pdG1lbnRzX2xhcHNlZBgQIAEoBBIVCg1uYW1lc19ncmFudGVkGBEgASgEEhUKDW5hbWVzX3JlbmV3ZWQYEiABKAQSEwoLbmFtZXNfZnJlZWQYEyABKAQSFgoObmFtZXNfcmVsZWFzZWQYFCABKAQSHQoVcmVnaXN0cmF0aW9uc19zdGFydGVkGBUgASgEEh8KF3JlZ2lzdHJhdGlvbnNfYWJhbmRvbmVkGBYgASgEEhUKDXJlbmV3YWxzX3NlbnQYFyABKAQi3gEKDEh1YlZhbGlkYXRvchILCgNodWIYASABKAkSDQoFaW5kZXgYAiABKA0SEgoKdmFsaWRhdG9ycxgDIAEoDRIOCgZoZWlnaHQYBCABKAQSFQoNZmluYWxfdW5peF9tcxgFIAEoAxIMCgR2aWV3GAYgASgEEigKBXBoYXNlGAcgASgOMhkuZGFzc2llLm93bmVyLnYxLkh1YlBoYXNlEg8KB3N0YWxsZWQYCCABKAgSFgoOZXNjcm93X2NoZWNrZWQYCSABKAgSFgoOeHJwbF9jb25uZWN0ZWQYCiABKAgiiwEKCFJhdGVGZWVkEg8KB3NlcnZpbmcYASABKAgSDwoHYWRkcmVzcxgCIAEoCRITCgtzZW5kX2ZhaWxlZBgGIAEoBBIQCghyZWNlaXZlZBgIIAEoBBIPCgdpZ25vcmVkGA4gASgEEhAKCGFuc3dlcmVkGBAgASgEEhMKC292ZXJfYnVkZ2V0GBEgASgEIl4KC0Nob3NlblJlbGF5EgwKBG5vZGUYASABKAkSCwoDdXJsGAIgASgJEjQKCmNvbm5lY3Rpb24YBCABKA4yIC5kYXNzaWUub3duZXIudjEuUmVsYXlDb25uZWN0aW9uIlEKCkFjbWVTdGF0dXMSEwoLaGFzX2FjY291bnQYASABKAgSGgoSbmV4dF9jaGVja191bml4X21zGAIgASgDEhIKCmxhc3RfZXJyb3IYAyABKAkqfQoJTm9kZVN0YXRlEhoKFk5PREVfU1RBVEVfVU5TUEVDSUZJRUQQABIcChhOT0RFX1NUQVRFX1VOSU5JVElBTElaRUQQARIYChROT0RFX1NUQVRFX0FOT05ZTU9VUxACEhwKGE5PREVfU1RBVEVfQVVUSEVOVElDQVRFRBADKm4KCEh1YlBoYXNlEhkKFUhVQl9QSEFTRV9VTlNQRUNJRklFRBAAEhUKEUhVQl9QSEFTRV9SVU5OSU5HEAESGwoXSFVCX1BIQVNFX1NIVVRUSU5HX0RPV04QAhITCg9IVUJfUEhBU0VfRU5ERUQQAyqWAQoPUmVsYXlDb25uZWN0aW9uEiAKHFJFTEFZX0NPTk5FQ1RJT05fVU5TUEVDSUZJRUQQABIeChpSRUxBWV9DT05ORUNUSU9OX0NPTk5FQ1RFRBABEh8KG1JFTEFZX0NPTk5FQ1RJT05fQ09OTkVDVElORxACEiAKHFJFTEFZX0NPTk5FQ1RJT05fVU5SRUFDSEFCTEUQAypPCgdSdW50aW1lEhcKE1JVTlRJTUVfVU5TUEVDSUZJRUQQABIWChJSVU5USU1FX1NUQU5EQUxPTkUQARITCg9SVU5USU1FX1NZU1RFTUQQAmIGcHJvdG8z", [file_dassie_owner_v1_hub_founding, file_dassie_owner_v1_tls]);
 
 /**
  * @generated from message dassie.owner.v1.GetBasicStateRequest
@@ -168,8 +168,9 @@ export type GetStatusResponse = Message<"dassie.owner.v1.GetStatusResponse"> & {
   openPaymentsOrigins: string[];
 
   /**
-   * The node's rate feed (spec/areas/rate-feed.md#what-the-owner-sees);
-   * unset on a node without the feed's socket, which publishes none.
+   * The node's UDP endpoint for its snapshot
+   * (spec/areas/rate-feed.md#what-the-owner-sees); unset on a node without
+   * its socket, which answers no request.
    *
    * @generated from field: dassie.owner.v1.RateFeed feed = 11;
    */
@@ -551,17 +552,20 @@ export const HubValidatorSchema: GenMessage<HubValidator> = /*@__PURE__*/
   messageDesc(file_dassie_owner_v1_node, 6);
 
 /**
- * What the rate feed does: whether it serves, where, and its counters since
- * the node started. The counters are read one by one, without a lock, so
- * they may be a datagram apart from each other; each only grows.
+ * What the node's UDP endpoint for its snapshot does
+ * (spec/areas/rate-feed.md#what-the-owner-sees): whether it answers, where,
+ * and its counters since the node started. The counters are read one by
+ * one, without a lock, so they may be a datagram apart from each other;
+ * each only grows.
  *
  * @generated from message dassie.owner.v1.RateFeed
  */
 export type RateFeed = Message<"dassie.owner.v1.RateFeed"> & {
   /**
-   * Whether the feed answers and publishes now: the node has a URL, at
-   * whose host subscribers find the feed, and its key. A periphery node, or
-   * one without a hostname yet, holds the socket and answers nothing.
+   * Whether the endpoint answers requests now: the node has a snapshot, so
+   * it is a core node whose owner lets it offer swaps, and its engine runs.
+   * A periphery node, one without a hostname yet, or one that offers no
+   * swaps holds the socket and answers nothing.
    *
    * @generated from field: bool serving = 1;
    */
@@ -576,40 +580,11 @@ export type RateFeed = Message<"dassie.owner.v1.RateFeed"> & {
   address: string;
 
   /**
-   * Addresses subscribed now, up to the table's bound; 0 while the feed
-   * does not serve. One that lapsed counts until the next publish drops it.
-   *
-   * @generated from field: uint32 subscribers = 3;
-   */
-  subscribers: number;
-
-  /**
-   * Feeds made and signed.
-   *
-   * @generated from field: uint64 published = 4;
-   */
-  published: bigint;
-
-  /**
-   * Datagrams sent: feeds and challenges.
-   *
-   * @generated from field: uint64 sent = 5;
-   */
-  sent: bigint;
-
-  /**
-   * Datagrams the socket refused to send.
+   * Snapshots the socket refused to send.
    *
    * @generated from field: uint64 send_failed = 6;
    */
   sendFailed: bigint;
-
-  /**
-   * Feeds not sent because a publish ran out of time.
-   *
-   * @generated from field: uint64 unsent = 7;
-   */
-  unsent: bigint;
 
   /**
    * Datagrams taken.
@@ -619,54 +594,28 @@ export type RateFeed = Message<"dassie.owner.v1.RateFeed"> & {
   received: bigint;
 
   /**
-   * Subscribes without a valid cookie, answered with a Challenge.
-   *
-   * @generated from field: uint64 challenged = 9;
-   */
-  challenged: bigint;
-
-  /**
-   * Addresses subscribed.
-   *
-   * @generated from field: uint64 subscribed = 10;
-   */
-  subscribed: bigint;
-
-  /**
-   * Subscriptions renewed.
-   *
-   * @generated from field: uint64 renewed = 11;
-   */
-  renewed: bigint;
-
-  /**
-   * Proven addresses refused because the table was full.
-   *
-   * @generated from field: uint64 refused_full = 12;
-   */
-  refusedFull: bigint;
-
-  /**
-   * Proven addresses refused because their client had its share.
-   *
-   * @generated from field: uint64 refused_client = 13;
-   */
-  refusedClient: bigint;
-
-  /**
-   * Datagrams that got no answer: not a Subscribe, broken, or from an
-   * address a feed cannot go to.
+   * Datagrams that got no answer and cost no budget: no request, a broken
+   * one, one from an address an answer cannot go to, or any while the node
+   * had no snapshot.
    *
    * @generated from field: uint64 ignored = 14;
    */
   ignored: bigint;
 
   /**
-   * Subscriptions that lapsed.
+   * Requests answered with the snapshot.
    *
-   * @generated from field: uint64 expired = 15;
+   * @generated from field: uint64 answered = 16;
    */
-  expired: bigint;
+  answered: bigint;
+
+  /**
+   * Requests not answered because the budget on answers per second was
+   * spent.
+   *
+   * @generated from field: uint64 over_budget = 17;
+   */
+  overBudget: bigint;
 };
 
 /**

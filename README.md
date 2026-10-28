@@ -103,7 +103,7 @@ Peers settle over a settlement hub they share: the credit each extends the other
 | `tests/e2e` | End-to-end tests on real binaries: a fresh install through `dassie init` and browser setup, with Pebble as the ACME CA; a BTP client paying the node's STREAM receiver; the `two-nodes` and `six-nodes` scenarios; Open Payments, including a third party's full flow with consent in the wallet; settling over a settlement hub on the XRP Ledger, owner books and cross-currency payments; the wallet's pages in a browser; `node --run dev` and its dashboard; the installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers; dassie.land and its STREAM toy in a browser, under the site's CSP |
 | `testdata/original` | Generator for the OER, ILP and STREAM golden vectors, run against the original |
 | `testdata/identity` | Generator for the identity golden vectors, phrases as read and every key a phrase derives, computed apart from Dassie's code |
-| `testdata/feed` | The rate feed's golden vectors, from `cargo run -p dassie-feed --example feed_vectors` |
+| `testdata/feed` | The snapshot's golden vectors, from `cargo run -p dassie-feed --example snapshot_vectors` |
 | `testdata/hub` | A settlement hub's golden vectors, from `cargo run -p dassie-hub --example hub_vectors` |
 | `testdata/xrpl` | Generator for the XRPL golden vectors, run against xrpl.js |
 | `testdata/tls` | The tests' TLS certificate for localhost and its CA, which Pebble (Let's Encrypt's test server) serves its API with, as do the nodes and mirrors of the tests; and Pebble's configuration |

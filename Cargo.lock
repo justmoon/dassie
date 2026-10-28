@@ -1053,13 +1053,10 @@ dependencies = [
  "dassie-identity",
  "dassie-kit",
  "dassie-oer",
- "hmac",
  "num-bigint",
  "proptest",
  "serde_json",
  "sha2 0.11.1",
- "subtle",
- "zeroize",
 ]
 
 [[package]]

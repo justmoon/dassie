@@ -1,4 +1,4 @@
-//! The snapshot's numbers (spec/areas/rate-feed.md#snapshots): each value
+//! The snapshot's numbers (spec/areas/rate-feed.md#numbers): each value
 //! has one encoding, quotes round the way they are meant to, and a ladder
 //! never says more than the amounts it was made from. Fixed seed in CI
 //! (.cargo/config.toml).

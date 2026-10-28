@@ -77,10 +77,11 @@ pub const EXTENSION_POST_QUANTUM: u16 = 1;
 /// value is empty. Only with it may a link state's URL be empty.
 pub const EXTENSION_PERIPHERY: u16 = 2;
 
-/// The link-state extension that names the UDP port of a core node's rate
-/// feed, at its URL's host (spec/areas/rate-feed.md#finding-a-feed). Its
-/// value is the port, a `UInt16`, never 0. A node without a feed, and a
-/// periphery node, which has no URL, leave it out.
+/// The link-state extension that names the UDP port a core node answers
+/// requests for its snapshot on, at its URL's host
+/// (spec/areas/rate-feed.md#finding-a-node). Its value is the port, a
+/// `UInt16`, never 0. A node that answers none, and a periphery node, which
+/// has no URL, leave it out.
 pub const EXTENSION_FEED: u16 = 3;
 
 /// Most bytes in the commitment a `methodPacket` carries with its Prepare

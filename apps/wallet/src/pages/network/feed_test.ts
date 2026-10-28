@@ -4,29 +4,21 @@ import { create } from "@bufbuild/protobuf";
 import { RateFeedSchema } from "@dassie/rpc/proto";
 import { feedView } from "./feed.ts";
 
-test("a served feed says where, to how many, and what it sent", () => {
+test("an endpoint that answers says where, and what it took and answered", () => {
   const feed = create(RateFeedSchema, {
     serving: true,
     address: "0.0.0.0:7768",
-    subscribers: 1,
-    published: 12n,
-    sent: 30n,
     received: 40n,
-    challenged: 3n,
-    subscribed: 2n,
-    renewed: 33n,
-    refusedFull: 1n,
+    answered: 36n,
+    overBudget: 3n,
     ignored: 1n,
-    expired: 1n,
   });
   assertEquals(feedView(feed), {
-    badge: "served",
+    badge: "answering",
     tone: "good",
-    text: "At 0.0.0.0:7768, to 1 subscriber.",
+    text: "At 0.0.0.0:7768.",
     details: [
-      "Published 12 feeds; sent 30 datagrams, 0 failed, 0 out of time.",
-      "Took 40 datagrams: 3 challenged, 2 subscribed, 33 renewed, 1 ignored; 1 lapsed.",
-      "Refused 1 for a full table, 0 for a client's share.",
+      "Took 40 datagrams: answered 36, 3 over the budget, 1 ignored; 0 sends failed.",
     ],
   });
   // A send that failed shows.
@@ -34,12 +26,13 @@ test("a served feed says where, to how many, and what it sent", () => {
   assertEquals([failed.badge, failed.tone], ["sends failed", "bad"]);
 });
 
-test("a feed that does not serve, or no socket, says why", () => {
+test("an endpoint that does not answer, or no socket, says why", () => {
   const waiting = create(RateFeedSchema, { address: "0.0.0.0:7768" });
   assertEquals(feedView(waiting), {
-    badge: "not served",
+    badge: "not answering",
     tone: "plain",
-    text: "The node publishes it at 0.0.0.0:7768 once it has a domain name.",
+    text:
+      "The node answers at 0.0.0.0:7768 once it has a domain name and offers swaps.",
     details: [],
   });
   assertEquals(feedView(undefined).badge, "none");

@@ -12,10 +12,9 @@
 //! [`Answerer`] adds the budget, a token bucket driven by the caller's
 //! clock. The caller sends the snapshot it has cached, if any.
 
-use core::net::SocketAddr;
+use core::net::{IpAddr, SocketAddr};
 
 use crate::snapshot::{SnapshotMessage, SnapshotWireError, decode_snapshot_datagram};
-use crate::table::is_unicast;
 
 /// Answers a node sends per second, at most, in the long run.
 pub const ANSWERS_PER_SECOND: u32 = 64;
@@ -84,6 +83,19 @@ pub fn check_request(from: SocketAddr, datagram: &[u8]) -> Result<(), Unanswered
         return Err(Unanswered::NotUnicast);
     }
     Ok(())
+}
+
+/// Whether an answer can go to `address`: a port, and an IP that is one
+/// host's. A source that is not one is forged or broken, and an answer
+/// sent there would go to no one, or to many. An IPv4 address mapped into
+/// IPv6 is the IPv4 address.
+fn is_unicast(address: SocketAddr) -> bool {
+    let ip = address.ip().to_canonical();
+    let one_host = match ip {
+        IpAddr::V4(v4) => !v4.is_broadcast(),
+        IpAddr::V6(_) => true,
+    };
+    address.port() != 0 && !ip.is_unspecified() && !ip.is_multicast() && one_host
 }
 
 /// What the answerer has done, for the node's counters.

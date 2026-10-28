@@ -1,22 +1,24 @@
-//! A target's feed, over UDP (spec/areas/rate-feed.md#subscribing). The
-//! market maker keeps one subscription per target, each on a socket of its
-//! own and checked against that target's address and key alone, so one
-//! target's feed never sets another's rates.
+//! A target's snapshot, over UDP (spec/areas/rate-feed.md#requests). The
+//! market maker asks each target for its snapshot with a padded request,
+//! every [`POLL_INTERVAL_MS`], each on a socket of its own and checked
+//! against that target's address and key alone, so one target's snapshot
+//! never sets another's quotes.
 //!
-//! [`FeedClient`] decides, from the datagrams that come and the time it is
-//! told, what to send and which feed is current; [`run`] carries that out
-//! on a socket, and publishes each feed it takes. It takes datagrams only
-//! from the target's address, a feed only verified (ZIP-215) under the
-//! target's key and newer than the last it took, and says a feed is
-//! current only until it expires, so a stale or replayed rate never
-//! decides a trade.
+//! [`SnapshotClient`] decides, from the datagrams that come and the time it
+//! is told, when to ask and which snapshot is current; [`run`] carries that
+//! out on a socket, and publishes each snapshot it takes. It takes
+//! datagrams only from the target's address, a snapshot only verified
+//! (ZIP-215) under the target's key and newer than the last it took
+//! (`dassie_feed::SnapshotReader`), and says a snapshot is current only
+//! until it expires, so stale or replayed quotes never decide a trade.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use dassie_feed::{
-    FeedReceiver, MAX_DATAGRAM_BYTES, RENEW_INTERVAL_MS, Received, Rejected, SUBSCRIBE_BYTES,
+    FEED_MIN_INTERVAL_MS, MAX_DATAGRAM_BYTES, REQUEST_BYTES, Snapshot, SnapshotReader,
+    SnapshotRejected, encode_request,
 };
 use dassie_identity::NodeIdentity;
 use dassie_node::clock::Clock;
@@ -26,95 +28,45 @@ use tokio_util::sync::CancellationToken;
 
 use super::TARGET;
 
+/// How often it asks a target for its snapshot: a few times a decision, so
+/// that a lost answer costs a few seconds, and a target that changes its
+/// quotes at most once a second is not asked more often than that.
+pub const POLL_INTERVAL_MS: u64 = 5 * FEED_MIN_INTERVAL_MS;
+
 /// How long the socket rests after it failed to receive, so a socket that
 /// keeps failing does not spin.
 const RECEIVE_ERROR_PAUSE_MS: u64 = 1_000;
 
-/// A feed, owned: what the market maker decides from.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FeedView {
-    /// When the target made it, in ms.
-    pub sequence_ms: u64,
-    /// When it stops counting.
-    pub valid_until_ms: u64,
-    /// The target's fee, in parts per million.
-    pub fee_ppm: u32,
-    /// Its rates: the methods from and to, by their schemes' IDs, and out
-    /// per in × 10^15.
-    pub rates: Vec<(String, String, u64)>,
-}
-
-impl FeedView {
-    fn of(feed: &dassie_feed::Feed<'_>) -> Self {
-        let id = |index: u8| {
-            feed.methods
-                .get(usize::from(index))
-                .map_or_else(String::new, |method| method.id.to_owned())
-        };
-        Self {
-            sequence_ms: feed.sequence_ms,
-            valid_until_ms: feed.valid_until_ms,
-            fee_ppm: feed.fee_ppm,
-            rates: feed
-                .rates
-                .iter()
-                .map(|rate| (id(rate.from), id(rate.to), rate.rate_e15))
-                .collect(),
-        }
-    }
-
-    /// The rate from the method `from` to `to`, each by its scheme's ID, if
-    /// the target converts.
-    #[must_use]
-    pub fn rate(&self, from: &str, to: &str) -> Option<u64> {
-        self.rates
-            .iter()
-            .find(|(a, b, _)| a == from && b == to)
-            .map(|(_, _, rate)| *rate)
-    }
-
-    /// Whether it still counts at `now_ms`.
-    #[must_use]
-    pub const fn is_current(&self, now_ms: u64) -> bool {
-        now_ms < self.valid_until_ms
-    }
-}
-
 /// What a datagram did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
-    /// A feed was taken: the current one now.
-    Feed,
-    /// The target handed out a cookie: subscribe again at once.
-    Challenge,
+    /// A snapshot was taken: the current one now.
+    Snapshot,
     /// It came from another address than the target's.
     Foreign,
     /// It was refused.
-    Rejected(Rejected),
+    Rejected(SnapshotRejected),
 }
 
-/// A subscription to the target's feed, without IO.
+/// Asking one target for its snapshot, without IO.
 #[derive(Debug)]
-pub struct FeedClient {
+pub struct SnapshotClient {
     target: SocketAddr,
-    public_key: [u8; 32],
-    receiver: FeedReceiver,
-    latest: Option<FeedView>,
-    next_subscribe_ms: u64,
+    reader: SnapshotReader,
+    latest: Option<Arc<Snapshot>>,
+    next_ask_ms: u64,
 }
 
-impl FeedClient {
-    /// A subscription to the feed of the node of identity `node`, at
-    /// `target`; it subscribes first at `now_ms`. The caller has checked
-    /// that the node's ID is its keys'.
+impl SnapshotClient {
+    /// Asking the node of identity `node`, at `target`; it asks first at
+    /// `now_ms`. The caller has checked that the node's ID is its keys'.
     #[must_use]
     pub fn new(target: SocketAddr, node: NodeIdentity, now_ms: u64) -> Self {
         Self {
             target,
-            public_key: *node.key().as_bytes(),
-            receiver: FeedReceiver::new(node),
+            reader: SnapshotReader::new(node.key()),
             latest: None,
-            next_subscribe_ms: now_ms,
+            next_ask_ms: now_ms,
         }
     }
 
@@ -124,20 +76,20 @@ impl FeedClient {
         self.target
     }
 
-    /// When the next Subscribe is due.
+    /// When the next request is due.
     #[must_use]
-    pub const fn next_subscribe_ms(&self) -> u64 {
-        self.next_subscribe_ms
+    pub const fn next_ask_ms(&self) -> u64 {
+        self.next_ask_ms
     }
 
-    /// The Subscribe to send at `now_ms`, if one is due; the next is due a
-    /// renewal later.
-    pub fn due(&mut self, now_ms: u64) -> Option<[u8; SUBSCRIBE_BYTES]> {
-        if now_ms < self.next_subscribe_ms {
+    /// The request to send at `now_ms`, if one is due; the next is due a
+    /// poll later.
+    pub fn due(&mut self, now_ms: u64) -> Option<[u8; REQUEST_BYTES]> {
+        if now_ms < self.next_ask_ms {
             return None;
         }
-        self.next_subscribe_ms = now_ms.saturating_add(RENEW_INTERVAL_MS);
-        Some(self.receiver.subscribe())
+        self.next_ask_ms = now_ms.saturating_add(POLL_INTERVAL_MS);
+        Some(encode_request())
     }
 
     /// Takes `datagram`, which came from `from` at `now_ms`.
@@ -145,29 +97,21 @@ impl FeedClient {
         if !same_address(from, self.target) {
             return Event::Foreign;
         }
-        match self.receiver.receive(datagram, now_ms) {
-            Ok(Received::Challenge) => {
-                self.next_subscribe_ms = now_ms;
-                Event::Challenge
-            }
-            Ok(Received::Feed(feed)) => {
-                // The receiver took it from the node subscribed to, by its
-                // key, so the key is the target's.
-                assert!(
-                    feed.public_key == self.public_key,
-                    "a feed of the target's ID is signed by its key"
-                );
-                self.latest = Some(FeedView::of(&feed));
-                Event::Feed
+        match self.reader.receive(datagram, now_ms) {
+            Ok(snapshot) => {
+                self.latest = Some(Arc::new(snapshot));
+                Event::Snapshot
             }
             Err(rejected) => Event::Rejected(rejected),
         }
     }
 
-    /// The newest feed taken, if it still counts at `now_ms`.
+    /// The newest snapshot taken, if it still counts at `now_ms`.
     #[must_use]
-    pub fn current(&self, now_ms: u64) -> Option<&FeedView> {
-        self.latest.as_ref().filter(|feed| feed.is_current(now_ms))
+    pub fn current(&self, now_ms: u64) -> Option<&Arc<Snapshot>> {
+        self.latest
+            .as_ref()
+            .filter(|snapshot| now_ms < snapshot.valid_until_ms)
     }
 }
 
@@ -177,13 +121,13 @@ fn same_address(a: SocketAddr, b: SocketAddr) -> bool {
     a.ip().to_canonical() == b.ip().to_canonical() && a.port() == b.port()
 }
 
-/// Keeps `client`'s subscription on `socket` until `cancel`, and publishes
-/// each feed it takes to `feeds`.
+/// Asks `client`'s target on `socket` until `cancel`, and publishes each
+/// snapshot it takes to `snapshots`.
 pub async fn run(
     socket: UdpSocket,
-    mut client: FeedClient,
+    mut client: SnapshotClient,
     clock: Arc<dyn Clock>,
-    feeds: watch::Sender<Option<FeedView>>,
+    snapshots: watch::Sender<Option<Arc<Snapshot>>>,
     cancel: CancellationToken,
 ) {
     // One more byte than a datagram may have, so a longer one is seen and
@@ -191,12 +135,12 @@ pub async fn run(
     let mut buffer = vec![0u8; MAX_DATAGRAM_BYTES + 1];
     loop {
         let now_ms = clock.now_ms();
-        if let Some(subscribe) = client.due(now_ms)
-            && let Err(error) = socket.send_to(&subscribe, client.target()).await
+        if let Some(request) = client.due(now_ms)
+            && let Err(error) = socket.send_to(&request, client.target()).await
         {
-            tracing::warn!(target: TARGET, feed = %client.target(), %error, "could not send a subscribe to a target's feed");
+            tracing::warn!(target: TARGET, feed = %client.target(), %error, "could not ask a target for its snapshot");
         }
-        let wait_ms = client.next_subscribe_ms().saturating_sub(now_ms);
+        let wait_ms = client.next_ask_ms().saturating_sub(now_ms);
         tokio::select! {
             () = cancel.cancelled() => return,
             () = tokio::time::sleep(Duration::from_millis(wait_ms)) => {}
@@ -205,21 +149,22 @@ pub async fn run(
                     let datagram = buffer.get(..length).unwrap_or_default();
                     let now_ms = clock.now_ms();
                     match client.receive(from, datagram, now_ms) {
-                        Event::Feed => {
-                            feeds.send_replace(client.current(now_ms).cloned());
+                        Event::Snapshot => {
+                            snapshots.send_replace(client.current(now_ms).cloned());
                         }
-                        Event::Challenge => {}
                         Event::Foreign => {
                             tracing::debug!(target: TARGET, feed = %client.target(), %from, "dropped a datagram from another address");
                         }
-                        Event::Rejected(Rejected::Old) => {}
+                        // The same snapshot again, as the target answers
+                        // until it makes a new one.
+                        Event::Rejected(SnapshotRejected::Old) => {}
                         Event::Rejected(rejected) => {
                             tracing::debug!(target: TARGET, feed = %client.target(), ?rejected, "dropped a datagram from the target");
                         }
                     }
                 }
                 Err(error) => {
-                    tracing::warn!(target: TARGET, feed = %client.target(), %error, "the feed's socket failed");
+                    tracing::warn!(target: TARGET, feed = %client.target(), %error, "the snapshot's socket failed");
                     tokio::select! {
                         () = cancel.cancelled() => return,
                         () = tokio::time::sleep(Duration::from_millis(RECEIVE_ERROR_PAUSE_MS)) => {}
@@ -232,10 +177,7 @@ pub async fn run(
 
 #[cfg(test)]
 mod tests {
-    use dassie_feed::{
-        Decision, Feed, InvalidFeed, Limits, Method, Rate, SubscriberTable, assemble_feed,
-        encode_challenge, sign_feed,
-    };
+    use dassie_feed::{InvalidSnapshot, Ladder, MethodQuotes, Quote, method_tag, sign_snapshot};
     use dassie_identity::NodeKey;
     use dassie_node::clock::ManualClock;
 
@@ -249,8 +191,8 @@ mod tests {
         NodeKey::from_bytes(&[3; 32])
     }
 
-    /// An identity of `public_key`'s: the feed is checked against its key
-    /// alone, so any SLH-DSA key will do, without generating one.
+    /// An identity of `public_key`'s: the snapshot is checked against its
+    /// key alone, so any SLH-DSA key will do, without generating one.
     fn identity(public_key: &dassie_identity::PublicKey) -> NodeIdentity {
         NodeIdentity::new(
             *public_key,
@@ -258,46 +200,42 @@ mod tests {
         )
     }
 
-    /// A feed of `key`'s made at `sequence_ms`, valid for a minute.
-    fn feed(key: &NodeKey, sequence_ms: u64, rate: u64) -> Feed<'static> {
-        Feed {
-            public_key: *key.public_key().as_bytes(),
+    /// A snapshot made at `sequence_ms`, valid for a minute, whose XRP bid
+    /// is `bid` millionths.
+    fn snapshot(sequence_ms: u64, bid: u64) -> Snapshot {
+        let ladder = Ladder::floor([1_000_000_000_000; dassie_feed::LEVELS]);
+        let method = |id: &str, bid: Quote| MethodQuotes {
+            tag: method_tag(id),
+            bid,
+            ask: Quote::ceil(1, 1),
+            bid_ladder: ladder,
+            ask_ladder: ladder,
+        };
+        let mut methods = vec![
+            method(XRP, Quote::floor(u128::from(bid), 1_000_000)),
+            method(DSUSD, Quote::floor(1, 1)),
+        ];
+        methods.sort_by_key(|method| method.tag);
+        Snapshot {
             sequence_ms,
             valid_until_ms: sequence_ms + 60_000,
-            fee_ppm: 1_000,
-            // In the order of their IDs, as a feed lists them.
-            methods: vec![
-                Method {
-                    id: DSUSD,
-                    max_packet_amount: 1_000_000_000,
-                },
-                Method {
-                    id: XRP,
-                    max_packet_amount: 1_000_000_000,
-                },
-            ],
-            rates: vec![
-                Rate {
-                    from: 0,
-                    to: 1,
-                    rate_e15: 2_000_000_000_000_000,
-                },
-                Rate {
-                    from: 1,
-                    to: 0,
-                    rate_e15: rate,
-                },
-            ],
+            grid_bp: [0, 1, 2, 3, 4, 5, 6, 7],
+            methods,
         }
     }
 
-    fn signed(feed: &Feed<'_>) -> Vec<u8> {
-        sign_feed(&key(), feed).unwrap()
+    fn signed(key: &NodeKey, snapshot: &Snapshot) -> Vec<u8> {
+        sign_snapshot(key, snapshot).unwrap()
     }
 
-    fn client(target: SocketAddr) -> FeedClient {
+    fn client(target: SocketAddr) -> SnapshotClient {
         let public_key = key().public_key();
-        FeedClient::new(target, identity(&public_key), NOW_MS)
+        SnapshotClient::new(target, identity(&public_key), NOW_MS)
+    }
+
+    /// What 1000 units of XRP get of DSUSD by `snapshot`.
+    fn xrp_out(snapshot: &Snapshot) -> Option<u64> {
+        snapshot.swap_out(method_tag(XRP), method_tag(DSUSD), 1_000)
     }
 
     const TARGET_ADDRESS: SocketAddr = SocketAddr::new(
@@ -306,271 +244,206 @@ mod tests {
     );
 
     #[test]
-    fn it_subscribes_renews_and_answers_a_challenge_at_once() {
+    fn it_asks_at_once_then_every_poll() {
         let mut client = client(TARGET_ADDRESS);
-        let first = client.due(NOW_MS).unwrap();
-        assert_eq!(first, dassie_feed::encode_subscribe(None));
+        assert_eq!(client.due(NOW_MS), Some(encode_request()));
         assert_eq!(client.due(NOW_MS + 1), None);
-        let cookie = dassie_feed::Cookie::from_bytes([9; 16]);
-        assert_eq!(
-            client.receive(TARGET_ADDRESS, &encode_challenge(&cookie), NOW_MS + 5),
-            Event::Challenge
-        );
-        assert_eq!(
-            client.due(NOW_MS + 5),
-            Some(dassie_feed::encode_subscribe(Some(&cookie)))
-        );
-        assert_eq!(client.next_subscribe_ms(), NOW_MS + 5 + RENEW_INTERVAL_MS);
-        assert!(client.due(NOW_MS + 5 + RENEW_INTERVAL_MS).is_some());
+        assert_eq!(client.next_ask_ms(), NOW_MS + POLL_INTERVAL_MS);
+        assert!(client.due(NOW_MS + POLL_INTERVAL_MS).is_some());
     }
 
     #[test]
-    fn only_the_newest_verified_unexpired_feed_counts() {
+    fn only_the_newest_verified_unexpired_snapshot_counts() {
         let mut client = client(TARGET_ADDRESS);
-        let rate = 510_000_000_000_000;
+        let good = snapshot(NOW_MS, 510_000);
         assert_eq!(
-            client.receive(TARGET_ADDRESS, &signed(&feed(&key(), NOW_MS, rate)), NOW_MS),
-            Event::Feed
+            client.receive(TARGET_ADDRESS, &signed(&key(), &good), NOW_MS),
+            Event::Snapshot
         );
-        let current = client.current(NOW_MS).unwrap();
-        assert_eq!(current.rate(XRP, DSUSD), Some(rate));
-        assert_eq!(current.rate(DSUSD, XRP), Some(2_000_000_000_000_000));
-        assert_eq!(current.rate(XRP, "stub"), None);
-        assert_eq!(current.fee_ppm, 1_000);
+        assert_eq!(
+            xrp_out(client.current(NOW_MS).unwrap()),
+            Some(509),
+            "1000 at 0.51, less the rounding of the quote"
+        );
 
         // An older one, or the same again, sets nothing back.
-        let old = signed(&feed(&key(), NOW_MS - 1, 1));
+        let old = signed(&key(), &snapshot(NOW_MS - 1, 1_000_000));
         assert_eq!(
             client.receive(TARGET_ADDRESS, &old, NOW_MS),
-            Event::Rejected(Rejected::Old)
+            Event::Rejected(SnapshotRejected::Old)
         );
-        // Another node's, or one signed by another key, is dropped.
+        // One signed by another key is dropped.
         let other = NodeKey::from_bytes(&[4; 32]);
-        let foreign = sign_feed(&other, &feed(&other, NOW_MS + 1, 1)).unwrap();
+        let foreign = signed(&other, &snapshot(NOW_MS + 1, 1_000_000));
         assert_eq!(
             client.receive(TARGET_ADDRESS, &foreign, NOW_MS),
-            Event::Rejected(Rejected::OtherNode)
-        );
-        let forged = feed(&key(), NOW_MS + 1, 1);
-        let forged = assemble_feed(&forged.signed_bytes().unwrap(), &other.sign(b"anything"));
-        assert_eq!(
-            client.receive(TARGET_ADDRESS, &forged, NOW_MS),
-            Event::Rejected(Rejected::Invalid(InvalidFeed::Signature))
+            Event::Rejected(SnapshotRejected::Invalid(InvalidSnapshot::Signature))
         );
         // One that expired is dropped.
-        let expired = signed(&feed(&key(), NOW_MS + 2, 1));
+        let expired = signed(&key(), &snapshot(NOW_MS + 2, 1_000_000));
         assert_eq!(
             client.receive(TARGET_ADDRESS, &expired, NOW_MS + 70_000),
-            Event::Rejected(Rejected::Expired)
+            Event::Rejected(SnapshotRejected::Expired)
         );
-        // From another address, even the target's own feed is dropped.
+        // From another address, even the target's own is dropped.
         let elsewhere = SocketAddr::new(TARGET_ADDRESS.ip(), 7769);
-        let newer = signed(&feed(&key(), NOW_MS + 3, 1));
+        let newer = signed(&key(), &snapshot(NOW_MS + 3, 1_000_000));
         assert_eq!(client.receive(elsewhere, &newer, NOW_MS), Event::Foreign);
-        assert_eq!(client.receive(TARGET_ADDRESS, b"junk", NOW_MS), {
-            Event::Rejected(Rejected::Wire(dassie_feed::decode(b"junk").err().unwrap()))
-        });
-        assert_eq!(client.current(NOW_MS).unwrap().rate(XRP, DSUSD), Some(rate));
-        // The feed lapses with its validity.
+        assert!(matches!(
+            client.receive(TARGET_ADDRESS, b"junk", NOW_MS),
+            Event::Rejected(SnapshotRejected::Wire(_))
+        ));
+        assert_eq!(xrp_out(client.current(NOW_MS).unwrap()), Some(509));
+        // The snapshot lapses with its validity.
         assert!(client.current(NOW_MS + 59_999).is_some());
-        assert_eq!(client.current(NOW_MS + 60_000), None);
+        assert!(client.current(NOW_MS + 60_000).is_none());
     }
 
-    /// A feed served from a UDP socket: the target's side, with a real
-    /// subscriber table.
+    /// A target's endpoint on a UDP socket.
     struct Server {
         socket: UdpSocket,
-        table: SubscriberTable,
     }
 
     impl Server {
         async fn bind() -> Self {
             Self {
                 socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
-                table: SubscriberTable::new(
-                    Limits::DEFAULT,
-                    dassie_feed::CookieSecret::from_bytes([5; 32]),
-                ),
             }
         }
 
-        /// Takes one Subscribe and answers it as the node would.
-        async fn answer(&mut self) -> (SocketAddr, Decision) {
+        /// Takes one request, and where it came from.
+        async fn request(&self) -> SocketAddr {
             let mut buffer = [0u8; 2_000];
             let (length, from) = self.socket.recv_from(&mut buffer).await.unwrap();
-            let decision = self.table.handle(from, &buffer[..length], NOW_MS);
-            if let Decision::Challenge(cookie) = &decision {
-                self.socket
-                    .send_to(&encode_challenge(cookie), from)
-                    .await
-                    .unwrap();
-            }
-            (from, decision)
+            assert_eq!(&buffer[..length], &encode_request()[..]);
+            from
         }
     }
 
-    #[tokio::test]
-    async fn it_subscribes_over_udp_and_takes_only_good_feeds() {
-        let mut server = Server::bind().await;
-        let target = server.socket.local_addr().unwrap();
+    /// Asks `server` with a client of `key`'s snapshots, as the market
+    /// maker follows one target: the task, its snapshots, and the address
+    /// the server sees it at.
+    async fn follow(
+        server: &Server,
+        key: &NodeKey,
+        clock: &Arc<ManualClock>,
+        cancel: &CancellationToken,
+    ) -> (
+        tokio::task::JoinHandle<()>,
+        watch::Receiver<Option<Arc<Snapshot>>>,
+        SocketAddr,
+    ) {
+        let public_key = key.public_key();
+        let client = SnapshotClient::new(
+            server.socket.local_addr().unwrap(),
+            identity(&public_key),
+            NOW_MS,
+        );
         let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let (sender, snapshots) = watch::channel(None);
+        let clock: Arc<dyn Clock> = Arc::clone(clock) as Arc<dyn Clock>;
+        let task = tokio::spawn(run(socket, client, clock, sender, cancel.clone()));
+        let asker = server.request().await;
+        (task, snapshots, asker)
+    }
+
+    #[tokio::test]
+    async fn it_asks_over_udp_and_takes_only_good_snapshots() {
+        let server = Server::bind().await;
         let clock = Arc::new(ManualClock::new(NOW_MS));
-        let (sender, mut feeds) = watch::channel(None);
         let cancel = CancellationToken::new();
-        let task = tokio::spawn(run(socket, client(target), clock, sender, cancel.clone()));
+        let (task, mut snapshots, asker) = follow(&server, &key(), &clock, &cancel).await;
 
-        // Challenged first, then subscribed with the cookie.
-        let (_, decision) = server.answer().await;
-        assert!(matches!(decision, Decision::Challenge(_)));
-        let (subscriber, decision) = server.answer().await;
-        assert_eq!(
-            decision,
-            Decision::Subscribed {
-                new: true,
-                refresh: None
-            }
-        );
-
-        // Wrongly signed, another node's, expired and malformed feeds
-        // are dropped; then a good one is taken.
+        // Another node's, expired and malformed datagrams are dropped; then
+        // a good one is taken.
         let other = NodeKey::from_bytes(&[4; 32]);
-        let forged = feed(&key(), NOW_MS, 1);
-        let forged = assemble_feed(&forged.signed_bytes().unwrap(), &other.sign(b"x"));
-        let foreign = sign_feed(&other, &feed(&other, NOW_MS, 1)).unwrap();
-        let mut expired = feed(&key(), NOW_MS - 120_000, 1);
+        let foreign = signed(&other, &snapshot(NOW_MS, 1));
+        let mut expired = snapshot(NOW_MS - 120_000, 1);
         expired.valid_until_ms = NOW_MS;
-        let good = signed(&feed(&key(), NOW_MS, 7));
-        for datagram in [forged, foreign, signed(&expired), vec![1, 2, 3], good] {
-            server.socket.send_to(&datagram, subscriber).await.unwrap();
+        let good = signed(&key(), &snapshot(NOW_MS, 7_000_000));
+        for datagram in [foreign, signed(&key(), &expired), vec![1, 2, 3], good] {
+            server.socket.send_to(&datagram, asker).await.unwrap();
         }
-        feeds.changed().await.unwrap();
-        let taken = feeds.borrow_and_update().clone().unwrap();
-        assert_eq!(
-            (taken.sequence_ms, taken.rate(XRP, DSUSD)),
-            (NOW_MS, Some(7))
-        );
+        snapshots.changed().await.unwrap();
+        let taken = snapshots.borrow_and_update().clone().unwrap();
+        assert_eq!(taken.sequence_ms, NOW_MS);
+        assert_eq!(xrp_out(&taken), Some(7_000));
 
-        // A stale one, and a newer one from another socket, are dropped;
+        // A newer one from another socket, and a stale one, are dropped;
         // the next good one is taken.
         let stranger = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        stranger
-            .send_to(&signed(&feed(&key(), NOW_MS + 2, 9)), subscriber)
-            .await
-            .unwrap();
-        let stale = signed(&feed(&key(), NOW_MS - 1, 8));
-        server.socket.send_to(&stale, subscriber).await.unwrap();
-        let next = signed(&feed(&key(), NOW_MS + 1, 10));
-        server.socket.send_to(&next, subscriber).await.unwrap();
-        feeds.changed().await.unwrap();
-        let taken = feeds.borrow_and_update().clone().unwrap();
+        let newer = signed(&key(), &snapshot(NOW_MS + 2, 9_000_000));
+        stranger.send_to(&newer, asker).await.unwrap();
+        let stale = signed(&key(), &snapshot(NOW_MS - 1, 8_000_000));
+        server.socket.send_to(&stale, asker).await.unwrap();
+        let next = signed(&key(), &snapshot(NOW_MS + 1, 10_000_000));
+        server.socket.send_to(&next, asker).await.unwrap();
+        snapshots.changed().await.unwrap();
+        let taken = snapshots.borrow_and_update().clone().unwrap();
         assert_eq!(
-            (taken.sequence_ms, taken.rate(XRP, DSUSD)),
-            (NOW_MS + 1, Some(10))
+            (taken.sequence_ms, xrp_out(&taken)),
+            (NOW_MS + 1, Some(10_000))
         );
 
         cancel.cancel();
         task.await.unwrap();
     }
 
-    /// Subscribes to `server` with a client of `key`'s feed, as the market
-    /// maker follows one target: the task, its feeds, and the address the
-    /// server sees it at once subscribed.
-    async fn follow(
-        server: &mut Server,
-        key: &NodeKey,
-        clock: &Arc<ManualClock>,
-        cancel: &CancellationToken,
-    ) -> (
-        tokio::task::JoinHandle<()>,
-        watch::Receiver<Option<FeedView>>,
-        SocketAddr,
-    ) {
-        let public_key = key.public_key();
-        let client = FeedClient::new(
-            server.socket.local_addr().unwrap(),
-            identity(&public_key),
-            NOW_MS,
-        );
-        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let (sender, feeds) = watch::channel(None);
-        let clock: Arc<dyn Clock> = Arc::clone(clock) as Arc<dyn Clock>;
-        let task = tokio::spawn(run(socket, client, clock, sender, cancel.clone()));
-        let (_, decision) = server.answer().await;
-        assert!(matches!(decision, Decision::Challenge(_)));
-        let (subscriber, decision) = server.answer().await;
-        assert!(matches!(decision, Decision::Subscribed { new: true, .. }));
-        (task, feeds, subscriber)
-    }
-
     #[tokio::test]
     async fn it_follows_several_targets_each_by_its_own_key() {
         let (key_a, key_b) = (key(), NodeKey::from_bytes(&[6; 32]));
-        let mut a = Server::bind().await;
-        let mut b = Server::bind().await;
+        let a = Server::bind().await;
+        let b = Server::bind().await;
         let clock = Arc::new(ManualClock::new(NOW_MS));
         let cancel = CancellationToken::new();
-        let (task_a, mut feeds_a, at_a) = follow(&mut a, &key_a, &clock, &cancel).await;
-        let (task_b, mut feeds_b, at_b) = follow(&mut b, &key_b, &clock, &cancel).await;
+        let (task_a, mut snapshots_a, at_a) = follow(&a, &key_a, &clock, &cancel).await;
+        let (task_b, mut snapshots_b, at_b) = follow(&b, &key_b, &clock, &cancel).await;
         assert_ne!(at_a, at_b, "a socket per target");
 
-        // Each takes its own target's feed.
-        let signed_by = |key: &NodeKey, sequence_ms, rate| {
-            sign_feed(key, &feed(key, sequence_ms, rate)).unwrap()
-        };
+        // Each takes its own target's snapshot.
         a.socket
-            .send_to(&signed_by(&key_a, NOW_MS, 7), at_a)
+            .send_to(&signed(&key_a, &snapshot(NOW_MS, 7_000_000)), at_a)
             .await
             .unwrap();
         b.socket
-            .send_to(&signed_by(&key_b, NOW_MS, 11), at_b)
+            .send_to(&signed(&key_b, &snapshot(NOW_MS, 11_000_000)), at_b)
             .await
             .unwrap();
-        feeds_a.changed().await.unwrap();
-        feeds_b.changed().await.unwrap();
-        let rate = |feeds: &mut watch::Receiver<Option<FeedView>>| {
-            let feed = feeds.borrow_and_update().clone().unwrap();
-            (feed.sequence_ms, feed.rate(XRP, DSUSD))
+        snapshots_a.changed().await.unwrap();
+        snapshots_b.changed().await.unwrap();
+        let out = |snapshots: &mut watch::Receiver<Option<Arc<Snapshot>>>| {
+            let snapshot = snapshots.borrow_and_update().clone().unwrap();
+            (snapshot.sequence_ms, xrp_out(&snapshot))
         };
-        assert_eq!(rate(&mut feeds_a), (NOW_MS, Some(7)));
-        assert_eq!(rate(&mut feeds_b), (NOW_MS, Some(11)));
+        assert_eq!(out(&mut snapshots_a), (NOW_MS, Some(7_000)));
+        assert_eq!(out(&mut snapshots_b), (NOW_MS, Some(11_000)));
 
-        // To b's subscriber, each newer than what follows: a's feed from
-        // a's address, a's feed from b's address, and b's own feed expired.
-        // Had any been taken, b's next feed, older, would not be.
+        // To b's asker, each newer than what follows: a's snapshot from a's
+        // address, a's from b's address, and b's own expired. Had any been
+        // taken, b's next, older, would not be.
         a.socket
-            .send_to(&signed_by(&key_a, NOW_MS + 9, 90), at_b)
+            .send_to(&signed(&key_a, &snapshot(NOW_MS + 9, 90_000_000)), at_b)
             .await
             .unwrap();
         b.socket
-            .send_to(&signed_by(&key_a, NOW_MS + 8, 80), at_b)
+            .send_to(&signed(&key_a, &snapshot(NOW_MS + 8, 80_000_000)), at_b)
             .await
             .unwrap();
         clock.advance(30_000);
-        let mut expired = feed(&key_b, NOW_MS + 7, 70);
+        let mut expired = snapshot(NOW_MS + 7, 70_000_000);
         expired.valid_until_ms = NOW_MS + 20_000;
         b.socket
-            .send_to(&sign_feed(&key_b, &expired).unwrap(), at_b)
+            .send_to(&signed(&key_b, &expired), at_b)
             .await
             .unwrap();
         b.socket
-            .send_to(&signed_by(&key_b, NOW_MS + 1, 12), at_b)
+            .send_to(&signed(&key_b, &snapshot(NOW_MS + 1, 12_000_000)), at_b)
             .await
             .unwrap();
-        feeds_b.changed().await.unwrap();
-        assert_eq!(rate(&mut feeds_b), (NOW_MS + 1, Some(12)));
+        snapshots_b.changed().await.unwrap();
+        assert_eq!(out(&mut snapshots_b), (NOW_MS + 1, Some(12_000)));
         // a's own client took none of it.
-        assert!(!feeds_a.has_changed().unwrap());
-
-        // Each feed counts until its validity ends, and then no longer.
-        let counts = |feeds: &watch::Receiver<Option<FeedView>>, now_ms| {
-            feeds
-                .borrow()
-                .as_ref()
-                .is_some_and(|feed| feed.is_current(now_ms))
-        };
-        assert!(counts(&feeds_a, NOW_MS + 59_999));
-        assert!(!counts(&feeds_a, NOW_MS + 60_000));
-        assert!(counts(&feeds_b, NOW_MS + 60_000));
+        assert!(!snapshots_a.has_changed().unwrap());
 
         cancel.cancel();
         task_a.await.unwrap();

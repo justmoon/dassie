@@ -1,18 +1,18 @@
-//! `dassie market-maker` (spec/areas/rate-feed.md#market-maker): watches
-//! the feeds of one or more core nodes, its targets, trades through the
+//! `dassie market-maker` (spec/areas/rate-feed.md#market-maker): reads the
+//! snapshots of one or more core nodes, its targets, trades through the
 //! one that pays best with two nodes of its own, each a member of the
-//! settlement hub of its asset, when its rates and an AMM pool on the XRP
+//! settlement hub of its asset, when its quotes and an AMM pool on the XRP
 //! Ledger leave a margin, and moves its own funds back on the ledger, from
 //! the owner book that funds one node's hub to the other's.
 //!
 //! - [`config`]: the config file, checked whole before anything connects;
 //! - [`target`]: who each target is, from its discovery document;
-//! - [`feed`]: each target's feed over UDP, verified;
+//! - [`feed`]: each target's snapshot over UDP, asked for and verified;
 //! - [`xrpl`]: the pool, and the rebalancing Payment;
 //! - [`nodes`]: the two nodes, over their IPC sockets;
 //! - [`strategy`]: what to do, as a pure function of all that.
 //!
-//! The loop decides once a tick, from the current feeds, the pool, both
+//! The loop decides once a tick, from the current snapshots, the pool, both
 //! nodes' holdings and the targets each is peered with, and logs one line
 //! per decision. Every wait is bounded, and a tick does at most one thing.
 
@@ -29,6 +29,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dassie_feed::Snapshot;
 use dassie_identity::NodeId;
 use dassie_node::clock::{Clock, SystemClock};
 use dassie_node::env::{self, Env};
@@ -44,9 +45,8 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use self::config::{Config, MAX_TARGETS};
-use self::feed::FeedView;
 use self::nodes::{LedgerState, Node, TradeOutcome};
-use self::strategy::{Decision, Holdings, Inputs, Rates, Side, TargetQuote};
+use self::strategy::{Decision, Holdings, Inputs, Quotes, Side, TargetQuote};
 use self::target::TargetInfo;
 use self::xrpl::Xrpl;
 
@@ -145,14 +145,14 @@ struct Following {
     url: String,
     /// Who it is, once its discovery document answered.
     found: watch::Receiver<Option<TargetInfo>>,
-    /// Its newest feed.
-    feed: watch::Receiver<Option<FeedView>>,
+    /// Its newest snapshot.
+    feed: watch::Receiver<Option<Arc<Snapshot>>>,
     /// Whether it was found to be a node an earlier target is too, and
     /// said so.
     duplicate: bool,
 }
 
-/// A target with a current feed, at a tick.
+/// A target with a current snapshot, at a tick.
 struct Current {
     /// Which, in the config's order.
     index: usize,
@@ -160,8 +160,8 @@ struct Current {
     node: NodeId,
     /// Its URL.
     url: String,
-    /// Its rates between the two nodes' methods, their hubs.
-    rates: Rates,
+    /// Its quotes between the two nodes' methods, their hubs.
+    quotes: Quotes,
 }
 
 /// A rebalance that paid, or may have, from a node's account, which the
@@ -278,9 +278,9 @@ impl MarketMaker {
     async fn run(&mut self, shutdown: &CancellationToken) {
         let mut ticks = tokio::time::interval(TICK);
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        // Whether the last decision held for want of a current feed: then,
-        // having done nothing, it decides again as soon as a feed arrives,
-        // rather than a tick on, as at the start.
+        // Whether the last decision held for want of a current snapshot:
+        // then, having done nothing, it decides again as soon as one
+        // arrives, rather than a tick on, as at the start.
         let mut unfed = false;
         loop {
             tokio::select! {
@@ -292,7 +292,7 @@ impl MarketMaker {
             let current = self.current(now_ms);
             unfed = current.is_empty();
             if unfed {
-                tracing::info!(target: TARGET, "hold: no current feed from any target");
+                tracing::info!(target: TARGET, "hold: no current snapshot from any target");
             } else {
                 tokio::select! {
                     () = shutdown.cancelled() => return,
@@ -305,7 +305,7 @@ impl MarketMaker {
         }
     }
 
-    /// Resolves once a target's feed changes, marking it seen; never once
+    /// Resolves once a target's snapshot changes, marking it seen; never once
     /// every target's task has ended.
     async fn feed_arrives(&mut self) {
         let mut changes: FuturesUnordered<_> = self
@@ -321,7 +321,7 @@ impl MarketMaker {
         std::future::pending().await
     }
 
-    /// Decides once, at `now_ms`, among the targets with a current feed,
+    /// Decides once, at `now_ms`, among the targets with a current snapshot,
     /// and does what it decided.
     async fn tick(&mut self, now_ms: u64, current: Vec<Current>) {
         let pool = match self.xrpl.pool(self.config.token).await {
@@ -354,7 +354,7 @@ impl MarketMaker {
             .iter()
             .map(|target| TargetQuote {
                 target: target.index,
-                rates: target.rates,
+                quotes: target.quotes.clone(),
                 peered: peered.contains(&target.node),
             })
             .collect();
@@ -435,7 +435,7 @@ impl MarketMaker {
         Ok(xrp.intersection(&token).copied().collect())
     }
 
-    /// The targets found, each node once, whose feed is current at
+    /// The targets found, each node once, whose snapshot is current at
     /// `now_ms`, in the config's order. A target that is a node an earlier
     /// one is too is passed over, and said so once.
     fn current(&mut self, now_ms: u64) -> Vec<Current> {
@@ -455,20 +455,19 @@ impl MarketMaker {
                 }
                 continue;
             }
-            // Seen, so that waiting for a feed waits for a newer one.
-            let feed = following.feed.borrow_and_update();
-            let Some(feed) = feed.as_ref().filter(|feed| feed.is_current(now_ms)) else {
+            // Seen, so that waiting for a snapshot waits for a newer one.
+            let snapshot = following.feed.borrow_and_update();
+            let Some(snapshot) = snapshot
+                .as_ref()
+                .filter(|snapshot| now_ms < snapshot.valid_until_ms)
+            else {
                 continue;
             };
             current.push(Current {
                 index,
                 node,
                 url: following.url.clone(),
-                rates: Rates {
-                    fee_ppm: feed.fee_ppm,
-                    xrp_to_token_e15: feed.rate(&self.xrp.method, &self.token.method),
-                    token_to_xrp_e15: feed.rate(&self.token.method, &self.xrp.method),
-                },
+                quotes: Quotes::new(Arc::clone(snapshot), &self.xrp.method, &self.token.method),
             });
         }
         assert!(current.len() <= MAX_TARGETS);
@@ -501,7 +500,7 @@ impl MarketMaker {
         match outcome {
             Ok(TradeOutcome::Declined { receive }) => tracing::info!(
                 target: TARGET, %target, %url, from, debit = trade.debit,
-                feed_receive = trade.receive, quote_receive = receive,
+                snapshot_receive = trade.receive, quote_receive = receive,
                 "trade declined: the quote is below the margin"
             ),
             Ok(TradeOutcome::Paid {

@@ -185,7 +185,7 @@ function OwnNode(
           </>
         )}
       </Show>
-      <h3>Rate Feed</h3>
+      <h3>Snapshot</h3>
       <Show when={props.status} fallback={<p class="muted">Asking…</p>}>
         {(status) => {
           const feed = () => feedView(status().feed);

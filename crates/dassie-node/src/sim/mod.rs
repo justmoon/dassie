@@ -1286,6 +1286,9 @@ impl Sim {
         };
         let mut core = Core::start(parts, now).unwrap();
         core.check_validations_with(VALIDATION_SECRET);
+        // Its snapshots, as the engine makes them
+        // (spec/areas/rate-feed.md#the-node-side).
+        core.set_snapshot_source(Box::new(crate::engine::OwnSnapshots::new(key(index))));
         node.core = Some(core);
         self.touched.insert(index);
         self.trace.push(format!("{} start {index}", self.now));
