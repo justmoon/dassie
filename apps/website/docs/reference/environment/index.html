@@ -220,10 +220,11 @@ Environment=DASSIE_LOG=info,dassie::peer=debug</code></pre>
         <dt id="DASSIE_UPLINKS"><code>DASSIE_UPLINKS</code></dt>
         <dd>
           <p>
-            For a node without a public IP: the only core nodes it asks to be
-            its uplinks, by node ID, separated by commas, each once, at most
+            For a periphery node: the only core nodes it asks to be its
+            uplinks, by node ID, separated by commas, each once, at most
             128. The node looks for as many uplinks as you name, and asks no
-            other node. A core node ignores the list and warns that it does.
+            other node. A node with a domain name uses the list until it is
+            promoted into the core; a core node ignores it.
             A market maker's node names the core nodes it trades through
             here. Default: none, so the node picks its uplinks itself. See
             <a href="/docs/node/periphery/">A server without a public IP</a>.

@@ -259,7 +259,10 @@ fn only_a_core_node_that_offers_swaps_takes_them() {
 
     let mut periphery = harness(FEE);
     let uplink = vec![String::from("test.das.done.dnode")];
-    periphery.connector.set_periphery(Some(&uplink)).unwrap();
+    periphery
+        .connector
+        .set_child_addresses(&uplink, true)
+        .unwrap();
     assert!(!periphery.connector.offers_swaps());
     let outcome = periphery.prepare_on(NOW, (ONE, USD), 1, &fine);
     assert_eq!(refused(&periphery, outcome).0, ErrorCode::F02_UNREACHABLE);
@@ -386,7 +389,7 @@ fn the_nodes_own_swap_comes_back_to_its_swap_endpoint() {
     // all the same.
     h.connector.set_offer_swaps(false);
     let uplink = vec![String::from("test.das.done.dnode")];
-    h.connector.set_periphery(Some(&uplink)).unwrap();
+    h.connector.set_child_addresses(&uplink, true).unwrap();
     forwarded(h.prepare_on(NOW, (ONE, XRP), 4, &packet));
     // Removed, it takes nothing.
     assert_eq!(h.connector.swap_endpoint(XRP), Some(SWAP_XRP));

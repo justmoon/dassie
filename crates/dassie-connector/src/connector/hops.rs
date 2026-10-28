@@ -85,7 +85,7 @@ impl Connector {
                 });
         }
         // A periphery node forwards nothing for a peer.
-        if self.periphery.is_some() && source.is_some_and(EndpointId::is_peer) {
+        if self.periphery && source.is_some_and(EndpointId::is_peer) {
             return Hop::None;
         }
         let text = destination.as_str();

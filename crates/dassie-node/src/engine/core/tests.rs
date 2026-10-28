@@ -2239,6 +2239,9 @@ fn core_with_bootstrap(store: Arc<Store>) -> Core {
                 endpoint: dassie_peer::wire::Endpoint::of_url("https://boot.test").unwrap(),
                 key: boot.public_key(),
             }],
+            // A core node, as a dev network names it, which takes
+            // downlinks.
+            dev_core: vec![dassie_identity::TableKeygen::identity_key(&[7; 32]).node_id()],
             ..core_parts_taking_downlinks(store)
         },
         NOW,
@@ -2382,16 +2385,16 @@ fn a_paying_candidates_url_is_checked_over_https() {
 }
 
 // spec/decisions/promotion-to-core.md: a peering's kind follows the peer's
-// status in place. A downlink that turns core, for now by a URL in its link
-// state, stays a downlink until it is registered, whose URL the bootstrap
-// nodes probed; then it is the same peering as a core peer: its accounts
-// open in the core peers' share, as a core peer's must be, and it carries
-// other nodes' traffic, at its child address still. Turning periphery
-// again, it is a downlink there.
+// status in place. A downlink with a URL stays a downlink until it is core,
+// here by the dev core list; then it is the same peering as a core peer:
+// its accounts open in the core peers' share, as a core peer's must be, and
+// it carries other nodes' traffic, at its child address still. Out of the
+// core again, it is a downlink there.
 #[test]
 fn a_downlink_turning_core_keeps_its_peering() {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_with_bootstrap(store);
+    let own = *core.peer.own();
     let downlink = Arc::new(dassie_identity::TableKeygen::identity_key(&[12; 32]));
     let id = downlink.node_id();
     peer_as_downlink(&mut core, &downlink, NOW + 1_000);
@@ -2409,16 +2412,13 @@ fn a_downlink_turning_core_keeps_its_peering() {
         NOW + 2_000,
         Some("https://d.example:4443"),
     );
-    step_with_list(&mut core, NOW + 3_000, &[]);
-    assert!(
-        core.peer.is_downlink(&id),
-        "not registered: a downlink still"
-    );
-    let poll = Policies::DEFAULT.peer.list_poll_interval_ms;
+    step_with_list(&mut core, NOW + 3_000, &[id]);
+    assert!(core.peer.is_downlink(&id), "a URL makes no core node");
+    core.peer.set_dev_core(vec![own, id]);
     let mut at = NOW + 3_000;
     while core.peer.is_downlink(&id) {
-        at += poll;
-        assert!(at < NOW + 10 * poll, "it turns core once registered");
+        at += 1_000;
+        assert!(at < NOW + 60_000, "it turns core");
         step_with_list(&mut core, at, &[id]);
     }
     assert_eq!(core.peer.peering_of(&id).unwrap().since_ms, since);
@@ -2432,17 +2432,76 @@ fn a_downlink_turning_core_keeps_its_peering() {
     );
     core.check_invariants();
 
-    // Once the hold its change of kind started is over.
-    let at = at + Policies::DEFAULT.peer.advertise_hold_max_ms;
-    step_with_list(&mut core, at, &[id]);
-    send_link_state(&mut core, &downlink, at + 1_000, None);
-    step_with_list(&mut core, at + 2_000, &[id]);
-    assert!(core.peer.is_downlink(&id), "a downlink again");
+    core.peer.set_dev_core(vec![own]);
+    let turned = at;
+    while !core.peer.is_downlink(&id) {
+        at += 1_000;
+        assert!(at < turned + 60_000, "a downlink again");
+        step_with_list(&mut core, at, &[id]);
+    }
     assert_eq!(core.peer.peering_of(&id).unwrap().since_ms, since);
     assert!(!core.connector.is_transit(endpoint));
     assert_eq!(
         core.connector.endpoint_address(endpoint),
         Some(child.as_str())
+    );
+    core.check_invariants();
+}
+
+// spec/decisions/promotion-to-core.md: a downlink that turned core goes on
+// being reached at its child address beneath us, where it may have been
+// paid, after a restart too, when it comes back as a core peer at its own
+// address.
+#[test]
+fn a_promoted_peer_keeps_its_child_address_across_a_restart() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_with_bootstrap(Arc::clone(&store));
+    let own = *core.peer.own();
+    let downlink = Arc::new(dassie_identity::TableKeygen::identity_key(&[12; 32]));
+    let id = downlink.node_id();
+    peer_as_downlink(&mut core, &downlink, NOW + 1_000);
+    send_link_state(
+        &mut core,
+        &downlink,
+        NOW + 2_000,
+        Some("https://d.example:4443"),
+    );
+    core.peer.set_dev_core(vec![own, id]);
+    let mut at = NOW + 2_000;
+    while core.peer.is_downlink(&id) {
+        at += 1_000;
+        assert!(at < NOW + 60_000, "it turns core");
+        step_with_list(&mut core, at, &[id]);
+    }
+    let child = format!("{}.{id}.x", core.connector.own_address());
+    let endpoint = dassie_connector::EndpointId::Peer(core.peer_endpoints[&id]);
+    assert_eq!(
+        core.connector.first_hop(&child, None).map(|(hop, _)| hop),
+        Some(endpoint)
+    );
+    drop(core);
+
+    let mut core = Core::start(
+        CoreParts {
+            dev_core: vec![own, id],
+            ..core_parts_taking_downlinks(Arc::clone(&store))
+        },
+        at,
+    )
+    .unwrap();
+    step_with_list(&mut core, at + 1_000, &[id]);
+    assert!(!core.peer.is_downlink(&id), "a core peer");
+    let endpoint = dassie_connector::EndpointId::Peer(core.peer_endpoints[&id]);
+    let own_address = format!("test.das.{id}");
+    assert_eq!(
+        core.connector.endpoint_address(endpoint),
+        Some(own_address.as_str()),
+        "at its own address"
+    );
+    assert_eq!(
+        core.connector.first_hop(&child, None).map(|(hop, _)| hop),
+        Some(endpoint),
+        "and beneath ours"
     );
     core.check_invariants();
 }
@@ -2455,6 +2514,7 @@ fn a_downlink_turning_core_keeps_its_peering() {
 fn a_downlink_turning_core_without_room_ends_its_peering() {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_with_bootstrap(store);
+    let own = *core.peer.own();
     let max_accounts = Policies::DEFAULT.ledger.max_accounts;
     let core_pairs = u32::try_from(super::peers::peer_budget(max_accounts, false) / 2).unwrap();
     for seed in 0..core_pairs {
@@ -2469,15 +2529,15 @@ fn a_downlink_turning_core_without_room_ends_its_peering() {
         NOW + 2_000,
         Some("https://d.example:4443"),
     );
-    let poll = Policies::DEFAULT.peer.list_poll_interval_ms;
+    core.peer.set_dev_core(vec![own, id]);
     let mut at = NOW + 2_000;
     while core
         .peer
         .peering_of(&id)
         .is_some_and(|peering| peering.depeering.is_none())
     {
-        at += poll;
-        assert!(at < NOW + 10 * poll, "the peering ends");
+        at += 1_000;
+        assert!(at < NOW + 60_000, "the peering ends");
         step_with_list(&mut core, at, &[id]);
         core.check_invariants();
     }
@@ -6594,7 +6654,11 @@ fn asks_a_core_node_to_peer_on(
                 key: other.public_key(),
             }],
             uplinks: Vec::new(),
-            dev_core: Vec::new(),
+            // Both core nodes, as a dev network names them.
+            dev_core: vec![
+                dassie_identity::TableKeygen::identity_key(&[7; 32]).node_id(),
+                other.node_id(),
+            ],
         },
         NOW,
     )

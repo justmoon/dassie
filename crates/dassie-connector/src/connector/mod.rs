@@ -205,11 +205,15 @@ pub struct Connector {
     caps: BTreeMap<AccountId, CapState>,
     /// Caps whose usage changed since it was last polled.
     cap_changes: BTreeSet<AccountId>,
-    /// On a periphery node, its addresses beneath its uplinks: what lies
-    /// below one of them is routed as if below our own address, and
-    /// nothing else from a peer is forwarded
-    /// (spec/areas/connector.md#a-periphery-node). `None` on a core node.
-    periphery: Option<Vec<String>>,
+    /// The node's addresses beneath its uplinks, or its core peers: what
+    /// lies below one of them is routed as if below our own address
+    /// (spec/areas/connector.md#a-periphery-node). A core node keeps those
+    /// it had, which its peers keep routing for as long as they are peered
+    /// (spec/decisions/promotion-to-core.md).
+    children: Vec<String>,
+    /// Whether the node runs as a periphery node: nothing from a peer is
+    /// forwarded, but below its child addresses.
+    periphery: bool,
     /// Reused for a destination written below our own address, so the
     /// packet path does not allocate.
     rewritten: String,
@@ -269,7 +273,8 @@ impl Connector {
             scratch: Vec::with_capacity(3),
             caps: BTreeMap::new(),
             cap_changes: BTreeSet::new(),
-            periphery: None,
+            children: Vec::new(),
+            periphery: false,
             rewritten: String::new(),
             hub_waits: alloc::collections::VecDeque::new(),
             offer_swaps: true,
@@ -277,22 +282,24 @@ impl Connector {
         }
     }
 
-    /// Makes the connector a periphery node's, with its addresses beneath
-    /// its uplinks (spec/areas/connector.md#a-periphery-node): packets below
-    /// one of them reach the node's own endpoints, written below its own
-    /// address, and a peer's packet for anywhere else gets F02, since a
-    /// periphery node forwards nothing. With `None`, it is a core node's
-    /// again.
+    /// Sets the node's addresses beneath other nodes, `addresses`, and
+    /// whether it runs as a periphery node
+    /// (spec/areas/connector.md#a-periphery-node): packets below one of the
+    /// addresses reach the node's own endpoints, written below its own
+    /// address; and a periphery node forwards nothing else for a peer,
+    /// which gets F02. A core node keeps the addresses it was paid at
+    /// beneath its core peers, which keep routing them for as long as they
+    /// are peered (spec/decisions/promotion-to-core.md).
     ///
     /// # Errors
     ///
     /// Too many addresses, or one that is not an address, lies below our
     /// own, or overlaps another; nothing changes then.
-    pub fn set_periphery(&mut self, addresses: Option<&[String]>) -> Result<(), RoutesError> {
-        let Some(addresses) = addresses else {
-            self.periphery = None;
-            return Ok(());
-        };
+    pub fn set_child_addresses(
+        &mut self,
+        addresses: &[String],
+        periphery: bool,
+    ) -> Result<(), RoutesError> {
         if addresses.len() > MAX_CHILD_ADDRESSES {
             return Err(RoutesError::TooMany);
         }
@@ -313,22 +320,28 @@ impl Connector {
                 return Err(RoutesError::InvalidPrefix);
             }
         }
-        self.periphery = Some(addresses.to_vec());
+        self.children = addresses.to_vec();
+        self.periphery = periphery;
         Ok(())
     }
 
-    /// The node's addresses beneath its uplinks, if it is a periphery node.
+    /// The node's addresses beneath other nodes.
     #[must_use]
-    pub fn child_addresses(&self) -> Option<&[String]> {
-        self.periphery.as_deref()
+    pub fn child_addresses(&self) -> &[String] {
+        &self.children
     }
 
-    /// What follows a periphery node's address beneath an uplink in
+    /// Whether the node runs as a periphery node.
+    #[must_use]
+    pub const fn is_periphery(&self) -> bool {
+        self.periphery
+    }
+
+    /// What follows one of the node's addresses beneath another node in
     /// `destination`, if it lies below one: the same as below our own.
     pub(crate) fn below_child_address<'d>(&self, destination: Address<'d>) -> Option<&'d str> {
-        self.periphery
+        self.children
             .iter()
-            .flatten()
             .filter_map(|text| Address::parse(text).ok())
             .find_map(|address| destination.strip_prefix(address))
     }
@@ -711,6 +724,20 @@ impl Connector {
             endpoint.transit = !downlink;
         }
         Ok(())
+    }
+
+    /// Routes `address`, below our own, to peer `id`, a core peer at an
+    /// address of its own: `<own>.<ID>`, which it may have been paid at as
+    /// our downlink, and is reached at for as long as it is peered
+    /// (spec/decisions/promotion-to-core.md).
+    ///
+    /// # Errors
+    ///
+    /// No such peer, or an address not below our own, or one that
+    /// overlaps another endpoint's.
+    pub fn set_beneath(&mut self, id: EndpointId, address: &str) -> Result<(), EndpointError> {
+        let own = Address::parse(&self.own_address).map_err(|_| EndpointError::InvalidAddress)?;
+        self.endpoints.set_beneath(id, address, own)
     }
 
     /// Whether peer `id` may carry other nodes' traffic, and so gets a

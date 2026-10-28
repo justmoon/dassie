@@ -685,6 +685,12 @@ impl Quic {
         self.periphery.store(on, Ordering::Relaxed);
     }
 
+    /// Whether the node runs as a periphery node, as the engine last said.
+    #[must_use]
+    pub fn is_periphery(&self) -> bool {
+        self.periphery.load(Ordering::Relaxed)
+    }
+
     /// A place among the QUIC connections being set up, for a tunnel from
     /// `client`, which the HTTPS listener takes before it upgrades the
     /// tunnel's TCP connection, and which the tunnel holds instead of the

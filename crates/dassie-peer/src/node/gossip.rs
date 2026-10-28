@@ -121,9 +121,8 @@ impl Gossip {
             .values()
             .filter_map(|entry| entry.link.as_ref()?.retransmit_at_ms)
             .min();
-        let issue = (node.own_info.url.is_some() || node.is_periphery())
-            .then(|| self.issue_due(&node.config))
-            .flatten();
+        // Every node issues one: a node without a URL a periphery node's.
+        let issue = self.issue_due(&node.config);
         let heartbeat = node.peers().next().map(|_| self.heartbeat_at_ms);
         let routes = if self.routes_dirty {
             self.routes_at_ms
@@ -206,13 +205,12 @@ impl PeerNode {
         let id = signed.node_id;
         // A periphery node's link state never floods, and a periphery node
         // forwards nothing (spec/areas/network.md#periphery-nodes).
-        let mode = if mode == Retransmit::Scheduled
-            && (signed.info.is_periphery() || self.is_periphery())
-        {
-            Retransmit::Never
-        } else {
-            mode
-        };
+        let mode =
+            if mode == Retransmit::Scheduled && (signed.info.is_periphery() || !self.forwards()) {
+                Retransmit::Never
+            } else {
+                mode
+            };
         if id == self.own && mode != Retransmit::Immediately {
             // Only we issue our link state; copies of it coming back are
             // echoes.
@@ -398,15 +396,16 @@ impl PeerNode {
         self.push_to_bootstrap(&bytes);
     }
 
-    /// The neighbors our link state lists. Only a core node lists any: its
-    /// advertised peers, confirmed and not held down
-    /// (spec/decisions/peering-lifecycle.md). A periphery node's link state
-    /// lists none: only its uplinks see it, which never route by it, and it
-    /// may keep more uplinks than a link state could list
-    /// (spec/decisions/periphery-lists-no-neighbors.md). A core node has at
-    /// most `max_peers` peers, but one that just stopped being a periphery
-    /// node may still hold more, made as a periphery node and ending now
-    /// (spec/areas/network.md#periphery-nodes): it lists only as many as
+    /// The neighbors our link state lists. Only a node with a URL lists
+    /// any: its advertised peers, confirmed and not held down
+    /// (spec/decisions/peering-lifecycle.md), and the downlinks it
+    /// promoted (spec/decisions/promotion-to-core.md); one that is not core
+    /// yet, its uplinks, so that the edges that make it core are advertised
+    /// by both ends. A node without a URL lists none: only its uplinks see
+    /// its link state, which never route by it, and it may keep more
+    /// uplinks than a link state could list
+    /// (spec/decisions/periphery-lists-no-neighbors.md). A node lists at
+    /// most `max_peers`: one pinned to more uplinks lists only as many as
     /// fit.
     fn own_neighbors(&self, periphery: bool) -> Vec<NodeId> {
         if periphery {
@@ -445,12 +444,8 @@ impl PeerNode {
         // How many more core peers a core node takes, so that a node seeking
         // to be promoted asks uplinks that can promote it
         // (spec/decisions/promotion-to-core.md).
-        if !self.is_periphery() {
-            let free = self
-                .config
-                .max_peers
-                .saturating_sub(self.core_peers().count());
-            let free = u16::try_from(free).unwrap_or(u16::MAX);
+        if self.is_core() {
+            let free = u16::try_from(self.free_core()).unwrap_or(u16::MAX);
             extensions.push((EXTENSION_FREE_CORE, free.to_be_bytes().to_vec()));
         }
         let bytes: usize = extensions.iter().map(|(_, value)| value.len()).sum();

@@ -142,6 +142,14 @@ pub struct Config {
     /// longer than becoming core takes, so that a node that went away loses
     /// its place in the majority (spec/decisions/promotion-to-core.md).
     pub registration_failing_ms: u64,
+    /// How long a node's status in its own view must have held before it
+    /// acts on it: a node promoted into the core uses its own address once
+    /// it has been core this long, and a node out of the core ends its
+    /// downlinks once it has been out this long. Views of the core differ
+    /// while link states spread, and a restarted peer lists its neighbors
+    /// again only once they confirm themselves: twice the time a peer has
+    /// to (spec/decisions/promotion-to-core.md).
+    pub core_settle_ms: u64,
     /// A peer whose room in our books stays short of a packet for this
     /// long, without settling, is withdrawn. Two requests to settle may be
     /// lost, each costing the node's interval between requests, and the
@@ -257,6 +265,8 @@ impl Config {
         // Twice the standing a promotion asks, which becoming core takes at
         // least, with registration's spread well within it.
         registration_failing_ms: 7_200_000,
+        // Twice `peer_confirm_ms`.
+        core_settle_ms: 120_000,
         // Requests to settle every minute, each with 30 s to be answered.
         advertise_short_grace_ms: 180_000,
         termination_timeout_ms: 120_000,
@@ -394,15 +404,7 @@ impl Config {
             "a network's probes are a share of all"
         );
         assert!(self.indirect_refresh_percent <= 100, "a percentage");
-        assert!(
-            self.promotion_heartbeat_percent <= 100
-                && self.promotion_standing_ms >= crate::table::STANDING_BUCKETS,
-            "a percentage, and a standing that buckets split"
-        );
-        assert!(
-            self.registration_failing_ms > self.promotion_standing_ms,
-            "a registration outlasts the time becoming core takes"
-        );
+        self.validate_promotion();
         assert!(
             self.advertise_hold_min_ms <= self.advertise_hold_max_ms
                 && self.settlement_retry_min_ms <= self.settlement_retry_max_ms,
@@ -434,6 +436,24 @@ impl Config {
             "our own link state always decodes"
         );
         self.validate_names();
+    }
+
+    /// Checks the values of promotion and of a node's own status
+    /// (spec/decisions/promotion-to-core.md).
+    fn validate_promotion(&self) {
+        assert!(
+            self.promotion_heartbeat_percent <= 100
+                && self.promotion_standing_ms >= crate::table::STANDING_BUCKETS,
+            "a percentage, and a standing that buckets split"
+        );
+        assert!(
+            self.registration_failing_ms > self.promotion_standing_ms,
+            "a registration outlasts the time becoming core takes"
+        );
+        assert!(
+            self.core_settle_ms >= 2 * self.peer_confirm_ms,
+            "a node's status settles after a restarted peer confirms itself"
+        );
     }
 
     /// Checks a registrar's values (spec/areas/network.md#names).

@@ -4,6 +4,7 @@
 //! still holds. The original had none of it: a peering lasted as long as the
 //! process.
 
+use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
@@ -377,26 +378,47 @@ impl PeerNode {
         })
     }
 
-    /// The peers listed as our neighbors, in order. Downlinks never are:
-    /// their child addresses lie beneath ours, so the rest of the network
-    /// needs no route to them (spec/decisions/core-and-periphery.md).
+    /// The peers listed as our neighbors, in order. A downlink is only
+    /// once we promoted it: its child addresses lie beneath ours, so the
+    /// rest of the network needs no route to it
+    /// (spec/decisions/core-and-periphery.md), until it is to be core
+    /// (spec/decisions/promotion-to-core.md).
     pub(crate) fn advertised(&self) -> Vec<NodeId> {
         self.table
             .iter()
-            .filter(|(_, entry)| {
-                !entry.is_downlink() && entry.active_peering().is_some() && entry.advertise.on
-            })
+            .filter(|(_, entry)| entry.active_peering().is_some() && entry.advertise.on)
             .map(|(id, _)| *id)
             .collect()
     }
 
-    /// The advertised peers changed. A core node lists them in its link
-    /// state, so it issues a new one, and its routes follow from that. A
-    /// periphery node's link state lists none, and stays as it was; its
+    /// The downlinks we promoted: advertised, so on their way into the core.
+    pub(crate) fn promoted(&self) -> impl Iterator<Item = (&NodeId, &Entry)> {
+        self.table.iter().filter(|(_, entry)| {
+            entry.is_downlink() && entry.active_peering().is_some() && entry.advertise.on
+        })
+    }
+
+    /// How many more core relationships we take: core peers, and downlinks
+    /// promoted, which turn into core peers, both within `max_peers`, and
+    /// inbound ones, as a promoted downlink is, within the inbound bound
+    /// (spec/decisions/promotion-to-core.md).
+    pub(crate) fn free_core(&self) -> usize {
+        let promoted = self.promoted().count();
+        let core = self.core_peers().count() + promoted;
+        let inbound = self.core_peers().filter(|(_, p)| p.inbound).count() + promoted;
+        self.config
+            .max_peers
+            .saturating_sub(core)
+            .min(self.config.max_inbound().saturating_sub(inbound))
+    }
+
+    /// The advertised peers changed. A node with a URL lists them in its
+    /// link state, so it issues a new one, and its routes follow from that.
+    /// One without lists none, and its link state stays as it was; its
     /// routes go through them, and are recomputed
     /// (spec/areas/network.md#periphery-nodes).
     pub(crate) fn advertised_changed(&mut self) {
-        if !self.is_periphery() {
+        if self.has_url() {
             self.gossip.own_changed = true;
         }
         self.gossip.routes_dirty = true;
@@ -415,7 +437,7 @@ impl PeerNode {
         self.drop_unpayable(hooks);
         self.advance_depeerings(hooks);
         self.advance_windings(hooks);
-        self.update_advertised();
+        self.update_advertised(hooks);
         let telling: Vec<NodeId> = self.telling.keys().copied().collect();
         for peer in telling {
             self.tell_termination(peer);
@@ -484,6 +506,17 @@ impl PeerNode {
                         if stuck { now } else { confirmed }
                     } else if advertise.hold_until_ms > now {
                         advertise.hold_until_ms
+                    } else if checked_for_promotion(entry) {
+                        // Listed once promoted: its standing is long enough
+                        // at a time we know; the other checks change with an
+                        // input, or are looked at with each heartbeat's
+                        // review.
+                        entry
+                            .standing
+                            .since_ms
+                            .map(|since| since.saturating_add(config.promotion_standing_ms))
+                            .filter(|at| *at > now)
+                            .unwrap_or(u64::MAX)
                     } else if peering.heard_within(now, config.peer_confirm_ms)
                         && !self.bans.contains(id)
                         && !stuck
@@ -525,12 +558,17 @@ impl PeerNode {
     }
 
     /// Changes the kind of each active peering whose peer's status no
-    /// longer matches it, in place (spec/decisions/promotion-to-core.md):
-    /// as the peer's link state gains or loses a URL, for now. A peering
-    /// being ended keeps its kind until it is over, and a downlink turns
-    /// core only once it is registered, whose URL the bootstrap nodes
-    /// probed: until then it stays our downlink.
+    /// longer matches it, in place (spec/decisions/promotion-to-core.md): a
+    /// peer that joins the core turns from our downlink into a core peer,
+    /// one that leaves it the other way. Only a core node has kinds to
+    /// follow: a periphery node's peers are all its uplinks, and its
+    /// downlinks from when it was core end
+    /// ([`end_downlinks`](Self::end_downlinks)). A peering being ended
+    /// keeps its kind until it is over.
     pub(super) fn follow_kinds(&mut self, hooks: &mut dyn PeeringHooks) {
+        if !self.is_core() {
+            return;
+        }
         let changing: Vec<(NodeId, bool)> = self
             .table
             .iter()
@@ -542,8 +580,7 @@ impl PeerNode {
             .filter_map(|(id, entry)| {
                 let link = entry.link.as_ref()?;
                 let core = self.is_core_node(id, !link.periphery);
-                let registered = entry.sources.contains(Sources::MAJORITY);
-                (entry.is_downlink() == core && (!core || registered)).then_some((*id, !core))
+                (entry.is_downlink() == core).then_some((*id, !core))
             })
             .collect();
         for (id, downlink) in changing {
@@ -552,34 +589,31 @@ impl PeerNode {
     }
 
     /// Changes peer `id`'s kind in place, to our downlink if `downlink`,
-    /// else to a core peer: the peering, its methods and its channel stay;
-    /// its place in the table, its bounds and how it is reached follow the
-    /// new kind. It must fit as a new peering of that kind would, but for a
-    /// probe of its URL, which the bootstrap nodes made as it registered: a
-    /// core peer within the inbound bound if it asked us, with its accounts
-    /// open; a downlink within the downlinks' bounds and among the free
-    /// receivers'. Otherwise the peering ends instead.
+    /// else to a core peer: the peering, its methods, its channel and
+    /// whether we list it stay; its place in the table, its bounds and how
+    /// it is reached follow the new kind. It must fit as a new peering of
+    /// that kind would, but for a probe of its URL, which the bootstrap
+    /// nodes made as it registered: a core peer within the inbound bound if
+    /// it asked us, with its accounts open; a downlink within the
+    /// downlinks' bounds and among the free receivers'. Otherwise the
+    /// peering ends instead. A downlink we listed is one we promoted, and
+    /// a core peer we listed one whose edges keep it core: listing it on
+    /// keeps its edge, where a withdrawal would push it out of the core
+    /// again. A downlink is still listed only while it passes the checks of
+    /// a promotion ([`update_advertised`](Self::update_advertised)).
     fn change_kind(&mut self, hooks: &mut dyn PeeringHooks, id: NodeId, downlink: bool) {
         let now = self.now_ms;
-        // At most one change of kind per hold: a peer that changes again
-        // while held down, as one that flaps, has its peering ended, so a
-        // peer flipping its URL costs us no more than one that asks anew.
-        let held = self
-            .table
-            .get(&id)
-            .is_some_and(|entry| entry.advertise.hold_until_ms > now);
-        let fits = !held
-            && if downlink {
-                self.fits_as_downlink(hooks, &id)
-            } else {
-                self.fits_as_core_peer(&id) && {
-                    let schemes: Vec<SchemeId> = self
-                        .peering_of(&id)
-                        .map(|peering| peering.schemes().collect())
-                        .unwrap_or_default();
-                    hooks.open_core_accounts(now, id, &schemes)
-                }
-            };
+        let fits = if downlink {
+            self.fits_as_downlink(hooks, &id)
+        } else {
+            self.fits_as_core_peer(&id) && {
+                let schemes: Vec<SchemeId> = self
+                    .peering_of(&id)
+                    .map(|peering| peering.schemes().collect())
+                    .unwrap_or_default();
+                hooks.open_core_accounts(now, id, &schemes)
+            }
+        };
         // A core peer's place in the table, made only once it is sure.
         let placed = fits
             && (downlink
@@ -592,7 +626,6 @@ impl PeerNode {
         let Some(entry) = self.table.get_mut(&id) else {
             return;
         };
-        let listed = entry.advertise.on && !entry.is_downlink();
         let (from, to) = if downlink {
             (Sources::PEER, Sources::DOWNLINK)
         } else {
@@ -600,21 +633,7 @@ impl PeerNode {
         };
         entry.sources.remove(from);
         entry.sources.insert(to);
-        // A change of kind counts as a withdrawal: the peer is held down as
-        // one that flaps, a new core peer listed only once the hold is over
-        // ([`update_advertised`](Self::update_advertised)), a downlink never.
-        let hold = backoff(
-            self.config.advertise_hold_min_ms,
-            self.config.advertise_hold_max_ms,
-            entry.advertise.flaps,
-        );
-        entry.advertise = Advertise {
-            on: false,
-            on_since_ms: now,
-            hold_until_ms: now.saturating_add(hold),
-            flaps: entry.advertise.flaps.saturating_add(1),
-            ..entry.advertise
-        };
+        entry.was_core |= !downlink;
         self.dirty.insert(id);
         // Only core peers are subscribed to (spec/areas/network.md#snapshot-subscriptions).
         if downlink {
@@ -622,15 +641,16 @@ impl PeerNode {
         }
         // Its channel counts with its kind, and is reached as it is now.
         self.open_channel_from(id, None);
-        if listed {
-            self.advertised_changed();
-        }
+        // How many core relationships are free changed.
+        self.gossip.own_changed |= self.is_core();
         self.gossip.routes_dirty = true;
         self.event(Event::KindChanged { peer: id, downlink });
     }
 
     /// Whether peer `id`, our downlink, fits as a core peer, as a request
     /// of a core node's would ([`check_request`](Self::check_request)).
+    /// One we promoted has its place kept for it already
+    /// ([`free_core`](Self::free_core)).
     fn fits_as_core_peer(&self, id: &NodeId) -> bool {
         let Some(entry) = self.table.get(id) else {
             return false;
@@ -638,7 +658,7 @@ impl PeerNode {
         let inbound = entry.peering().is_some_and(|peering| peering.inbound);
         let inbound_peers = self.core_peers().filter(|(_, p)| p.inbound).count();
         let (_, core_channels) = self.channel_counts();
-        !self.is_periphery()
+        self.is_core()
             && (!inbound || inbound_peers < self.config.max_inbound())
             && self.core_peers().count() < self.config.max_peers
             && core_channels < self.config.max_channels
@@ -658,14 +678,17 @@ impl PeerNode {
             && (self.free_downlinks() < self.config.max_free_downlinks() || self.paid_us(id, hooks))
     }
 
-    /// Terminates peers not heard from for too long, counted from our
-    /// start at the earliest, so a node that was down ends nothing for it.
-    /// On a periphery node, ends the peerings with its downlinks, from
-    /// when it was a core node: a periphery node takes none, and a node
-    /// loses its URL other ways than its owner's choice
-    /// (spec/areas/network.md#downlinks). Those not peered leave at once.
+    /// On a node that keeps no downlinks ([`Self::keeps_downlinks`]), ends
+    /// the peerings with its downlinks, from when it did: nothing routes to
+    /// them (spec/areas/network.md#downlinks). It does so once it has kept
+    /// none for as long as its status takes to settle, so that a dip while
+    /// a peer restarts ends nothing. Those not peered leave at once.
     pub(crate) fn end_downlinks(&mut self) {
-        if !self.is_periphery() {
+        let settled = self
+            .status
+            .stranded_since_ms
+            .is_some_and(|since| since.saturating_add(self.config.core_settle_ms) <= self.now_ms);
+        if !settled {
             return;
         }
         let downlinks: Vec<NodeId> = self
@@ -773,10 +796,25 @@ impl PeerNode {
     /// packet within the grace on one of its methods at least that is not
     /// being wound down, and is not held down; each withdrawal holds it down longer, until it has been
     /// stable a while (spec/decisions/peering-lifecycle.md,
-    /// spec/decisions/settlement-methods.md).
-    fn update_advertised(&mut self) {
+    /// spec/decisions/settlement-methods.md). A downlink is advertised only
+    /// once promoted, by a core node: while it passes every check of a
+    /// promotion, and, to start, while a core relationship is free
+    /// (spec/decisions/promotion-to-core.md).
+    fn update_advertised(&mut self, hooks: &dyn PeeringHooks) {
         let config = self.config;
         let now = self.now_ms;
+        let core = self.is_core();
+        let promotable: BTreeSet<NodeId> = self
+            .table
+            .iter()
+            .filter(|(_, entry)| entry.is_downlink() && core)
+            .filter(|(id, _)| {
+                self.promotion(id, |scheme| hooks.room_packets(**id, scheme))
+                    .is_some_and(|promotion| promotion.pending(&config).is_empty())
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        let mut free = self.free_core();
         let mut changes = Vec::new();
         for (id, entry) in &mut self.table {
             let Some(peering) = entry.active_peering() else {
@@ -795,6 +833,9 @@ impl PeerNode {
             } else {
                 entry.standing.since_ms = None;
             }
+            entry.was_core |= !entry.is_downlink();
+            let by_health = !checked_for_promotion(entry);
+            let promoted = by_health || promotable.contains(id);
             let advertise = &mut entry.advertise;
             if advertise.on
                 && advertise
@@ -804,7 +845,7 @@ impl PeerNode {
             {
                 advertise.flaps = 0;
             }
-            if advertise.on && !healthy {
+            if advertise.on && !(healthy && promoted) {
                 advertise.on = false;
                 let hold = backoff(
                     config.advertise_hold_min_ms,
@@ -816,7 +857,13 @@ impl PeerNode {
                 // For room only if that is the one reason: a peer that
                 // also fell silent is withdrawn for that.
                 changes.push((*id, false, short && live));
-            } else if !advertise.on && healthy && advertise.hold_until_ms <= now {
+            } else if !advertise.on
+                && healthy
+                && promoted
+                && (by_health || free > 0)
+                && advertise.hold_until_ms <= now
+            {
+                free = free.saturating_sub(usize::from(!by_health));
                 advertise.on = true;
                 advertise.on_since_ms = now;
                 changes.push((*id, true, false));
@@ -855,6 +902,7 @@ impl PeerNode {
             return;
         };
         entry.advertise = Advertise::default();
+        entry.was_core = false;
         let wait = if keeps_away(termination.reason) {
             // Nor does it take the peer's requests: the owner meant it, and
             // a link that stayed short is not formed again at once
@@ -874,6 +922,8 @@ impl PeerNode {
         self.unreached.remove(&peer);
         self.drop_peer_source(&peer);
         self.gossip.routes_dirty = true;
+        // A core relationship may be free again.
+        self.gossip.own_changed |= self.is_core();
         self.stats.terminations += 1;
         // Nothing is settled at the end: what the accounts show carries
         // into a later peering (spec/decisions/ending-a-peering.md).
@@ -937,4 +987,14 @@ const fn keeps_away(reason: TerminationReason) -> bool {
         reason,
         TerminationReason::Owner | TerminationReason::ShortOfRoom
     )
+}
+
+/// Whether `entry`'s peer is listed only while it passes the checks of a
+/// promotion: our downlink, but for one whose peering was core while it is
+/// registered, which is listed by its health, as a core peer's. A node that
+/// left the core for a moment, silent past the confirmation or while a peer
+/// restarted, comes back after its hold-down, not after a new promotion;
+/// one whose registration ended is out (spec/decisions/promotion-to-core.md).
+fn checked_for_promotion(entry: &Entry) -> bool {
+    entry.is_downlink() && !(entry.was_core && entry.sources.contains(Sources::MAJORITY))
 }

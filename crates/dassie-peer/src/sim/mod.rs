@@ -100,6 +100,9 @@ pub struct StubHooks {
     /// methods or more, each scheme standing for a ledger of its own
     /// (spec/decisions/peer-swaps.md).
     pub swaps: bool,
+    /// The room each peer has in the node's books, in the largest packets,
+    /// on every scheme: none unless set.
+    pub room_packets: BTreeMap<NodeId, u64>,
 }
 
 impl StubHooks {
@@ -115,6 +118,10 @@ impl StubHooks {
 }
 
 impl PeeringHooks for StubHooks {
+    fn room_packets(&self, peer: NodeId, _scheme: SchemeId) -> u64 {
+        self.room_packets.get(&peer).copied().unwrap_or(0)
+    }
+
     fn speaks(&self, scheme: SchemeId) -> bool {
         matches!(scheme.as_str(), STUB | SECOND)
             && !self.unrun
@@ -548,6 +555,11 @@ pub struct Network {
     /// The nodes that make no check over HTTPS, and say so, as when their
     /// client has no place for one.
     pub https_unmade: BTreeSet<usize>,
+    /// The dev core every node is told of, now and after each restart: the
+    /// nodes with a URL, unless a test makes it otherwise, so that a
+    /// simulation has core nodes without the hour promotion takes
+    /// (spec/decisions/promotion-to-core.md).
+    pub dev_core: Vec<NodeId>,
     /// What each bootstrap node does as a registrar of names: as the
     /// protocol says, unless set here.
     pub roles: BTreeMap<usize, Role>,
@@ -667,6 +679,9 @@ impl Network {
             https_fails: BTreeSet::new(),
             https_silent: BTreeSet::new(),
             https_unmade: BTreeSet::new(),
+            dev_core: (0..count.min(crate::core_nodes::MAX_DEV_CORE))
+                .map(|index| key(index).node_id())
+                .collect(),
             roles: BTreeMap::new(),
             adversary: None,
             tipped: BTreeMap::new(),
@@ -734,6 +749,7 @@ impl Network {
         if let Some(uplinks) = self.pinned.get(&index) {
             node.pin_uplinks(uplinks.clone());
         }
+        node.set_dev_core(self.dev_core.clone());
         let changes = view_changes(&mut sim.seen_holders, &node);
         sim.node = Some(node);
         self.trace.push(format!("{} start {index}", self.now));
@@ -1568,6 +1584,20 @@ pub fn connected(graph: &BTreeMap<NodeId, Vec<NodeId>>) -> bool {
 }
 
 impl Network {
+    /// Makes the dev core the nodes at `indexes`, in every node running and
+    /// after each restart: none, for a network whose core forms as the
+    /// decision says (spec/decisions/promotion-to-core.md).
+    pub fn set_dev_core(&mut self, indexes: &[usize]) {
+        self.dev_core = indexes.iter().map(|index| key(*index).node_id()).collect();
+        for index in 0..self.nodes.len() {
+            let dev_core = self.dev_core.clone();
+            if let Some(node) = self.nodes[index].node.as_mut() {
+                node.set_dev_core(dev_core);
+            }
+            self.drain(index);
+        }
+    }
+
     /// Pins node `index` to `uplinks`, now and after each restart.
     pub fn pin_uplinks(&mut self, index: usize, uplinks: Vec<NodeId>) {
         self.node_mut(index).pin_uplinks(uplinks.clone());

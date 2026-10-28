@@ -19,9 +19,10 @@ use dassie_identity::NodeId;
 
 use crate::routing::is_edge;
 
-/// Most nodes on the dev core list (`DASSIE_DEV_CORE_NODES`), as many as
-/// a node takes bootstrap nodes.
-pub const MAX_DEV_CORE: usize = 64;
+/// Most nodes on the dev core list (`DASSIE_DEV_CORE_NODES`): every core
+/// node of a dev or test network, as many as a node may be pinned to as
+/// its uplinks ([`MAX_UPLINKS`](crate::MAX_UPLINKS)).
+pub const MAX_DEV_CORE: usize = crate::MAX_UPLINKS;
 
 /// How many edges a node needs in the 2-core the bootstrap nodes are taken
 /// from: two, or, in a network with fewer than three bootstrap nodes, as

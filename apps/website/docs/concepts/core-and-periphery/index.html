@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="A node with a hostname forwards payments for others. One without, like the desktop app, connects out to core nodes and is reached through them and a relay."
+      content="A node with a hostname joins the core once its uplinks vouch for it, and forwards payments for others. One without, like the desktop app, connects out to core nodes and is reached through them."
     />
     <title>Core and periphery · Dassie</title>
     <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
@@ -45,8 +45,8 @@
           <tbody>
             <tr>
               <td>What makes it one</td>
-              <td>A hostname: a server with a public IP and a domain name</td>
-              <td>No hostname, such as the desktop app on your computer</td>
+              <td>Promotion: a server with a public IP and a domain name, that two core nodes vouch for</td>
+              <td>Every node at first; one without a hostname, such as the desktop app on your computer, for good</td>
             </tr>
             <tr>
               <td>Who it connects to</td>
@@ -77,9 +77,13 @@
       <p>
         A periphery node always dials out, so it works behind a home router
         or a firewall, with no port forwarding. It never connects to another
-        periphery node. On a server, setting a hostname makes a node core,
-        and clearing it makes it periphery again. The desktop app's node
-        always stays periphery.
+        periphery node. A server with a hostname starts in the periphery too,
+        and its uplinks promote it into the core once they have watched it
+        for an hour: it stayed reachable, answered at its domain name with
+        a real certificate, settled with them and has room with them.
+        Then it forwards payments for others, and is paid at its own
+        address a couple of minutes later. Clearing the hostname makes it
+        periphery again. The desktop app's node always stays periphery.
       </p>
       <p class="why">
         <a
@@ -111,9 +115,9 @@
           request names, one it is connected to at the time.
         </li>
         <li>
-          Your uplinks never list your node as a neighbor, and no route in
-          the network leads to it directly: only its uplinks know it is
-          there.
+          Your uplinks never list your node as a neighbor, unless they
+          promote it, and no route in the network leads to it directly: only
+          its uplinks know it is there.
         </li>
       </ul>
       <p>
@@ -281,8 +285,7 @@
 
       <h2 id="not-yet">What is not there yet</h2>
       <p class="not-yet">
-        Every node starting at the edge and being promoted into the core,
-        finding a node's relays through records others keep, apps on your
+        Finding a node's relays through records others keep, apps on your
         phone that reach your node through a relay, and your own domain in
         front of a front door are not there yet.
         <a href="/docs/project/roadmap/">What's next</a>

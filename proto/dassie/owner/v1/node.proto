@@ -47,8 +47,9 @@ message GetStatusResponse {
   uint32 http_port = 6;
   uint32 https_port = 7;
   // Whether the node runs as a periphery node
-  // (spec/areas/network.md#periphery-nodes): it has a QUIC endpoint and no
-  // hostname, so it registers nowhere, and its peers are its uplinks.
+  // (spec/areas/network.md#periphery-nodes): it is not core, as every node
+  // starts (spec/decisions/promotion-to-core.md), so its peers are its
+  // uplinks; one without a hostname also registers nowhere.
   bool periphery = 8;
   // The relay the node chose (spec/areas/node.md#a-chosen-relay); unset if
   // none.

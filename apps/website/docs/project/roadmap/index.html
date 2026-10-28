@@ -135,10 +135,9 @@
       <ul>
         <li>dialing a lost uplink again with a backoff;</li>
         <li>
-          <strong>becoming core.</strong> Today a node with a hostname is a
-          core node and one without is a periphery node. Later, every node
-          starts in the periphery and is promoted once it has shown it can
-          be relied on;
+          <strong>demotion by uplinks:</strong> an uplink that promoted a
+          node checks it only until it is in the core; later it keeps
+          checking it, and stops vouching for one that stops answering;
         </li>
         <li>
           <strong>front doors:</strong> the consent page for apps that ask to

@@ -157,8 +157,9 @@ impl PeerNode {
         for id in unchanneled {
             self.open_channel_from(id, None);
         }
-        // A node that lost its URL while down ends its downlinks.
-        self.end_downlinks();
+        // Our status from what we stored, so that a core node does not
+        // take itself for a periphery node until its routes are computed.
+        self.recompute_core();
         self.gossip.routes_dirty = true;
         if peered {
             // The peers we have get a heartbeat's time to confirm
@@ -252,6 +253,9 @@ impl PeerNode {
             on_since_ms: now,
             ..Advertise::default()
         };
+        // Restored as a core peering, it is listed by its health whatever
+        // the core says before its routes are computed again.
+        entry.was_core = !entry.is_downlink();
         entry.peer = match termination {
             Some(termination) => {
                 if !termination.told(now, self.config.termination_timeout_ms) {
@@ -568,6 +572,8 @@ impl PeerNode {
             return;
         }
         self.gossip.routes_computed(self.now_ms, &self.config);
+        // The core first: whether we are a core node decides how we route.
+        self.recompute_core();
         let (now, stale, future) = (self.now_ms, self.config.stale_ms, self.config.max_future_ms);
         let table = &self.table;
         let neighbors = |node: &NodeId| {
@@ -575,9 +581,9 @@ impl PeerNode {
             link.is_fresh(now, stale, future)
                 .then_some(link.neighbors.as_slice())
         };
-        // A periphery node's uplinks never list it, and carry everything it
-        // sends.
-        let routes = if self.is_periphery() {
+        // A periphery node's uplinks carry everything it sends, whether or
+        // not they list it yet.
+        let routes = if !self.forwards() {
             routing::through(&self.own, &self.route_key, &self.advertised(), neighbors)
         } else {
             routing::compute(&self.own, &self.route_key, neighbors)
@@ -585,16 +591,6 @@ impl PeerNode {
         if routes != self.routes {
             self.routes = routes;
             self.event(Event::RoutesChanged);
-        }
-        let core = self.compute_core();
-        if core != self.core {
-            self.core = core;
-            self.event(Event::CoreChanged);
-        }
-        if !self.core.contains(&self.own) {
-            self.own_core_since_ms = None;
-        } else if self.own_core_since_ms.is_none() {
-            self.own_core_since_ms = Some(now);
         }
         for (id, entry) in &mut self.table {
             let wanted = entry.sources.contains(Sources::MAJORITY)
@@ -624,6 +620,16 @@ impl PeerNode {
                 );
             }
         }
+    }
+
+    /// Computes the core again, and our own status with it.
+    pub(super) fn recompute_core(&mut self) {
+        let core = self.compute_core();
+        if core != self.core {
+            self.core = core;
+            self.event(Event::CoreChanged);
+        }
+        self.update_own_status();
     }
 
     /// The core, from the majority list and fresh link states
@@ -796,12 +802,6 @@ impl PeerNode {
         if !self.is_periphery() {
             return;
         }
-        // Downlinks from when it was a core node are being ended.
-        for entry in self.table.values().filter(|entry| entry.is_downlink()) {
-            let ending = entry.termination().is_some()
-                || entry.peering().is_some_and(|p| p.depeering.is_some());
-            assert!(ending, "a periphery node's downlinks are ending");
-        }
         if let Some(own) = self.table.get(&self.own).and_then(|e| e.link.as_ref()) {
             assert!(
                 own.periphery || own.endpoint.is_some(),
@@ -818,9 +818,14 @@ impl PeerNode {
             "the core within bounds"
         );
         assert_eq!(
-            self.own_core_since_ms.is_some(),
-            self.core.contains(&self.own),
+            self.status.core_since_ms.is_some(),
+            self.is_core(),
             "we know since when we are core"
+        );
+        assert_eq!(
+            self.status.stranded_since_ms.is_some(),
+            !self.keeps_downlinks(),
+            "we know since when we keep no downlinks"
         );
     }
 

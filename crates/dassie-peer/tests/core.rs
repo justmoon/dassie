@@ -89,8 +89,16 @@ fn core_nodes_say_how_many_core_peers_they_take() {
     let view = network.node(1).nodes();
     for index in 0..3 {
         let id = *network.node(index).own();
+        // Core peers within `max_peers`, inbound ones, as a promoted
+        // downlink is, within the inbound bound.
         let peers = network.node(index).core_peers().count();
-        let free = u16::try_from(Config::DEV.max_peers - peers).unwrap();
+        let inbound = network
+            .node(index)
+            .core_peers()
+            .filter(|(_, peering)| peering.inbound)
+            .count();
+        let free = (Config::DEV.max_peers - peers).min(Config::DEV.max_inbound() - inbound);
+        let free = u16::try_from(free).unwrap();
         let entry = view.iter().find(|entry| entry.id == id).unwrap();
         assert_eq!(entry.free_core, Some(free), "node {index}");
     }

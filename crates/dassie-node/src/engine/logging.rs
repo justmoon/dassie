@@ -65,9 +65,11 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         Event::MethodAdded { .. } | Event::MethodWinding { .. } | Event::MethodDropped { .. } => {
             peer_method(severity, event);
         }
-        Event::RoutesChanged => emit!(severity, target: target::ROUTING, "routes changed"),
-        Event::CoreChanged => emit!(severity, target: target::ROUTING, "the core changed"),
-        Event::CheckHttps { .. } => peer_check(severity, event),
+        Event::RoutesChanged
+        | Event::CoreChanged
+        | Event::OwnAddress { .. }
+        | Event::CheckHttps { .. }
+        | Event::KindChanged { .. } => peer_core(severity, event),
         Event::NodeAdded(node) => emit!(severity, target: target::PEER, %node, "node added"),
         Event::NodeRemoved(node) => emit!(severity, target: target::PEER, %node, "node removed"),
         Event::Registered(node) => emit!(severity, target: target::PEER, %node, "registration"),
@@ -77,9 +79,6 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         Event::PacketFailed { .. } | Event::FulfillReply { .. } => peer_packet(severity, event),
         Event::PeeringFailed { node, reason } => {
             emit!(severity, target: target::PEER, %node, reason, "peering failed");
-        }
-        Event::KindChanged { peer, downlink } => {
-            emit!(severity, target: target::PEER, %peer, downlink, "a peer's kind changed in place");
         }
         Event::Depeering { peer, reason } => {
             emit!(severity, target: target::PEER, %peer, ?reason, "ending a peering: collecting first, before the peer is told");
@@ -123,16 +122,30 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
     }
 }
 
-/// The peer node's check of a node's URL over HTTPS
+/// The peer node's events about routes, the core and promotion
 /// (spec/decisions/promotion-to-core.md).
-fn peer_check(severity: Severity, event: &dassie_peer::Event) {
-    if let dassie_peer::Event::CheckHttps {
-        peer,
-        url,
-        registration,
-    } = event
-    {
-        emit!(severity, target: target::PEER, %peer, %url, registration, "checking a node's URL over HTTPS");
+fn peer_core(severity: Severity, event: &dassie_peer::Event) {
+    use dassie_peer::Event;
+    match event {
+        Event::CheckHttps {
+            peer,
+            url,
+            registration,
+        } => {
+            emit!(severity, target: target::PEER, %peer, %url, registration, "checking a node's URL over HTTPS");
+        }
+        Event::KindChanged { peer, downlink } => {
+            emit!(severity, target: target::PEER, %peer, downlink, "a peer's kind changed in place");
+        }
+        Event::RoutesChanged => emit!(severity, target: target::ROUTING, "routes changed"),
+        Event::CoreChanged => emit!(severity, target: target::ROUTING, "the core changed"),
+        Event::OwnAddress { own: true } => {
+            emit!(severity, target: target::ROUTING, "using the node's own address, as a core node");
+        }
+        Event::OwnAddress { own: false } => {
+            emit!(severity, target: target::ROUTING, "using child addresses beneath the uplinks");
+        }
+        _ => {}
     }
 }
 

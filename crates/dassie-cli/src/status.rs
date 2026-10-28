@@ -51,19 +51,23 @@ pub async fn status(env: &Env) -> Result<(), String> {
         duration(now_ms.saturating_sub(node.started_at_unix_ms)),
         date(node.started_at_unix_ms)
     );
+    // A node without a hostname stays in the periphery; one with a hostname
+    // is a periphery node too until it is promoted, but registers, and
+    // needs a real certificate (spec/decisions/promotion-to-core.md).
+    let unnamed = node.periphery && basic.hostname.is_empty();
     line("Address", &address(&basic, &node));
-    line("Certificate", &certificate(&node, now_ms));
+    line("Certificate", &certificate(&node, unnamed, now_ms));
     let set_up = basic.state != i32::from(proto::NodeState::Uninitialized);
     if set_up {
         line("Setup", &format!("done; the node ID is {}", basic.node_id));
         let peers = peers(&mut client).await;
-        let network = network(&mut client, peers.as_deref(), node.periphery).await;
+        let network = network(&mut client, peers.as_deref(), (node.periphery, unnamed)).await;
         line("Network", &network);
         if node.periphery {
             let nodes = nodes(&mut client).await;
             line("Uplinks", &uplinks(peers.as_deref(), &nodes, now_ms));
         }
-        if let Some(relay) = relay(node.relay.as_ref(), node.periphery) {
+        if let Some(relay) = relay(node.relay.as_ref(), unnamed) {
             line("Relay", &relay);
         }
         peers_and_ledgers(&mut client, peers.as_deref()).await;
@@ -157,7 +161,7 @@ pub(crate) fn entries(texts: impl IntoIterator<Item = String>) -> String {
 /// which needs no domain name, at its names for Open Payments, which serve
 /// nothing else (spec/areas/payments.md#the-nodes-names).
 fn address(basic: &proto::GetBasicStateResponse, node: &proto::GetStatusResponse) -> String {
-    if node.periphery {
+    if node.periphery && basic.hostname.is_empty() {
         if node.open_payments_origins.is_empty() {
             return "none yet: a periphery node is named once it is set up".into();
         }
@@ -174,13 +178,15 @@ fn address(basic: &proto::GetBasicStateResponse, node: &proto::GetStatusResponse
     }
 }
 
-fn certificate(node: &proto::GetStatusResponse, now_ms: i64) -> String {
+/// The node's certificate. A self-signed one does on a node without a
+/// hostname, `unnamed`, which is reached only through its uplinks and relay.
+fn certificate(node: &proto::GetStatusResponse, unnamed: bool, now_ms: i64) -> String {
     let Some(certificate) = &node.certificate else {
         return "unknown".into();
     };
     let until = certificate.not_after_unix_ms;
     let mut text = match proto::CertificateSource::try_from(certificate.source) {
-        Ok(proto::CertificateSource::SelfSigned) if node.periphery => {
+        Ok(proto::CertificateSource::SelfSigned) if unnamed => {
             return "a temporary one the node made, which browsers warn about; \
                     a periphery node needs no other"
                 .into();
@@ -236,7 +242,7 @@ async fn nodes(client: &mut Client) -> Vec<proto::NetworkNode> {
 async fn network(
     client: &mut Client,
     peers: Option<&[proto::NetworkPeer]>,
-    periphery: bool,
+    kind: (bool, bool),
 ) -> String {
     match client
         .call(Method::GetRegistrationStatus(
@@ -245,25 +251,28 @@ async fn network(
         .await
     {
         Ok(response::Method::GetRegistrationStatus(registration)) => {
-            membership(&registration, peers, periphery)
+            membership(&registration, peers, kind)
         }
         other => format!("unknown ({})", unexpected(other)),
     }
 }
 
-/// The node's place in the network. A periphery node registers nowhere, as
+/// The node's place in the network, with whether it is a periphery node
+/// and whether it has no hostname. A node without one registers nowhere, as
 /// it should, so its registrations say nothing about it
-/// (spec/areas/network.md#periphery-nodes).
+/// (spec/areas/network.md#periphery-nodes). One with a hostname registers,
+/// and is a periphery node until its uplinks promote it into the core
+/// (spec/decisions/promotion-to-core.md).
 fn membership(
     registration: &proto::GetRegistrationStatusResponse,
     peers: Option<&[proto::NetworkPeer]>,
-    periphery: bool,
+    (periphery, unnamed): (bool, bool),
 ) -> String {
     if registration.bootstrap.is_empty() {
         return "no bootstrap nodes are set (DASSIE_BOOTSTRAP_NODES), so the node runs alone"
             .into();
     }
-    if periphery {
+    if unnamed {
         return "a periphery node: it registers with no bootstrap node, and reaches the \
                 network through its uplinks"
             .into();
@@ -277,13 +286,19 @@ fn membership(
     // spec/decisions/promotion-to-core.md: a member is in the core once
     // the signed data says so.
     let core = if registration.core { "in" } else { "not in" };
-    let membership = if registration.member {
+    let mut membership = if registration.member {
         format!(
             "a member of the network, {core} its core, listed by {listed} of {total} bootstrap nodes"
         )
     } else {
         format!("not a member yet, listed by {listed} of {total} bootstrap nodes")
     };
+    if periphery {
+        membership.push_str(
+            "; a periphery node until two core nodes it peers with promote it, \
+             after an hour in good standing with them",
+        );
+    }
     let peers = peers.map_or_else(
         || "unknown".into(),
         |peers| peered(peers).count().to_string(),
@@ -967,15 +982,18 @@ mod tests {
             certificate: Some(certificate),
             ..node
         };
-        let text = super::certificate(&node, 0);
+        let text = super::certificate(&node, true, 0);
         assert!(text.ends_with("a periphery node needs no other"), "{text}");
+        // One with a hostname, not promoted yet, needs a real one to be.
+        let text = super::certificate(&node, false, 0);
+        assert!(text.ends_with("gets a real one"), "{text}");
     }
 
     #[test]
     fn a_core_node_says_how_many_bootstrap_nodes_list_it() {
         let peers = [peer(UPLINK, true, 1), peer("dOther", true, 1)];
         assert_eq!(
-            membership(&registration(0, 3), Some(&peers), false),
+            membership(&registration(0, 3), Some(&peers), (false, false)),
             "not a member yet, listed by 0 of 3 bootstrap nodes; peers: 2"
         );
         let member = proto::GetRegistrationStatusResponse {
@@ -983,7 +1001,7 @@ mod tests {
             ..registration(2, 3)
         };
         assert_eq!(
-            membership(&member, None, false),
+            membership(&member, None, (false, false)),
             "a member of the network, not in its core, listed by 2 of 3 bootstrap nodes; peers: unknown"
         );
         let core = proto::GetRegistrationStatusResponse {
@@ -991,7 +1009,7 @@ mod tests {
             ..member
         };
         assert_eq!(
-            membership(&core, None, false),
+            membership(&core, None, (false, false)),
             "a member of the network, in its core, listed by 2 of 3 bootstrap nodes; peers: unknown"
         );
     }
@@ -1000,11 +1018,31 @@ mod tests {
     // as "not a member yet".
     #[test]
     fn a_periphery_node_is_not_described_by_its_registrations() {
-        let text = membership(&registration(0, 3), Some(&[]), true);
+        let text = membership(&registration(0, 3), Some(&[]), (true, true));
         assert!(text.starts_with("a periphery node: "), "{text}");
         assert!(!text.contains("member"), "{text}");
-        let alone = membership(&registration(0, 0), Some(&[]), true);
+        let alone = membership(&registration(0, 0), Some(&[]), (true, true));
         assert!(alone.contains("runs alone"), "{alone}");
+    }
+
+    // spec/decisions/promotion-to-core.md: a node with a hostname registers,
+    // and is a periphery node until it is promoted: its registrations say
+    // where it stands, and that it waits to be promoted.
+    #[test]
+    fn a_node_with_a_hostname_waits_to_be_promoted() {
+        let member = proto::GetRegistrationStatusResponse {
+            member: true,
+            ..registration(3, 3)
+        };
+        let text = membership(&member, Some(&[]), (true, false));
+        assert!(
+            text.starts_with("a member of the network, not in its core"),
+            "{text}"
+        );
+        assert!(
+            text.contains("until two core nodes it peers with promote it"),
+            "{text}"
+        );
     }
 
     #[test]

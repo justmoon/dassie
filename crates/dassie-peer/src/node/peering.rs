@@ -201,9 +201,12 @@ impl PeerNode {
     /// a recent message and not held down. A node whose peers went silent,
     /// or flap, looks for others (spec/decisions/peering-lifecycle.md).
     /// Downlinks do not count: they are apart from the core peering slots.
-    /// A node pinned to its uplinks counts only those.
+    /// A node pinned to its uplinks counts only those. A periphery node
+    /// counts only uplinks that are core nodes: one that left the core
+    /// with it forwards nothing for it, and it looks for others.
     pub(crate) fn confirmed_peers(&self) -> usize {
         let pinned = self.pinned_uplinks();
+        let periphery = !self.forwards();
         self.table
             .iter()
             .filter(|(id, entry)| {
@@ -211,14 +214,21 @@ impl PeerNode {
                     && entry.active_peering().is_some()
                     && entry.advertise.on
                     && pinned.is_none_or(|pinned| pinned.binary_search(id).is_ok())
+                    && (!periphery
+                        || entry
+                            .link
+                            .as_ref()
+                            .is_some_and(|link| self.is_core_node(id, !link.periphery)))
             })
             .count()
     }
 
     /// A node to ask: fresh, with a scheme in common, not in backoff.
     /// Nodes our routes do not reach come first, then majority nodes; the
-    /// RNG picks among the best. A bridge only considers majority nodes
-    /// unreachable for the grace period.
+    /// RNG picks among the best. A node with a URL that is not core yet
+    /// asks those with a core relationship free first, which can promote it
+    /// (spec/decisions/promotion-to-core.md). A bridge only considers
+    /// majority nodes unreachable for the grace period.
     fn pick_candidate(
         &mut self,
         hooks: &dyn PeeringHooks,
@@ -226,6 +236,7 @@ impl PeerNode {
     ) -> Option<(NodeId, SchemeId)> {
         let (now, stale, future) = (self.now_ms, self.config.stale_ms, self.config.max_future_ms);
         let grace = self.config.unreachable_grace_ms;
+        let seeking_promotion = self.has_url() && !self.is_core();
         let mut best: Vec<(u8, NodeId, SchemeId)> = Vec::new();
         for (id, entry) in &self.table {
             let Some(link) = entry.link.as_ref() else {
@@ -254,7 +265,8 @@ impl PeerNode {
             {
                 continue;
             }
-            let score = u8::from(!unreachable) * 2 + u8::from(!majority);
+            let full = seeking_promotion && link.free_core.is_none_or(|free| free == 0);
+            let score = u8::from(full) * 4 + u8::from(!unreachable) * 2 + u8::from(!majority);
             best.push((score, *id, scheme));
         }
         let top = best.iter().map(|(score, _, _)| *score).min()?;

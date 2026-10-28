@@ -1261,6 +1261,7 @@ impl Sim {
     pub fn start(&mut self, index: usize) {
         let seed = self.rng.next_u64();
         let now = self.local_now(index);
+        let count = self.nodes.len();
         let node = &mut self.nodes[index];
         node.generation += 1;
         node.inbound.clear();
@@ -1290,7 +1291,12 @@ impl Sim {
             },
             bootstrap: self.bootstrap.clone(),
             uplinks: Vec::new(),
-            dev_core: Vec::new(),
+            // Every node core outright, without the hour promotion takes,
+            // as a dev network names its core nodes
+            // (spec/decisions/promotion-to-core.md).
+            dev_core: (0..count.min(dassie_peer::core_nodes::MAX_DEV_CORE))
+                .map(|index| key(index).node_id())
+                .collect(),
         };
         let mut core = Core::start(parts, now).unwrap();
         core.check_validations_with(VALIDATION_SECRET);

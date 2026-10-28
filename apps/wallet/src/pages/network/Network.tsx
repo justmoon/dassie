@@ -52,6 +52,7 @@ export function Network(props: RouteProps): JSX.Element {
   const router = useRouter();
   const status = useStatus();
   const periphery = () => status()?.periphery === true;
+  const hasUrl = () => Boolean(data.nodes.byId[data.selfId ?? ""]?.url);
   const nodes = createMemo(() => Object.values(data.nodes.byId));
   const graph = createMemo(() => routingGraph(nodes(), periphery()));
   const selected = () => props.params.node;
@@ -78,7 +79,9 @@ export function Network(props: RouteProps): JSX.Element {
           when={node() && node()!.id !== data.selfId}
           fallback={
             // Nothing until the status says which card fits, so that a
-            // periphery node never shows a core node's registration.
+            // periphery node without a URL never shows a core node's
+            // registration. One with a URL registers, and waits to be
+            // promoted by its uplinks: it shows both.
 
 
               <Show when={status()}>
@@ -86,7 +89,12 @@ export function Network(props: RouteProps): JSX.Element {
                   when={periphery()}
                   fallback={<OwnNode status={status()} />}
                 >
-                  <PeripheryNode nodes={nodes()} status={status()} />
+                  <div class="stack">
+                    <Show when={hasUrl()}>
+                      <OwnNode status={status()} />
+                    </Show>
+                    <PeripheryNode nodes={nodes()} status={status()} />
+                  </div>
                 </Show>
               </Show>
 

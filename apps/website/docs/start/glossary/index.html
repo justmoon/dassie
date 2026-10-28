@@ -243,15 +243,17 @@
         <dt id="core-node">Core node</dt>
         <dd>
           <p>
-            A node with a domain name. Others dial it, it forwards payments
-            for them, and nodes without a public address connect to it.
+            A node with a domain name that its uplinks promoted. Others dial
+            it, it forwards payments for them, and nodes without a public
+            address connect to it.
             <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>
           </p>
         </dd>
         <dt id="periphery-node">Periphery node</dt>
         <dd>
           <p>
-            A node without a domain name, such as the desktop app. It
+            A node that is not core: one without a domain name, such as the
+            desktop app, or one with a domain name not promoted yet. It
             connects out to a few core nodes, gets its addresses beneath
             theirs, and forwards nothing.
             <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>

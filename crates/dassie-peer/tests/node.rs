@@ -306,6 +306,11 @@ fn unknown_nodes_cannot_peer() {
     let mut network = Network::new(7, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
     let stranger = Arc::new(dassie_identity::TableKeygen::identity_key(&[79; 32]));
+    // A core node, which peers as a core peer: one that is not would be a
+    // downlink, which needs no place in the table.
+    let mut dev_core = network.dev_core.clone();
+    dev_core.push(stranger.node_id());
+    network.act(0, |node, _| node.set_dev_core(dev_core));
     let state = link_state(&stranger, network.clock(0), "https://stranger.test");
     let content = Content::PeeringRequest(PeeringRequest {
         scheme: SchemeId::parse("stub").unwrap(),
@@ -451,7 +456,7 @@ fn a_request_is_the_proved_senders_alone() {
 
 /// A core node, with `boot` as its bootstrap node.
 fn core_node(own: &Arc<IdentityKey>, boot: &IdentityKey) -> PeerNode {
-    PeerNode::new(
+    let mut node = PeerNode::new(
         Config::DEV,
         Arc::clone(own),
         OwnInfo {
@@ -467,7 +472,10 @@ fn core_node(own: &Arc<IdentityKey>, boot: &IdentityKey) -> PeerNode {
         Stored::default(),
         Box::new(SeededRng::new(1)),
         START,
-    )
+    );
+    // A core node: on the dev core list.
+    node.set_dev_core(vec![own.node_id()]);
+    node
 }
 
 /// The requests the node wants sent now.
@@ -531,7 +539,7 @@ fn own_link_state(mut node: PeerNode) -> Vec<u8> {
 
 /// A core node at `url(0)` whose rate feed is at `feed_port`, if any.
 fn with_feed(own: &Arc<IdentityKey>, boot: &IdentityKey, feed_port: Option<u16>) -> PeerNode {
-    PeerNode::new(
+    let mut node = PeerNode::new(
         Config::DEV,
         Arc::clone(own),
         OwnInfo {
@@ -547,7 +555,10 @@ fn with_feed(own: &Arc<IdentityKey>, boot: &IdentityKey, feed_port: Option<u16>)
         Stored::default(),
         Box::new(SeededRng::new(1)),
         START,
-    )
+    );
+    // A core node: on the dev core list.
+    node.set_dev_core(vec![own.node_id()]);
+    node
 }
 
 // A core node that answers requests for its snapshot names their port in

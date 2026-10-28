@@ -491,6 +491,7 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
         | Event::PeeringEnded { .. }
         | Event::ChannelClosed { .. }
         | Event::Reachable { .. }
+        | Event::OwnAddress { .. }
         | Event::Advertised { short: true, .. }
         | Event::Name(
             NameEvent::Renewed { .. }

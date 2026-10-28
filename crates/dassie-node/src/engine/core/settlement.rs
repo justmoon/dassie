@@ -980,34 +980,7 @@ impl Core {
 
     /// Where we stand with `node` on `scheme`'s ledger.
     fn position(&self, node: NodeId, scheme: SchemeId) -> Option<Position> {
-        let scheme = Name::new(scheme.as_str()).ok()?;
-        let ledger = self.schemes.get(&scheme)?.scheme.ledger();
-        let name = Name::new(node.as_str()).ok()?;
-        let interledger = self.ledger.find(&AccountPath::new(
-            ledger,
-            AccountName::AssetsInterledger(name),
-        ));
-        let trust = self
-            .ledger
-            .find(&AccountPath::new(ledger, AccountName::ContraTrust(name)));
-        let (Some(interledger), Some(trust)) = (interledger, trust) else {
-            // A downlink nothing moved with yet has no accounts: it stands
-            // where one with nothing on them would, owing nothing and owed
-            // nothing, and extended no credit
-            // (spec/decisions/lazy-downlink-accounts.md).
-            return Some(Position {
-                scheme,
-                ledger,
-                position: 0,
-                credit_out: 0,
-            });
-        };
-        Some(Position {
-            scheme,
-            ledger,
-            position: policy::position(self.ledger.account(interledger)?.balance()),
-            credit_out: policy::trust(self.ledger.account(trust)?.balance()),
-        })
+        position(&self.schemes, &self.ledger, node, scheme)
     }
 
     /// The room `node` has in our books on `scheme`, in the largest
@@ -1015,10 +988,13 @@ impl Core {
     /// (spec/decisions/promotion-to-core.md). Zero without accounts there,
     /// or on a scheme the node does not run.
     pub(super) fn room_packets(&self, node: NodeId, scheme: SchemeId) -> u64 {
-        self.position(node, scheme).map_or(0, |at| {
-            let packets = at.position / u128::from(self.settle.max_packet.max(1));
-            u64::try_from(packets).unwrap_or(u64::MAX)
-        })
+        room_packets(
+            &self.schemes,
+            &self.ledger,
+            self.settle.max_packet,
+            node,
+            scheme,
+        )
     }
 
     /// What we owe `node` net on `scheme`'s ledger: negative when it owes
@@ -1564,4 +1540,56 @@ pub(super) fn settles_to(
             matches!(account.path().name,
                 AccountName::AssetsInterledger(peer) if peer.as_str() == node.as_str())
         })
+}
+
+/// Where we stand with `node` on `scheme`'s ledger, in `books`.
+fn position(
+    schemes: &BTreeMap<Name, super::ledgers::ActiveScheme>,
+    books: &dassie_ledger::Ledger,
+    node: NodeId,
+    scheme: SchemeId,
+) -> Option<Position> {
+    let scheme = Name::new(scheme.as_str()).ok()?;
+    let ledger = schemes.get(&scheme)?.scheme.ledger();
+    let name = Name::new(node.as_str()).ok()?;
+    let interledger = books.find(&AccountPath::new(
+        ledger,
+        AccountName::AssetsInterledger(name),
+    ));
+    let trust = books.find(&AccountPath::new(ledger, AccountName::ContraTrust(name)));
+    let (Some(interledger), Some(trust)) = (interledger, trust) else {
+        // A downlink nothing moved with yet has no accounts: it stands
+        // where one with nothing on them would, owing nothing and owed
+        // nothing, and extended no credit
+        // (spec/decisions/lazy-downlink-accounts.md).
+        return Some(Position {
+            scheme,
+            ledger,
+            position: 0,
+            credit_out: 0,
+        });
+    };
+    Some(Position {
+        scheme,
+        ledger,
+        position: policy::position(books.account(interledger)?.balance()),
+        credit_out: policy::trust(books.account(trust)?.balance()),
+    })
+}
+
+/// The room `node` has in our books on `scheme`, in the largest packets,
+/// `max_packet` each: what it may still owe us there, our own position for
+/// it (spec/decisions/promotion-to-core.md). Zero without accounts there,
+/// or on a scheme the node does not run.
+pub(super) fn room_packets(
+    schemes: &BTreeMap<Name, super::ledgers::ActiveScheme>,
+    ledger: &dassie_ledger::Ledger,
+    max_packet: u64,
+    node: NodeId,
+    scheme: SchemeId,
+) -> u64 {
+    position(schemes, ledger, node, scheme).map_or(0, |at| {
+        let packets = at.position / u128::from(max_packet.max(1));
+        u64::try_from(packets).unwrap_or(u64::MAX)
+    })
 }
