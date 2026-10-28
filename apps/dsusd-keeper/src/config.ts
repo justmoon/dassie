@@ -8,8 +8,12 @@ import { DROPS_PER_XRP, type Result } from "./units.ts";
 export const TESTNET_SERVER = "wss://s.altnet.rippletest.net:51233";
 export const TESTNET_FAUCET = "https://faucet.altnet.rippletest.net/accounts";
 
-/** The pool's depth by default, in XRP, and the bounds of the setting. */
-export const DEPTH_XRP_DEFAULT = 1_000n;
+/** The pool's depth by default, in XRP, and the bounds of the setting.
+ * Deep enough that buying 50 DSUSD moves the pool's price by less than half a
+ * percent: owners and the market maker buy dollars in tens at a time, and
+ * a pool of a thousand XRP moved several percent at each. The faucet
+ * fills it over a few hours, a few requests at a time. */
+export const DEPTH_XRP_DEFAULT = 20_000n;
 const DEPTH_XRP_MIN = 10n;
 const DEPTH_XRP_MAX = 1_000_000n;
 /** The band around the target by default, in millionths, and its bound. */
