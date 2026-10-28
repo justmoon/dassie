@@ -61,9 +61,7 @@
         So wallets and apps reach the node at
         <code>&lt;node ID&gt;.dassiepay.net</code>, also with nothing to set.
         That front door is run by the Dassie project, and it learns when
-        your node is online (<a href="#the-relay">below</a>). On 0.3.0, the
-        relay isn't built in yet, so you name it yourself
-        (<a href="/docs/start/early-days/#front-door-on-0-3-0">how</a>).
+        your node is online (<a href="#the-relay">below</a>).
       </p>
       <p>
         This is how the desktop app runs its node too, with the same
@@ -243,12 +241,6 @@ Environment=DASSIE_UPLINKS=&lt;node ID&gt;,&lt;node ID&gt;</code></pre>
         address its status gives, and the payment pointer the wallet shows.
         The front door reaches the node only over this connection; it never
         dials the node.
-      </p>
-      <p class="not-yet">
-        Dassie 0.3.0 has no relay built in yet. On 0.3.0, name the front
-        door yourself in <code>DASSIE_RELAY</code>; the next release builds
-        it in.
-        <a href="/docs/start/early-days/#front-door-on-0-3-0">How</a>
       </p>
       <p>
         Here is what the default costs you. The front door is a machine the

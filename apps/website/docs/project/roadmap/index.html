@@ -60,22 +60,13 @@
         without a hostname keeps as its relay by default, so that it is
         reached at <code>&lt;node ID&gt;.dassiepay.net</code>. A new node
         finds the network on its own, and <code>dassie setup</code> joins
-        the XRP hub. Still missing:
+        the XRP hub.
       </p>
-      <ul>
-        <li>
-          <strong>A release with the front door built in.</strong> 0.3.0
-          has no relay built in, so a node of 0.3.0 keeps the front door
-          only once its owner names it in <code>DASSIE_RELAY</code>
-          (<a href="/docs/start/early-days/#front-door-on-0-3-0">how</a>).
-          The next release builds it in.
-        </li>
-        <li>
-          <strong>A domain of its own.</strong> Later, testnet names move to
-          <code>test.dassiepay.net</code>, so that <code>dassiepay.net</code>
-          is left for the live realm.
-        </li>
-      </ul>
+      <p>
+        The testnet still has no domain of its own. Later, its names move to
+        <code>test.dassiepay.net</code>, so that <code>dassiepay.net</code>
+        is left for the live realm.
+      </p>
 
       <h2 id="hubs">Settlement hubs</h2>
       <p>
@@ -177,10 +168,8 @@
         of them is your relay. A node without a hostname keeps a
         connection to the project's front door at <code>dassiepay.net</code>
         by default, unless its owner says otherwise in
-        <code>DASSIE_RELAY</code>; on 0.3.0, only once its owner names it
-        (<a href="#public-testnet">above</a>). The
-        front door then learns when your node is online, and reads the Open
-        Payments requests it passes on. The guided setup is to say so, and
+        <code>DASSIE_RELAY</code>. The front door then learns when your
+        node is online, and reads the Open Payments requests it passes on. The guided setup is to say so, and
         let you keep it, name another relay, or keep none. Until then,
         <a href="/docs/desktop/reach/#another-relay-or-none">How others
         reach you</a> shows how to choose.

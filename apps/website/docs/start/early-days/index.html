@@ -84,8 +84,7 @@
           pays through them. Apps and other wallets reach it through a
           relay: by default the project's front door at
           <code>dassiepay.net</code>, at
-          <code>&lt;node ID&gt;.dassiepay.net</code>. On 0.3.0, you
-          <a href="#front-door-on-0-3-0">name it yourself</a>. The desktop
+          <code>&lt;node ID&gt;.dassiepay.net</code>. The desktop
           app runs such a node on Linux.
         </li>
         <li>
@@ -144,31 +143,6 @@
         requests it passes on.
         <a href="/docs/desktop/reach/#another-relay-or-none">How others
         reach you</a> shows how to name another relay, or keep none.
-      </p>
-      <h3 id="front-door-on-0-3-0">On 0.3.0, name the front door yourself</h3>
-      <p>
-        Dassie 0.3.0 has no relay built in. The front door's ID changed when
-        it moved to 0.3.0, after that release was made, so the next release
-        is the first to build it in. On 0.3.0, a node without a domain name
-        keeps no relay unless you name one, and nobody reaches it at
-        <code>&lt;node ID&gt;.dassiepay.net</code> or at its names there.
-        The wallet warns you of that under your payment pointer.
-      </p>
-      <p>
-        To be reached there now, set <code>DASSIE_RELAY</code> to the front
-        door's line. On a server, put it in a drop-in for the node's unit,
-        with <code>sudo systemctl edit dassie</code>, and restart the node:
-      </p>
-      <figure class="file">
-        <figcaption>/etc/systemd/system/dassie.service.d/override.conf</figcaption>
-        <pre><code>[Service]
-Environment='DASSIE_RELAY={"id":"orksjbmxvscmvfv3apa6xwencnxw2rt7t655esa","url":"https://relay.dassiepay.net","publicKey":"DliIZHngMG7GTDqfHBSP_dfSTmn8ziA9OE37FnxC7eo","slhDsaPublicKey":"1MCsetw1qOFmBxhuYN4lD_dPAnRH8iOZWIRnb1ezcv8"}'</code></pre>
-      </figure>
-      <p>
-        For the desktop app, set the same line as
-        <a href="/docs/desktop/reach/#another-relay-or-none">How others
-        reach you</a> shows. Once your node runs the next release, you can
-        remove it.
       </p>
       <p class="not-yet">
         Testnet names and addresses are still under
