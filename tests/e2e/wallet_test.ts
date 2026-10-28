@@ -109,7 +109,7 @@ test("every page of the wallet works against two nodes", {
         (pointer) => pointer === `$${d1.hostname}:${d1.httpsPort}`,
       );
       assertEquals(
-        await attribute(page, "balance-stub+usd", "data-value"),
+        await attribute(page, "balance-usd", "data-value"),
         "100000000000",
       );
       await until(
@@ -129,7 +129,7 @@ test("every page of the wallet works against two nodes", {
       await until(
         page,
         "the deposit shows",
-        () => attribute(page, "balance-stub+usd", "data-value"),
+        () => attribute(page, "balance-usd", "data-value"),
         (value) => value === "105000000000",
       );
       await picture(page, "01-dashboard");
@@ -144,7 +144,7 @@ test("every page of the wallet works against two nodes", {
         await until(
           page,
           "the $100 arrives",
-          () => attribute(page, "balance-stub+usd", "data-value"),
+          () => attribute(page, "balance-usd", "data-value"),
           (value) => value === "205000000000",
         );
         await click(page, "receive-button");

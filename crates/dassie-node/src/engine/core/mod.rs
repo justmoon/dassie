@@ -72,7 +72,7 @@ pub const fn owner_book_of(ledger: dassie_ledger::LedgerId) -> Option<dassie_led
 #[cfg(feature = "testing")]
 pub use hubs::HubPeer;
 pub use incoming::{IncomingPolicy, NewIncoming};
-pub use ledgers::{LedgerView, RemovalBlocker};
+pub use ledgers::{BalanceView, LedgerView, RemovalBlocker};
 pub use names::NamesView;
 pub use own_snapshot::{Content as SnapshotContent, OwnSnapshots, grid_bp};
 pub use packets::ledger_slug;

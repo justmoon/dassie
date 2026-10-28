@@ -34,10 +34,10 @@ use tokio_util::sync::CancellationToken;
 #[cfg(feature = "testing")]
 pub use self::core::HubPeer;
 pub use self::core::{
-    AssetView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, Direction,
-    EngineError, EngineEvent, Event, HubHold, HubStatus, IncomingPolicy, LedgerEvent, LedgerView,
-    Lie, Measured, Move, NamesView, NetworkView, NewIncoming, NewOutgoing, NewSwap, NewToken,
-    NoSnapshots, Outbound, Output, OwnSnapshots, OwnerSwap, PaymentEvent, PeerEvent,
+    AssetView, BalanceView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing,
+    Direction, EngineError, EngineEvent, Event, HubHold, HubStatus, IncomingPolicy, LedgerEvent,
+    LedgerView, Lie, Measured, Move, NamesView, NetworkView, NewIncoming, NewOutgoing, NewSwap,
+    NewToken, NoSnapshots, Outbound, Output, OwnSnapshots, OwnerSwap, PaymentEvent, PeerEvent,
     PeerSnapshotView, PeerView, Prober, Quoting, RemovalBlocker, SCHEMES, SettlementEvent,
     Severity, SnapshotSource, SwapEnd, SwapOutcome, SwapReport, SwapSent, SwapStats, TokenView,
     ledger_realm, ledger_slug, offered,
@@ -189,9 +189,13 @@ impl Engine {
     /// through, as their ledgers say, at one moment.
     pub async fn ledgers_and_assets(
         &self,
-    ) -> Result<(Vec<LedgerView>, Vec<AssetView>), EngineError> {
-        self.call(|core| Ok((core.ledger_views(), core.asset_views())))
-            .await
+    ) -> Result<(Vec<LedgerView>, Vec<BalanceView>, Vec<AssetView>), EngineError> {
+        self.call(|core| {
+            let views = core.ledger_views();
+            let balances = core.balance_views(&views);
+            Ok((views, balances, core.asset_views()))
+        })
+        .await
     }
 
     /// Activates a settlement scheme.

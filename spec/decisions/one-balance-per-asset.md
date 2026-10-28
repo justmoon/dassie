@@ -1,6 +1,6 @@
-# The owner holds one balance per asset, and the node manages the hub's part of it (the one balance shown not built)
+# The owner holds one balance per asset, and the node manages the hub's part of it
 
-**Areas:** [Settlement hubs](../areas/hubs.md#in-the-node), [Payments](../areas/payments.md#where-received-money-is-kept), [Wallet](../areas/wallet.md#pages), [Settlement](../areas/settlement.md#owner-books). The float, the sweep, the deposits on the owner's own account and a payment's deposit on demand are built; the one balance the owner sees waits on the [roadmap](../roadmap.md#one-balance-per-asset).
+**Areas:** [Settlement hubs](../areas/hubs.md#in-the-node), [Payments](../areas/payments.md#where-received-money-is-kept), [Wallet](../areas/wallet.md#pages), [Settlement](../areas/settlement.md#owner-books).
 
 ## Facts
 

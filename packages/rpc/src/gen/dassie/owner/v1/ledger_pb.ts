@@ -12,7 +12,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/ledger.proto.
  */
 export const file_dassie_owner_v1_ledger: GenFile = /*@__PURE__*/
-  fileDesc("ChxkYXNzaWUvb3duZXIvdjEvbGVkZ2VyLnByb3RvEg9kYXNzaWUub3duZXIudjEigwQKBkxlZGdlchIKCgJpZBgBIAEoCRIZChFzZXR0bGVtZW50X3NjaGVtZRgCIAEoCRISCgphc3NldF9jb2RlGAMgASgJEhMKC2Fzc2V0X3NjYWxlGAQgASgNEhUKDW93bmVyX2JhbGFuY2UYBSABKAMSFQoNb3duZXJfcGVuZGluZxgGIAEoBBIZChFvbl9sZWRnZXJfYmFsYW5jZRgHIAEoBBI/ChByZW1vdmFsX2Jsb2NrZXJzGAggAygLMiUuZGFzc2llLm93bmVyLnYxLkxlZGdlclJlbW92YWxCbG9ja2VyEg8KB3Jlc2VydmUYCSABKAQSFwoPZGVwb3NpdF9hZGRyZXNzGAogASgJEjUKCmNvbm5lY3Rpb24YCyABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIaChJjb25uZWN0aW9uX3Byb2JsZW0YDCABKAkSDgoGZmF1Y2V0GA0gASgIEiUKBXJlYWxtGA4gASgOMhYuZGFzc2llLm93bmVyLnYxLlJlYWxtEg4KBmlzc3VlchgPIAEoCRInCgNwZWcYECABKAsyGi5kYXNzaWUub3duZXIudjEuTGVkZ2VyUGVnEh0KEHJlbW92aW5nX21ldGhvZHMYESABKA1IAIgBAUITChFfcmVtb3ZpbmdfbWV0aG9kcyJyCglMZWRnZXJQZWcSKQoGcGF1c2VkGAEgASgOMhkuZGFzc2llLm93bmVyLnYxLlBlZ1BhdXNlEhYKCXByaWNlX3BwbRgCIAEoBEgAiAEBEhQKDGxlZGdlcl9pbmRleBgDIAEoDUIMCgpfcHJpY2VfcHBtIt0BChRMZWRnZXJSZW1vdmFsQmxvY2tlchI4CgRraW5kGAEgASgOMiouZGFzc2llLm93bmVyLnYxLkxlZGdlclJlbW92YWxCbG9ja2VyLktpbmQSDQoFY291bnQYAiABKA0ifAoES2luZBIUChBLSU5EX1VOU1BFQ0lGSUVEEAASEwoPS0lORF9CVFBfVE9LRU5TEAISGgoWS0lORF9GSU5BTF9TRVRUTEVNRU5UUxADEhoKFktJTkRfT1VUR09JTkdfUEFZTUVOVFMQBBIRCg1LSU5EX0hVQl9NT1ZFEAUiGQoXU3Vic2NyaWJlTGVkZ2Vyc1JlcXVlc3QioAEKFFNldHRsZW1lbnRTY2hlbWVJbmZvEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGbGVkZ2VyGAMgASgJEhIKCmFzc2V0X2NvZGUYBCABKAkSEwoLYXNzZXRfc2NhbGUYBSABKA0SJQoFcmVhbG0YBiABKA4yFi5kYXNzaWUub3duZXIudjEuUmVhbG0SDgoGYWN0aXZlGAcgASgIIh4KHExpc3RTZXR0bGVtZW50U2NoZW1lc1JlcXVlc3QiVwodTGlzdFNldHRsZW1lbnRTY2hlbWVzUmVzcG9uc2USNgoHc2NoZW1lcxgBIAMoCzIlLmRhc3NpZS5vd25lci52MS5TZXR0bGVtZW50U2NoZW1lSW5mbyIUChJMaXN0TGVkZ2Vyc1JlcXVlc3Qi7gEKE0xpc3RMZWRnZXJzUmVzcG9uc2USKAoHbGVkZ2VycxgBIAMoCzIXLmRhc3NpZS5vd25lci52MS5MZWRnZXISLAoFcmF0ZXMYAiADKAsyHS5kYXNzaWUub3duZXIudjEuRXhjaGFuZ2VSYXRlEhgKEGRpc3BsYXlfY3VycmVuY3kYAyABKAkSLAoFdG90YWwYBCABKAsyHS5kYXNzaWUub3duZXIudjEuRGlzcGxheVRvdGFsEjcKD2V4dGVybmFsX2Fzc2V0cxgFIAMoCzIeLmRhc3NpZS5vd25lci52MS5FeHRlcm5hbEFzc2V0IrECCg1FeHRlcm5hbEFzc2V0EgoKAmlkGAEgASgJEg8KB2FkZHJlc3MYAiABKAkSKgoIaG9sZGluZ3MYAyADKAsyGC5kYXNzaWUub3duZXIudjEuSG9sZGluZxI1Cgpjb25uZWN0aW9uGAQgASgOMiEuZGFzc2llLm93bmVyLnYxLkxlZGdlckNvbm5lY3Rpb24SGgoSY29ubmVjdGlvbl9wcm9ibGVtGAUgASgJEhoKEnNldHRsZW1lbnRfc2NoZW1lcxgGIAMoCRIOCgZmYXVjZXQYByABKAgSFAoMaGlzdG9yeV9nYXBzGAggASgEEhwKFHVucHJvdmVuX3NldHRsZW1lbnRzGAkgASgEEg4KBmNvbmZpZxgKIAEoCRIUCgxjb25maWdfd2FpdHMYCyABKAginwEKB0hvbGRpbmcSEgoKYXNzZXRfY29kZRgBIAEoCRIOCgZpc3N1ZXIYAiABKAkSDgoGYW1vdW50GAMgASgEEhMKC2Fzc2V0X3NjYWxlGAQgASgNEg8KB3Jlc2VydmUYBSABKAQSDgoGZnJvemVuGAYgASgIEhMKC2RlZXBfZnJvemVuGAcgASgIEhUKDWdsb2JhbF9mcmVlemUYCCABKAgiWQoMRXhjaGFuZ2VSYXRlEhIKCmFzc2V0X2NvZGUYASABKAkSDwoHcGVyX3VzZBgCIAEoCRIVCg1hc19vZl91bml4X21zGAMgASgDEg0KBXN0YWxlGAQgASgIIkcKDERpc3BsYXlUb3RhbBISCgphc3NldF9jb2RlGAEgASgJEhMKC2Fzc2V0X3NjYWxlGAIgASgNEg4KBmFtb3VudBgDIAEoAyInCgpSYXRlU291cmNlEgwKBGtpbmQYASABKAkSCwoDdXJsGAIgASgJIhcKFUdldFJhdGVTb3VyY2VzUmVxdWVzdCJGChZHZXRSYXRlU291cmNlc1Jlc3BvbnNlEiwKB3NvdXJjZXMYASADKAsyGy5kYXNzaWUub3duZXIudjEuUmF0ZVNvdXJjZSJFChVTZXRSYXRlU291cmNlc1JlcXVlc3QSLAoHc291cmNlcxgBIAMoCzIbLmRhc3NpZS5vd25lci52MS5SYXRlU291cmNlIkYKFlNldFJhdGVTb3VyY2VzUmVzcG9uc2USLAoHc291cmNlcxgBIAMoCzIbLmRhc3NpZS5vd25lci52MS5SYXRlU291cmNlIi0KGVNldERpc3BsYXlDdXJyZW5jeVJlcXVlc3QSEAoIY3VycmVuY3kYASABKAkiHAoaU2V0RGlzcGxheUN1cnJlbmN5UmVzcG9uc2UiOAoaQWRkU2V0dGxlbWVudFNjaGVtZVJlcXVlc3QSCgoCaWQYASABKAkSDgoGY29uZmlnGAIgASgJIkYKG0FkZFNldHRsZW1lbnRTY2hlbWVSZXNwb25zZRInCgZsZWRnZXIYASABKAsyFy5kYXNzaWUub3duZXIudjEuTGVkZ2VyIisKHVJlbW92ZVNldHRsZW1lbnRTY2hlbWVSZXF1ZXN0EgoKAmlkGAEgASgJIiAKHlJlbW92ZVNldHRsZW1lbnRTY2hlbWVSZXNwb25zZSIkChJTdHViRGVwb3NpdFJlcXVlc3QSDgoGYW1vdW50GAEgASgEIj4KE1N0dWJEZXBvc2l0UmVzcG9uc2USJwoGbGVkZ2VyGAEgASgLMhcuZGFzc2llLm93bmVyLnYxLkxlZGdlciI2ChVTZXRBc3NldENvbmZpZ1JlcXVlc3QSDQoFYXNzZXQYASABKAkSDgoGY29uZmlnGAIgASgJIisKFlNldEFzc2V0Q29uZmlnUmVzcG9uc2USEQoJaW5fZWZmZWN0GAEgASgIIi0KEEFza0ZhdWNldFJlcXVlc3QSGQoRc2V0dGxlbWVudF9zY2hlbWUYASABKAkiPAoRQXNrRmF1Y2V0UmVzcG9uc2USJwoGbGVkZ2VyGAEgASgLMhcuZGFzc2llLm93bmVyLnYxLkxlZGdlcipRCghQZWdQYXVzZRIZChVQRUdfUEFVU0VfVU5TUEVDSUZJRUQQABIVChFQRUdfUEFVU0VfT0ZGX1BFRxABEhMKD1BFR19QQVVTRV9TVEFMRRACKtIBChBMZWRnZXJDb25uZWN0aW9uEiEKHUxFREdFUl9DT05ORUNUSU9OX1VOU1BFQ0lGSUVEEAASHAoYTEVER0VSX0NPTk5FQ1RJT05fU1lOQ0VEEAESIAocTEVER0VSX0NPTk5FQ1RJT05fQ09OTkVDVElORxACEh0KGUxFREdFUl9DT05ORUNUSU9OX1NZTkNJTkcQAxIeChpMRURHRVJfQ09OTkVDVElPTl9VTkZVTkRFRBAEEhwKGExFREdFUl9DT05ORUNUSU9OX0ZBSUxFRBAFYgZwcm90bzM", [file_dassie_owner_v1_config]);
+  fileDesc("ChxkYXNzaWUvb3duZXIvdjEvbGVkZ2VyLnByb3RvEg9kYXNzaWUub3duZXIudjEigwQKBkxlZGdlchIKCgJpZBgBIAEoCRIZChFzZXR0bGVtZW50X3NjaGVtZRgCIAEoCRISCgphc3NldF9jb2RlGAMgASgJEhMKC2Fzc2V0X3NjYWxlGAQgASgNEhUKDW93bmVyX2JhbGFuY2UYBSABKAMSFQoNb3duZXJfcGVuZGluZxgGIAEoBBIZChFvbl9sZWRnZXJfYmFsYW5jZRgHIAEoBBI/ChByZW1vdmFsX2Jsb2NrZXJzGAggAygLMiUuZGFzc2llLm93bmVyLnYxLkxlZGdlclJlbW92YWxCbG9ja2VyEg8KB3Jlc2VydmUYCSABKAQSFwoPZGVwb3NpdF9hZGRyZXNzGAogASgJEjUKCmNvbm5lY3Rpb24YCyABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIaChJjb25uZWN0aW9uX3Byb2JsZW0YDCABKAkSDgoGZmF1Y2V0GA0gASgIEiUKBXJlYWxtGA4gASgOMhYuZGFzc2llLm93bmVyLnYxLlJlYWxtEg4KBmlzc3VlchgPIAEoCRInCgNwZWcYECABKAsyGi5kYXNzaWUub3duZXIudjEuTGVkZ2VyUGVnEh0KEHJlbW92aW5nX21ldGhvZHMYESABKA1IAIgBAUITChFfcmVtb3ZpbmdfbWV0aG9kcyJyCglMZWRnZXJQZWcSKQoGcGF1c2VkGAEgASgOMhkuZGFzc2llLm93bmVyLnYxLlBlZ1BhdXNlEhYKCXByaWNlX3BwbRgCIAEoBEgAiAEBEhQKDGxlZGdlcl9pbmRleBgDIAEoDUIMCgpfcHJpY2VfcHBtIt0BChRMZWRnZXJSZW1vdmFsQmxvY2tlchI4CgRraW5kGAEgASgOMiouZGFzc2llLm93bmVyLnYxLkxlZGdlclJlbW92YWxCbG9ja2VyLktpbmQSDQoFY291bnQYAiABKA0ifAoES2luZBIUChBLSU5EX1VOU1BFQ0lGSUVEEAASEwoPS0lORF9CVFBfVE9LRU5TEAISGgoWS0lORF9GSU5BTF9TRVRUTEVNRU5UUxADEhoKFktJTkRfT1VUR09JTkdfUEFZTUVOVFMQBBIRCg1LSU5EX0hVQl9NT1ZFEAUiGQoXU3Vic2NyaWJlTGVkZ2Vyc1JlcXVlc3QioAEKFFNldHRsZW1lbnRTY2hlbWVJbmZvEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGbGVkZ2VyGAMgASgJEhIKCmFzc2V0X2NvZGUYBCABKAkSEwoLYXNzZXRfc2NhbGUYBSABKA0SJQoFcmVhbG0YBiABKA4yFi5kYXNzaWUub3duZXIudjEuUmVhbG0SDgoGYWN0aXZlGAcgASgIIh4KHExpc3RTZXR0bGVtZW50U2NoZW1lc1JlcXVlc3QiVwodTGlzdFNldHRsZW1lbnRTY2hlbWVzUmVzcG9uc2USNgoHc2NoZW1lcxgBIAMoCzIlLmRhc3NpZS5vd25lci52MS5TZXR0bGVtZW50U2NoZW1lSW5mbyIUChJMaXN0TGVkZ2Vyc1JlcXVlc3QinwIKE0xpc3RMZWRnZXJzUmVzcG9uc2USKAoHbGVkZ2VycxgBIAMoCzIXLmRhc3NpZS5vd25lci52MS5MZWRnZXISLAoFcmF0ZXMYAiADKAsyHS5kYXNzaWUub3duZXIudjEuRXhjaGFuZ2VSYXRlEhgKEGRpc3BsYXlfY3VycmVuY3kYAyABKAkSLAoFdG90YWwYBCABKAsyHS5kYXNzaWUub3duZXIudjEuRGlzcGxheVRvdGFsEjcKD2V4dGVybmFsX2Fzc2V0cxgFIAMoCzIeLmRhc3NpZS5vd25lci52MS5FeHRlcm5hbEFzc2V0Ei8KCGJhbGFuY2VzGAYgAygLMh0uZGFzc2llLm93bmVyLnYxLkFzc2V0QmFsYW5jZSK+AQoMQXNzZXRCYWxhbmNlEgwKBG5hbWUYASABKAkSEgoKYXNzZXRfY29kZRgCIAEoCRITCgthc3NldF9zY2FsZRgDIAEoDRIVCg1vd25lcl9iYWxhbmNlGAQgASgDEhUKDW93bmVyX3BlbmRpbmcYBSABKAQSDwoHbGVkZ2VycxgGIAMoCRIRCglwYXlzX2Zyb20YByABKAkSJQoFcmVhbG0YCCABKA4yFi5kYXNzaWUub3duZXIudjEuUmVhbG0isQIKDUV4dGVybmFsQXNzZXQSCgoCaWQYASABKAkSDwoHYWRkcmVzcxgCIAEoCRIqCghob2xkaW5ncxgDIAMoCzIYLmRhc3NpZS5vd25lci52MS5Ib2xkaW5nEjUKCmNvbm5lY3Rpb24YBCABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIaChJjb25uZWN0aW9uX3Byb2JsZW0YBSABKAkSGgoSc2V0dGxlbWVudF9zY2hlbWVzGAYgAygJEg4KBmZhdWNldBgHIAEoCBIUCgxoaXN0b3J5X2dhcHMYCCABKAQSHAoUdW5wcm92ZW5fc2V0dGxlbWVudHMYCSABKAQSDgoGY29uZmlnGAogASgJEhQKDGNvbmZpZ193YWl0cxgLIAEoCCKfAQoHSG9sZGluZxISCgphc3NldF9jb2RlGAEgASgJEg4KBmlzc3VlchgCIAEoCRIOCgZhbW91bnQYAyABKAQSEwoLYXNzZXRfc2NhbGUYBCABKA0SDwoHcmVzZXJ2ZRgFIAEoBBIOCgZmcm96ZW4YBiABKAgSEwoLZGVlcF9mcm96ZW4YByABKAgSFQoNZ2xvYmFsX2ZyZWV6ZRgIIAEoCCJZCgxFeGNoYW5nZVJhdGUSEgoKYXNzZXRfY29kZRgBIAEoCRIPCgdwZXJfdXNkGAIgASgJEhUKDWFzX29mX3VuaXhfbXMYAyABKAMSDQoFc3RhbGUYBCABKAgiRwoMRGlzcGxheVRvdGFsEhIKCmFzc2V0X2NvZGUYASABKAkSEwoLYXNzZXRfc2NhbGUYAiABKA0SDgoGYW1vdW50GAMgASgDIicKClJhdGVTb3VyY2USDAoEa2luZBgBIAEoCRILCgN1cmwYAiABKAkiFwoVR2V0UmF0ZVNvdXJjZXNSZXF1ZXN0IkYKFkdldFJhdGVTb3VyY2VzUmVzcG9uc2USLAoHc291cmNlcxgBIAMoCzIbLmRhc3NpZS5vd25lci52MS5SYXRlU291cmNlIkUKFVNldFJhdGVTb3VyY2VzUmVxdWVzdBIsCgdzb3VyY2VzGAEgAygLMhsuZGFzc2llLm93bmVyLnYxLlJhdGVTb3VyY2UiRgoWU2V0UmF0ZVNvdXJjZXNSZXNwb25zZRIsCgdzb3VyY2VzGAEgAygLMhsuZGFzc2llLm93bmVyLnYxLlJhdGVTb3VyY2UiLQoZU2V0RGlzcGxheUN1cnJlbmN5UmVxdWVzdBIQCghjdXJyZW5jeRgBIAEoCSIcChpTZXREaXNwbGF5Q3VycmVuY3lSZXNwb25zZSI4ChpBZGRTZXR0bGVtZW50U2NoZW1lUmVxdWVzdBIKCgJpZBgBIAEoCRIOCgZjb25maWcYAiABKAkiRgobQWRkU2V0dGxlbWVudFNjaGVtZVJlc3BvbnNlEicKBmxlZGdlchgBIAEoCzIXLmRhc3NpZS5vd25lci52MS5MZWRnZXIiKwodUmVtb3ZlU2V0dGxlbWVudFNjaGVtZVJlcXVlc3QSCgoCaWQYASABKAkiIAoeUmVtb3ZlU2V0dGxlbWVudFNjaGVtZVJlc3BvbnNlIiQKElN0dWJEZXBvc2l0UmVxdWVzdBIOCgZhbW91bnQYASABKAQiPgoTU3R1YkRlcG9zaXRSZXNwb25zZRInCgZsZWRnZXIYASABKAsyFy5kYXNzaWUub3duZXIudjEuTGVkZ2VyIjYKFVNldEFzc2V0Q29uZmlnUmVxdWVzdBINCgVhc3NldBgBIAEoCRIOCgZjb25maWcYAiABKAkiKwoWU2V0QXNzZXRDb25maWdSZXNwb25zZRIRCglpbl9lZmZlY3QYASABKAgiLQoQQXNrRmF1Y2V0UmVxdWVzdBIZChFzZXR0bGVtZW50X3NjaGVtZRgBIAEoCSI8ChFBc2tGYXVjZXRSZXNwb25zZRInCgZsZWRnZXIYASABKAsyFy5kYXNzaWUub3duZXIudjEuTGVkZ2VyKlEKCFBlZ1BhdXNlEhkKFVBFR19QQVVTRV9VTlNQRUNJRklFRBAAEhUKEVBFR19QQVVTRV9PRkZfUEVHEAESEwoPUEVHX1BBVVNFX1NUQUxFEAIq0gEKEExlZGdlckNvbm5lY3Rpb24SIQodTEVER0VSX0NPTk5FQ1RJT05fVU5TUEVDSUZJRUQQABIcChhMRURHRVJfQ09OTkVDVElPTl9TWU5DRUQQARIgChxMRURHRVJfQ09OTkVDVElPTl9DT05ORUNUSU5HEAISHQoZTEVER0VSX0NPTk5FQ1RJT05fU1lOQ0lORxADEh4KGkxFREdFUl9DT05ORUNUSU9OX1VORlVOREVEEAQSHAoYTEVER0VSX0NPTk5FQ1RJT05fRkFJTEVEEAViBnByb3RvMw", [file_dassie_owner_v1_config]);
 
 /**
  * A ledger the node keeps books for, with the settlement scheme that moves
@@ -415,9 +415,9 @@ export type ListLedgersResponse = Message<"dassie.owner.v1.ListLedgersResponse">
   displayCurrency: string;
 
   /**
-   * What the owner has on every ledger together, in the display currency
-   * at the current rates. Absent without a display currency, or while a
-   * rate it needs is missing or stale.
+   * What the owner has on every ledger together, and on its way between
+   * them, in the display currency at the current rates. Absent without a
+   * display currency, or while a rate it needs is missing or stale.
    *
    * @generated from field: dassie.owner.v1.DisplayTotal total = 4;
    */
@@ -430,6 +430,14 @@ export type ListLedgersResponse = Message<"dassie.owner.v1.ListLedgersResponse">
    * @generated from field: repeated dassie.owner.v1.ExternalAsset external_assets = 5;
    */
   externalAssets: ExternalAsset[];
+
+  /**
+   * The owner's balance in each asset, in the order of the ledgers: what
+   * the owner sees and pays from.
+   *
+   * @generated from field: repeated dassie.owner.v1.AssetBalance balances = 6;
+   */
+  balances: AssetBalance[];
 };
 
 /**
@@ -438,6 +446,77 @@ export type ListLedgersResponse = Message<"dassie.owner.v1.ListLedgersResponse">
  */
 export const ListLedgersResponseSchema: GenMessage<ListLedgersResponse> = /*@__PURE__*/
   messageDesc(file_dassie_owner_v1_ledger, 8);
+
+/**
+ * The owner's balance in one asset (spec/decisions/one-balance-per-asset.md):
+ * what its settlement hub's ledger and the owner book that funds it hold
+ * together, and a move between them while it is on neither. The node
+ * manages how much of it is in the hub.
+ *
+ * @generated from message dassie.owner.v1.AssetBalance
+ */
+export type AssetBalance = Message<"dassie.owner.v1.AssetBalance"> & {
+  /**
+   * The asset's name, as its wallet address ends: usd, xrp, dsusd or rlusd.
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string asset_code = 2;
+   */
+  assetCode: string;
+
+  /**
+   * @generated from field: uint32 asset_scale = 3;
+   */
+  assetScale: number;
+
+  /**
+   * What the owner has of it. May be negative after a ledger lost money.
+   *
+   * @generated from field: int64 owner_balance = 4;
+   */
+  ownerBalance: bigint;
+
+  /**
+   * Of that, what packets in flight hold.
+   *
+   * @generated from field: uint64 owner_pending = 5;
+   */
+  ownerPending: bigint;
+
+  /**
+   * Its ledgers, by ID.
+   *
+   * @generated from field: repeated string ledgers = 6;
+   */
+  ledgers: string[];
+
+  /**
+   * The ledger the owner's payments in it start on, which QuoteSend names:
+   * its hub's where the node is in one. Empty while no route can start on
+   * any of its ledgers, as on an owner book alone.
+   *
+   * @generated from field: string pays_from = 7;
+   */
+  paysFrom: string;
+
+  /**
+   * The realm its money belongs to: TEST money has no value.
+   *
+   * @generated from field: dassie.owner.v1.Realm realm = 8;
+   */
+  realm: Realm;
+};
+
+/**
+ * Describes the message dassie.owner.v1.AssetBalance.
+ * Use `create(AssetBalanceSchema)` to create a new message.
+ */
+export const AssetBalanceSchema: GenMessage<AssetBalance> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_ledger, 9);
 
 /**
  * Something the node holds outside its books, which settlement schemes
@@ -546,7 +625,7 @@ export type ExternalAsset = Message<"dassie.owner.v1.ExternalAsset"> & {
  * Use `create(ExternalAssetSchema)` to create a new message.
  */
 export const ExternalAssetSchema: GenMessage<ExternalAsset> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 9);
+  messageDesc(file_dassie_owner_v1_ledger, 10);
 
 /**
  * What an external asset holds of one asset, as its ledger last said.
@@ -620,7 +699,7 @@ export type Holding = Message<"dassie.owner.v1.Holding"> & {
  * Use `create(HoldingSchema)` to create a new message.
  */
 export const HoldingSchema: GenMessage<Holding> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 10);
+  messageDesc(file_dassie_owner_v1_ledger, 11);
 
 /**
  * How many units of a currency one US dollar buys.
@@ -658,7 +737,7 @@ export type ExchangeRate = Message<"dassie.owner.v1.ExchangeRate"> & {
  * Use `create(ExchangeRateSchema)` to create a new message.
  */
 export const ExchangeRateSchema: GenMessage<ExchangeRate> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 11);
+  messageDesc(file_dassie_owner_v1_ledger, 12);
 
 /**
  * An amount in the display currency.
@@ -687,7 +766,7 @@ export type DisplayTotal = Message<"dassie.owner.v1.DisplayTotal"> & {
  * Use `create(DisplayTotalSchema)` to create a new message.
  */
 export const DisplayTotalSchema: GenMessage<DisplayTotal> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 12);
+  messageDesc(file_dassie_owner_v1_ledger, 13);
 
 /**
  * Where the node fetches exchange rates (spec/decisions/exchange-rates.md). A
@@ -718,7 +797,7 @@ export type RateSource = Message<"dassie.owner.v1.RateSource"> & {
  * Use `create(RateSourceSchema)` to create a new message.
  */
 export const RateSourceSchema: GenMessage<RateSource> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 13);
+  messageDesc(file_dassie_owner_v1_ledger, 14);
 
 /**
  * @generated from message dassie.owner.v1.GetRateSourcesRequest
@@ -731,7 +810,7 @@ export type GetRateSourcesRequest = Message<"dassie.owner.v1.GetRateSourcesReque
  * Use `create(GetRateSourcesRequestSchema)` to create a new message.
  */
 export const GetRateSourcesRequestSchema: GenMessage<GetRateSourcesRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 14);
+  messageDesc(file_dassie_owner_v1_ledger, 15);
 
 /**
  * @generated from message dassie.owner.v1.GetRateSourcesResponse
@@ -748,7 +827,7 @@ export type GetRateSourcesResponse = Message<"dassie.owner.v1.GetRateSourcesResp
  * Use `create(GetRateSourcesResponseSchema)` to create a new message.
  */
 export const GetRateSourcesResponseSchema: GenMessage<GetRateSourcesResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 15);
+  messageDesc(file_dassie_owner_v1_ledger, 16);
 
 /**
  * Replaces the sources, and fetches from them at once. INVALID_ARGUMENT
@@ -769,7 +848,7 @@ export type SetRateSourcesRequest = Message<"dassie.owner.v1.SetRateSourcesReque
  * Use `create(SetRateSourcesRequestSchema)` to create a new message.
  */
 export const SetRateSourcesRequestSchema: GenMessage<SetRateSourcesRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 16);
+  messageDesc(file_dassie_owner_v1_ledger, 17);
 
 /**
  * @generated from message dassie.owner.v1.SetRateSourcesResponse
@@ -786,7 +865,7 @@ export type SetRateSourcesResponse = Message<"dassie.owner.v1.SetRateSourcesResp
  * Use `create(SetRateSourcesResponseSchema)` to create a new message.
  */
 export const SetRateSourcesResponseSchema: GenMessage<SetRateSourcesResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 17);
+  messageDesc(file_dassie_owner_v1_ledger, 18);
 
 /**
  * Chooses the currency totals are shown in. INVALID_ARGUMENT for one the
@@ -808,7 +887,7 @@ export type SetDisplayCurrencyRequest = Message<"dassie.owner.v1.SetDisplayCurre
  * Use `create(SetDisplayCurrencyRequestSchema)` to create a new message.
  */
 export const SetDisplayCurrencyRequestSchema: GenMessage<SetDisplayCurrencyRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 18);
+  messageDesc(file_dassie_owner_v1_ledger, 19);
 
 /**
  * @generated from message dassie.owner.v1.SetDisplayCurrencyResponse
@@ -821,7 +900,7 @@ export type SetDisplayCurrencyResponse = Message<"dassie.owner.v1.SetDisplayCurr
  * Use `create(SetDisplayCurrencyResponseSchema)` to create a new message.
  */
 export const SetDisplayCurrencyResponseSchema: GenMessage<SetDisplayCurrencyResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 19);
+  messageDesc(file_dassie_owner_v1_ledger, 20);
 
 /**
  * Activates a settlement scheme and its ledger. On its first activation the
@@ -859,7 +938,7 @@ export type AddSettlementSchemeRequest = Message<"dassie.owner.v1.AddSettlementS
  * Use `create(AddSettlementSchemeRequestSchema)` to create a new message.
  */
 export const AddSettlementSchemeRequestSchema: GenMessage<AddSettlementSchemeRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 20);
+  messageDesc(file_dassie_owner_v1_ledger, 21);
 
 /**
  * @generated from message dassie.owner.v1.AddSettlementSchemeResponse
@@ -876,7 +955,7 @@ export type AddSettlementSchemeResponse = Message<"dassie.owner.v1.AddSettlement
  * Use `create(AddSettlementSchemeResponseSchema)` to create a new message.
  */
 export const AddSettlementSchemeResponseSchema: GenMessage<AddSettlementSchemeResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 21);
+  messageDesc(file_dassie_owner_v1_ledger, 22);
 
 /**
  * Deactivates a scheme. Its books stay, and come back when it is added
@@ -901,7 +980,7 @@ export type RemoveSettlementSchemeRequest = Message<"dassie.owner.v1.RemoveSettl
  * Use `create(RemoveSettlementSchemeRequestSchema)` to create a new message.
  */
 export const RemoveSettlementSchemeRequestSchema: GenMessage<RemoveSettlementSchemeRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 22);
+  messageDesc(file_dassie_owner_v1_ledger, 23);
 
 /**
  * @generated from message dassie.owner.v1.RemoveSettlementSchemeResponse
@@ -914,7 +993,7 @@ export type RemoveSettlementSchemeResponse = Message<"dassie.owner.v1.RemoveSett
  * Use `create(RemoveSettlementSchemeResponseSchema)` to create a new message.
  */
 export const RemoveSettlementSchemeResponseSchema: GenMessage<RemoveSettlementSchemeResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 23);
+  messageDesc(file_dassie_owner_v1_ledger, 24);
 
 /**
  * Adds test money through the stub scheme. FAILED_PRECONDITION if the stub
@@ -936,7 +1015,7 @@ export type StubDepositRequest = Message<"dassie.owner.v1.StubDepositRequest"> &
  * Use `create(StubDepositRequestSchema)` to create a new message.
  */
 export const StubDepositRequestSchema: GenMessage<StubDepositRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 24);
+  messageDesc(file_dassie_owner_v1_ledger, 25);
 
 /**
  * @generated from message dassie.owner.v1.StubDepositResponse
@@ -953,7 +1032,7 @@ export type StubDepositResponse = Message<"dassie.owner.v1.StubDepositResponse">
  * Use `create(StubDepositResponseSchema)` to create a new message.
  */
 export const StubDepositResponseSchema: GenMessage<StubDepositResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 25);
+  messageDesc(file_dassie_owner_v1_ledger, 26);
 
 /**
  * Sets the owner's config of an external asset, kept with the books
@@ -989,7 +1068,7 @@ export type SetAssetConfigRequest = Message<"dassie.owner.v1.SetAssetConfigReque
  * Use `create(SetAssetConfigRequestSchema)` to create a new message.
  */
 export const SetAssetConfigRequestSchema: GenMessage<SetAssetConfigRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 26);
+  messageDesc(file_dassie_owner_v1_ledger, 27);
 
 /**
  * @generated from message dassie.owner.v1.SetAssetConfigResponse
@@ -1009,7 +1088,7 @@ export type SetAssetConfigResponse = Message<"dassie.owner.v1.SetAssetConfigResp
  * Use `create(SetAssetConfigResponseSchema)` to create a new message.
  */
 export const SetAssetConfigResponseSchema: GenMessage<SetAssetConfigResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 27);
+  messageDesc(file_dassie_owner_v1_ledger, 28);
 
 /**
  * Asks the faucet of a test ledger for money. Nothing is booked at once:
@@ -1034,7 +1113,7 @@ export type AskFaucetRequest = Message<"dassie.owner.v1.AskFaucetRequest"> & {
  * Use `create(AskFaucetRequestSchema)` to create a new message.
  */
 export const AskFaucetRequestSchema: GenMessage<AskFaucetRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 28);
+  messageDesc(file_dassie_owner_v1_ledger, 29);
 
 /**
  * @generated from message dassie.owner.v1.AskFaucetResponse
@@ -1051,7 +1130,7 @@ export type AskFaucetResponse = Message<"dassie.owner.v1.AskFaucetResponse"> & {
  * Use `create(AskFaucetResponseSchema)` to create a new message.
  */
 export const AskFaucetResponseSchema: GenMessage<AskFaucetResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 29);
+  messageDesc(file_dassie_owner_v1_ledger, 30);
 
 /**
  * @generated from enum dassie.owner.v1.PegPause

@@ -4,6 +4,8 @@
 //! with the float, and the payment starts once the hub credits it. On one
 //! engine core in the XRP hub, paying its own receiver on the hub's ledger.
 
+use std::sync::Arc;
+
 use dassie_hub::member::SCHEME_ID;
 use dassie_ledger::LedgerId;
 use dassie_node_core::config::Realm;
@@ -12,7 +14,6 @@ use dassie_xrpl::UNITS_PER_DROP;
 
 use super::super::payers::NewOutgoing;
 use super::super::{Core, EngineError, NewIncoming};
-use std::sync::Arc;
 
 use super::{
     Policies, Store, Validators, core_taking_downlinks, deposits, follow_xrpl, funded_ledger,
@@ -261,4 +262,56 @@ fn after_a_restart_a_quiet_hub_draws_no_deposit_for_payments() {
         wait_and_close(&mut core, &mut ledger, 1_000);
     }
     assert_eq!(deposits(&mut ledger, escrow).len(), 2, "a higher one");
+}
+
+/// The owner's one balance of XRP, and the ledger its payments start on.
+fn xrp(core: &Core) -> (i128, Option<LedgerId>, Vec<LedgerId>) {
+    let views = core.ledger_views();
+    let balance = core
+        .balance_views(&views)
+        .into_iter()
+        .find(|balance| balance.name == "xrp")
+        .unwrap();
+    (balance.owner_balance, balance.pays_from, balance.ledgers)
+}
+
+// The owner sees one balance of XRP: the owner book and the hub together,
+// paid from the hub; a deposit into the hub counts all the way, held on
+// the book, then gone from it before the hub books it, then in the hub.
+#[test]
+fn one_balance_counts_the_book_the_hub_and_a_deposit_on_its_way() {
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    hub.account(&mut core, 100_000, opening);
+    let (before, pays_from, ledgers) = xrp(&core);
+    assert_eq!(pays_from, Some(LedgerId::HubXrplTestnetXrp));
+    assert_eq!(
+        ledgers,
+        [LedgerId::XrplTestnetXrp, LedgerId::HubXrplTestnetXrp]
+    );
+    let views = core.ledger_views();
+    let parts: i128 = views.iter().map(|view| view.owner_balance).sum();
+    assert_eq!(before, parts, "nothing on its way");
+
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 2, "below the floor: {made:?}");
+    let fee = i128::from(dassie_xrpl::account::MAX_FEE_DROPS * UNITS_PER_DROP);
+    let (during, ..) = xrp(&core);
+    assert!(
+        before - during <= fee,
+        "the deposit counts while on its way: {before} {during}"
+    );
+    hub.account(
+        &mut core,
+        100_000 + made[1].amount,
+        opening + made[1].amount,
+    );
+    let (after, ..) = xrp(&core);
+    assert_eq!(after, during, "and once the hub booked it");
 }

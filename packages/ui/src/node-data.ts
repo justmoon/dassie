@@ -1,11 +1,13 @@
 /**
  * What the whole wallet follows while the owner is signed in: the ledgers,
- * with their balances, the exchange rates and the owner's total, the
+ * with their balances, the owner's balance in each asset, the exchange
+ * rates and the owner's total, the
  * external assets they settle through, and the node table. The gate, the navigation and most pages read them; the dev
  * dashboard keeps one per node.
  */
 
 import type {
+  AssetBalance,
   DisplayTotal,
   ExchangeRate,
   ExternalAsset,
@@ -31,6 +33,10 @@ export interface NodeData {
   ledgersStatus: Accessor<LiveStatus>;
   /** Takes a ledger the node just reported, before the stream does. */
   applyLedger(ledger: Ledger): void;
+  /** The owner's balance in each asset, its hub's and its own account's
+   * together (spec/decisions/one-balance-per-asset.md): what the owner sees
+   * and pays from. */
+  balances: Accessor<readonly AssetBalance[]>;
   /** The exchange rates the node converts at. */
   rates: Accessor<readonly ExchangeRate[]>;
   /** The currency the owner sees totals in; empty for none. */
@@ -99,6 +105,7 @@ export function createNodeData(basic: {
         5_000,
       );
     },
+    balances: () => live.value()?.balances ?? [],
     rates: () => live.value()?.rates ?? [],
     displayCurrency: () => live.value()?.displayCurrency ?? "",
     total: () => live.value()?.total,

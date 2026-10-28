@@ -16,6 +16,7 @@ import { connectionText } from "./connection.ts";
 import { DepositAddress } from "./DepositAddress.tsx";
 import { PegGuard } from "./PegGuard.tsx";
 import { removingNotice } from "./removal.ts";
+import { assetLabel } from "../payments/WalletAddresses.tsx";
 
 export function Ledgers(): JSX.Element {
   const data = useNodeData();
@@ -43,6 +44,23 @@ export function Ledgers(): JSX.Element {
               size="lg"
               testid={`ledger-balance-${ledger().id}`}
             />
+            <Show
+              when={data.balances().find((balance) =>
+                balance.ledgers.length > 1 &&
+                balance.ledgers.includes(ledger().id)
+              )}
+            >
+              {(balance) => (
+                <p class="muted" data-testid={`ledger-part-${ledger().id}`}>
+                  Part of your {assetLabel(balance().name)},{" "}
+                  <Amount
+                    value={balance().ownerBalance}
+                    currency={ledgerCurrency(balance())}
+                  />{" "}
+                  in all. Your node moves funds between its ledgers by itself.
+                </p>
+              )}
+            </Show>
             <p class="muted">
               On the underlying ledger:{" "}
               <Amount
