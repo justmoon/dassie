@@ -2,8 +2,8 @@
 //! through real engine cores in the node simulation: the nodes settle over
 //! the stub with commitments, which signs and takes promises per packet as a
 //! hub's member does, without a hub (spec/areas/settlement.md#the-stub-scheme).
-//! A failure names its seed: `dassie-sim run node-stub-hub <seed>` replays a
-//! scripted run, and the campaign runs it from random seeds.
+//! Its seeded runs are `dassie-sim`'s `node-stub-hub`, which the campaign
+//! runs, not a test.
 //!
 //! After every step, the simulation checks that no node's stub holds a
 //! packet its connector let go, and that the credit each node extends over
@@ -22,17 +22,11 @@ use std::collections::BTreeMap;
 
 use dassie_connector::{EndpointId, PacketRecord, PacketState};
 use dassie_ilp::ErrorCode;
-use dassie_kit::sim::assert_passes;
 use dassie_ledger::Name;
 use dassie_node::engine::HubPeer;
 use dassie_node::sim::checks::{check, check_hub_credit, check_hub_packets};
-use dassie_node::sim::{START, Settling, Sim, key, received, scripted};
+use dassie_node::sim::{START, Settling, Sim, key, received};
 use dassie_settlement::Held;
-
-#[test]
-fn simulated_networks_pay_over_a_stub_with_commitments() {
-    assert_passes(0, scripted::run_stub_hub);
-}
 
 /// `count` nodes over the stub with commitments, room for `limit` packets
 /// per peer each way, losing no message. The first node is the only
@@ -377,6 +371,36 @@ fn a_payment_over_hubs_is_paid_in_full_across_hops() {
             hub.holds.toward > 0,
             "node {index} holds nothing toward {peer}"
         );
+    }
+    check_hub_credit(&sim).unwrap();
+    check(&sim).unwrap();
+}
+
+// spec/designs/settlement-hubs.md#4-peering-over-a-hub: each way of a
+// peering over a hub has a hold of its own, and a payer can send only what
+// its hold has room for, whatever the payee owes it the other way. Two
+// payments through node 1 at once, one each way, so that each of its holds
+// is drawn on while the other way pays it back: both complete in full.
+#[test]
+fn payments_both_ways_through_a_hop_over_a_hub_complete() {
+    let mut sim = line(9, 1);
+    let zero = key(0).node_id();
+    let routed = |sim: &Sim| {
+        sim.core(2)
+            .network()
+            .nodes
+            .iter()
+            .any(|node| node.id == zero && !node.first_hops.is_empty())
+    };
+    assert!(
+        sim.run_until_or(sim.now + 600_000, routed),
+        "no route from node 2 to node 0"
+    );
+    assert!(sim.pay(0, 2, 3_000_000_000, None, None));
+    assert!(sim.pay(2, 0, 3_000_000_000, None, None));
+    paid(&mut sim, 600_000);
+    for payment in &sim.payments {
+        assert_eq!(received(&sim, payment), 3_000_000_000);
     }
     check_hub_credit(&sim).unwrap();
     check(&sim).unwrap();

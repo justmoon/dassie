@@ -918,6 +918,52 @@ fn a_lying_server_makes_it_attest_nothing_false() {
     }
 }
 
+// spec/areas/hubs.md#what-validators-attest: a watcher that caught its
+// server lying leaves it, and asks its host for a new connection, saying
+// why; on an honest server it keeps the one it has. Here a deposit reaches
+// the escrow while the server lies: every lie that makes an answer fail to
+// prove is caught. An old anchor only delays what the watcher attests, and
+// history left out hides the deposit from it without a hint to prove: it
+// waits on those, attesting nothing false
+// ([`a_lying_server_makes_it_attest_nothing_false`]).
+#[test]
+fn a_watcher_leaves_a_server_it_caught_lying() {
+    const WAITED: [Lie; 4] = [
+        Lie::OldAnchor,
+        Lie::OlderAnchor,
+        Lie::HistoryNewestLeftOut,
+        Lie::HistoryMiddleLeftOut,
+    ];
+    let scene = |lie: Option<Lie>| {
+        let mut setup = Setup::new();
+        setup.lie = lie;
+        setup.connect();
+        let escrow = setup.escrow();
+        setup.closes(3);
+        setup.xrpl.deposit_tagged(escrow, 2_000_000, Some(9));
+        setup.closes(10);
+        setup
+    };
+    let honest = scene(None);
+    assert_eq!(honest.reconnects, 0, "{:?}", honest.problems);
+    let mut kept = Vec::new();
+    for lie in Lie::ALL.into_iter().filter(|lie| !WAITED.contains(lie)) {
+        let lied = scene(Some(lie));
+        if lied.reconnects == 0 {
+            kept.push(lie);
+            continue;
+        }
+        assert!(
+            lied.problems
+                .iter()
+                .any(|problem| problem.ends_with("connecting anew")),
+            "{lie:?}: {:?}",
+            lied.problems
+        );
+    }
+    assert!(kept.is_empty(), "kept a server telling {kept:?}");
+}
+
 /// A withdrawal's Payment from the escrow at `sequence`, signed by a key
 /// of no signer list: the server refuses it, which the watcher reads as
 /// nothing.

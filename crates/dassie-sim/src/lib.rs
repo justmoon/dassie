@@ -4,8 +4,9 @@
 //! Each simulation lives in the crate it simulates, in its `sim` module,
 //! behind that crate's `sim` feature (`testing` for `dassie-node`), and is
 //! a function from a seed to a [`Run`]: the same seed
-//! gives the same run, byte for byte (spec/decisions/tigerstyle.md). `cargo
-//! test` runs scenarios on fixed seeds. This crate runs them on any seed:
+//! gives the same run, byte for byte (spec/decisions/tigerstyle.md). No test
+//! runs one: a case a run found becomes a targeted test of its own. This
+//! crate runs them on any seed:
 //! one to replay a failure, a range to search for one, a commit's, or random
 //! ones for as long as a campaign lasts, as TigerBeetle's VOPR does.
 
@@ -70,6 +71,26 @@ pub static SIMS: &[Sim] = &[
         run: dassie_node::sim::hubbed::run,
         // A script, its runs among the longest: a hub's validators make a
         // block every tenth of a second.
+        weight: 5,
+    },
+    Sim {
+        name: "node-hub-paid-in",
+        about: "a node with no account in a settlement hub run in the simulation peers with a \
+                member over it, is not paid in short of the hub's minimum, and is paid in past \
+                it though both crash around the pay, then pays and is paid over the hub",
+        describe: dassie_node::sim::hubbed::describe_paid_in,
+        run: dassie_node::sim::hubbed::paid_in,
+        // A script over a hub, shorter than node-hub's.
+        weight: 5,
+    },
+    Sim {
+        name: "node-hub-cycled",
+        about: "fresh keys with no account in a settlement hub run in the simulation, cycled \
+                through a member, each paid less than the hub's minimum: none is paid in, none \
+                spends more than it is owed, and the member pays nothing into the hub for them",
+        describe: dassie_node::sim::hubbed::describe_cycled,
+        run: dassie_node::sim::hubbed::cycled,
+        // A script over a hub, shorter than node-hub's.
         weight: 5,
     },
     Sim {

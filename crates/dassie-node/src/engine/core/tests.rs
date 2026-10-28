@@ -282,6 +282,43 @@ fn a_stopped_scheme_is_not_peered_on() {
     assert_eq!(core.peer.schemes(), [stub]);
 }
 
+// spec/decisions/synced-before-peering.md: a hub's scheme is offered for
+// peering only once it has seen the hub's ledger, here the hub telling it
+// that it holds nothing for the node. Having seen it once, it stays offered
+// after a restart while the node hears nothing of its hub, its links down:
+// the first sync is kept with the scheme's state.
+#[test]
+fn a_hub_scheme_is_offered_once_it_synced_and_after_a_restart_unheard() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 9);
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(600, 300))
+        .unwrap();
+    let hub = scheme_id(dassie_hub::member::SCHEME_ID);
+    let mut outputs = Vec::new();
+    for second in 1..=60 {
+        core.begin_step(NOW + second * 1_000);
+        core.finish_step(&mut outputs);
+    }
+    assert!(
+        core.peer.schemes().is_empty(),
+        "offered before it saw its hub"
+    );
+    Validators::new().no_account(&mut core);
+    core.finish_step(&mut outputs);
+    assert_eq!(core.peer.schemes(), [hub], "not offered once synced");
+    core.flush();
+    drop(core);
+
+    // Restarted, it hears nothing of its hub for an hour.
+    let mut core = core_on(Arc::clone(&store), 10);
+    let start = core.now_ms();
+    for minute in 1..=60 {
+        core.begin_step(start + minute * 60_000);
+        core.finish_step(&mut outputs);
+    }
+    assert_eq!(core.peer.schemes(), [hub], "not offered after a restart");
+}
+
 /// The fake XRP Ledger, testnet or `mainnet`, its clock at the tests'
 /// [`NOW`], so that the validations a node reads of it are fresh.
 fn fake_ledger(mainnet: bool) -> dassie_xrpl::fake::FakeLedger {
@@ -4474,6 +4511,25 @@ fn asked_over_a_hub_a_payer_funds_its_hold() {
     assert_eq!(hub_books(&mut core, peer), (expected, expected, 0));
 }
 
+// spec/decisions/ending-a-peering.md, spec/decisions/own-fulfills.md: asked
+// again while its settlement is on its way, a payer answers with that one,
+// which is the whole answer, and makes no other: one settlement at a time.
+#[test]
+fn asked_again_while_settling_a_payer_answers_with_what_is_on_its_way() {
+    let (mut core, peer) = hub_core_with_downlink(34);
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    core.begin_step(NOW + 2_000);
+    let settling = core.settlement_requested(peer, scheme);
+    assert!(settling > 0);
+    let pending = core.ledger.pending_transfers().count();
+    assert_eq!(core.settlement_requested(peer, scheme), settling);
+    assert_eq!(core.ledger.pending_transfers().count(), pending);
+    assert_eq!(hub_books(&mut core, peer), (settling, 0, settling));
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    assert_eq!(hub_books(&mut core, peer), (settling, settling, 0));
+}
+
 // spec/areas/hubs.md#in-the-node: a payer whose hub account can spend
 // nothing funds no hold when asked: it answers that nothing is on its way,
 // and its credit and books stay as they were, so the payee's room for it
@@ -5144,6 +5200,100 @@ fn a_restart_never_pays_a_deposit_twice() {
     let status = core.hub_status().unwrap();
     assert_eq!((status.moving, status.late), (None, false), "credited");
     assert_eq!(deposits(&mut ledger, escrow).len(), 1);
+}
+
+/// A node in the hub, its opening deposit credited, makes a move into the
+/// hub while its XRPL server tells `lie`: its owner's if `owner`, else its
+/// own, below the floor. What its XRP book posted moves only once proven:
+/// not at all while the server lies, and once it is honest again, exactly
+/// as the account did on the ledger, with no hold left.
+fn moves_while_lied_to(lie: dassie_xrpl::fake::Lie, owner: bool) {
+    let (mut ledger, own) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    let units = i128::from(dassie_xrpl::UNITS_PER_DROP);
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let (posted, held) = owner_xrp(&core);
+    assert_eq!(held, 0, "{lie:?}: the opening deposit is not posted");
+    let balance = |ledger: &dassie_xrpl::fake::FakeLedger| i128::from(ledger.balance(own).unwrap());
+    let before = balance(&ledger);
+
+    ledger.set_lie(1, Some(lie));
+    if owner {
+        hub.account(&mut core, 2_000_000, opening);
+        core.hub_deposit(3_000_000 * dassie_xrpl::UNITS_PER_DROP)
+            .unwrap();
+    } else {
+        // Spent below the floor: the node moves funds in by itself.
+        hub.account(&mut core, 100_000, opening);
+    }
+    // Nothing posted, or what the ledger really did, which a lie of some
+    // answers may leave the node able to prove from the others.
+    for _ in 0..4 {
+        wait_and_close(&mut core, &mut ledger, 4_000);
+        let now = owner_xrp(&core).0;
+        let truth = posted + (balance(&ledger) - before) * units;
+        assert!(
+            now == posted || now == truth,
+            "{lie:?}: posted {now}, from {posted}, where the ledger has {truth}"
+        );
+    }
+    assert!(ledger.lies_told(lie) > 0, "{lie:?} was not told");
+    let moving = core.hub_status().unwrap().moving;
+    assert!(
+        moving.is_some_and(|moving| moving.owner == owner),
+        "{lie:?}: no move under way: {moving:?}"
+    );
+
+    ledger.set_lie(1, None);
+    for _ in 0..3 {
+        wait_and_close(&mut core, &mut ledger, 30_000);
+    }
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 2, "{lie:?}: {made:?}");
+    assert_eq!(
+        owner_xrp(&core),
+        (posted + (balance(&ledger) - before) * units, 0),
+        "{lie:?}: the books did not follow the ledger"
+    );
+}
+
+/// Each kind of lie a move into the hub draws out of the server in
+/// [`moves_while_lied_to`]; the XRPL scheme's own tests have every kind
+/// told (`dassie-xrpl`'s `a_lying_server_books_cancels_and_writes_off_nothing`).
+fn lies_a_move_draws() -> impl Iterator<Item = dassie_xrpl::fake::Lie> {
+    use dassie_xrpl::fake::Lie;
+
+    let untold = [Lie::Transaction, Lie::OldAnchor, Lie::HistoryMiddleLeftOut];
+    Lie::ALL
+        .into_iter()
+        .filter(move |lie| !untold.contains(lie))
+}
+
+// spec/areas/hubs.md#in-the-node, spec/designs/xrpl-validation.md#1-the-rule:
+// the owner moves funds into the hub while the node's XRPL server lies: a
+// lie moves nothing on the books, which follow the ledger once the server
+// is honest again.
+#[test]
+fn an_owners_move_into_the_hub_while_lied_to_moves_nothing_false() {
+    for lie in lies_a_move_draws() {
+        moves_while_lied_to(lie, true);
+    }
+}
+
+// spec/areas/hubs.md#in-the-node, spec/designs/xrpl-validation.md#1-the-rule:
+// the node moves its own funds into the hub, below its floor, while its XRPL
+// server lies: a lie moves nothing on the books, which follow the ledger
+// once the server is honest again.
+#[test]
+fn the_nodes_own_move_into_the_hub_while_lied_to_moves_nothing_false() {
+    for lie in lies_a_move_draws() {
+        moves_while_lied_to(lie, false);
+    }
 }
 
 /// What the owner holds on the hub's ledger, as the books say.
