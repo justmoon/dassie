@@ -557,8 +557,9 @@ impl Validator {
 
     /// Whether we are to vote to move the hub to `version` of the hub's
     /// protocol (spec/decisions/hub-protocol-version.md): our code runs it,
-    /// the hub runs an older one and no move waits, and no vote of ours for
-    /// it is recorded or on its way. The host votes with
+    /// the hub runs an older one, neither a move nor new rules wait, and no
+    /// vote of ours for it is recorded or on its way: so we never sign a
+    /// vote the ledger would take as stale, again with every block. The host votes with
     /// [`Self::attest`] while it says so.
     #[must_use]
     pub fn wants_upgrade(&self, version: u16) -> bool {
@@ -575,6 +576,7 @@ impl Validator {
         crate::rules::runs(version)
             && version > ledger.version()
             && ledger.pending_upgrade().is_none()
+            && ledger.pending_rules().is_none()
             && !recorded
             && !on_its_way
     }
@@ -1160,6 +1162,31 @@ mod tests {
     use crate::digest::Digest;
     use crate::ledger::{Detail, Outcome, Refusal};
     use crate::operation::{MemberOperation, SignedMemberOperation};
+
+    // spec/decisions/hub-protocol-version.md: a validator votes to move
+    // its hub only where the ledger would count the vote, so it never signs
+    // a stale one again with every block: not for a version the hub runs,
+    // nor while a move or new rules wait.
+    #[test]
+    fn a_validator_votes_to_move_only_where_the_vote_counts() {
+        let mut v = validator();
+        assert!(!v.wants_upgrade(crate::rules::HUB_VERSION), "it runs it");
+        assert!(
+            !v.wants_upgrade(crate::rules::HUB_VERSION + 1),
+            "not run here"
+        );
+        v.chain.ledger.version = 1;
+        assert!(v.wants_upgrade(2));
+        v.chain.ledger.pending_rules = Some(crate::ledger::PendingRules {
+            rules: v.chain.ledger.rules.clone(),
+            at: 0,
+            from_height: None,
+        });
+        assert!(!v.wants_upgrade(2), "new rules wait");
+        v.chain.ledger.pending_rules = None;
+        v.chain.ledger.pending_upgrade = Some(crate::ledger::PendingUpgrade { version: 2, at: 0 });
+        assert!(!v.wants_upgrade(2), "a move waits");
+    }
 
     /// A block of `count` copies of one transfer by account 5 to account
     /// 6, the first applied and the rest refused, as a faulty leader may

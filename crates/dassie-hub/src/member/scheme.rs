@@ -1945,7 +1945,7 @@ impl Commitments for HubScheme {
     ) {
         release.clear();
         self.now_ms = self.now_ms.max(now_ms);
-        let (now, hub, key) = (self.now_ms, self.hub, Arc::clone(&self.key));
+        let (hub, key) = (self.hub, Arc::clone(&self.key));
         if !self.takes_releases {
             return;
         }
@@ -1954,7 +1954,7 @@ impl Commitments for HubScheme {
         };
         if let Some(peer) = self.peer(peer) {
             let payer = peer.key;
-            if let Some(released) = peer.payee.refused(&signed, (&hub, &payer, now)) {
+            if let Some(released) = peer.payee.refused(&signed, (&hub, &payer)) {
                 release.extend_from_slice(&Signed::sign(released, &hub, &key).to_vec());
             }
         }

@@ -280,7 +280,7 @@ impl Payee {
         if let Some(taken) = self.taken.get(&sequence).filter(|t| t.done.is_none()) {
             let expiry = taken.commitment.value.expiry;
             self.taken.remove(&sequence);
-            released = self.remember_release(now_ms, sequence, expiry);
+            released = self.remember_release(sequence, expiry);
         }
         self.mark_ready(now_ms);
         released
@@ -293,7 +293,7 @@ impl Payee {
     pub(super) fn refused(
         &mut self,
         signed: &Signed<Commitment>,
-        (hub, payer, now_ms): (&HubId, &PublicKey, u64),
+        (hub, payer): (&HubId, &PublicKey),
     ) -> Option<Release> {
         let commitment = signed.value;
         let fresh = Some(commitment.hold) == self.hold
@@ -304,15 +304,16 @@ impl Payee {
         if !fresh {
             return None;
         }
-        self.remember_release(now_ms, commitment.sequence, commitment.expiry)
+        self.remember_release(commitment.sequence, commitment.expiry)
     }
 
     /// Remembers that we released `sequence`, which expires at `expiry`,
     /// so we never take it again, and returns its release; none once we
     /// remember as many as we can.
-    fn remember_release(&mut self, now_ms: u64, sequence: u64, expiry: Millis) -> Option<Release> {
+    fn remember_release(&mut self, sequence: u64, expiry: Millis) -> Option<Release> {
         let hold = self.hold?;
-        self.forget_releases(now_ms);
+        let through = self.through().max(self.snapshot.through);
+        self.released.retain(|sequence, _| *sequence > through);
         if self.released.len() >= MAX_RELEASED && !self.released.contains_key(&sequence) {
             return None;
         }
@@ -325,11 +326,13 @@ impl Payee {
     }
 
     /// Forgets the releases no claim can take any more: of commitments
-    /// expired by `now_ms`, or that a claim of the payer's passed.
-    pub(super) fn forget_releases(&mut self, now_ms: u64) {
+    /// that expired by a final block stamped `timestamp`, by the hub's
+    /// clock, never ours, which may run ahead of it; or that a claim of the
+    /// payer's passed.
+    pub(super) fn forget_releases(&mut self, timestamp: Millis) {
         let through = self.through().max(self.snapshot.through);
         self.released
-            .retain(|sequence, expiry| *expiry > now_ms && *sequence > through);
+            .retain(|sequence, expiry| *expiry > timestamp && *sequence > through);
     }
 
     /// Marks the packets we fulfilled whose claim the payer can make now:
