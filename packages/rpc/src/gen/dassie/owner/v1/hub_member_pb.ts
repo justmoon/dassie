@@ -12,7 +12,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/hub_member.proto.
  */
 export const file_dassie_owner_v1_hub_member: GenFile = /*@__PURE__*/
-  fileDesc("CiBkYXNzaWUvb3duZXIvdjEvaHViX21lbWJlci5wcm90bxIPZGFzc2llLm93bmVyLnYxIjgKB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBCKYAgoHSHViTW92ZRI1CglkaXJlY3Rpb24YASABKA4yIi5kYXNzaWUub3duZXIudjEuSHViTW92ZS5EaXJlY3Rpb24SDgoGYW1vdW50GAIgASgEEhAKCGJ5X293bmVyGAMgASgIEhcKD3NlbnRfYXRfdW5peF9tcxgEIAEoAxIfChJhcHBsaWVkX2F0X3VuaXhfbXMYBSABKANIAIgBARIMCgRsYXRlGAYgASgIIlUKCURpcmVjdGlvbhIZChVESVJFQ1RJT05fVU5TUEVDSUZJRUQQABIVChFESVJFQ1RJT05fREVQT1NJVBABEhYKEkRJUkVDVElPTl9XSVRIRFJBVxACQhUKE19hcHBsaWVkX2F0X3VuaXhfbXMijAUKCUh1YlN0YXR1cxIOCgZodWJfaWQYASABKAkSFAoHYWNjb3VudBgCIAEoDUgAiAEBEjUKCmNvbm5lY3Rpb24YAyABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIPCgdiYWxhbmNlGAQgASgEEg8KB3Jlc2VydmUYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIoCgZwYXlpbmcYCCADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBIoCgZ0YWtpbmcYCSADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBINCgVmbG9vchgKIAEoBBIPCgdjZWlsaW5nGAsgASgEEhEKCWF1dG9tYXRpYxgMIAEoCBIhChRwYXVzZWRfdW50aWxfdW5peF9tcxgNIAEoA0gBiAEBEigKBm1vdmluZxgOIAEoCzIYLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlEhIKCnZhbGlkYXRvcnMYDyABKA0SHAoUdmFsaWRhdG9yc19hbnN3ZXJpbmcYECABKA0SKgoIZ2l2ZW5fdXAYESABKAsyGC5kYXNzaWUub3duZXIudjEuSHViTW92ZRIQCghyZXR1cm5lZBgSIAEoBBIOCgZzY2hlbWUYEyABKAkSIQoUZnJvemVuX3NpbmNlX3VuaXhfbXMYFCABKANIAogBARITCgtlc2Nyb3dfaGVsZBgVIAEoCBIQCghzZXR0bGluZxgWIAEoCEIKCghfYWNjb3VudEIXChVfcGF1c2VkX3VudGlsX3VuaXhfbXNCFwoVX2Zyb3plbl9zaW5jZV91bml4X21zIhUKE0dldEh1YlN0YXR1c1JlcXVlc3QiQAoUR2V0SHViU3RhdHVzUmVzcG9uc2USKAoEaHVicxgBIAMoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiMwoRSHViRGVwb3NpdFJlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBnNjaGVtZRgDIAEoCSJAChJIdWJEZXBvc2l0UmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyI0ChJIdWJXaXRoZHJhd1JlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBnNjaGVtZRgDIAEoCSJBChNIdWJXaXRoZHJhd1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiOwoWU2V0SHViQXV0b21hdGljUmVxdWVzdBIRCglhdXRvbWF0aWMYASABKAgSDgoGc2NoZW1lGAMgASgJIkUKF1NldEh1YkF1dG9tYXRpY1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiIgoQSHViR2l2ZVVwUmVxdWVzdBIOCgZzY2hlbWUYAiABKAkiPwoRSHViR2l2ZVVwUmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyIbChlTdWJzY3JpYmVIdWJFdmVudHNSZXF1ZXN0IvcECghIdWJFdmVudBIOCgZzY2hlbWUYASABKAkSGwoTb2JzZXJ2ZWRfYXRfdW5peF9tcxgCIAEoAxIQCgZsYWdnZWQYAyABKARIABIqCgVibG9jaxgEIAEoCzIZLmRhc3NpZS5vd25lci52MS5IdWJCbG9ja0gAEjIKCW9wZXJhdGlvbhgFIAEoCzIdLmRhc3NpZS5vd25lci52MS5IdWJPcGVyYXRpb25IABIzCgdhY2NvdW50GAYgASgLMiAuZGFzc2llLm93bmVyLnYxLkh1YkFjY291bnRTdGF0ZUgAEjAKCHVuZnVuZGVkGAcgASgLMhwuZGFzc2llLm93bmVyLnYxLkh1YlVuZnVuZGVkSAASMgoHcmVkdWNlZBgIIAEoCzIfLmRhc3NpZS5vd25lci52MS5IdWJIb2xkUmVkdWNlZEgAEjUKC2NsYWltc19wYWlkGAkgASgLMh4uZGFzc2llLm93bmVyLnYxLkh1YkNsYWltc1BhaWRIABIwCghyZXN5bmNlZBgKIAEoCzIcLmRhc3NpZS5vd25lci52MS5IdWJSZXN5bmNlZEgAEi4KB2Ryb3BwZWQYCyABKAsyGy5kYXNzaWUub3duZXIudjEuSHViRHJvcHBlZEgAEjQKCmNvbW1pdG1lbnQYDCABKAsyHi5kYXNzaWUub3duZXIudjEuSHViQ29tbWl0bWVudEgAEioKBWNsYWltGA0gASgLMhkuZGFzc2llLm93bmVyLnYxLkh1YkNsYWltSAASLQoEbW92ZRgOIAEoCzIdLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlRXZlbnRIAEIHCgVldmVudCI1CghIdWJCbG9jaxIOCgZoZWlnaHQYASABKAQSGQoRdGltZXN0YW1wX3VuaXhfbXMYAiABKAMi3AEKDEh1Yk9wZXJhdGlvbhIOCgZoZWlnaHQYASABKAQSGQoRdGltZXN0YW1wX3VuaXhfbXMYAiABKAMSDAoEa2luZBgDIAEoCRIOCgZzaWduZXIYBCABKA0SEAoIc2VxdWVuY2UYBSABKAQSDAoEaG9sZBgGIAEoBBIUCgxwZWVyX2FjY291bnQYByABKA0SDgoGYW1vdW50GAggASgEEg8KB291dGNvbWUYCSABKAkSDgoGcmVhc29uGAogASgJEgsKA2ZlZRgLIAEoBBIPCgdwdXJwb3NlGAwgASgJIq4BCg9IdWJBY2NvdW50U3RhdGUSDgoGaGVpZ2h0GAEgASgEEg4KBm51bWJlchgCIAEoDRIPCgdiYWxhbmNlGAMgASgEEg8KB3Jlc2VydmUYBCABKAQSEAoIc2VxdWVuY2UYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIQCghyZXR1cm5lZBgIIAEoBBIPCgdjbG9zaW5nGAkgASgIIg0KC0h1YlVuZnVuZGVkIi4KDkh1YkhvbGRSZWR1Y2VkEgwKBGhvbGQYASABKAQSDgoGYW1vdW50GAIgASgEIm0KDUh1YkNsYWltc1BhaWQSDAoEaG9sZBgBIAEoBBINCgVjb3VudBgCIAEoDRIWCg5maXJzdF9zZXF1ZW5jZRgDIAEoBBIVCg1sYXN0X3NlcXVlbmNlGAQgASgEEhAKCHVubGlzdGVkGAUgASgIIl4KC0h1YlJlc3luY2VkEg4KBmhlaWdodBgBIAEoBBIZChF0aW1lc3RhbXBfdW5peF9tcxgCIAEoAxIUCgxob2xkc19iZWZvcmUYAyABKA0SDgoGdW5yZWFkGAQgASgJIh0KCkh1YkRyb3BwZWQSDwoHcHVycG9zZRgBIAEoCSKgAQoNSHViQ29tbWl0bWVudBImCgRyb2xlGAEgASgOMhguZGFzc2llLm93bmVyLnYxLkh1YlJvbGUSDAoEcGVlchgCIAEoCRIMCgRob2xkGAMgASgEEhAKCHNlcXVlbmNlGAQgASgEEg4KBmFtb3VudBgFIAEoBBIRCgljb25kaXRpb24YBiABKAwSFgoOZXhwaXJ5X3VuaXhfbXMYByABKAMibgoISHViQ2xhaW0SJgoEcm9sZRgBIAEoDjIYLmRhc3NpZS5vd25lci52MS5IdWJSb2xlEgwKBHBlZXIYAiABKAkSDAoEaG9sZBgDIAEoBBINCgV0b3RhbBgEIAEoBBIPCgd0aHJvdWdoGAUgASgEIqUCCgxIdWJNb3ZlRXZlbnQSMgoFc3RhZ2UYASABKA4yIy5kYXNzaWUub3duZXIudjEuSHViTW92ZUV2ZW50LlN0YWdlEjUKCWRpcmVjdGlvbhgCIAEoDjIiLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlLkRpcmVjdGlvbhIOCgZhbW91bnQYAyABKAQSDwoHcGF5bWVudBgEIAEoCRIQCghieV9vd25lchgFIAEoCCJ3CgVTdGFnZRIVChFTVEFHRV9VTlNQRUNJRklFRBAAEhEKDVNUQUdFX1NUQVJURUQQARIOCgpTVEFHRV9ET05FEAISEAoMU1RBR0VfRkFJTEVEEAMSDgoKU1RBR0VfTEFURRAEEhIKDlNUQUdFX0dJVkVOX1VQEAUqSwoHSHViUm9sZRIYChRIVUJfUk9MRV9VTlNQRUNJRklFRBAAEhIKDkhVQl9ST0xFX1BBWUVSEAESEgoOSFVCX1JPTEVfUEFZRUUQAmIGcHJvdG8z", [file_dassie_owner_v1_ledger]);
+  fileDesc("CiBkYXNzaWUvb3duZXIvdjEvaHViX21lbWJlci5wcm90bxIPZGFzc2llLm93bmVyLnYxIjgKB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBCKYAgoHSHViTW92ZRI1CglkaXJlY3Rpb24YASABKA4yIi5kYXNzaWUub3duZXIudjEuSHViTW92ZS5EaXJlY3Rpb24SDgoGYW1vdW50GAIgASgEEhAKCGJ5X293bmVyGAMgASgIEhcKD3NlbnRfYXRfdW5peF9tcxgEIAEoAxIfChJhcHBsaWVkX2F0X3VuaXhfbXMYBSABKANIAIgBARIMCgRsYXRlGAYgASgIIlUKCURpcmVjdGlvbhIZChVESVJFQ1RJT05fVU5TUEVDSUZJRUQQABIVChFESVJFQ1RJT05fREVQT1NJVBABEhYKEkRJUkVDVElPTl9XSVRIRFJBVxACQhUKE19hcHBsaWVkX2F0X3VuaXhfbXMitQUKCUh1YlN0YXR1cxIOCgZodWJfaWQYASABKAkSFAoHYWNjb3VudBgCIAEoDUgAiAEBEjUKCmNvbm5lY3Rpb24YAyABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIPCgdiYWxhbmNlGAQgASgEEg8KB3Jlc2VydmUYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIoCgZwYXlpbmcYCCADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBIoCgZ0YWtpbmcYCSADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBINCgVmbG9vchgKIAEoBBIPCgdjZWlsaW5nGAsgASgEEhEKCWF1dG9tYXRpYxgMIAEoCBIhChRwYXVzZWRfdW50aWxfdW5peF9tcxgNIAEoA0gBiAEBEigKBm1vdmluZxgOIAEoCzIYLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlEhIKCnZhbGlkYXRvcnMYDyABKA0SHAoUdmFsaWRhdG9yc19hbnN3ZXJpbmcYECABKA0SKgoIZ2l2ZW5fdXAYESABKAsyGC5kYXNzaWUub3duZXIudjEuSHViTW92ZRIQCghyZXR1cm5lZBgSIAEoBBIOCgZzY2hlbWUYEyABKAkSIQoUZnJvemVuX3NpbmNlX3VuaXhfbXMYFCABKANIAogBARITCgtlc2Nyb3dfaGVsZBgVIAEoCBIQCghzZXR0bGluZxgWIAEoCBIOCgZ0YXJnZXQYFyABKAQSFwoPdGFyZ2V0X2J5X293bmVyGBggASgIQgoKCF9hY2NvdW50QhcKFV9wYXVzZWRfdW50aWxfdW5peF9tc0IXChVfZnJvemVuX3NpbmNlX3VuaXhfbXMiFQoTR2V0SHViU3RhdHVzUmVxdWVzdCJAChRHZXRIdWJTdGF0dXNSZXNwb25zZRIoCgRodWJzGAEgAygLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyIzChFIdWJEZXBvc2l0UmVxdWVzdBIOCgZhbW91bnQYASABKAQSDgoGc2NoZW1lGAMgASgJIkAKEkh1YkRlcG9zaXRSZXNwb25zZRIqCgZzdGF0dXMYASABKAsyGi5kYXNzaWUub3duZXIudjEuSHViU3RhdHVzIjQKEkh1YldpdGhkcmF3UmVxdWVzdBIOCgZhbW91bnQYASABKAQSDgoGc2NoZW1lGAMgASgJIkEKE0h1YldpdGhkcmF3UmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyI7ChZTZXRIdWJBdXRvbWF0aWNSZXF1ZXN0EhEKCWF1dG9tYXRpYxgBIAEoCBIOCgZzY2hlbWUYAyABKAkiRQoXU2V0SHViQXV0b21hdGljUmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyJFChNTZXRIdWJUYXJnZXRSZXF1ZXN0Eg4KBnNjaGVtZRgBIAEoCRITCgZ0YXJnZXQYAiABKARIAIgBAUIJCgdfdGFyZ2V0IkIKFFNldEh1YlRhcmdldFJlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiIgoQSHViR2l2ZVVwUmVxdWVzdBIOCgZzY2hlbWUYAiABKAkiPwoRSHViR2l2ZVVwUmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyIbChlTdWJzY3JpYmVIdWJFdmVudHNSZXF1ZXN0IvcECghIdWJFdmVudBIOCgZzY2hlbWUYASABKAkSGwoTb2JzZXJ2ZWRfYXRfdW5peF9tcxgCIAEoAxIQCgZsYWdnZWQYAyABKARIABIqCgVibG9jaxgEIAEoCzIZLmRhc3NpZS5vd25lci52MS5IdWJCbG9ja0gAEjIKCW9wZXJhdGlvbhgFIAEoCzIdLmRhc3NpZS5vd25lci52MS5IdWJPcGVyYXRpb25IABIzCgdhY2NvdW50GAYgASgLMiAuZGFzc2llLm93bmVyLnYxLkh1YkFjY291bnRTdGF0ZUgAEjAKCHVuZnVuZGVkGAcgASgLMhwuZGFzc2llLm93bmVyLnYxLkh1YlVuZnVuZGVkSAASMgoHcmVkdWNlZBgIIAEoCzIfLmRhc3NpZS5vd25lci52MS5IdWJIb2xkUmVkdWNlZEgAEjUKC2NsYWltc19wYWlkGAkgASgLMh4uZGFzc2llLm93bmVyLnYxLkh1YkNsYWltc1BhaWRIABIwCghyZXN5bmNlZBgKIAEoCzIcLmRhc3NpZS5vd25lci52MS5IdWJSZXN5bmNlZEgAEi4KB2Ryb3BwZWQYCyABKAsyGy5kYXNzaWUub3duZXIudjEuSHViRHJvcHBlZEgAEjQKCmNvbW1pdG1lbnQYDCABKAsyHi5kYXNzaWUub3duZXIudjEuSHViQ29tbWl0bWVudEgAEioKBWNsYWltGA0gASgLMhkuZGFzc2llLm93bmVyLnYxLkh1YkNsYWltSAASLQoEbW92ZRgOIAEoCzIdLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlRXZlbnRIAEIHCgVldmVudCI1CghIdWJCbG9jaxIOCgZoZWlnaHQYASABKAQSGQoRdGltZXN0YW1wX3VuaXhfbXMYAiABKAMi3AEKDEh1Yk9wZXJhdGlvbhIOCgZoZWlnaHQYASABKAQSGQoRdGltZXN0YW1wX3VuaXhfbXMYAiABKAMSDAoEa2luZBgDIAEoCRIOCgZzaWduZXIYBCABKA0SEAoIc2VxdWVuY2UYBSABKAQSDAoEaG9sZBgGIAEoBBIUCgxwZWVyX2FjY291bnQYByABKA0SDgoGYW1vdW50GAggASgEEg8KB291dGNvbWUYCSABKAkSDgoGcmVhc29uGAogASgJEgsKA2ZlZRgLIAEoBBIPCgdwdXJwb3NlGAwgASgJIq4BCg9IdWJBY2NvdW50U3RhdGUSDgoGaGVpZ2h0GAEgASgEEg4KBm51bWJlchgCIAEoDRIPCgdiYWxhbmNlGAMgASgEEg8KB3Jlc2VydmUYBCABKAQSEAoIc2VxdWVuY2UYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIQCghyZXR1cm5lZBgIIAEoBBIPCgdjbG9zaW5nGAkgASgIIg0KC0h1YlVuZnVuZGVkIi4KDkh1YkhvbGRSZWR1Y2VkEgwKBGhvbGQYASABKAQSDgoGYW1vdW50GAIgASgEIm0KDUh1YkNsYWltc1BhaWQSDAoEaG9sZBgBIAEoBBINCgVjb3VudBgCIAEoDRIWCg5maXJzdF9zZXF1ZW5jZRgDIAEoBBIVCg1sYXN0X3NlcXVlbmNlGAQgASgEEhAKCHVubGlzdGVkGAUgASgIIl4KC0h1YlJlc3luY2VkEg4KBmhlaWdodBgBIAEoBBIZChF0aW1lc3RhbXBfdW5peF9tcxgCIAEoAxIUCgxob2xkc19iZWZvcmUYAyABKA0SDgoGdW5yZWFkGAQgASgJIh0KCkh1YkRyb3BwZWQSDwoHcHVycG9zZRgBIAEoCSKgAQoNSHViQ29tbWl0bWVudBImCgRyb2xlGAEgASgOMhguZGFzc2llLm93bmVyLnYxLkh1YlJvbGUSDAoEcGVlchgCIAEoCRIMCgRob2xkGAMgASgEEhAKCHNlcXVlbmNlGAQgASgEEg4KBmFtb3VudBgFIAEoBBIRCgljb25kaXRpb24YBiABKAwSFgoOZXhwaXJ5X3VuaXhfbXMYByABKAMibgoISHViQ2xhaW0SJgoEcm9sZRgBIAEoDjIYLmRhc3NpZS5vd25lci52MS5IdWJSb2xlEgwKBHBlZXIYAiABKAkSDAoEaG9sZBgDIAEoBBINCgV0b3RhbBgEIAEoBBIPCgd0aHJvdWdoGAUgASgEIqUCCgxIdWJNb3ZlRXZlbnQSMgoFc3RhZ2UYASABKA4yIy5kYXNzaWUub3duZXIudjEuSHViTW92ZUV2ZW50LlN0YWdlEjUKCWRpcmVjdGlvbhgCIAEoDjIiLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlLkRpcmVjdGlvbhIOCgZhbW91bnQYAyABKAQSDwoHcGF5bWVudBgEIAEoCRIQCghieV9vd25lchgFIAEoCCJ3CgVTdGFnZRIVChFTVEFHRV9VTlNQRUNJRklFRBAAEhEKDVNUQUdFX1NUQVJURUQQARIOCgpTVEFHRV9ET05FEAISEAoMU1RBR0VfRkFJTEVEEAMSDgoKU1RBR0VfTEFURRAEEhIKDlNUQUdFX0dJVkVOX1VQEAUqSwoHSHViUm9sZRIYChRIVUJfUk9MRV9VTlNQRUNJRklFRBAAEhIKDkhVQl9ST0xFX1BBWUVSEAESEgoOSFVCX1JPTEVfUEFZRUUQAmIGcHJvdG8z", [file_dassie_owner_v1_ledger]);
 
 /**
  * A hold of ours toward a peer, or a peer's toward us.
@@ -326,6 +326,22 @@ export type HubStatus = Message<"dassie.owner.v1.HubStatus"> & {
    * @generated from field: bool settling = 22;
    */
   settling: boolean;
+
+  /**
+   * What the node keeps in the hub near, the midpoint of the floor and the
+   * ceiling: the target the owner set (SetHubTarget), or the default, a
+   * thousand of the largest packets.
+   *
+   * @generated from field: uint64 target = 23;
+   */
+  target: bigint;
+
+  /**
+   * Whether the owner set the target.
+   *
+   * @generated from field: bool target_by_owner = 24;
+   */
+  targetByOwner: boolean;
 };
 
 /**
@@ -513,6 +529,57 @@ export const SetHubAutomaticResponseSchema: GenMessage<SetHubAutomaticResponse> 
   messageDesc(file_dassie_owner_v1_hub_member, 10);
 
 /**
+ * Sets the target the node keeps the hub near, what it put in it (the
+ * balance, the reserves and its holds toward peers), and with it the floor
+ * and the ceiling, a tenth below and above it; or, with no target, goes back
+ * to the default. The node keeps it, per hub. INVALID_ARGUMENT for a target
+ * below the least, ten of the largest packets and so much that the floor
+ * leaves a largest packet above the account's reserve, or above the most;
+ * the message says the bound.
+ *
+ * @generated from message dassie.owner.v1.SetHubTargetRequest
+ */
+export type SetHubTargetRequest = Message<"dassie.owner.v1.SetHubTargetRequest"> & {
+  /**
+   * The hub, by its scheme, as in HubDepositRequest.
+   *
+   * @generated from field: string scheme = 1;
+   */
+  scheme: string;
+
+  /**
+   * The target, in the hub ledger's units; absent for the default.
+   *
+   * @generated from field: optional uint64 target = 2;
+   */
+  target?: bigint | undefined;
+};
+
+/**
+ * Describes the message dassie.owner.v1.SetHubTargetRequest.
+ * Use `create(SetHubTargetRequestSchema)` to create a new message.
+ */
+export const SetHubTargetRequestSchema: GenMessage<SetHubTargetRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 11);
+
+/**
+ * @generated from message dassie.owner.v1.SetHubTargetResponse
+ */
+export type SetHubTargetResponse = Message<"dassie.owner.v1.SetHubTargetResponse"> & {
+  /**
+   * @generated from field: dassie.owner.v1.HubStatus status = 1;
+   */
+  status?: HubStatus | undefined;
+};
+
+/**
+ * Describes the message dassie.owner.v1.SetHubTargetResponse.
+ * Use `create(SetHubTargetResponseSchema)` to create a new message.
+ */
+export const SetHubTargetResponseSchema: GenMessage<SetHubTargetResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 12);
+
+/**
  * Gives up the hub's move on its way, once it is late: the node forgets it
  * and books nothing. Its own moves of the hub then wait until the owner turns
  * them on again or moves funds. FAILED_PRECONDITION when no move is on its way, or it is
@@ -534,7 +601,7 @@ export type HubGiveUpRequest = Message<"dassie.owner.v1.HubGiveUpRequest"> & {
  * Use `create(HubGiveUpRequestSchema)` to create a new message.
  */
 export const HubGiveUpRequestSchema: GenMessage<HubGiveUpRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 11);
+  messageDesc(file_dassie_owner_v1_hub_member, 13);
 
 /**
  * @generated from message dassie.owner.v1.HubGiveUpResponse
@@ -551,7 +618,7 @@ export type HubGiveUpResponse = Message<"dassie.owner.v1.HubGiveUpResponse"> & {
  * Use `create(HubGiveUpResponseSchema)` to create a new message.
  */
 export const HubGiveUpResponseSchema: GenMessage<HubGiveUpResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 12);
+  messageDesc(file_dassie_owner_v1_hub_member, 14);
 
 /**
  * Streams what the node sees of each settlement hub it is in, as it sees
@@ -576,7 +643,7 @@ export type SubscribeHubEventsRequest = Message<"dassie.owner.v1.SubscribeHubEve
  * Use `create(SubscribeHubEventsRequestSchema)` to create a new message.
  */
 export const SubscribeHubEventsRequestSchema: GenMessage<SubscribeHubEventsRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 13);
+  messageDesc(file_dassie_owner_v1_hub_member, 15);
 
 /**
  * @generated from message dassie.owner.v1.HubEvent
@@ -710,7 +777,7 @@ export type HubEvent = Message<"dassie.owner.v1.HubEvent"> & {
  * Use `create(HubEventSchema)` to create a new message.
  */
 export const HubEventSchema: GenMessage<HubEvent> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 14);
+  messageDesc(file_dassie_owner_v1_hub_member, 16);
 
 /**
  * @generated from message dassie.owner.v1.HubBlock
@@ -734,7 +801,7 @@ export type HubBlock = Message<"dassie.owner.v1.HubBlock"> & {
  * Use `create(HubBlockSchema)` to create a new message.
  */
 export const HubBlockSchema: GenMessage<HubBlock> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 15);
+  messageDesc(file_dassie_owner_v1_hub_member, 17);
 
 /**
  * @generated from message dassie.owner.v1.HubOperation
@@ -830,7 +897,7 @@ export type HubOperation = Message<"dassie.owner.v1.HubOperation"> & {
  * Use `create(HubOperationSchema)` to create a new message.
  */
 export const HubOperationSchema: GenMessage<HubOperation> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 16);
+  messageDesc(file_dassie_owner_v1_hub_member, 18);
 
 /**
  * @generated from message dassie.owner.v1.HubAccountState
@@ -899,7 +966,7 @@ export type HubAccountState = Message<"dassie.owner.v1.HubAccountState"> & {
  * Use `create(HubAccountStateSchema)` to create a new message.
  */
 export const HubAccountStateSchema: GenMessage<HubAccountState> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 17);
+  messageDesc(file_dassie_owner_v1_hub_member, 19);
 
 /**
  * @generated from message dassie.owner.v1.HubUnfunded
@@ -912,7 +979,7 @@ export type HubUnfunded = Message<"dassie.owner.v1.HubUnfunded"> & {
  * Use `create(HubUnfundedSchema)` to create a new message.
  */
 export const HubUnfundedSchema: GenMessage<HubUnfunded> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 18);
+  messageDesc(file_dassie_owner_v1_hub_member, 20);
 
 /**
  * @generated from message dassie.owner.v1.HubHoldReduced
@@ -934,7 +1001,7 @@ export type HubHoldReduced = Message<"dassie.owner.v1.HubHoldReduced"> & {
  * Use `create(HubHoldReducedSchema)` to create a new message.
  */
 export const HubHoldReducedSchema: GenMessage<HubHoldReduced> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 19);
+  messageDesc(file_dassie_owner_v1_hub_member, 21);
 
 /**
  * @generated from message dassie.owner.v1.HubClaimsPaid
@@ -976,7 +1043,7 @@ export type HubClaimsPaid = Message<"dassie.owner.v1.HubClaimsPaid"> & {
  * Use `create(HubClaimsPaidSchema)` to create a new message.
  */
 export const HubClaimsPaidSchema: GenMessage<HubClaimsPaid> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 20);
+  messageDesc(file_dassie_owner_v1_hub_member, 22);
 
 /**
  * @generated from message dassie.owner.v1.HubResynced
@@ -1014,7 +1081,7 @@ export type HubResynced = Message<"dassie.owner.v1.HubResynced"> & {
  * Use `create(HubResyncedSchema)` to create a new message.
  */
 export const HubResyncedSchema: GenMessage<HubResynced> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 21);
+  messageDesc(file_dassie_owner_v1_hub_member, 23);
 
 /**
  * @generated from message dassie.owner.v1.HubDropped
@@ -1033,7 +1100,7 @@ export type HubDropped = Message<"dassie.owner.v1.HubDropped"> & {
  * Use `create(HubDroppedSchema)` to create a new message.
  */
 export const HubDroppedSchema: GenMessage<HubDropped> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 22);
+  messageDesc(file_dassie_owner_v1_hub_member, 24);
 
 /**
  * @generated from message dassie.owner.v1.HubCommitment
@@ -1089,7 +1156,7 @@ export type HubCommitment = Message<"dassie.owner.v1.HubCommitment"> & {
  * Use `create(HubCommitmentSchema)` to create a new message.
  */
 export const HubCommitmentSchema: GenMessage<HubCommitment> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 23);
+  messageDesc(file_dassie_owner_v1_hub_member, 25);
 
 /**
  * @generated from message dassie.owner.v1.HubClaim
@@ -1133,7 +1200,7 @@ export type HubClaim = Message<"dassie.owner.v1.HubClaim"> & {
  * Use `create(HubClaimSchema)` to create a new message.
  */
 export const HubClaimSchema: GenMessage<HubClaim> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 24);
+  messageDesc(file_dassie_owner_v1_hub_member, 26);
 
 /**
  * @generated from message dassie.owner.v1.HubMoveEvent
@@ -1175,7 +1242,7 @@ export type HubMoveEvent = Message<"dassie.owner.v1.HubMoveEvent"> & {
  * Use `create(HubMoveEventSchema)` to create a new message.
  */
 export const HubMoveEventSchema: GenMessage<HubMoveEvent> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 25);
+  messageDesc(file_dassie_owner_v1_hub_member, 27);
 
 /**
  * @generated from enum dassie.owner.v1.HubMoveEvent.Stage
@@ -1231,7 +1298,7 @@ export type HubMoveEvent_Stage = (typeof HubMoveEvent_Stage)[keyof typeof HubMov
  * Describes the enum dassie.owner.v1.HubMoveEvent.Stage.
  */
 export const HubMoveEvent_StageSchema: GenEnum<HubMoveEvent_Stage> = /*@__PURE__*/
-  enumDesc(file_dassie_owner_v1_hub_member, 25, 0);
+  enumDesc(file_dassie_owner_v1_hub_member, 27, 0);
 
 /**
  * Which side of a packet over a hub the node is on.

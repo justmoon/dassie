@@ -188,9 +188,9 @@
       <h2 id="your-funds">Your funds in a hub</h2>
       <p>
         Your node moves money between its own account on the XRP Ledger and
-        the hub by itself. It keeps a generous amount in the hub: a thousand
-        of the largest packets, more than its holds for its peers are likely
-        ever to need. What counts is what your node put in, its holds for
+        the hub by itself. It keeps a generous amount in the hub, its target:
+        a thousand of the largest packets unless you set another, more than
+        its holds for its peers are likely ever to need. What counts is what your node put in, its holds for
         peers included. If you have less than that, your node keeps all of it
         in the hub, apart from a little XRP for a token hub's fees if it is
         in one. It always keeps enough spendable to answer a request to
@@ -223,10 +223,17 @@
         you look, and decide.
         <a href="/docs/wallet/hubs/">Your hubs</a> walks through it.
       </p>
-      <pre><code><span class="prompt">$</span>dassie hub status</code></pre>
+      <p>
+        To keep less in a hub, or more, set its target, on the Hubs page or
+        with <code>dassie hub target</code>: the floor and the ceiling follow,
+        a tenth either side. Less in the hub is less at stake if it fails,
+        and funds fewer holds for your peers.
+      </p>
+      <pre><code><span class="prompt">$</span>dassie hub status
+<span class="prompt">$</span>dassie hub target hub-xrpl-testnet-xrp 10</code></pre>
       <p class="not-yet">
-        Setting how much your node keeps in a hub, closing your account in
-        a hub, and being in more than one hub of an asset are not there yet.
+        Closing your account in a hub, and being in more than one hub of an
+        asset are not there yet.
         <a href="/docs/project/roadmap/">What's next</a>
       </p>
 

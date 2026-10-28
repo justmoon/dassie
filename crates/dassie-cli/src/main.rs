@@ -7,7 +7,7 @@
 //!   app, over the IPC socket too.
 //! - `dassie hub` shows the node's account in each settlement hub it is in,
 //!   and moves the owner's funds between one and the node's XRP Ledger
-//!   account;
+//!   account, or sets how much the node keeps in one;
 //!   `dassie hub found` founds a hub, and `dassie hub payout` shows the
 //!   payout bundles of one.
 //! - `dassie setup` sets the node up from its owner's passphrase, without
@@ -70,8 +70,8 @@ Commands:
                     certificate, setup, network, ledgers and updates.
   setup-url         Print the link that completes setup in a browser.
   hub [status]      Show the node's account in each settlement hub it is
-                    in, and the floor and ceiling the node keeps it between,
-                    a step either side of its target.
+                    in, the target the node keeps it near, and the floor
+                    and ceiling it keeps it between, a tenth either side.
                     The commands below name a hub by its <scheme>, the
                     settlement scheme over it that this shows, such as
                     hub-xrpl-testnet-xrp.
@@ -87,6 +87,10 @@ Commands:
   hub auto <scheme> on|off
                     Let the node move funds to and from the hub by itself,
                     or not.
+  hub target <scheme> <amount>|default
+                    Keep this much in the hub (what the node put in: its
+                    balance, reserves and holds toward peers), or the
+                    default, a thousand of the largest packets.
   hub give-up <scheme>
                     Give up a move the hub has not shown for long; the node
                     then moves nothing by itself until you act.

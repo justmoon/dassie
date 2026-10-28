@@ -13,6 +13,8 @@
 #    of its asset; setup fails until they are built into the release
 #    (spec/areas/market-maker-vm.md). It changes no scheme a node already
 #    runs, so a node with a database from before hubs starts afresh.
+#    Then it sets each hub's target, what the node keeps there, to 10 of
+#    the hub's asset, below every band's middle.
 # 2. Writes the market maker's config (crates/dassie-cli/src/market_maker/
 #    config.rs) beside the phrase, from the settings startup.sh wrote from
 #    the instance metadata (MM_*, in /etc/dassie-mm/settings.env). It names
@@ -34,6 +36,18 @@ dsusd_issuer=rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M
 DASSIE_IPC_SOCKET_PATH=$socket "$dassie" setup \
   --passphrase-file "$dir/node.phrase" \
   --hub hub-xrpl-testnet-xrp --hub hub-xrpl-testnet-dsusd
+
+# Each hub keeps a hundred of the largest packets, 10 of its asset, not the
+# default thousand: the rebalances spend from the owner books, so the most
+# the node keeps in a hub, its ceiling of 11, stays below every band's
+# middle (spec/areas/market-maker-vm.md#settings). Set at every start, so a
+# node set up before takes it too. Here rather than in the metadata's
+# settings, since the bands' defaults rest on it, and this script comes
+# from main at every boot.
+hub_target=10
+for hub in hub-xrpl-testnet-xrp hub-xrpl-testnet-dsusd; do
+  DASSIE_IPC_SOCKET_PATH=$socket "$dassie" hub target "$hub" "$hub_target"
+done
 
 umask 077
 jq -n \

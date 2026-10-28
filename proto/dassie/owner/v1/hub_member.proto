@@ -11,7 +11,7 @@ import "dassie/owner/v1/ledger.proto";
 // mainnet (spec/areas/hubs.md#in-the-node). The contract has no services:
 // these methods are numbered in `Request` and `Response`
 // (transport.proto) with the rest: GetHubStatus, HubDeposit, HubWithdraw,
-// SetHubAutomatic, HubGiveUp and SubscribeHubEvents.
+// SetHubAutomatic, SetHubTarget, HubGiveUp and SubscribeHubEvents.
 //
 // Each method but GetHubStatus and SubscribeHubEvents acts on one hub, which its request names by
 // `scheme`, the settlement scheme over it, as `HubStatus.scheme` gives it:
@@ -137,6 +137,12 @@ message HubStatus {
   // is: until a packet, a peer or the owner acts, the node changes nothing
   // in its books of the hub or of the owner book by itself.
   bool settling = 22;
+  // What the node keeps in the hub near, the midpoint of the floor and the
+  // ceiling: the target the owner set (SetHubTarget), or the default, a
+  // thousand of the largest packets.
+  uint64 target = 23;
+  // Whether the owner set the target.
+  bool target_by_owner = 24;
 }
 
 // Every hub the node is in whose scheme runs, in the order of their
@@ -192,6 +198,24 @@ message SetHubAutomaticRequest {
 }
 
 message SetHubAutomaticResponse {
+  HubStatus status = 1;
+}
+
+// Sets the target the node keeps the hub near, what it put in it (the
+// balance, the reserves and its holds toward peers), and with it the floor
+// and the ceiling, a tenth below and above it; or, with no target, goes back
+// to the default. The node keeps it, per hub. INVALID_ARGUMENT for a target
+// below the least, ten of the largest packets and so much that the floor
+// leaves a largest packet above the account's reserve, or above the most;
+// the message says the bound.
+message SetHubTargetRequest {
+  // The hub, by its scheme, as in HubDepositRequest.
+  string scheme = 1;
+  // The target, in the hub ledger's units; absent for the default.
+  optional uint64 target = 2;
+}
+
+message SetHubTargetResponse {
   HubStatus status = 1;
 }
 

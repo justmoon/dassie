@@ -8,12 +8,13 @@
 //!
 //! - **Near a generous target.** What the node keeps in the hub, what it
 //!   put in (the balance, its reserves and its holds toward peers), stays
-//!   near a target of a thousand largest packets, more than its holds are
-//!   likely ever to need (`policy::hub_target`): below a floor a step under
-//!   it, the node deposits from its XRPL account back up to it, as much as
-//!   that account holds; above a ceiling a step over it, it withdraws to
-//!   the owner's own account back down to it
-//!   (spec/decisions/generous-hub-target.md). So most nodes keep all their
+//!   near a target: a thousand largest packets, more than its holds are
+//!   likely ever to need (`policy::hub_target`), unless the owner sets
+//!   another for the hub. Below a floor a step under it, the node deposits
+//!   from its XRPL account back up to it, as much as that account holds;
+//!   above a ceiling a step over it, it withdraws to the owner's own
+//!   account back down to it (`policy::hub_limits`,
+//!   spec/decisions/generous-hub-target.md). So most nodes keep all their
 //!   funds in the hub, and only funds truly in excess stay on the owner's
 //!   own account (spec/decisions/one-balance-per-asset.md). Our peers'
 //!   holds toward us count nowhere: they are theirs until the node takes
@@ -56,7 +57,8 @@
 //!   what the hub may yet credit.
 //! - **The owner's moves** go the same way, and pause the automatic ones
 //!   for a while, so the node does not undo them at once. The owner may
-//!   turn the automatic moves off. The database keeps both.
+//!   turn the automatic moves off, and set the target. The database keeps
+//!   all of it.
 //! - **Nothing moves into or out of a hub that is unavailable**, such as a
 //!   frozen token hub (spec/decisions/token-hubs.md): its scheme or its
 //!   account is not in step with the hub.
@@ -385,6 +387,9 @@ pub enum GasNext {
 pub struct Funding {
     /// Whether the node moves funds by itself: the owner's choice.
     pub automatic: bool,
+    /// The target the owner set for what the node keeps in the hub, in
+    /// internal units; `None` for the default (`policy::hub_target`).
+    pub target: Option<u64>,
     /// Until when an owner's move pauses the automatic ones.
     pub paused_until_ms: u64,
     /// The move on its way.
@@ -412,6 +417,7 @@ impl Funding {
     pub const fn new(now_ms: u64, interval_ms: u64) -> Self {
         Self {
             automatic: true,
+            target: None,
             paused_until_ms: 0,
             moving: None,
             given_up: None,

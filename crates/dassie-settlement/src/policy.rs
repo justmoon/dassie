@@ -81,24 +81,49 @@ pub const fn redeem_threshold(max_packet: u64) -> u64 {
     max_packet.saturating_mul(2)
 }
 
-/// What a node keeps in its settlement hub: a thousand of the largest
-/// packets, more than its holds toward its peers are likely ever to need,
-/// so that the owner's funds stay on the owner's own account only when they
-/// are truly in excess. What counts toward it is what the node put in: the
-/// balance, its reserves and its holds toward peers, never its peers'
-/// holds toward it, which are theirs until it takes them
-/// (spec/decisions/generous-hub-target.md).
+/// What a node keeps in its settlement hub unless its owner sets another
+/// target for it: a thousand of the largest packets, more than its holds
+/// toward its peers are likely ever to need, so that the owner's funds stay
+/// on the owner's own account only when they are truly in excess. What
+/// counts toward it is what the node put in: the balance, its reserves and
+/// its holds toward peers, never its peers' holds toward it, which are
+/// theirs until it takes them (spec/decisions/generous-hub-target.md).
 #[must_use]
 pub const fn hub_target(max_packet: u64) -> u64 {
     max_packet.saturating_mul(1_000)
 }
 
-/// How far what the node keeps in its hub moves from the [`hub_target`]
-/// before the node moves funds: a tenth of it, so that each move between
-/// the hub and the node's own account carries many packets' worth.
+/// The least target an owner may set for a hub: ten of the largest
+/// packets, so that a [`hub_step`] is at least a largest packet, the least
+/// a deposit moves.
 #[must_use]
-pub const fn hub_step(max_packet: u64) -> u64 {
-    hub_target(max_packet) / 10
+pub const fn least_hub_target(max_packet: u64) -> u64 {
+    max_packet.saturating_mul(10)
+}
+
+/// The most target an owner may set for a hub: an eighth of what an
+/// account's counters hold, so that the ceiling, a step above it, and what
+/// the owner's payments need on top never come near them. Any target past
+/// what the owner holds has the node deposit everything, as this one does.
+pub const MOST_HUB_TARGET: u64 = MAX_TOTAL / 8;
+
+/// How far what the node keeps in its hub moves from its `target` before
+/// the node moves funds: a tenth of it, so that each move between the hub
+/// and the node's own account carries many packets' worth.
+#[must_use]
+pub const fn hub_step(target: u64) -> u64 {
+    target / 10
+}
+
+/// The floor and the ceiling of a hub whose target is `target`: below the
+/// floor, a [`hub_step`] under the target, the node deposits from its own
+/// account back up to it; above the ceiling, a step over it, it withdraws
+/// back down to it. Only what the node takes from its peers' holds toward
+/// it takes it past the ceiling.
+#[must_use]
+pub const fn hub_limits(target: u64) -> (u64, u64) {
+    let step = hub_step(target);
+    (target.saturating_sub(step), target.saturating_add(step))
 }
 
 /// The least a node keeps spendable in its settlement hub, whatever it
@@ -107,34 +132,32 @@ pub const fn hub_step(max_packet: u64) -> u64 {
 /// toward the peer. A payer over a hub settles as if it extended the
 /// default `credit`, with its hold counted as paid in advance, so a request
 /// takes at most what [`requested_amount`] gives at that credit, and never
-/// less than the least settlement. At most half a [`hub_step`], so that a
+/// less than the least settlement. At most half a [`hub_step`] of the hub's
+/// `target`, the default [`hub_target`] or the owner's, so that a
 /// withdrawal down to it still carries many packets' worth. Its holds
-/// toward peers count toward the [`hub_target`], so without it a node whose
-/// holds alone reach the target could withdraw what it can spend and never
+/// toward peers count toward the target, so without it a node whose holds
+/// alone reach the target could withdraw what it can spend and never
 /// deposit again (spec/decisions/generous-hub-target.md).
 #[must_use]
-pub fn hub_spendable(max_packet: u64, credit: u64, peerings: u64) -> u64 {
+pub fn hub_spendable(max_packet: u64, credit: u64, peerings: u64, target: u64) -> u64 {
     let asked = requested_amount(u128::from(credit), trigger(max_packet), minimum(max_packet));
     let each = asked.max(minimum(max_packet));
     let peerings = if peerings == 0 { 1 } else { peerings };
     let least = each.saturating_mul(peerings);
-    let most = hub_step(max_packet) / 2;
+    let most = hub_step(target) / 2;
     if least < most { least } else { most }
 }
 
-/// Below this, the node deposits from its own account back up to the
-/// [`hub_target`]: the target less a [`hub_step`].
+/// The floor of the default [`hub_target`] ([`hub_limits`]).
 #[must_use]
 pub const fn hub_floor(max_packet: u64) -> u64 {
-    hub_target(max_packet).saturating_sub(hub_step(max_packet))
+    hub_limits(hub_target(max_packet)).0
 }
 
-/// Above this, the node withdraws to its own account back down to the
-/// [`hub_target`]: the target and a [`hub_step`]. Only what the node takes
-/// from its peers' holds toward it takes it there.
+/// The ceiling of the default [`hub_target`] ([`hub_limits`]).
 #[must_use]
 pub const fn hub_ceiling(max_packet: u64) -> u64 {
-    hub_target(max_packet).saturating_add(hub_step(max_packet))
+    hub_limits(hub_target(max_packet)).1
 }
 
 /// The credit a node extends to every peer on a scheme with unlimited trust
@@ -148,6 +171,10 @@ pub const UNLIMITED_CREDIT: u64 = 1_000_000_000_000_000_000;
 const _: () = assert!(
     UNLIMITED_CREDIT <= MAX_TOTAL / 8,
     "unlimited credit past its share"
+);
+const _: () = assert!(
+    hub_limits(MOST_HUB_TARGET).1 <= MAX_TOTAL / 4,
+    "the most target's ceiling within an account's counters"
 );
 
 /// Whether to ask a peer to settle: our room for it, our `position`, has
@@ -276,8 +303,9 @@ mod tests {
     #[test]
     fn the_hub_keeps_near_its_target() {
         assert_eq!(hub_target(P), 1_000 * P);
-        assert_eq!(hub_step(P), 100 * P);
+        assert_eq!(hub_step(hub_target(P)), 100 * P);
         assert_eq!((hub_floor(P), hub_ceiling(P)), (900 * P, 1_100 * P));
+        assert_eq!(hub_limits(hub_target(P)), (hub_floor(P), hub_ceiling(P)));
         assert_eq!(hub_floor(P).midpoint(hub_ceiling(P)), hub_target(P));
     }
 
@@ -286,18 +314,43 @@ mod tests {
     // settle has a payer fund at the default credit of eleven packets: half
     // the way down to the trigger, 4.75 packets; one peering's worth with
     // none, never less than the least settlement, and at most half a step:
-    // ten peerings are covered fully.
+    // ten peerings are covered fully at the default target, and one at a
+    // target an owner set as low as a hundred packets.
     #[test]
     fn the_hub_keeps_what_requests_need_spendable() {
-        assert_eq!(hub_spendable(P, C, 0), 475 * P / 100);
-        assert_eq!(hub_spendable(P, C, 1), 475 * P / 100);
-        assert_eq!(hub_spendable(P, C, 10), 475 * P / 10);
-        assert_eq!(hub_spendable(P, C, 11), 50 * P);
+        let target = hub_target(P);
+        assert_eq!(hub_spendable(P, C, 0, target), 475 * P / 100);
+        assert_eq!(hub_spendable(P, C, 1, target), 475 * P / 100);
+        assert_eq!(hub_spendable(P, C, 10, target), 475 * P / 10);
+        assert_eq!(hub_spendable(P, C, 11, target), 50 * P);
         assert_eq!(
-            hub_spendable(P, 0, 2),
+            hub_spendable(P, 0, 2, target),
             2 * P,
             "at least the least settlement"
         );
+        assert_eq!(hub_spendable(P, C, 1, 100 * P), 475 * P / 100);
+        assert_eq!(hub_spendable(P, C, 3, 100 * P), 5 * P, "half a step");
+        assert_eq!(hub_spendable(P, C, 1, least_hub_target(P)), P / 2);
+    }
+
+    // spec/decisions/generous-hub-target.md: a target the owner sets moves
+    // the floor and the ceiling with it, a tenth either side. At the least
+    // target a step is a largest packet, the least deposit; at the most,
+    // nothing overflows.
+    #[test]
+    fn an_owners_target_moves_its_limits() {
+        assert_eq!(hub_limits(100 * P), (90 * P, 110 * P));
+        let least = least_hub_target(P);
+        assert_eq!(least, 10 * P);
+        assert_eq!(hub_step(least), P);
+        assert_eq!(hub_limits(least), (9 * P, 11 * P));
+        let (floor, ceiling) = hub_limits(MOST_HUB_TARGET);
+        assert!(floor < MOST_HUB_TARGET && MOST_HUB_TARGET < ceiling);
+        assert!(ceiling < MAX_TOTAL / 4);
+        // Not a multiple of ten: the step rounds down, and the floor and
+        // the ceiling stay as far either side.
+        assert_eq!(hub_limits(10 * P + 9), (9 * P + 9, 11 * P + 9));
+        assert_eq!(hub_limits(0), (0, 0));
     }
 
     #[test]

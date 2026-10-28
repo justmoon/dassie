@@ -385,8 +385,9 @@
         Also plain <code>dassie hub</code>. For each hub whose scheme runs:
         the hub's ID, the account's number and balance, whether it is in step
         with the hub, how many validators answer, what was deposited and
-        withdrawn, the floor and ceiling the node keeps the account between,
-        whether the node moves funds by itself, a move on its way, and the
+        withdrawn, the target the node keeps the account near, yours or the
+        default, the floor and ceiling either side of it, whether the node
+        moves funds by itself, a move on its way, and the
         holds toward and from each peer. A move the other side still has not
         shown ten minutes after it was made, or after the XRP Ledger applied
         it, is marked late.
@@ -417,6 +418,19 @@
         it on, the node deposits when the account falls below its floor, and
         withdraws to your own account what goes beyond the ceiling.
       </p>
+
+      <h3 id="dassie-hub-target"><code>dassie hub target &lt;scheme&gt; &lt;amount&gt;|default</code></h3>
+      <p>
+        Sets how much the node keeps in the hub: what it put in, its balance,
+        its reserves and its holds for peers. The floor and the ceiling
+        follow, a tenth below and above it. <code>default</code> goes back to
+        the default, a thousand of the largest packets: 100 XRP, or 100
+        dollars in a DSUSD hub. The node remembers the target, and refuses
+        one below ten of the largest packets, or so low that the account's
+        reserve alone would fill it; the message says the least.
+      </p>
+      <pre><code><span class="prompt">$</span>dassie hub target hub-xrpl-testnet-xrp 10
+<span class="prompt">$</span>dassie hub target hub-xrpl-testnet-xrp default</code></pre>
 
       <h3 id="dassie-hub-give-up"><code>dassie hub give-up &lt;scheme&gt;</code></h3>
       <p>

@@ -72,6 +72,9 @@ pub struct LedgerBatch {
     /// asset and the hub by itself, for each hub, by its scheme, whose
     /// owner changed it.
     pub hub_automatic: std::collections::BTreeMap<Name, bool>,
+    /// The target the owner set for what the node keeps in each hub, by
+    /// its scheme, whose owner changed it: `None` for the default.
+    pub hub_target: std::collections::BTreeMap<Name, Option<u64>>,
     /// The move between them on its way, and until when the owner's last
     /// move pauses the node's own, for each hub, by its scheme, where
     /// either changed.
@@ -101,6 +104,7 @@ impl LedgerBatch {
             && self.outgoing.is_empty()
             && self.peer_settings.is_none()
             && self.hub_automatic.is_empty()
+            && self.hub_target.is_empty()
             && self.hub_funding.is_empty()
     }
 
@@ -423,6 +427,7 @@ impl Store {
         super::hub_funding::write_hub_funding(
             &transaction,
             &batch.hub_automatic,
+            &batch.hub_target,
             &batch.hub_funding,
         )?;
         #[cfg(feature = "testing")]

@@ -5739,6 +5739,111 @@ fn the_owners_moves_pause_the_automatic_ones() {
     assert!(!core.funding[&hub].automatic);
 }
 
+// spec/areas/hubs.md#in-the-node, spec/decisions/generous-hub-target.md:
+// the owner sets the target of a hub, and its floor and ceiling follow, a
+// tenth either side: the opening deposit fills it, and a withdrawal goes
+// back down to it. The database keeps it across a restart, and `None` goes
+// back to the default, which a restart keeps too. A target out of bounds
+// is refused, changing nothing.
+#[test]
+fn the_owners_target_moves_the_floor_and_the_ceiling() {
+    use dassie_settlement::policy;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut ledger, own) = funded_ledger();
+    let mut core = core_on(Arc::clone(&store), 9);
+    add_xrpl(&mut core, "xrpl-testnet-xrp", SHARED_CONFIG).unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    let scheme = dassie_hub::member::SCHEME_ID;
+    core.add_scheme(scheme, hub_config(600, 300)).unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    let target = owners_target_set(&mut core);
+    let fees = hub.rules.terms.fees;
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+
+    // The opening deposit fills the owner's target.
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let made = deposits(&mut ledger, escrow);
+    let middle = target / units;
+    let opening = fees.account_reserve + fees.starting_balance + middle;
+    assert_eq!((made.len(), made[0].amount), (1, opening));
+
+    // Past the owner's ceiling, though far below the default floor: a
+    // withdrawal down to the owner's target, counting the reserve.
+    hub.account(&mut core, middle, opening);
+    let balance = 110 * p / units;
+    hub.account(&mut core, balance, opening);
+    let outputs = wait_and_close(&mut core, &mut ledger, 4_000);
+    let kept = balance + fees.account_reserve;
+    let to = dassie_hub::operation::Destination {
+        account: own.0,
+        tag: None,
+    };
+    assert_eq!(withdrawals(&outputs), [(kept - middle, to)]);
+
+    // Kept across a restart.
+    core.flush();
+    drop(core);
+    let mut core = core_on(Arc::clone(&store), 10);
+    let name = dassie_ledger::name!(dassie_hub::member::SCHEME_ID);
+    assert_eq!(core.funding[&name].target, Some(target));
+    let status = core.hub_status().unwrap();
+    assert_eq!((status.target, status.target_by_owner), (target, true));
+    assert_eq!((status.floor, status.ceiling), (90 * p, 110 * p));
+
+    // Back to the default, and kept so.
+    let back = core.set_hub_target(scheme, None).unwrap();
+    assert_eq!(
+        (back.target, back.target_by_owner),
+        (policy::hub_target(p), false)
+    );
+    assert_eq!(
+        (back.floor, back.ceiling),
+        (policy::hub_floor(p), policy::hub_ceiling(p))
+    );
+    core.flush();
+    drop(core);
+    let core = core_on(Arc::clone(&store), 11);
+    assert_eq!(core.funding[&name].target, None);
+    assert!(!core.hub_status().unwrap().target_by_owner);
+}
+
+/// Has the owner of `core`, in the XRP hub at the default target, set a
+/// hundred largest packets as its target, after targets out of bounds
+/// were refused, changing nothing. The target.
+fn owners_target_set(core: &mut Core) -> u64 {
+    use dassie_settlement::policy;
+
+    let scheme = dassie_hub::member::SCHEME_ID;
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let status = core.hub_status().unwrap();
+    assert_eq!(
+        (status.target, status.target_by_owner),
+        (policy::hub_target(p), false)
+    );
+    for refused in [0, 10 * p - 1, policy::MOST_HUB_TARGET + 1] {
+        let refused = core.set_hub_target(scheme, Some(refused));
+        assert!(matches!(refused, Err(super::EngineError::Invalid(_))));
+    }
+    assert!(matches!(
+        core.set_hub_target("", Some(100 * p)),
+        Err(super::EngineError::Invalid(_))
+    ));
+    assert!(
+        !core.hub_status().unwrap().target_by_owner,
+        "nothing changed"
+    );
+    let target = 100 * p;
+    let set = core.set_hub_target(scheme, Some(target)).unwrap();
+    assert_eq!((set.target, set.target_by_owner), (target, true));
+    assert_eq!((set.floor, set.ceiling), (90 * p, 110 * p));
+    target
+}
+
 // spec/areas/hubs.md#in-the-node: an owner's move names its hub by the
 // scheme over it, which it must name, even while the node is in one hub;
 // the scheme over the hub is not removed while a move of it is on its

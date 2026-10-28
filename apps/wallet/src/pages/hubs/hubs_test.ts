@@ -30,12 +30,22 @@ import {
   moveText,
   payoutState,
   payoutText,
+  targetSourceText,
   validatorsText,
   withHub,
 } from "./hubs.ts";
 
 const XRP = currencyOf("XRP", 9);
 const NOW = 1_800_000_000_000;
+
+test("the target says whose it is", () => {
+  const status = create(HubStatusSchema, { target: 10_000_000_000n });
+  assertEquals(targetSourceText(status), "the default");
+  assertEquals(
+    targetSourceText({ ...status, targetByOwner: true }),
+    "your target",
+  );
+});
 
 test("a hub's amounts are in its scheme's ledger's asset", () => {
   const ledgers = [

@@ -168,9 +168,13 @@ pub struct HubStatus {
     pub paying: Vec<HubHold>,
     /// Peers' holds toward us.
     pub taking: Vec<HubHold>,
-    /// The floor and the ceiling.
+    /// What the node keeps in the hub near: the owner's, or the default.
+    pub target: u64,
+    /// Whether the owner set the target.
+    pub target_by_owner: bool,
+    /// The floor, a step below the target.
     pub floor: u64,
-    /// The ceiling.
+    /// The ceiling, a step above it.
     pub ceiling: u64,
     /// Whether the node moves funds by itself.
     pub automatic: bool,
@@ -242,15 +246,17 @@ fn from_row(row: &HubMoveRow) -> Result<Move, String> {
     })
 }
 
-/// A hub's moves as the database keeps them, checked as of `now_ms`.
+/// A hub's moves as the database keeps them, with the owner's choices,
+/// checked as of `now_ms`.
 fn restored(
     now_ms: u64,
     interval_ms: u64,
-    automatic: bool,
+    (automatic, target): (bool, Option<u64>),
     row: &HubFundingRow,
 ) -> Result<Funding, String> {
     let mut funding = Funding::new(now_ms, interval_ms);
     funding.automatic = automatic;
+    funding.target = target;
     funding.paused_until_ms = row.paused_until_ms;
     funding.moving = row.moving.as_ref().map(from_row).transpose()?;
     funding.given_up = row.given_up.map(|(deposit, drops)| {
@@ -301,15 +307,22 @@ impl Core {
             if self.funding.contains_key(&scheme) {
                 continue;
             }
-            let (automatic, row) = self.store.hub_funding(scheme).map_err(|e| e.to_string())?;
+            let stored = self.store.hub_funding(scheme).map_err(|e| e.to_string())?;
             let automatic = self
                 .batch
                 .hub_automatic
                 .get(&scheme)
                 .copied()
-                .unwrap_or(automatic);
-            let row = self.batch.hub_funding.get(&scheme).unwrap_or(&row);
-            let funding = restored(self.now_ms, self.settle.interval_ms, automatic, row)?;
+                .unwrap_or(stored.automatic);
+            let target = self
+                .batch
+                .hub_target
+                .get(&scheme)
+                .copied()
+                .unwrap_or(stored.target);
+            let row = self.batch.hub_funding.get(&scheme).unwrap_or(&stored.row);
+            let chosen = (automatic, target);
+            let funding = restored(self.now_ms, self.settle.interval_ms, chosen, row)?;
             self.funding.insert(scheme, funding);
         }
         assert!(self.funding.len() <= MAX_OWN_HUBS, "a funding per hub");
@@ -554,8 +567,8 @@ impl Core {
     /// hub, the hub's fee on an operation per least settlement, since the
     /// payer pays the gas of the settlements that follow, and the XRP
     /// Ledger's fee on a deposit from the owner book that refills the hub,
-    /// over the least such a deposit moves, a step of the target. All of
-    /// it from the hub's rules and the node's own settings, which no
+    /// over the least such a deposit moves, a step of that hub's target.
+    /// All of it from the hub's rules and the node's own settings, which no
     /// message carries. Nothing on a method over no hub; `None` while the
     /// scheme has stopped, or a token hub's deposit fee, which is XRP, has
     /// no rate in the token.
@@ -581,7 +594,7 @@ impl Core {
         let max_packet = self.settle.max_packet;
         let gas = fees.operation.saturating_mul(UNITS_PER_DROP);
         let gas_ppm = per(gas, policy::minimum(max_packet))?;
-        let step = policy::hub_step(max_packet);
+        let step = policy::hub_step(self.hub_target(scheme));
         let deposit = XRPL_FEE_DROPS.saturating_mul(UNITS_PER_DROP);
         let deposit = if ledger.asset().code == "XRP" {
             deposit
@@ -597,14 +610,25 @@ impl Core {
         u32::try_from(gas_ppm.saturating_add(move_ppm)).ok()
     }
 
-    /// The floor and the ceiling, in internal units: the target less a
-    /// step and with one (spec/decisions/generous-hub-target.md).
-    const fn hub_limits(&self) -> (u64, u64) {
+    /// What the node keeps in the hub of `scheme` near, in internal units:
+    /// the target its owner set, checked when set ([`check_target`]) and
+    /// kept from ten largest packets to the most an owner may set, should
+    /// the largest packet change since; or the default
+    /// (spec/decisions/generous-hub-target.md).
+    fn hub_target(&self, scheme: Name) -> u64 {
         let max_packet = self.settle.max_packet;
-        (
-            policy::hub_floor(max_packet),
-            policy::hub_ceiling(max_packet),
-        )
+        self.funding
+            .get(&scheme)
+            .and_then(|funding| funding.target)
+            .map_or_else(
+                || policy::hub_target(max_packet),
+                |target| {
+                    target.clamp(
+                        policy::least_hub_target(max_packet),
+                        policy::MOST_HUB_TARGET,
+                    )
+                },
+            )
     }
 
     /// The hub account as last agreed, once the account read up to it.
@@ -651,13 +675,15 @@ impl Core {
         let active = self.schemes.get(&scheme)?;
         let terms = account.terms();
         let fees = terms.fees;
-        let (floor, ceiling) = self.hub_limits();
+        let target = self.hub_target(scheme);
+        let (floor, ceiling) = policy::hub_limits(target);
         let (floor, ceiling) = (drops_up(floor), ceiling / UNITS_PER_DROP);
         let peerings = u64::try_from(self.hub_peerings(scheme).len()).unwrap_or(u64::MAX);
         let least_spendable = drops_up(policy::hub_spendable(
             self.settle.max_packet,
             self.peer_credit,
             peerings,
+            target,
         ));
         let unfunded = active
             .asset
@@ -1403,7 +1429,8 @@ impl Core {
     fn hub_status_of(&self, scheme: Name) -> Option<HubStatus> {
         let account = self.hub_account(scheme)?;
         let peers = self.hub_peerings(scheme);
-        let (floor, ceiling) = self.hub_limits();
+        let target = self.hub_target(scheme);
+        let (floor, ceiling) = policy::hub_limits(target);
         let number = account.number();
         let view = account.view().map(|(_, view)| *view);
         let units = dassie_hub::member::units;
@@ -1446,6 +1473,8 @@ impl Core {
             returned: units(view.map_or(0, |v| v.returned)),
             paying,
             taking,
+            target,
+            target_by_owner: funding.target.is_some(),
             floor,
             ceiling,
             automatic: funding.automatic,
@@ -1658,6 +1687,37 @@ impl Core {
             .ok_or_else(|| EngineError::Internal("the hub scheme vanished".into()))
     }
 
+    /// Sets the target the node keeps the hub over `scheme` near, in
+    /// internal units, or with `None` goes back to the default; the
+    /// database keeps it. Its floor and ceiling follow, a tenth either
+    /// side (spec/decisions/generous-hub-target.md). Its status.
+    ///
+    /// # Errors
+    ///
+    /// No such hub, or a target out of bounds ([`check_target`]).
+    pub fn set_hub_target(
+        &mut self,
+        scheme: &str,
+        target: Option<u64>,
+    ) -> Result<HubStatus, EngineError> {
+        let scheme = self.chosen_hub(scheme)?;
+        if let Some(target) = target {
+            let reserve = self
+                .hub_account(scheme)
+                .map_or(0, |account| account.terms().fees.account_reserve);
+            check_target(scheme, target, self.settle.max_packet, reserve)?;
+        }
+        self.follow_hubs();
+        let funding = self
+            .funding
+            .get_mut(&scheme)
+            .ok_or_else(|| EngineError::Internal("a hub without its funding".into()))?;
+        funding.target = target;
+        self.batch.hub_target.insert(scheme, target);
+        self.hub_status_of(scheme)
+            .ok_or_else(|| EngineError::Internal("the hub scheme vanished".into()))
+    }
+
     /// The owner gives up the move on its way of the hub over `scheme`, once
     /// it is late: the node forgets it and books nothing. Each side books
     /// its half when it sees it, so if the hub credits a given-up deposit
@@ -1746,6 +1806,63 @@ impl Core {
     }
 }
 
+/// The least target the owner may set for a hub whose account reserve is
+/// `reserve` drops, in internal units, as whole drops: ten largest packets
+/// (`policy::least_hub_target`), and so much that its floor leaves a
+/// largest packet above the reserve, which counts toward what the node
+/// keeps. A target the reserve alone fills would have the node withdraw
+/// all the account can spend, and never deposit.
+fn least_target(max_packet: u64, reserve: u64) -> u64 {
+    let above = reserve
+        .saturating_mul(UNITS_PER_DROP)
+        .saturating_add(max_packet);
+    // A floor is the target less a tenth of it, rounded down: at least
+    // nine tenths of it.
+    let least = policy::least_hub_target(max_packet).max(above.saturating_mul(10).div_ceil(9));
+    least
+        .div_ceil(UNITS_PER_DROP)
+        .saturating_mul(UNITS_PER_DROP)
+}
+
+/// Whether the owner may set `target`, in internal units, for the hub of
+/// `scheme`, whose account reserve is `reserve` drops: from
+/// [`least_target`] to `policy::MOST_HUB_TARGET`.
+///
+/// # Errors
+///
+/// [`EngineError::Invalid`], saying the bound, for one out of them.
+fn check_target(
+    scheme: Name,
+    target: u64,
+    max_packet: u64,
+    reserve: u64,
+) -> Result<(), EngineError> {
+    let least = least_target(max_packet, reserve);
+    if target < least {
+        return Err(EngineError::Invalid(format!(
+            "the target is at least {}: ten of the largest packets, so that a move of a \
+             tenth of it is worth its fee, and enough that its floor, a tenth below it, leaves \
+             a largest packet to spend above the {} the hub keeps as the account's reserve",
+            in_asset(scheme, least / UNITS_PER_DROP),
+            in_asset(scheme, reserve)
+        )));
+    }
+    if target > policy::MOST_HUB_TARGET {
+        return Err(EngineError::Invalid(format!(
+            "the target is at most {}",
+            in_asset(scheme, policy::MOST_HUB_TARGET / UNITS_PER_DROP)
+        )));
+    }
+    assert!(
+        policy::hub_limits(target).0
+            >= reserve
+                .saturating_mul(UNITS_PER_DROP)
+                .saturating_add(max_packet),
+        "a target's floor leaves a largest packet above the reserve"
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -1781,12 +1898,54 @@ mod tests {
         funding.start(10, planned, Name::new("pay-1").unwrap());
         funding.given_up = Some((Direction::Withdraw, 9));
         let kept = row(&funding);
-        let back = restored(20, 4_000, false, &kept).unwrap();
+        let back = restored(20, 4_000, (false, Some(7_000)), &kept).unwrap();
         assert!(!back.automatic);
+        assert_eq!(back.target, Some(7_000));
         assert_eq!(back.paused_until_ms, funding.paused_until_ms);
         assert_eq!(back.moving, funding.moving);
         assert_eq!(back.given_up, funding.given_up);
         assert_eq!(row(&back), kept);
+    }
+
+    // spec/decisions/generous-hub-target.md: an owner's target is at least
+    // ten largest packets, and so much that its floor leaves a largest
+    // packet above the account's reserve, which counts toward it; at most
+    // the bound that keeps every sum within an account's counters. Each
+    // refusal names the bound in the hub's asset.
+    #[test]
+    fn an_owners_target_stays_within_its_bounds() {
+        let p = 100_000_000;
+        let xrp = Name::new("hub-xrpl-testnet-xrp").unwrap();
+        let reserve = 2_000_000;
+        assert_eq!(least_target(p, 0), policy::least_hub_target(p));
+        let least = least_target(p, reserve);
+        assert_eq!(least, 2_333_334_000, "whole drops");
+        assert!(policy::hub_limits(least).0 >= reserve * UNITS_PER_DROP + p);
+        assert!(policy::hub_limits(least - UNITS_PER_DROP).0 < reserve * UNITS_PER_DROP + p);
+        assert_eq!(check_target(xrp, least, p, reserve), Ok(()));
+        let low = check_target(xrp, least - 1, p, reserve);
+        assert!(
+            matches!(&low, Err(EngineError::Invalid(message))
+                if message.starts_with("the target is at least 2.333334 XRP")
+                    && message.contains("above the 2 XRP the hub keeps")),
+            "{low:?}"
+        );
+        let least = policy::least_hub_target(p);
+        assert_eq!(check_target(xrp, least, p, 0), Ok(()));
+        assert!(check_target(xrp, least - 1, p, 0).is_err());
+        let most = policy::MOST_HUB_TARGET;
+        assert_eq!(check_target(xrp, most, p, reserve), Ok(()));
+        let high = check_target(xrp, most + 1, p, reserve);
+        assert!(
+            matches!(&high, Err(EngineError::Invalid(message))
+                if message.starts_with("the target is at most 1152921504.606846 XRP")),
+            "{high:?}"
+        );
+        let dsusd = Name::new("hub-xrpl-testnet-dsusd").unwrap();
+        assert!(
+            matches!(check_target(dsusd, 1, p, reserve), Err(EngineError::Invalid(message))
+                if message.contains("2.333334 DSUSD"))
+        );
     }
 
     // spec/areas/hubs.md#in-the-node: a funding keeps its move on its way,

@@ -33,6 +33,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     MIGRATION_8,
     MIGRATION_9,
     MIGRATION_10,
+    MIGRATION_11,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -815,6 +816,16 @@ const MIGRATION_10: &str = "
 DROP TABLE funds_kept;
 ";
 
+/// Migration 11: the target the owner set for what the node keeps in a
+/// settlement hub, in the hub ledger's units
+/// (spec/areas/hubs.md#in-the-node,
+/// spec/decisions/generous-hub-target.md): NULL, the default, for every
+/// hub kept before.
+const MIGRATION_11: &str = "
+ALTER TABLE hub_funding ADD COLUMN target INTEGER
+  CHECK (target IS NULL OR target > 0);
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1326,6 +1337,7 @@ pub const TABLES: &[Table] = &[
             ("move_applied_ms", "INTEGER", false, false),
             ("given_up_kind", "TEXT", false, false),
             ("given_up_drops", "INTEGER", false, false),
+            ("target", "INTEGER", false, false),
         ],
     },
     Table {

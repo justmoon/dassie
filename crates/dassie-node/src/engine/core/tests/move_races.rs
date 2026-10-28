@@ -1,15 +1,18 @@
 //! The moves between the XRP hub and its owner book while the hub
 //! account's own operations race them (spec/areas/hubs.md#in-the-node): a
-//! move that failed one way holds back only the next move that way, never
-//! the deposit the floor calls for. On one engine core in
+//! withdrawal is sized from what the account can still spend once the
+//! operations before it executed, never from an agreed state older than
+//! they are; and a move that failed one way holds back only the next move
+//! that way, never the deposit the floor calls for. On one engine core in
 //! the XRP hub, with a downlink peered over it.
 
 use std::sync::Arc;
 
 use dassie_hub::client::Statement;
-use dassie_hub::ledger::{Failure, Outcome};
+use dassie_hub::ledger::{Detail, Failure, Outcome};
 use dassie_hub::member::SCHEME_ID;
 use dassie_hub::operation::{MemberOperation, Operation, SignedMemberOperation};
+use dassie_hub::promise::HoldNumber;
 use dassie_identity::NodeId;
 use dassie_settlement::policy;
 use dassie_xrpl::UNITS_PER_DROP;
@@ -19,7 +22,7 @@ use super::super::hub_funding::{Direction, FIRST_BACKOFF_MS};
 use super::super::{Core, Output};
 use super::{
     NOW, Policies, SHARED_CONFIG, Validators, add_xrpl, deposits, downlink_request_on, follow_xrpl,
-    funded_ledger, hub_config, wait_and_close, withdrawals,
+    funded_ledger, hub_config, scheme_id, wait_and_close, withdrawals,
 };
 
 /// The downlink's account in the hub.
@@ -28,25 +31,27 @@ const PEER_ACCOUNT: u32 = 9;
 /// The seed of the downlink's key in the hub.
 const PEER_SEED: u8 = 12;
 
-/// The floor and the ceiling of a hub, in drops, and their midpoint, the
-/// target.
-fn limits() -> (u64, u64, u64) {
+/// The floor and the ceiling of a hub whose target is `target`, or the
+/// default, in drops, and their midpoint, the target.
+fn limits(target: Option<u64>) -> (u64, u64, u64) {
     let p = Policies::DEFAULT.connector.max_packet_amount;
-    let floor = policy::hub_floor(p) / UNITS_PER_DROP;
-    let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
+    let (floor, ceiling) = policy::hub_limits(target.unwrap_or(policy::hub_target(p)));
+    let (floor, ceiling) = (floor.div_ceil(UNITS_PER_DROP), ceiling / UNITS_PER_DROP);
     (floor, ceiling, floor.midpoint(ceiling))
 }
 
 /// The seed the tests run on; any other gives the same outcome.
 const SEED: u64 = 9;
 
-/// A core of `seed` in the XRP hub whose account, number 5, the opening
-/// deposit credited, holding `balance` drops as last agreed, with a
-/// downlink peered over the hub as account [`PEER_ACCOUNT`]: the core, the
-/// hub, the downlink and what the opening deposit paid.
+/// A core of `seed` in the XRP hub, with the owner's `target` for it or
+/// the default, whose account, number 5, the opening deposit credited,
+/// holding `balance` drops as last agreed, with a downlink peered over the
+/// hub as account [`PEER_ACCOUNT`]: the core, the hub, the downlink and
+/// what the opening deposit paid.
 fn hub_with_peer(
     ledger: &mut FakeLedger,
     balance: u64,
+    target: Option<u64>,
     seed: u64,
 ) -> (Core, Validators, NodeId, u64) {
     let mut core = super::core(seed);
@@ -54,6 +59,9 @@ fn hub_with_peer(
     follow_xrpl(&mut core, ledger);
     core.add_scheme(SCHEME_ID, hub_config(600, 300)).unwrap();
     follow_xrpl(&mut core, ledger);
+    if let Some(target) = target {
+        core.set_hub_target(SCHEME_ID, Some(target)).unwrap();
+    }
     let mut hub = Validators::new();
     hub.no_account(&mut core);
     wait_and_close(&mut core, ledger, 1_000);
@@ -106,6 +114,20 @@ fn submitted(outputs: &[Output]) -> Vec<SignedMemberOperation> {
     seen
 }
 
+/// The downlink asks the core to settle at `at`: the core funds its hold
+/// toward it, and the account sends the operation. The operation, and the
+/// drops it funds.
+fn asked_to_settle(core: &mut Core, peer: NodeId, at: u64) -> (SignedMemberOperation, u64) {
+    core.begin_step(at);
+    let settling = core.settlement_requested(peer, scheme_id(SCHEME_ID));
+    assert!(settling > 0, "the request is funded");
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let sent = submitted(&outputs);
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    (sent[0].clone(), settling / UNITS_PER_DROP)
+}
+
 /// The hub executes, in a new final block, `ours` with `outcome`; the
 /// validators say no new state of the account in it, as they say one only
 /// every few seconds.
@@ -141,6 +163,87 @@ fn withdrawals_back_off(core: &Core, now: u64) -> bool {
         .is_some()
 }
 
+// The race the e2e flow ran into, at a target the owner set low: the
+// node's hold funding to its peer executes, and the agreed state of its
+// account, which the validators say only every few seconds, still shows the
+// balance from before. The mirrored hold counts toward what the node keeps
+// beside that balance, which then reads past the ceiling, so a withdrawal is
+// due. It is sized from what the account can spend once its operations
+// executed, less what the requests to settle may ask of it, which leaves
+// less than the hub pays out, so none is made: one sized from the older
+// state the hub scheme would refuse. Then the account's state shows the
+// balance below the floor, as further fundings take it there, and the
+// deposit goes at once.
+//
+// At the default target it cannot happen: the funding counted twice adds
+// little more than itself, while past the ceiling the hub pays out only
+// what is kept beyond a target a thousand packets high, far less than the
+// account can spend. A target of 33.3 packets, against a funding of 4.75
+// and an account reserve of 20, is in the narrow band where it does.
+#[test]
+fn a_withdrawal_sized_before_a_funding_landed_holds_back_no_deposit() {
+    withdrawal_sized_before_a_funding_landed(SEED);
+}
+
+/// [`a_withdrawal_sized_before_a_funding_landed_holds_back_no_deposit`]
+/// on a core of `seed`.
+fn withdrawal_sized_before_a_funding_landed(seed: u64) {
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let target = 333 * p / 10;
+    let (floor, ceiling, middle) = limits(Some(target));
+    let (mut ledger, _) = funded_ledger();
+    let balance = 1_660_000;
+    let (mut core, mut hub, peer, opening) =
+        hub_with_peer(&mut ledger, balance, Some(target), seed);
+    let fees = hub.rules.terms.fees;
+    let fee = fees.operation + fees.ledger;
+    let least_spendable =
+        policy::hub_spendable(p, Policies::DEFAULT.peer_credit, 1, target).div_ceil(UNITS_PER_DROP);
+    assert!(
+        balance + fees.account_reserve <= ceiling,
+        "nothing withdrawn before the funding"
+    );
+    let at = core.now_ms() + 1_000;
+    let (funding, drops) = asked_to_settle(&mut core, peer, at);
+    let applied = Outcome::Applied {
+        fee: fees.operation,
+        detail: Detail::Hold(HoldNumber(1)),
+    };
+    executed_without_a_state(&mut core, &mut hub, &funding, applied);
+    // The hold, mirrored, counts beside the agreed balance it came from.
+    let kept = balance + fees.account_reserve + fees.hold_reserve + drops;
+    assert!(kept > ceiling, "a withdrawal is due");
+    let spendable = balance - drops - fees.hold_reserve - fees.operation;
+    let from_the_state = (kept - middle).min(balance - least_spendable - fee);
+    assert!(
+        from_the_state >= fees.least_payout && from_the_state + fee > spendable,
+        "the agreed state alone would call for a withdrawal the account cannot pay"
+    );
+    assert!(
+        spendable < least_spendable + fee + fees.least_payout,
+        "what the account can spend leaves less than the hub pays out"
+    );
+
+    let outputs = wait_and_close(&mut core, &mut ledger, 4_000);
+    assert_eq!(withdrawals(&outputs), [], "none beyond what it can spend");
+    let now = core.now_ms();
+    assert!(!withdrawals_back_off(&core, now), "nothing failed");
+    assert_eq!(core.hub_status().unwrap().moving, None);
+
+    // Further fundings take the balance below the floor: the deposit the
+    // floor calls for goes at the next check, up to the target.
+    let low = 100_000;
+    hub.account(&mut core, low, opening);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let made = deposits(&mut ledger, hub.escrow());
+    assert_eq!(made.len(), 2, "the floor's deposit went: {made:?}");
+    let kept = low + fees.account_reserve + fees.hold_reserve + drops;
+    assert!(kept < floor);
+    assert_eq!(made[1].amount, middle - kept);
+    assert!(core.now_ms() - at < FIRST_BACKOFF_MS, "within the backoff");
+    core.check_invariants();
+}
+
 // A withdrawal the hub failed backs off the next withdrawal, doubling, as
 // before, so a hub that keeps failing them is not asked again at every
 // check; the deposit the floor then calls for goes at once all the same.
@@ -151,9 +254,9 @@ fn a_failed_withdrawal_holds_back_only_withdrawals() {
 
 /// [`a_failed_withdrawal_holds_back_only_withdrawals`] on a core of `seed`.
 fn failed_withdrawal(seed: u64) {
-    let (floor, ceiling, middle) = limits();
+    let (floor, ceiling, middle) = limits(None);
     let (mut ledger, _) = funded_ledger();
-    let (mut core, mut hub, _, opening) = hub_with_peer(&mut ledger, floor + 2_000_000, seed);
+    let (mut core, mut hub, _, opening) = hub_with_peer(&mut ledger, floor + 2_000_000, None, seed);
     let fees = hub.rules.terms.fees;
 
     // Past the ceiling: a withdrawal down to the target, the midpoint.
