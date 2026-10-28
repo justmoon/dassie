@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Every choice behind Dassie's design, one line each, grouped by the part of Dassie it shapes, with a link to its full reasons."
+    />
+    <title>Design decisions · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Design decisions</h1>
+      <p class="lede">
+        Each decision records one choice between real alternatives: why
+        Dassie works the way it does, and what it chose not to do. Here they
+        all are, one line each. The full text lives with the specification on
+        GitHub.
+      </p>
+
+      <h2 id="reading-a-decision">Reading a decision</h2>
+      <p>
+        A decision is a short Markdown file in
+        <a href="https://github.com/justmoon/dassie/tree/main/spec/decisions"><code>spec/decisions/</code></a>.
+        Each one has the same parts:
+      </p>
+      <ul>
+        <li><strong>Areas:</strong> the parts of Dassie it shapes.</li>
+        <li><strong>Facts:</strong> what forced a choice.</li>
+        <li><strong>Decision:</strong> what was chosen.</li>
+        <li><strong>Accepted:</strong> what the choice costs, said plainly.</li>
+        <li><strong>Rejected:</strong> the other options, and why each lost.</li>
+      </ul>
+      <p>
+        A decision keeps the reasons. The rules themselves are in the area
+        docs of the <a href="/docs/project/spec/">specification</a>, and the
+        values are in the code. Read a decision before you change the rule it
+        explains.
+      </p>
+      <p>
+        Decisions have names, such as <code>own-books</code>, and a name is
+        never given to another decision, so code and docs can cite it for
+        good. Older commits and issues cite some decisions by a number
+        instead; the
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/README.md#former-numbers">table of former numbers</a>
+        translates them.
+      </p>
+      <p>
+        "Not built" or "partly built" in a line means the choice is made, but
+        the code does not do all of it yet. What is missing is on
+        <a href="/docs/project/roadmap/">What's next</a>.
+      </p>
+
+      <h2 id="engineering">Engineering, testing and releases</h2>
+      <p>How the code is written, tested, built and shipped. The rules themselves are in <a href="https://github.com/justmoon/dassie/blob/main/spec/engineering.md">Engineering</a>, <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/testing.md">Testing</a>, <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/release.md">Release</a>, <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/website.md">Website</a>.</p>
+      <dl class="ref">
+        <dt
+          id="build-system"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/build-system.md"><code>build-system</code></a></dt>
+        <dd>
+          <p>A Nix flake builds CI's checks and the releases; plain <code>cargo</code> and <code>node --run</code> work locally.</p>
+        </dd>
+        <dt
+          id="crash-drift"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/crash-drift.md"><code>crash-drift</code></a></dt>
+        <dd>
+          <p>The simulation rules out a link that crashes drifted past what it survives.</p>
+        </dd>
+        <dt
+          id="crate-by-crate-builds"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/crate-by-crate-builds.md"><code>crate-by-crate-builds</code></a></dt>
+        <dd>
+          <p>CI builds the Rust workspace crate by crate.</p>
+        </dd>
+        <dt
+          id="named-decisions"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/named-decisions.md"><code>named-decisions</code></a></dt>
+        <dd>
+          <p>Decisions are named, not numbered.</p>
+        </dd>
+        <dt
+          id="nix-flake-on-the-mirror"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/nix-flake-on-the-mirror.md"><code>nix-flake-on-the-mirror</code></a></dt>
+        <dd>
+          <p>NixOS takes a release from a flake on the mirror.</p>
+        </dd>
+        <dt
+          id="no-simulations-in-tests"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/no-simulations-in-tests.md"><code>no-simulations-in-tests</code></a></dt>
+        <dd>
+          <p>No test runs a simulation: a case one finds becomes a targeted test.</p>
+        </dd>
+        <dt
+          id="node-and-pnpm"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/node-and-pnpm.md"><code>node-and-pnpm</code></a></dt>
+        <dd>
+          <p>Tooling on Node and pnpm, not Deno.</p>
+        </dd>
+        <dt
+          id="own-books"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/own-books.md"><code>own-books</code></a></dt>
+        <dd>
+          <p>Each node keeps its own books.</p>
+        </dd>
+        <dt
+          id="random-seed-simulations"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/random-seed-simulations.md"><code>random-seed-simulations</code></a></dt>
+        <dd>
+          <p>Simulations run continuously, from random seeds (partly built).</p>
+        </dd>
+        <dt
+          id="release-integrity"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/release-integrity.md"><code>release-integrity</code></a></dt>
+        <dd>
+          <p>Releases are signed with minisign, checked before anything is unpacked, and roll back if they do not start.</p>
+        </dd>
+        <dt
+          id="rust-and-typescript"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/rust-and-typescript.md"><code>rust-and-typescript</code></a></dt>
+        <dd>
+          <p>What runs in Rust and what in TypeScript.</p>
+        </dd>
+        <dt
+          id="tigerstyle"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/tigerstyle.md"><code>tigerstyle</code></a></dt>
+        <dd>
+          <p>Engineering style: pragmatic TigerStyle and deterministic simulation.</p>
+        </dd>
+        <dt
+          id="visual-identity"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/visual-identity.md"><code>visual-identity</code></a></dt>
+        <dd>
+          <p>Dassie's visual identity is Kopje: solid rocks, nimble dassies, first light.</p>
+        </dd>
+        <dt
+          id="website-hosting"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/website-hosting.md"><code>website-hosting</code></a></dt>
+        <dd>
+          <p>dassie.land is a bucket behind the mirror's load balancer.</p>
+        </dd>
+      </dl>
+      <h2 id="node">The node, its keys and its owner</h2>
+      <p>Your recovery phrase, the daemon, the owner's RPC and the desktop app. The rules themselves are in <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/identity.md">Identity</a>, <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/node.md">Node</a>, <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rpc.md">RPC</a>, <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/desktop.md">Desktop</a>.</p>
+      <dl class="ref">
+        <dt
+          id="database-continuity"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/database-continuity.md"><code>database-continuity</code></a></dt>
+        <dd>
+          <p>The database starts fresh: no data of the original implementation or the early testnet is read.</p>
+        </dd>
+        <dt
+          id="default-relay"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md"><code>default-relay</code></a></dt>
+        <dd>
+          <p>A node without a hostname keeps the default front door as its relay.</p>
+        </dd>
+        <dt
+          id="desktop-app"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/desktop-app.md"><code>desktop-app</code></a></dt>
+        <dd>
+          <p>The desktop app runs the node in its process and shows the wallet from the node's origin.</p>
+        </dd>
+        <dt
+          id="device-pairing"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/device-pairing.md"><code>device-pairing</code></a></dt>
+        <dd>
+          <p>Only the owner on the node's machine pairs a device, with a secret kept in memory.</p>
+        </dd>
+        <dt
+          id="headless-setup"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/headless-setup.md"><code>headless-setup</code></a></dt>
+        <dd>
+          <p>An owner who keeps the recovery phrase on the node's host sets the node up with <code>dassie setup</code>, through the node's own setup route.</p>
+        </dd>
+        <dt
+          id="phrase-format"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/phrase-format.md"><code>phrase-format</code></a></dt>
+        <dd>
+          <p>A phrase says its realm and when it was made, and corrects its own errors.</p>
+        </dd>
+        <dt
+          id="post-quantum-node-id"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/post-quantum-node-id.md"><code>post-quantum-node-id</code></a></dt>
+        <dd>
+          <p>A node ID commits to an SLH-DSA key beside the Ed25519 key, so that a node can prove it is itself once Ed25519 falls (proving continuity not built).</p>
+        </dd>
+        <dt
+          id="ready-after-first-step"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/ready-after-first-step.md"><code>ready-after-first-step</code></a></dt>
+        <dd>
+          <p>A node is up once its engine has committed a step.</p>
+        </dd>
+        <dt
+          id="rpc-contract"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/rpc-contract.md"><code>rpc-contract</code></a></dt>
+        <dd>
+          <p>One protobuf contract serves the wallet and the <code>dassie</code> command, with live data from streams.</p>
+        </dd>
+        <dt
+          id="secrets-at-rest"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/secrets-at-rest.md"><code>secrets-at-rest</code></a></dt>
+        <dd>
+          <p>Tokens are stored only as hashes; the node key stays in plaintext, readable only by the node.</p>
+        </dd>
+      </dl>
+      <h2 id="network">Peers and the network</h2>
+      <p>How nodes find each other, talk, peer and stop peering. The rules themselves are in <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/network.md">Network</a>, <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/peer-protocol.md">Peer protocol</a>.</p>
+      <dl class="ref">
+        <dt
+          id="bootstrap-network"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/bootstrap-network.md"><code>bootstrap-network</code></a></dt>
+        <dd>
+          <p>The project runs four bootstrap nodes in one region, which also validate the testnet's settlement hub.</p>
+        </dd>
+        <dt
+          id="core-and-periphery"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/core-and-periphery.md"><code>core-and-periphery</code></a></dt>
+        <dd>
+          <p>Nodes with a public IP form the core, and nodes without one join the periphery through uplinks (design, partly built).</p>
+        </dd>
+        <dt
+          id="ended-for-room"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/ended-for-room.md"><code>ended-for-room</code></a></dt>
+        <dd>
+          <p>A peering ended for room stays apart.</p>
+        </dd>
+        <dt
+          id="ending-a-peering"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/ending-a-peering.md"><code>ending-a-peering</code></a></dt>
+        <dd>
+          <p>A node that ends a peering collects first, and pays nothing.</p>
+        </dd>
+        <dt
+          id="free-receivers-half"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/free-receivers-half.md"><code>free-receivers-half</code></a></dt>
+        <dd>
+          <p>Free receivers take at most half of the downlinks' places, and a downlink is free until its first settlement.</p>
+        </dd>
+        <dt
+          id="lazy-downlink-accounts"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/lazy-downlink-accounts.md"><code>lazy-downlink-accounts</code></a></dt>
+        <dd>
+          <p>A downlink's accounts open once value first moves with it, in room kept for it while its channel is open.</p>
+        </dd>
+        <dt
+          id="membership-economics"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/membership-economics.md"><code>membership-economics</code></a></dt>
+        <dd>
+          <p>Bootstrap nodes list the nodes that register; registration is free and throttled until a fee is built.</p>
+        </dd>
+        <dt
+          id="names-by-earliest-commitment"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/names-by-earliest-commitment.md"><code>names-by-earliest-commitment</code></a></dt>
+        <dd>
+          <p>A name goes to its earliest sealed commitment, held by a quorum of the bootstrap nodes' lists (design, partly built).</p>
+        </dd>
+        <dt
+          id="peer-protocol-v1"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peer-protocol-v1.md"><code>peer-protocol-v1</code></a></dt>
+        <dd>
+          <p>Peer protocol v1: the sender of a request is the key its connection proved.</p>
+        </dd>
+        <dt
+          id="peering-lifecycle"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peering-lifecycle.md"><code>peering-lifecycle</code></a></dt>
+        <dd>
+          <p>How a peering is requested, kept alive and ended, and when a node looks for more peers.</p>
+        </dd>
+        <dt
+          id="periphery-lists-no-neighbors"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/periphery-lists-no-neighbors.md"><code>periphery-lists-no-neighbors</code></a></dt>
+        <dd>
+          <p>A periphery node's link state lists no neighbors, so it may keep many uplinks.</p>
+        </dd>
+        <dt
+          id="places-by-proved-key"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/places-by-proved-key.md"><code>places-by-proved-key</code></a></dt>
+        <dd>
+          <p>A connection holds a place by the key it proved.</p>
+        </dd>
+        <dt
+          id="promotion-to-core"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/promotion-to-core.md"><code>promotion-to-core</code></a></dt>
+        <dd>
+          <p>A node becomes core by registering and being promoted (not built).</p>
+        </dd>
+        <dt
+          id="protocol-upgrades"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/protocol-upgrades.md"><code>protocol-upgrades</code></a></dt>
+        <dd>
+          <p>A peer-protocol version is an ALPN name, and a release speaks the one before too.</p>
+        </dd>
+        <dt
+          id="quic-only"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/quic-only.md"><code>quic-only</code></a></dt>
+        <dd>
+          <p>The peer protocol and the hubs' messages travel over QUIC only.</p>
+        </dd>
+        <dt
+          id="quic-over-websocket"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/quic-over-websocket.md"><code>quic-over-websocket</code></a></dt>
+        <dd>
+          <p>Where UDP is blocked, a periphery node carries its QUIC packets over a WebSocket, to its uplinks and to a front door as its relay.</p>
+        </dd>
+        <dt
+          id="settlement-methods"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/settlement-methods.md"><code>settlement-methods</code></a></dt>
+        <dd>
+          <p>A peering settles over every hub both nodes are in, and a packet keeps its ledger where it can.</p>
+        </dd>
+        <dt
+          id="settlement-offers"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/settlement-offers.md"><code>settlement-offers</code></a></dt>
+        <dd>
+          <p>A link state offers the schemes a node takes peers on in one list, each with its scheme's own details.</p>
+        </dd>
+      </dl>
+      <h2 id="connector">Routing, rates and fees</h2>
+      <p>How a node passes packets on, and what it charges and converts at. The rules themselves are in <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/connector.md">Connector</a>, <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rate-feed.md">Rate feed</a>.</p>
+      <dl class="ref">
+        <dt
+          id="connector-timing"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/connector-timing.md"><code>connector-timing</code></a></dt>
+        <dd>
+          <p>Connector timing and packet limits: the connector waits as ILPv4 says, where the original did not.</p>
+        </dd>
+        <dt
+          id="exchange-rates"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/exchange-rates.md"><code>exchange-rates</code></a></dt>
+        <dd>
+          <p>Exchange rates, fees and spread: a rate is the median of three independent sources.</p>
+        </dd>
+        <dt
+          id="feed-by-method"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/feed-by-method.md"><code>feed-by-method</code></a></dt>
+        <dd>
+          <p>A rate feed names the settlement methods a node's peers pay it on.</p>
+        </dd>
+        <dt
+          id="open-rate-sources"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/open-rate-sources.md"><code>open-rate-sources</code></a></dt>
+        <dd>
+          <p>A node takes its rates only from sources whose terms allow its use: XRP's from mainnet's XRP/RLUSD pool, the fiat currencies' from central banks, with no peg guard until a dollar token has a price of its own (not built).</p>
+        </dd>
+        <dt
+          id="packets-in-flight"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/packets-in-flight.md"><code>packets-in-flight</code></a></dt>
+        <dd>
+          <p>Money in flight with a peer stays within a few packets.</p>
+        </dd>
+        <dt
+          id="passive-rebalancing"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/passive-rebalancing.md"><code>passive-rebalancing</code></a></dt>
+        <dd>
+          <p>Nodes rebalance passively: inventory pricing, a rate feed and market makers.</p>
+        </dd>
+        <dt
+          id="peer-swaps"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peer-swaps.md"><code>peer-swaps</code></a></dt>
+        <dd>
+          <p>Nodes swap assets with their peers, priced by snapshots of ladders per asset (not built).</p>
+        </dd>
+        <dt
+          id="route-back-is-temporary"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/route-back-is-temporary.md"><code>route-back-is-temporary</code></a></dt>
+        <dd>
+          <p>A route that leads only back to the packet's source answers T01, not F02.</p>
+        </dd>
+        <dt
+          id="unreachable-peers"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/unreachable-peers.md"><code>unreachable-peers</code></a></dt>
+        <dd>
+          <p>A node takes no Prepare from a peer it cannot reach.</p>
+        </dd>
+        <dt
+          id="weighted-next-hops"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/weighted-next-hops.md"><code>weighted-next-hops</code></a></dt>
+        <dd>
+          <p>A packet's next hop is drawn at random among its first hops, weighted by the fees each earned us.</p>
+        </dd>
+      </dl>
+      <h2 id="payments">Payments</h2>
+      <p>Open Payments and STREAM: how money is asked for, sent and received. The rules themselves are in <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/payments.md">Payments</a>, <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/stream.md">STREAM</a>.</p>
+      <dl class="ref">
+        <dt
+          id="close-rather-than-lower"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/close-rather-than-lower.md"><code>close-rather-than-lower</code></a></dt>
+        <dd>
+          <p>A receiver never lowers a maximum it told: it closes a connection that no longer fits.</p>
+        </dd>
+        <dt
+          id="full-or-stopped-short"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/full-or-stopped-short.md"><code>full-or-stopped-short</code></a></dt>
+        <dd>
+          <p>A receiver says whether it is full or stopped short.</p>
+        </dd>
+        <dt
+          id="one-address-per-asset"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/one-address-per-asset.md"><code>one-address-per-asset</code></a></dt>
+        <dd>
+          <p>One wallet address per asset, booking where the asset arrives, and where the owner keeps it is a setting of the node's.</p>
+        </dd>
+        <dt
+          id="open-payments"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/open-payments.md"><code>open-payments</code></a></dt>
+        <dd>
+          <p>Open Payments, fully, and no SPSP.</p>
+        </dd>
+        <dt
+          id="owners-share"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/owners-share.md"><code>owners-share</code></a></dt>
+        <dd>
+          <p>Strangers never take the owner's share of a pool.</p>
+        </dd>
+        <dt
+          id="paid-within-a-tolerance"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/paid-within-a-tolerance.md"><code>paid-within-a-tolerance</code></a></dt>
+        <dd>
+          <p>A payment within a tolerance of its amount is paid in full.</p>
+        </dd>
+        <dt
+          id="path-failures-retried"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/path-failures-retried.md"><code>path-failures-retried</code></a></dt>
+        <dd>
+          <p>A sender sends money again after a too-low rate or a node's final error, until failures without progress stop it.</p>
+        </dd>
+        <dt
+          id="public-domains"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/public-domains.md"><code>public-domains</code></a></dt>
+        <dd>
+          <p>Payment names live under dassiepay.net, memo types and the mirror under dassie.land.</p>
+        </dd>
+        <dt
+          id="receive-limit-alone"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/receive-limit-alone.md"><code>receive-limit-alone</code></a></dt>
+        <dd>
+          <p>A receive limit alone bounds nothing: it is refused.</p>
+        </dd>
+        <dt
+          id="receive-limit-caps-delivery"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/receive-limit-caps-delivery.md"><code>receive-limit-caps-delivery</code></a></dt>
+        <dd>
+          <p>A receive limit caps what payments deliver, not only what they reserve.</p>
+        </dd>
+        <dt
+          id="unusable-limits"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/unusable-limits.md"><code>unusable-limits</code></a></dt>
+        <dd>
+          <p>A limit no payment can use is caught before approval.</p>
+        </dd>
+      </dl>
+      <h2 id="settlement">Settlement, ledgers and real money</h2>
+      <p>How peers square up on a real ledger, how a node keeps its books, and what stands between Dassie and real money. The rules themselves are in <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/settlement.md">Settlement</a>, <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/ledger.md">Ledger</a>, <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/xrpl.md">XRPL</a>.</p>
+      <dl class="ref">
+        <dt
+          id="account-budgets"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/account-budgets.md"><code>account-budgets</code></a></dt>
+        <dd>
+          <p>Core peers and downlinks each have a share of the peers' accounts, counted by the kind they were opened as.</p>
+        </dd>
+        <dt
+          id="closing-channels"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/closing-channels.md"><code>closing-channels</code></a></dt>
+        <dd>
+          <p>A settlement channel left idle closes to disk, whatever the balance.</p>
+        </dd>
+        <dt
+          id="dsusd"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/dsusd.md"><code>dsusd</code></a></dt>
+        <dd>
+          <p>A testnet dollar of our own, bought only with XRP through a pool we keep at the market.</p>
+        </dd>
+        <dt
+          id="external-assets"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/external-assets.md"><code>external-assets</code></a></dt>
+        <dd>
+          <p>External assets apart from settlement schemes.</p>
+        </dd>
+        <dt
+          id="issued-assets"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/issued-assets.md"><code>issued-assets</code></a></dt>
+        <dd>
+          <p>An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (transfer fees not built).</p>
+        </dd>
+        <dt
+          id="ledger-resets"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/ledger-resets.md"><code>ledger-resets</code></a></dt>
+        <dd>
+          <p>A ledger below the newest seen is a reset only on the testnet, and only once its UNL validates it (the UNL's part, the network's constant as the gate and a proven absence not built).</p>
+        </dd>
+        <dt
+          id="mainnet-schemes"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/mainnet-schemes.md"><code>mainnet-schemes</code></a></dt>
+        <dd>
+          <p>Mainnet has schemes of its own, and a ledger runs only in its node's realm (a live node without the test network's defaults not built).</p>
+        </dd>
+        <dt
+          id="own-fulfills"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/own-fulfills.md"><code>own-fulfills</code></a></dt>
+        <dd>
+          <p>Each node books its own Fulfills.</p>
+        </dd>
+        <dt
+          id="owner-ledger"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/owner-ledger.md"><code>owner-ledger</code></a></dt>
+        <dd>
+          <p>The owner's funds on each ledger are one pool with a limit, and what the node gains or loses is the owner's.</p>
+        </dd>
+        <dt
+          id="real-money"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/real-money.md"><code>real-money</code></a></dt>
+        <dd>
+          <p>The conditions that must hold before a node takes real money.</p>
+        </dd>
+        <dt
+          id="resident-peers"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/resident-peers.md"><code>resident-peers</code></a></dt>
+        <dd>
+          <p>A peer is in memory only while it is needed: a downlink while it is connected, a core peer while its channel is open.</p>
+        </dd>
+        <dt
+          id="scheme-names"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/scheme-names.md"><code>scheme-names</code></a></dt>
+        <dd>
+          <p>A scheme's ID names its ledger, network and asset, and a wallet address names the asset alone.</p>
+        </dd>
+        <dt
+          id="stub-in-debug-builds"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/stub-in-debug-builds.md"><code>stub-in-debug-builds</code></a></dt>
+        <dd>
+          <p>The stub scheme runs only in builds with debug assertions.</p>
+        </dd>
+        <dt
+          id="synced-before-peering"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/synced-before-peering.md"><code>synced-before-peering</code></a></dt>
+        <dd>
+          <p>A node peers on a scheme only once it has seen its ledger.</p>
+        </dd>
+        <dt
+          id="thresholds-in-packets"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/thresholds-in-packets.md"><code>thresholds-in-packets</code></a></dt>
+        <dd>
+          <p>A link's thresholds are counted in its largest packet.</p>
+        </dd>
+        <dt
+          id="verified-ledgers"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/verified-ledgers.md"><code>verified-ledgers</code></a></dt>
+        <dd>
+          <p>The node books only what ledgers its own UNL validated prove (design, not built).</p>
+        </dd>
+      </dl>
+      <h2 id="hubs">Settlement hubs</h2>
+      <p>The shared ledgers that peers settle over. The rules themselves are in <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/hubs.md">Settlement hubs</a>.</p>
+      <dl class="ref">
+        <dt
+          id="epoch-handover"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/epoch-handover.md"><code>epoch-handover</code></a></dt>
+        <dd>
+          <p>Each validator set runs an epoch of its own, and a repeat finalizes an epoch's last block.</p>
+        </dd>
+        <dt
+          id="finality-after-any-outage"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/finality-after-any-outage.md"><code>finality-after-any-outage</code></a></dt>
+        <dd>
+          <p>A hub finalizes again after any outage, in bounded memory.</p>
+        </dd>
+        <dt
+          id="hub-founding"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hub-founding.md"><code>hub-founding</code></a></dt>
+        <dd>
+          <p>The sponsor founds a hub over a stream of its own, and a quorum's signatures of the genesis found it.</p>
+        </dd>
+        <dt
+          id="hub-keys-by-network"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hub-keys-by-network.md"><code>hub-keys-by-network</code></a></dt>
+        <dd>
+          <p>A hub's keys name its network, and a validator validates on its owner's network.</p>
+        </dd>
+        <dt
+          id="hub-named-when-added"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hub-named-when-added.md"><code>hub-named-when-added</code></a></dt>
+        <dd>
+          <p>A hub scheme names its hub from the moment it is added (moving a scheme to another hub not built).</p>
+        </dd>
+        <dt
+          id="hub-protocol-version"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hub-protocol-version.md"><code>hub-protocol-version</code></a></dt>
+        <dd>
+          <p>A hub runs one version of the hub protocol, which its ID commits to (moving a hub to another version not built).</p>
+        </dd>
+        <dt
+          id="hub-scheme-names"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hub-scheme-names.md"><code>hub-scheme-names</code></a></dt>
+        <dd>
+          <p>A hub scheme's ID names its underlying ledger and its asset.</p>
+        </dd>
+        <dt
+          id="hubs-only"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hubs-only.md"><code>hubs-only</code></a></dt>
+        <dd>
+          <p>Peers settle only over settlement hubs.</p>
+        </dd>
+        <dt
+          id="settlement-hubs"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/settlement-hubs.md"><code>settlement-hubs</code></a></dt>
+        <dd>
+          <p>Settlement hubs: ledgers kept by validators and backed by an escrow on the XRP Ledger (design, partly built).</p>
+        </dd>
+        <dt
+          id="token-hubs"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/token-hubs.md"><code>token-hubs</code></a></dt>
+        <dd>
+          <p>A hub may hold an issued token; its issuer's freeze pauses it, a clawback ends it, and its fees are paid in XRP anyone may send (partly built).</p>
+        </dd>
+      </dl>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

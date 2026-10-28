@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Found a way to attack a Dassie node, its wallet or its releases? Tell a maintainer privately, and here is what happens next."
+    />
+    <title>Report a security issue · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Report a security issue</h1>
+      <p class="lede">
+        If you found a way to attack a Dassie node, its wallet, its peers or
+        its releases, thank you. Please tell us privately first, so that it
+        can be fixed before anyone else learns of it.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm. A flaw that would cost real money later
+          matters just as much now, while it is cheap to fix.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="how-to-report">How to report it</h2>
+      <p>
+        Tell a maintainer privately, and talk it through with them there.
+      </p>
+      <ol class="steps">
+        <li>
+          Join Dassie's <a href="https://discord.gg/HqdGNfs9kq">Discord</a>.
+        </li>
+        <li>
+          In a public channel, say that you have a security issue to report
+          and ask a maintainer to message you. Leave every detail of the
+          issue out of that message.
+        </li>
+        <li>
+          Once a maintainer has written to you directly, describe what you
+          found there, as below.
+        </li>
+      </ol>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Please don't open a public issue, post the
+          details in a Discord channel or send a pull request for a security
+          issue. Each of those is public the moment you send it.
+        </p>
+      </aside>
+
+      <h2 id="what-to-include">What to include</h2>
+      <ul>
+        <li>
+          the version you found it in (<code>dassie --version</code>), or the
+          commit, if you read the code;
+        </li>
+        <li>
+          the part it is in: the node, the wallet, the desktop app, the
+          <code>dassie</code> command, a settlement hub, the installer and
+          updater, the release mirror, or dassie.land;
+        </li>
+        <li>
+          the steps to reproduce it, or a proof of concept, as small as you
+          can make it;
+        </li>
+        <li>
+          what an attacker gains, and what they need first: a peer, a node of
+          their own, the owner's login, a place on the network path;
+        </li>
+        <li>whether you have seen it used against anyone;</li>
+        <li>how you would like to be credited, if at all.</li>
+      </ul>
+
+      <h2 id="testing-safely">Testing safely</h2>
+      <p>
+        Try your attack on nodes you run yourself. The
+        <a href="/docs/build/dev-network/">local dev network</a> starts several
+        nodes on your machine, with a fake XRP Ledger, in one command. Please
+        don't test against other people's nodes, the testnet's bootstrap nodes
+        or the release mirror: others rely on them.
+      </p>
+
+      <h2 id="what-happens-next">What happens next</h2>
+      <ol class="steps">
+        <li>
+          The maintainers read your report and answer you. Dassie is a small
+          project, so this can take a few days.
+        </li>
+        <li>
+          Together you work out how serious it is, and the fix is prepared in
+          private.
+        </li>
+        <li>
+          The fix ships in a signed release. Nodes installed with the
+          installer look for a new release once a day and switch to it by
+          themselves. On NixOS, and in the desktop app, which
+          <a href="/docs/project/roadmap/#periphery">does not update itself
+          yet</a>, the owner takes it by building the new version.
+          <a href="/docs/node/updates/">Updates and rollback</a> says more.
+        </li>
+        <li>
+          Once nodes have had time to update, the maintainers can publish an
+          advisory on GitHub, crediting you if you want that.
+        </li>
+      </ol>
+      <p>
+        Please keep the issue to yourself until the fix is out. If you plan
+        to write about it, say so in the report, and agree on a date.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/release-integrity.md">How releases are signed</a>,
+        so that a fix reaches nodes the same way as every release.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

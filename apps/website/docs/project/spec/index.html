@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How Dassie's specification is laid out on GitHub: the overview, the area docs, the decisions, the designs and the roadmap, and where to start reading."
+    />
+    <title>Specification · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Specification</h1>
+      <p class="lede">
+        The specification says what the code cannot: what each part of Dassie
+        is for, the rules that span parts, what must never change, and why.
+        It lives in the repository, in
+        <a href="https://github.com/justmoon/dassie/tree/main/spec"><code>spec/</code></a>.
+        This page is a map of it.
+      </p>
+
+      <h2 id="what-it-holds">What it holds, and what it leaves out</h2>
+      <p>
+        These docs tell you how to use Dassie. The spec tells you how it is
+        meant to work, for anyone who changes it or wants to check it:
+      </p>
+      <ul>
+        <li>what a part is for, and how it fits with the others;</li>
+        <li>invariants, and contracts between parts and between versions;</li>
+        <li>the surfaces that must never change, and what pins them;</li>
+        <li>the reasons for choices you would not guess.</li>
+      </ul>
+      <p>
+        It leaves out what the code already says. Values, limits, timeouts,
+        field lists, flags and environment variables live only in the code,
+        where they cannot drift, and the spec points to the module that holds
+        them. It also keeps no history: no dates, milestones or "used to".
+        Git has the timeline.
+      </p>
+      <p>
+        The spec describes what Dassie does today. Work that is not built yet
+        is kept apart, in the roadmap and the designs, so you can always tell
+        the two apart.
+      </p>
+
+      <h2 id="where-to-start">Where to start</h2>
+      <ol class="steps">
+        <li>
+          <a href="https://github.com/justmoon/dassie/blob/main/spec/overview.md">The overview</a>:
+          what Dassie is, the words the rest of the spec uses, the life of a
+          node, and the
+          <a href="https://github.com/justmoon/dassie/blob/main/spec/overview.md#frozen-surfaces">frozen surfaces</a>
+          that must never change.
+        </li>
+        <li>
+          <a href="https://github.com/justmoon/dassie/blob/main/spec/engineering.md">Engineering</a>:
+          the rules every crate and package follows. The code is
+          deterministic, bounded and asserted, so that simulations can test
+          it far beyond what review could.
+        </li>
+        <li>
+          The area docs for the part you care about. The
+          <a href="https://github.com/justmoon/dassie/blob/main/spec/README.md#index">index</a>
+          maps every crate, app, package and contract in the repository to
+          the docs to read for it.
+        </li>
+      </ol>
+      <p>
+        Read a decision when an area doc links to it and you want to know why
+        a rule is what it is.
+      </p>
+
+      <h2 id="areas">The areas</h2>
+      <p>
+        Each area doc states one part's rules and links the decisions behind
+        them.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Area</th>
+              <th>What it covers</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/identity.md">Identity</a></td>
+              <td>The recovery phrase, the keys it derives, the node ID</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/encoding.md">Encoding</a></td>
+              <td>The OER subset every wire format is written in</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/ilp.md">ILP</a></td>
+              <td>Interledger packets, error codes, ILDCP and BTP</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/stream.md">STREAM</a></td>
+              <td>STREAM connections, frames and crypto</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/ledger.md">Ledger</a></td>
+              <td>The node's double-entry books and the owner's funds</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/connector.md">Connector</a></td>
+              <td>The packet path: fees, spread, spending caps, exchange rates</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/peer-protocol.md">Peer protocol</a></td>
+              <td>The wire protocol between nodes, over QUIC</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/network.md">Network</a></td>
+              <td>Bootstrap nodes, registration, peering, routing, names</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/settlement.md">Settlement</a></td>
+              <td>Settlement schemes, external assets, credit and thresholds</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/hubs.md">Settlement hubs</a></td>
+              <td>A hub's rules, its ledger, its validators and its fees</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/xrpl.md">XRPL</a></td>
+              <td>The XRP Ledger accounts and the schemes on them</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/payments.md">Payments</a></td>
+              <td>Open Payments: wallet addresses, grants, payments, quotes</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rate-feed.md">Rate feed</a></td>
+              <td>A core node's signed feed of the rates it converts at</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/node.md">Node</a></td>
+              <td>The daemon: startup, configuration, the <code>dassie</code> command, logging</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/http.md">HTTP</a></td>
+              <td>Listeners, routes, certificates, setup, login, front doors</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rpc.md">RPC</a></td>
+              <td>The owner's RPC contract and its live streams</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/release.md">Release</a></td>
+              <td>Builds, the mirror, signing, the installer and the updater</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/wallet.md">Wallet</a></td>
+              <td>The owner's web app</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/desktop.md">Desktop</a></td>
+              <td>The desktop app, its window and its tray</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/website.md">Website</a></td>
+              <td>dassie.land, the STREAM toy and the architecture page</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/dev.md">Dev</a></td>
+              <td>The local dev network and its dashboard</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/dsusd-keeper.md">DSUSD keeper</a></td>
+              <td>The testnet dollar token and the pool that prices it</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/market-maker-vm.md">Market maker VM</a></td>
+              <td>The project's market maker on the testnet</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/proof-servers.md">Proof servers</a></td>
+              <td>The patched XRP Ledger servers that answer the node's proofs</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/testing.md">Testing</a></td>
+              <td>Test levels, golden vectors and the simulations</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        This list follows the spec's own; when the two differ, the
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/README.md#areas">spec's README</a>
+        is right.
+      </p>
+
+      <h2 id="decisions">Decisions</h2>
+      <p>
+        A decision records one choice between real alternatives: the facts
+        that forced it, what was chosen, what it costs, and what was rejected
+        and why. Area docs link the decisions behind their rules. Each has a
+        name of its own, such as
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/own-books.md"><code>own-books</code></a>,
+        and a name is never given to another decision, so code can cite it
+        for good. <a href="/docs/project/decisions/">Design decisions</a>
+        lists them all, one line each.
+      </p>
+
+      <h2 id="designs-and-roadmap">Designs and the roadmap</h2>
+      <p>
+        Two parts of the spec describe what is not built yet.
+      </p>
+      <ul>
+        <li>
+          <a href="https://github.com/justmoon/dassie/blob/main/spec/roadmap.md">The roadmap</a>
+          lists the open areas of work, each with what "done" means. Areas
+          move forward side by side; there are no numbered milestones.
+          <a href="/docs/project/roadmap/">What's next</a> says the same in
+          plain words.
+        </li>
+        <li>
+          <a href="https://github.com/justmoon/dassie/tree/main/spec/designs">The designs</a>
+          hold large pieces of work in full: the rest of
+          <a href="https://github.com/justmoon/dassie/blob/main/spec/designs/settlement-hubs.md">settlement hubs</a>,
+          of the
+          <a href="https://github.com/justmoon/dassie/blob/main/spec/designs/periphery.md">periphery</a>
+          and of
+          <a href="https://github.com/justmoon/dassie/blob/main/spec/designs/names.md">names</a>,
+          and
+          <a href="https://github.com/justmoon/dassie/blob/main/spec/designs/xrpl-validation.md">checking the XRP Ledger's validators</a>.
+          <a href="https://github.com/justmoon/dassie/blob/main/spec/designs/direct-settlement.md">Direct settlement</a>
+          keeps how peers once settled without a hub, and what bringing it
+          back would take.
+        </li>
+      </ul>
+      <p>
+        When a piece of work is built, what it does moves into the area docs,
+        and its entry leaves the roadmap.
+      </p>
+
+      <h2 id="citing">Citing the spec</h2>
+      <p>
+        Code, docs and pull requests cite the spec by path and heading, such
+        as <code>spec/areas/peer-protocol.md#versions</code>, and a decision
+        by its file, such as <code>spec/decisions/own-fulfills.md</code>.
+        A test in the repository, <code>scripts/spec_test.ts</code>, checks
+        that every such link and citation still leads somewhere.
+      </p>
+      <p>
+        If you change Dassie, the spec changes with it.
+        <a href="/docs/project/contributing/#the-spec">Contributing</a> says
+        how.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>
