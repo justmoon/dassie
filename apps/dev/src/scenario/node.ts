@@ -1,7 +1,7 @@
 /**
  * A node of a scenario: the real `dassie` binary, with a vanity identity,
  * named `dN.localhost` on ports `4000+N` (HTTP), `5000+N` (HTTPS, and QUIC
- * on UDP) and `6000+N` (its rate feed, on UDP), and
+ * on UDP) and `6000+N` (on UDP, where it answers requests for its snapshot), and
  * set up the way its owner would set it up: over IPC and the HTTPS API,
  * never by writing its database (spec/areas/dev.md#setting-nodes-up).
  *
@@ -61,7 +61,7 @@ export class ScenarioNode {
   readonly hostname: string;
   readonly httpPort: number;
   readonly httpsPort: number;
-  /** Its rate feed's UDP port, on loopback. */
+  /** The UDP port where it answers requests for its snapshot, on loopback. */
   readonly feedPort: number;
   readonly dir: string;
   readonly socket: string;

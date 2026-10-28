@@ -80,7 +80,7 @@ Peers settle over a settlement hub they share: the credit each extends the other
 | `crates/dassie-connector` | The ILP connector: endpoints, peers and the route table, ILDCP, amounts, exchange, fees and spread, spending caps, the packet trace |
 | `crates/dassie-peer` | Peer protocol v1: wire format, authentication, node table, link state, membership, registration, peering and its lifecycle, settlement delivery, routing |
 | `crates/dassie-payments` | Open Payments without IO: resources, GNAP grants, HTTP message signatures, payment pointers, intervals, quote math |
-| `crates/dassie-feed` | The public rate feed without IO: signed UDP datagrams, the subscriber table and its address cookies, when to publish, a subscriber's side; the node does not publish one yet |
+| `crates/dassie-feed` | A node's signed snapshots of its quotes without IO: the datagrams, their numbers, the padded request and the budget on answering it, when to publish, and a reader's side that verifies a snapshot and prices a swap by it |
 | `crates/dassie-node-core` | The node's decisions without IO: config, setup, sessions, origins, rate limits, ACME and TLS policy |
 | `crates/dassie-node` | The daemon: database, HTTP(S) and IPC listeners, TLS, ACME, owner login, RPC with its live streams, the engine (ledger, peer protocol, Open Payments, bans), the QUIC endpoint and the peer client, the BTP server, the STREAM receiver, the rate fetcher, the discovery document, the log ring, and a fake XRP Ledger for tests |
 | `crates/dassie-cli` | The `dassie` binary: `daemon`, `init`, `update`, `verify-install` |

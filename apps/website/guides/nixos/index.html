@@ -52,8 +52,8 @@
 }</code></pre>
       <p>
         Then rebuild with <code>nixos-rebuild switch</code>. The node listens
-        on TCP ports 80 and 443, UDP port 443 for QUIC, and UDP port 7768 for
-        its rate feed, which market makers read, and
+        on TCP ports 80 and 443, UDP port 443 for QUIC, and UDP port 7768,
+        where it answers requests for its snapshot, which market makers read, and
         <code>openFirewall</code> opens them all. Members of the group
         <code>dassie-users</code> may talk to the node, and the
         <code>dassie</code> command is on everyone's path.
