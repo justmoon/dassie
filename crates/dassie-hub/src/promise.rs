@@ -2,9 +2,13 @@
 //! (spec/designs/settlement-hubs.md#4-peering-over-a-hub): a commitment with
 //! every Prepare, and a cumulative claim with its reply to every Fulfill.
 //! The payee takes from the hold with either, without the payer's help.
+//! And what the payee signs for its payer: a release of a commitment with
+//! every Reject, with which the payer disputes a claim of it
+//! (spec/decisions/signed-rejects.md).
 //!
-//! Both travel between members only. The hub sees a claim when the payee
-//! redeems it, and commitments only in a dispute.
+//! They travel between members only. The hub sees a claim when the payee
+//! redeems it, commitments only when the payee claims, and a release only
+//! when the payer disputes such a claim.
 
 use dassie_identity::{NodeKey, PublicKey, Signature};
 use dassie_oer::{Encode, Reader, Writer};
@@ -50,12 +54,30 @@ pub struct Claim {
     pub through: u64,
 }
 
-/// A commitment or a claim with the payer's signature.
+/// The payee's word, sent with its Reject of the Prepare that came with
+/// commitment `sequence` on `hold`, expiring at `expiry`, that it gives
+/// that commitment up: a claim of it is not paid if the payer shows this in
+/// time. It names the commitment's expiry, so that it never matches another
+/// commitment the payer signs under the same sequence once this one
+/// expired and the payee forgot it. Hubs take it from version 2 on
+/// (spec/decisions/signed-rejects.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Release {
+    /// The hold the commitment draws on.
+    pub hold: HoldNumber,
+    /// The commitment's sequence.
+    pub sequence: u64,
+    /// The commitment's expiry.
+    pub expiry: Millis,
+}
+
+/// A commitment or a claim with the payer's signature, or a release with
+/// the payee's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Signed<T> {
     /// What was signed.
     pub value: T,
-    /// The payer's account key's signature over the value's digest.
+    /// The signer's account key's signature over the value's digest.
     pub signature: Signature,
 }
 
@@ -63,6 +85,11 @@ pub struct Signed<T> {
 pub const COMMITMENT_LEN: usize = 8 * 4 + 32;
 /// The encoded size of a claim.
 pub const CLAIM_LEN: usize = 8 * 3;
+/// The encoded size of a release.
+pub const RELEASE_LEN: usize = 8 * 3;
+/// The encoded size of a signed release, as a payee sends it with its
+/// Reject.
+pub const SIGNED_RELEASE_LEN: usize = RELEASE_LEN + SIGNATURE_LEN;
 
 impl Commitment {
     /// The digest the payer signs: the hub ID and the commitment.
@@ -99,10 +126,27 @@ impl Claim {
     }
 }
 
-/// What can be signed by a payer.
+impl Release {
+    /// The digest the payee signs: the hub ID and the release.
+    #[must_use]
+    pub fn digest(&self, hub: &HubId) -> Digest {
+        let mut bytes = [0; RELEASE_LEN];
+        self.encode(&mut bytes);
+        Digest::of(Domain::Release, &[hub.0.as_bytes(), &bytes])
+    }
+}
+
+/// What a member signs on a hold: a payer's commitment or claim, or a
+/// payee's release.
 pub trait Promise: Encode + Copy {
-    /// The digest the payer signs.
+    /// The digest the member signs.
     fn promise_digest(&self, hub: &HubId) -> Digest;
+}
+
+impl Promise for Release {
+    fn promise_digest(&self, hub: &HubId) -> Digest {
+        self.digest(hub)
+    }
 }
 
 impl Promise for Commitment {
@@ -118,17 +162,18 @@ impl Promise for Claim {
 }
 
 impl<T: Promise> Signed<T> {
-    /// Signs `value` with the payer's account key.
+    /// Signs `value` with the member's account key.
     #[must_use]
     pub fn sign(value: T, hub: &HubId, key: &NodeKey) -> Self {
         let signature = key.sign(value.promise_digest(hub).as_bytes());
         Self { value, signature }
     }
 
-    /// Whether the payer's key `payer` signed it.
+    /// Whether the key `signer` signed it: the payer's for a commitment or
+    /// a claim, the payee's for a release.
     #[must_use]
-    pub fn verifies(&self, hub: &HubId, payer: &PublicKey) -> bool {
-        payer
+    pub fn verifies(&self, hub: &HubId, signer: &PublicKey) -> bool {
+        signer
             .verify(self.value.promise_digest(hub).as_bytes(), &self.signature)
             .is_ok()
     }
@@ -184,6 +229,39 @@ impl Claim {
     }
 }
 
+impl Encode for Release {
+    fn encoded_len(&self) -> usize {
+        RELEASE_LEN
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        writer.write_u64(self.hold.0);
+        writer.write_u64(self.sequence);
+        writer.write_u64(self.expiry);
+    }
+}
+
+impl Release {
+    /// Decodes a release.
+    pub fn decode(reader: &mut Reader<'_>) -> Result<Self, HubDecodeError> {
+        Ok(Self {
+            hold: HoldNumber(reader.read_u64()?),
+            sequence: reader.read_u64()?,
+            expiry: reader.read_u64()?,
+        })
+    }
+
+    /// The release of `commitment`.
+    #[must_use]
+    pub const fn of(commitment: &Commitment) -> Self {
+        Self {
+            hold: commitment.hold,
+            sequence: commitment.sequence,
+            expiry: commitment.expiry,
+        }
+    }
+}
+
 impl<T: Promise> Encode for Signed<T> {
     fn encoded_len(&self) -> usize {
         self.value.encoded_len() + SIGNATURE_LEN
@@ -200,6 +278,16 @@ impl Signed<Commitment> {
     pub fn decode(reader: &mut Reader<'_>) -> Result<Self, HubDecodeError> {
         Ok(Self {
             value: Commitment::decode(reader)?,
+            signature: read_signature(reader)?,
+        })
+    }
+}
+
+impl Signed<Release> {
+    /// Decodes a signed release.
+    pub fn decode(reader: &mut Reader<'_>) -> Result<Self, HubDecodeError> {
+        Ok(Self {
+            value: Release::decode(reader)?,
             signature: read_signature(reader)?,
         })
     }
@@ -264,6 +352,30 @@ mod tests {
         let signed = Signed::sign(claim, &hub, &key);
         assert!(signed.verifies(&hub, &key.public_key()));
         assert!(!signed.verifies(&other, &key.public_key()));
+    }
+
+    #[test]
+    fn a_release_is_no_claim() {
+        // A release and a claim of the same bytes sign different digests,
+        // so a payee's release never passes for a payer's promise.
+        let key = NodeKey::from_bytes(&[3; 32]);
+        let hub = HubId(Digest([1; 32]));
+        let release = Signed::sign(
+            Release {
+                hold: HoldNumber(4),
+                sequence: 9,
+                expiry: 1_000,
+            },
+            &hub,
+            &key,
+        );
+        assert!(release.verifies(&hub, &key.public_key()));
+        let mut bytes = [0; RELEASE_LEN];
+        release.value.encode(&mut bytes);
+        assert_ne!(
+            Digest::of(Domain::Commitment, &[hub.0.as_bytes(), &bytes]),
+            release.value.digest(&hub)
+        );
     }
 
     #[test]

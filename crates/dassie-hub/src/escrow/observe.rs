@@ -24,7 +24,8 @@ use crate::rules::{Asset, Rules, TOKEN_DECIMALS, Terms};
 
 /// The memo type of a deposit that opens an account: its data is the new
 /// account's key, 32 bytes. Wallets outside Dassie write it too, so it is
-/// pinned by `testdata/hub/vectors.json` (spec/areas/hubs.md#the-escrow).
+/// pinned by the hub's golden vectors in `testdata/hub/`
+/// (spec/areas/hubs.md#the-escrow).
 pub const OPEN_MEMO_TYPE: &[u8] = b"https://dassie.land/hub/open/v1";
 
 /// What `record` delivered, of whatever asset.

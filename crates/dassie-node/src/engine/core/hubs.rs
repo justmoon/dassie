@@ -468,15 +468,19 @@ impl Core {
     /// keeps until a claim covers it, or a release. The method may have
     /// been dropped since the Prepare came: its packets resolve on its slot
     /// (spec/decisions/settlement-methods.md).
+    /// Returns our release of the Prepare's commitment, to go with a
+    /// Reject over a hub of version 2 (spec/decisions/signed-rejects.md);
+    /// empty otherwise.
     pub(super) fn answered_over_hub(
         &mut self,
         now: u64,
         (node, ledger): (&NodeId, LedgerId),
         request_id: u32,
         packet: &[u8],
-    ) {
+    ) -> Vec<u8> {
+        let mut release = Vec::new();
         let Some((scheme, peer)) = self.packet_hub(node, ledger) else {
-            return;
+            return release;
         };
         match Response::decode_exact(packet) {
             Ok(Response::Fulfill(fulfill)) => {
@@ -486,10 +490,11 @@ impl Core {
                 });
             }
             Ok(Response::Reject(_)) => {
-                self.with_commitments(scheme, |c| c.on_released(peer, request_id));
+                self.with_commitments(scheme, |c| c.on_released(peer, request_id, &mut release));
             }
             Err(_) => {}
         }
+        release
     }
 
     /// As the payee: checks a peer's commitment for its Prepare on its
@@ -543,9 +548,35 @@ impl Core {
             })
             .is_some_and(|result| result.is_ok());
         if !accepted {
-            self.refuse_prepare(now, node, request_id, refused);
+            self.refuse_hub_prepare(now, node, (method, Some(commitment)), request_id, refused);
         }
         accepted
+    }
+
+    /// Rejects a peer's Prepare on its method on `method` before the
+    /// connector sees it, as [`Self::refuse_prepare`] does, with our
+    /// release of its `commitment` where its method is over a hub of
+    /// version 2: the payer then rejects it upstream at once, rather than
+    /// waiting for the hub (spec/decisions/signed-rejects.md).
+    pub(super) fn refuse_hub_prepare(
+        &mut self,
+        now: u64,
+        node: &NodeId,
+        (method, commitment): (SchemeId, Option<&[u8]>),
+        request_id: u32,
+        message: &str,
+    ) {
+        let mut release = Vec::new();
+        if let (Some((scheme, peer)), Some(commitment)) =
+            (self.hub_peering(node, method), commitment)
+        {
+            self.with_commitments(scheme, |c| {
+                c.release_refused(now, peer, commitment, &mut release);
+            });
+        }
+        let packet = self.refusal(message);
+        self.peer
+            .send_released(now, node, request_id, &packet, &release);
     }
 
     /// Rejects a peer's Prepare before the connector sees it, for want of
@@ -557,6 +588,12 @@ impl Core {
         request_id: u32,
         message: &str,
     ) {
+        let packet = self.refusal(message);
+        self.peer.send_response(now, node, request_id, &packet);
+    }
+
+    /// The T04 Reject of a peer's Prepare we refuse, saying `message`.
+    fn refusal(&mut self, message: &str) -> Vec<u8> {
         let reject = dassie_ilp::Reject {
             code: ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
             triggered_by: Address::parse(self.connector.own_address()).ok(),
@@ -564,8 +601,7 @@ impl Core {
             data: &[],
         };
         let length = dassie_oer::Encode::encode(&reject, &mut self.scratch);
-        let packet = self.scratch.get(..length).unwrap_or_default().to_vec();
-        self.peer.send_response(now, node, request_id, &packet);
+        self.scratch.get(..length).unwrap_or_default().to_vec()
     }
 
     /// As the payer: the claim that goes in our reply to a peer's Fulfill
@@ -594,12 +630,23 @@ impl Core {
     }
 
     /// As the payer: a peer rejected our Prepare `request_id` on its method
-    /// on `ledger`, dropped since or not, or it never reached the peer: what
-    /// the scheme kept for it is forgotten.
-    pub(super) fn hub_rejected(&mut self, node: &NodeId, ledger: LedgerId, request_id: u32) {
-        if let Some((scheme, peer)) = self.packet_hub(node, ledger) {
-            self.with_commitments(scheme, |c| c.on_answered(peer, request_id));
-        }
+    /// on `ledger`, dropped since or not, with `release` (empty if none):
+    /// whether the Reject stands. Where it does, what the scheme kept for
+    /// the packet is forgotten; over a hub of version 2, one without the
+    /// peer's release does not, and the packet waits for the hub
+    /// (spec/decisions/signed-rejects.md).
+    pub(super) fn hub_rejected(
+        &mut self,
+        node: &NodeId,
+        ledger: LedgerId,
+        request_id: u32,
+        release: &[u8],
+    ) -> bool {
+        self.packet_hub(node, ledger)
+            .and_then(|(scheme, peer)| {
+                self.with_commitments(scheme, |c| c.on_rejected(peer, request_id, release))
+            })
+            .unwrap_or(true)
     }
 
     /// As the payee: the claim a peer sent in its reply to our Fulfill of
@@ -700,7 +747,7 @@ impl Core {
     /// scheme lets it go.
     pub(super) fn hub_prepare_dropped(&mut self, node: &NodeId, method: SchemeId, request_id: u32) {
         if let Some((scheme, peer)) = self.hub_peering(node, method) {
-            self.with_commitments(scheme, |c| c.on_released(peer, request_id));
+            self.with_commitments(scheme, |c| c.on_released(peer, request_id, &mut Vec::new()));
         }
     }
 

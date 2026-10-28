@@ -27,6 +27,9 @@ pub(super) const PREPARE_TYPE: u8 = 12;
 /// The ILP packet type of a Fulfill.
 pub(super) const FULFILL_TYPE: u8 = 13;
 
+/// The ILP packet type of a Reject.
+pub(super) const REJECT_TYPE: u8 = 14;
+
 /// A request taken in: from whom, by the key its QUIC connection proved
 /// (spec/areas/peer-protocol.md#authentication).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,6 +109,11 @@ impl PeerNode {
             Content::InterledgerPacket { request_id, packet } => {
                 self.response_request(hooks, accepted, request_id, packet)
             }
+            Content::HubReject {
+                request_id,
+                packet,
+                release,
+            } => self.released_request(hooks, accepted, request_id, packet, release),
             Content::MethodPacket {
                 request_id,
                 scheme,
@@ -213,11 +221,49 @@ impl PeerNode {
             packet,
             scheme: None,
             commitment: None,
+            release: None,
             answer: PacketAnswer {
                 peer: accepted.sender,
                 fulfill: packet.first() == Some(&FULFILL_TYPE),
                 hub,
             },
+        }
+    }
+
+    /// An ILP Reject over a hub with the payee's release of its Prepare's
+    /// commitment, in a `hubReject` (spec/decisions/signed-rejects.md): a
+    /// Reject, taken as one in an `interledgerPacket` is, with the release
+    /// beside it for the node. Anything but a Reject in one is malformed.
+    fn released_request<'a>(
+        &mut self,
+        hooks: &dyn PeeringHooks,
+        accepted: Accepted,
+        request_id: u32,
+        packet: &'a [u8],
+        release: &'a [u8],
+    ) -> Inbound<'a> {
+        if packet.first() != Some(&REJECT_TYPE) {
+            return refuse(400, "a hubReject carries a Reject");
+        }
+        match self.response_request(hooks, accepted, request_id, packet) {
+            Inbound::Packet {
+                from,
+                request_id,
+                packet,
+                scheme,
+                commitment,
+                answer,
+                ..
+            } => Inbound::Packet {
+                from,
+                request_id,
+                packet,
+                scheme,
+                commitment,
+                release: Some(release),
+                answer,
+            },
+            refused => refused,
         }
     }
 
@@ -274,6 +320,7 @@ impl PeerNode {
             packet,
             scheme: Some(scheme),
             commitment: (hub && !commitment.is_empty()).then_some(commitment),
+            release: None,
             answer: PacketAnswer {
                 peer: accepted.sender,
                 fulfill: false,
@@ -355,6 +402,7 @@ impl PeerNode {
                 ok(&encode_octets(&info))
             }
             Content::InterledgerPacket { .. }
+            | Content::HubReject { .. }
             | Content::Registration(_)
             | Content::PeeringRequest(_)
             | Content::Settlement { .. }

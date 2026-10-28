@@ -458,7 +458,8 @@ impl Commitments for StubHub {
         }
     }
 
-    fn on_released(&mut self, peer: Name, request_id: u32) {
+    fn on_released(&mut self, peer: Name, request_id: u32, release: &mut Vec<u8>) {
+        release.clear();
         self.with(peer, |packets| {
             packets.taken.remove(&request_id);
         });
@@ -1055,7 +1056,7 @@ mod tests {
         let c = stub.commitments().unwrap();
         c.check_commitment(0, peer(), 2, promised(5, 2), &next)
             .unwrap();
-        c.on_released(peer(), 2);
+        c.on_released(peer(), 2, &mut Vec::new());
         // A claim that is not the stub's covers nothing.
         c.on_claim(0, peer(), 1, b"not a claim");
         assert_eq!(held(&mut stub), one(0, 0, 1));
@@ -1196,7 +1197,7 @@ mod tests {
         }
         assert_eq!(c.room_from(peer()), Some(3));
         c.on_fulfilled(0, peer(), 0, [0; 32]);
-        c.on_released(peer(), 1);
+        c.on_released(peer(), 1, &mut Vec::new());
         assert_eq!(c.room_from(peer()), Some(7));
         c.on_claim(0, peer(), 0, CLAIM);
         assert_eq!(c.room_from(peer()), Some(7));

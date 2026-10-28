@@ -44,6 +44,12 @@ pub enum Detail {
     Paid(Amount),
     /// It gave its withdrawal this escrow sequence.
     Withdrawal(u32),
+    /// It took this much from a hold for the payee, paid once the hold's
+    /// notice has passed unless the payer disputes it (version 2 on,
+    /// spec/decisions/signed-rejects.md).
+    Pending(Amount),
+    /// It put this much a claim had taken back in the hold.
+    Returned(Amount),
 }
 
 /// Why a valid operation could not take effect.
@@ -117,6 +123,8 @@ impl Encode for Outcome {
                     Detail::Hold(hold) => (2, hold.0),
                     Detail::Paid(amount) => (3, *amount),
                     Detail::Withdrawal(sequence) => (4, u64::from(*sequence)),
+                    Detail::Pending(amount) => (5, *amount),
+                    Detail::Returned(amount) => (6, *amount),
                 };
                 writer.write_u8(kind);
                 writer.write_u64(value);
@@ -175,6 +183,8 @@ impl Outcome {
                     2 => Detail::Hold(HoldNumber(value)),
                     3 => Detail::Paid(value),
                     4 => Detail::Withdrawal(narrow(value)?),
+                    5 => Detail::Pending(value),
+                    6 => Detail::Returned(value),
                     other => return Err(unknown(other)),
                 };
                 Self::Applied { fee, detail }

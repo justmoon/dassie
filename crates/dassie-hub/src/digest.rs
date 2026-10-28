@@ -40,6 +40,8 @@ pub enum Domain {
     Commitment,
     /// A payer's claim, sent with its reply to a Fulfill.
     Claim,
+    /// A payee's release of a commitment, sent with its Reject.
+    Release,
     /// The outcome of an operation in a block.
     Result,
     /// What a validator tells a member the log holds.
@@ -63,6 +65,7 @@ impl Domain {
             Self::StateNode => b"dassie-hub/state-node",
             Self::Commitment => b"dassie-hub/commitment",
             Self::Claim => b"dassie-hub/claim",
+            Self::Release => b"dassie-hub/release",
             Self::Result => b"dassie-hub/result",
             Self::Statement => b"dassie-hub/statement",
             Self::Genesis => b"dassie-hub/genesis",

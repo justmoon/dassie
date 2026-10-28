@@ -27,8 +27,8 @@ pub use issuer::{CLAWBACK_SHARE, MAX_CLAWBACKS};
 pub use merkle::{merkle_proof, merkle_root, result_leaf, results_root, verify_proof};
 pub use outcome::{Detail, Failure, Outcome, Refusal};
 pub use state::{
-    Account, Escrow, FeePool, Hold, Key, PendingDeposit, PendingRules, Phase, Reduction,
-    ValidatorState, Withdrawal,
+    Account, Escrow, FeePool, Hold, Key, PendingClaim, PendingDeposit, PendingRules,
+    PendingUpgrade, Phase, Reduction, ValidatorState, Withdrawal,
 };
 
 use crate::digest::Digest;
@@ -71,6 +71,10 @@ pub enum BlockError {
     Votes,
     /// The hub has ended.
     Ended,
+    /// It holds an operation the version of the hub's protocol in force at
+    /// it does not have, or the hub runs a version from it on that this
+    /// code does not run (spec/decisions/hub-protocol-version.md).
+    Version,
 }
 
 /// The ledger of one hub.
@@ -123,6 +127,14 @@ pub struct Ledger {
     /// Clawbacks applied and still remembered, by transaction, with their
     /// ledger.
     pub(crate) recent_clawbacks: BTreeMap<Digest, u32>,
+    /// The version of the hub's protocol the hub runs: its rules' at first,
+    /// then each one its validators move it to
+    /// (spec/decisions/hub-protocol-version.md).
+    pub(crate) version: u16,
+    /// Votes to move the hub to a newer version, one per validator.
+    pub(crate) upgrade_votes: Vec<(u16, Signers)>,
+    /// A move a quorum voted for, waiting for its notice.
+    pub(crate) pending_upgrade: Option<PendingUpgrade>,
 }
 
 /// The XRP Ledger testnet's network ID, the one network on which the hub
@@ -195,6 +207,9 @@ impl Ledger {
             issuer_votes: Vec::new(),
             clawback_votes: Vec::new(),
             recent_clawbacks: BTreeMap::new(),
+            version: rules.terms.version,
+            upgrade_votes: Vec::new(),
+            pending_upgrade: None,
             rules,
         };
         ledger.open_validator_accounts(timestamp);
@@ -227,6 +242,15 @@ impl Ledger {
         }
         if block.timestamp <= self.timestamp {
             return Err(BlockError::Timestamp);
+        }
+        let version = self.version_at(block.timestamp);
+        if !crate::rules::runs(version)
+            || block
+                .operations
+                .iter()
+                .any(|operation| operation.since_version() > version)
+        {
+            return Err(BlockError::Version);
         }
         let limits = &self.rules.terms.limits;
         let deadlines = block.operations.iter().filter(|o| o.has_deadline()).count();
@@ -271,11 +295,27 @@ impl Ledger {
         Ok(outcomes)
     }
 
+    /// The version of the hub's protocol a block stamped `timestamp` runs:
+    /// the one in force, or the one a quorum voted for once its notice has
+    /// passed by the hub's clock, as the block would see it before its
+    /// operations.
+    #[must_use]
+    pub fn version_at(&self, timestamp: Millis) -> u16 {
+        let clock = self.frozen.unwrap_or(timestamp);
+        match self.pending_upgrade {
+            Some(upgrade) if upgrade.at <= clock => upgrade.version,
+            _ => self.version,
+        }
+    }
+
     /// What falls due by the hub's clock before the block's operations
-    /// run: reductions of holds, new rules, the end of a shutdown's notice,
-    /// and a shutdown forced by an absent validator. While the hub is
-    /// frozen its clock stands still, so nothing falls due.
+    /// run: a newer version of the hub's protocol, claims whose payout was
+    /// waiting, reductions of holds, new rules, the end of a shutdown's
+    /// notice, and a shutdown forced by an absent validator. While the hub
+    /// is frozen its clock stands still, so nothing falls due.
     fn apply_due(&mut self) {
+        self.apply_upgrade();
+        self.pay_pending_claims();
         self.apply_reductions();
         self.apply_pending_rules();
         let clock = self.clock();
@@ -311,6 +351,35 @@ impl Ledger {
         self.phase = Phase::ShuttingDown {
             ends: self.clock().saturating_add(notice),
         };
+    }
+
+    /// The version of the hub's protocol the hub runs
+    /// (spec/decisions/hub-protocol-version.md): its rules' at first, then
+    /// each one its validators moved it to.
+    #[must_use]
+    pub const fn version(&self) -> u16 {
+        self.version
+    }
+
+    /// A move to a newer version a quorum voted for, waiting for its
+    /// notice.
+    #[must_use]
+    pub const fn pending_upgrade(&self) -> Option<PendingUpgrade> {
+        self.pending_upgrade
+    }
+
+    /// The votes to move the hub to a newer version, by version.
+    #[must_use]
+    pub fn upgrade_votes(&self) -> &[(u16, Signers)] {
+        &self.upgrade_votes
+    }
+
+    /// Whether claims wait for the hold's notice before they pay, and a
+    /// payer may dispute one with its payee's release
+    /// (spec/decisions/signed-rejects.md).
+    #[must_use]
+    pub const fn takes_releases(&self) -> bool {
+        self.version >= crate::rules::RELEASES_VERSION
     }
 
     /// The hub ID.
@@ -506,5 +575,7 @@ impl Ledger {
 
 #[cfg(test)]
 mod issuer_tests;
+#[cfg(test)]
+mod release_tests;
 #[cfg(test)]
 pub(crate) mod tests;

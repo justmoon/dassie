@@ -152,9 +152,9 @@ fn node(seed: u8, shutdown: &CancellationToken) -> Node {
     }
 }
 
-fn terms(sponsor: &IdentityKey) -> Terms {
+fn terms(sponsor: &IdentityKey, version: u16) -> Terms {
     Terms {
-        version: dassie_hub::rules::HUB_VERSION,
+        version,
         nonce: NONCE,
         sponsor: sponsor.identity(),
         network: 1,
@@ -196,8 +196,13 @@ fn terms(sponsor: &IdentityKey) -> Terms {
 }
 
 fn rules(nodes: &[Node]) -> Rules {
+    rules_of(nodes, dassie_hub::rules::HUB_VERSION)
+}
+
+/// The rules of a hub of `nodes`, of `version` of the hub protocol.
+fn rules_of(nodes: &[Node], version: u16) -> Rules {
     let sponsor = IdentityKey::from_bytes(&[100; 32]);
-    let terms = terms(&sponsor);
+    let terms = terms(&sponsor, version);
     let validators: Vec<Acceptance> = nodes
         .iter()
         .map(|node| {
@@ -221,11 +226,24 @@ struct Running {
 
 /// Starts `node`'s validator of the hub of `rules`, on `clock`.
 fn start(node: &Node, rules: &Rules, genesis: Millis, clock: &ManualClock) -> Running {
+    start_voting(node, rules, genesis, clock, None)
+}
+
+/// The same, voting to move the hub to `version` of the hub protocol, as
+/// the owner's file names it.
+fn start_voting(
+    node: &Node,
+    rules: &Rules,
+    genesis: Millis,
+    clock: &ManualClock,
+    version: Option<u16>,
+) -> Running {
     let now = clock.now_ms();
     let clock = Arc::new(clock.clone());
     let driver = Driver::open(Arc::clone(&node.store), rules, genesis, &node.key, now).unwrap();
     let client = HubClient::new(Some(Arc::clone(&node.quic)), client());
     let (task, links) = HubTask::new(driver, client, Arc::clone(&node.hubs), clock);
+    let task = task.voting_for(version);
     let stop = CancellationToken::new();
     let stop_ = stop.clone();
     let task = tokio::spawn(async move { task.run(stop_).await.unwrap() });
@@ -385,6 +403,79 @@ async fn four_validators_finalize_blocks_over_quic_and_a_member_hears_them() {
     })
     .await;
     assert!(nodes[2].hubs.statuses()[0].escrow_checked);
+
+    shutdown.cancel();
+    for validator in running {
+        validator.stop.cancel();
+        validator.task.await.unwrap();
+    }
+}
+
+// spec/decisions/hub-protocol-version.md: validators whose owners name a
+// newer version vote for it, and the hub of version 1 runs it once the
+// notice for new rules has passed, keeping its ID.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn validators_move_a_hub_to_the_version_their_owners_name() {
+    let shutdown = CancellationToken::new();
+    let nodes: Vec<Node> = (1..=4).map(|seed| node(seed, &shutdown)).collect();
+    let rules = rules_of(&nodes, 1);
+    let clock = ManualClock::new(support::START_MS);
+    let genesis = clock.now_ms();
+    let running: Vec<Running> = nodes
+        .iter()
+        .map(|n| start_voting(n, &rules, genesis, &clock, Some(2)))
+        .collect();
+    let statuses = || {
+        nodes
+            .iter()
+            .map(|n| n.hubs.statuses()[0].clone())
+            .collect::<Vec<_>>()
+    };
+    until_moved(&clock, "a quorum votes", async || {
+        nodes.iter().all(|n| {
+            n.hubs
+                .statuses()
+                .first()
+                .is_some_and(|s| s.upgrade.is_some_and(|(version, _)| version == 2))
+        })
+    })
+    .await;
+    assert!(
+        statuses().iter().all(|s| s.version == 1),
+        "not before the notice"
+    );
+    // The notice for new rules, two minutes, is more than one wait moves
+    // the clock: the waits take the hub to its end a step at a time.
+    let (_, at) = statuses()[0].upgrade.unwrap();
+    let near = || {
+        nodes
+            .iter()
+            .all(|n| n.hubs.statuses()[0].timestamp_ms + 1_000 >= at)
+    };
+    for _ in 0..10 {
+        if near() {
+            break;
+        }
+        let before = height(&nodes[0]);
+        until_moved(&clock, "blocks go on during the notice", async || {
+            near() || height(&nodes[0]) > before + 300
+        })
+        .await;
+    }
+    assert!(near(), "the notice nearly passed");
+    until_moved(&clock, "the hub runs version 2", async || {
+        nodes.iter().all(|n| {
+            n.hubs
+                .statuses()
+                .first()
+                .is_some_and(|s| s.version == 2 && s.upgrade.is_none())
+        })
+    })
+    .await;
+    assert!(statuses().iter().all(|s| s.hub == rules.id()));
+    // Blocks go on being final under it.
+    let at = height(&nodes[0]);
+    until_moved(&clock, "blocks go on", async || height(&nodes[0]) > at + 5).await;
 
     shutdown.cancel();
     for validator in running {

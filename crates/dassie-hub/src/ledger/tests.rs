@@ -421,9 +421,11 @@ fn redeem_pays_what_each_claim_adds() {
     assert_eq!(hub.ledger.hold(hold).unwrap().amount, 1_000_000 - 500);
 }
 
+// A hub of version 1 pays a claim at once (spec/decisions/signed-rejects.md
+// has version 2 wait for the hold's notice).
 #[test]
 fn claim_pays_fulfilled_commitments_once_and_redeem_does_not_pay_them_again() {
-    let mut hub = Hub::new();
+    let mut hub = Hub::with(|rules| rules.terms.version = 1);
     let (_, alice_key, bob, bob_key, hold) = hold_for_bob(&mut hub);
     let id = *hub.ledger.hub();
     let expiry = hub.ledger.timestamp() + 10_000;

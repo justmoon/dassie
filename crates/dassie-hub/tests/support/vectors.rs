@@ -1,11 +1,13 @@
 //! The hub's golden vectors (spec/areas/hubs.md#golden-vectors), as the
-//! crate's code makes them from fixed keys. `examples/hub_vectors.rs` writes
-//! them to `testdata/hub/vectors.json`; `tests/vectors.rs` checks that the
-//! code still makes and reads exactly those bytes. They pin what every
-//! validator of a hub must agree on within its version
-//! ([`HUB_VERSION`]): the rules and the ID, operations, promises,
-//! statements, blocks and the state a block leaves, votes, the genesis,
-//! and the escrow's transactions.
+//! crate's code makes them from fixed keys, one file per version of the
+//! hub's protocol it runs. `examples/hub_vectors.rs` writes them to
+//! `testdata/hub/vectors-v<version>.json`; `tests/vectors.rs` checks that
+//! the code still makes and reads exactly those bytes. They pin what every
+//! validator of a hub must agree on within its version: the rules and the
+//! ID, operations, promises, statements, blocks and the state a block
+//! leaves, votes, the genesis, and the escrow's transactions; from version
+//! 2 on, a payee's release, a payer's dispute, what a claim that waits
+//! leaves, and a hub of version 1 moved to version 2.
 
 use dassie_hub::client::{SignedStatement, Statement};
 use dassie_hub::consensus::wire::Message;
@@ -17,8 +19,8 @@ use dassie_hub::operation::{
     AccountNumber, Clawback, Deposit, Destination, Issuer, MemberOperation, Operation,
     SignedMemberOperation, SignedValidatorOperation, ValidatorOperation,
 };
-use dassie_hub::promise::{Claim, Commitment, HoldNumber, Signed};
-use dassie_hub::rules::{HUB_VERSION, Rules};
+use dassie_hub::promise::{Claim, Commitment, Fulfilled, HoldNumber, Release, Signed};
+use dassie_hub::rules::Rules;
 use dassie_hub::service::genesis_block;
 use dassie_hub::service::payload::Payload;
 use dassie_hub::{Digest, Millis, ValidatorIndex};
@@ -84,13 +86,15 @@ pub fn validator_keys() -> Vec<ValidatorKeys> {
         .collect()
 }
 
-/// The rules of the hub the vectors are of: the starting terms of the
-/// sponsor of key 0x20, its escrow at the master key it derives, and four
-/// validators, of keys 0x21 to 0x24, each accepting at its own host.
-pub fn rules() -> Rules {
+/// The rules of the hub the vectors of `version` are of: the starting
+/// terms of the sponsor of key 0x20, of that version, its escrow at the
+/// master key it derives, and four validators, of keys 0x21 to 0x24, each
+/// accepting at its own host.
+pub fn rules(version: u16) -> Rules {
     let sponsor = sponsor();
     let escrow = escrow_master(&sponsor, NETWORK, &NONCE);
-    let terms = starting_terms(NONCE, sponsor.identity(), NETWORK, escrow.account().0);
+    let mut terms = starting_terms(NONCE, sponsor.identity(), NETWORK, escrow.account().0);
+    terms.version = version;
     let validators = validator_nodes()
         .iter()
         .zip(validator_keys())
@@ -146,7 +150,7 @@ pub fn open() -> Value {
 /// The rules, the terms' digest each acceptance signs, and the hub ID.
 fn rules_vector(rules: &Rules) -> Value {
     json!({
-        "version": HUB_VERSION,
+        "version": rules.terms.version,
         "terms": hex(&rules.terms.to_vec()),
         "termsDigest": hex(rules.terms.digest().as_bytes()),
         "rules": hex(&rules.to_vec()),
@@ -282,12 +286,13 @@ const CLAWBACK: Clawback = Clawback {
     amount: 1_000_000,
 };
 
-/// The rules of a DSUSD hub of the same sponsor and validators: a token
-/// hub, whose issuer may freeze and claw back.
-pub fn token_rules() -> Rules {
+/// The rules of a DSUSD hub of the same sponsor and validators, of
+/// `version`: a token hub, whose issuer may freeze and claw back.
+pub fn token_rules(version: u16) -> Rules {
     let sponsor = sponsor();
     let escrow = escrow_master(&sponsor, NETWORK, &NONCE);
     let mut terms = starting_terms(NONCE, sponsor.identity(), NETWORK, escrow.account().0);
+    terms.version = version;
     terms.asset = dassie_hub::rules::Asset::Token {
         currency: dassie_xrpl::dsusd::CURRENCY,
         issuer: dassie_xrpl::dsusd::ISSUER,
@@ -311,8 +316,8 @@ pub fn token_rules() -> Rules {
 /// after a quorum attested a freeze, and after one attested a clawback
 /// during it: they pin how the frozen state and what was clawed back are
 /// in the state root.
-fn token_vector() -> Value {
-    let rules = token_rules();
+fn token_vector(version: u16) -> Value {
+    let rules = token_rules(version);
     let hub = rules.id();
     let mut state = Ledger::genesis(rules.clone(), GENESIS_MS).unwrap();
     let mut roots = Vec::new();
@@ -494,10 +499,251 @@ fn escrow_vector(rules: &Rules) -> Value {
     })
 }
 
-/// Every vector, as `testdata/hub/vectors.json` holds them.
-pub fn all() -> Value {
-    let rules = rules();
+/// Signs `operation` as validator `index`, with `sequence`, in the hub of
+/// `rules`.
+fn by_validator(
+    rules: &Rules,
+    index: usize,
+    sequence: u64,
+    operation: ValidatorOperation,
+) -> Operation {
+    Operation::Validator(SignedValidatorOperation::sign(
+        &rules.id(),
+        ValidatorIndex::new(index).unwrap(),
+        sequence,
+        operation,
+        &validator_keys()[index].consensus,
+    ))
+}
+
+/// Applies a block of `operations` at `height`, stamped `timestamp`, to
+/// `state`, and returns its outcomes.
+fn apply(
+    state: &mut Ledger,
+    height: u64,
+    timestamp: Millis,
+    operations: &[Operation],
+) -> Vec<ledger::Outcome> {
+    state
+        .apply(&ledger::Block {
+            height,
+            timestamp,
+            operations,
+            votes: &[],
+        })
+        .unwrap()
+}
+
+/// Applies a block of `operations` to `state`, 100 ms after the last.
+fn next(state: &mut Ledger, operations: &[Operation]) -> Vec<ledger::Outcome> {
+    let (height, timestamp) = (state.height() + 1, state.timestamp() + 100);
+    apply(state, height, timestamp, operations)
+}
+
+/// A quorum's attestation of `operation`, signed at the next height.
+fn attested(rules: &Rules, state: &Ledger, operation: &ValidatorOperation) -> Vec<Operation> {
+    (0..3)
+        .map(|index| by_validator(rules, index, state.height() + 1, operation.clone()))
+        .collect()
+}
+
+/// `operation` signed with `key` for `account`, at its next sequence.
+fn by_member(
+    state: &Ledger,
+    account: AccountNumber,
+    key: &NodeKey,
+    operation: MemberOperation,
+) -> Operation {
+    let sequence = state.account(account).unwrap().sequence;
+    let fee = state.terms().fees.operation;
+    Operation::Member(SignedMemberOperation::sign(
+        state.hub(),
+        account,
+        sequence,
+        fee,
+        operation,
+        key,
+    ))
+}
+
+/// A hub of `rules` with its escrow checked and two members, of keys 0x30
+/// and 0x31, each joined with a deposit, the first holding funds for the
+/// second: the ledger, the two keys, and the hold.
+fn two_members(rules: &Rules) -> (Ledger, NodeKey, NodeKey, HoldNumber) {
+    let payer = NodeKey::from_bytes(&[0x30; 32]);
+    let payee = NodeKey::from_bytes(&[0x31; 32]);
+    let mut state = Ledger::genesis(rules.clone(), GENESIS_MS).unwrap();
+    let checked = attested(
+        rules,
+        &state,
+        &ValidatorOperation::AttestEscrow { sequence: 5 },
+    );
+    next(&mut state, &checked);
+    for (byte, key) in [(0xa1, &payer), (0xa2, &payee)] {
+        let deposit = Deposit {
+            transaction: Digest([byte; 32]),
+            ledger: 1_000 + u32::from(byte),
+            amount: OPEN_DROPS,
+            sender: depositor().account().0,
+            tag: 0,
+            key: Some(key.public_key()),
+        };
+        let attested = attested(rules, &state, &ValidatorOperation::AttestDeposit(deposit));
+        next(&mut state, &attested);
+    }
+    let number = |key: &NodeKey| state.account_of(&key.public_key()).unwrap();
+    let (from, to) = (number(&payer), number(&payee));
+    let disbursal = |key: &NodeKey| {
+        MemberOperation::SetDisbursal(Destination {
+            account: [key.public_key().as_bytes()[0]; 20],
+            tag: None,
+        })
+    };
+    let set = [
+        by_member(&state, from, &payer, disbursal(&payer)),
+        by_member(&state, to, &payee, disbursal(&payee)),
+    ];
+    next(&mut state, &set);
+    let open = MemberOperation::HoldOpen {
+        payee: to,
+        amount: 1_000_000,
+    };
+    let open = by_member(&state, from, &payer, open);
+    next(&mut state, &[open]);
+    let hold = state.holds_of(from).next().unwrap().0;
+    (state, payer, payee, hold)
+}
+
+/// `payer`'s commitment on `hold`, sequence 1, with its fulfillment.
+fn fulfilled(hub: &dassie_hub::rules::HubId, payer: &NodeKey, hold: HoldNumber) -> Fulfilled {
+    let fulfillment = [0xf1; 32];
+    let commitment = Commitment {
+        hold,
+        sequence: 1,
+        amount: 250,
+        condition: sha256(&fulfillment),
+        expiry: GENESIS_MS + 60_000,
+    };
+    Fulfilled {
+        commitment: Signed::sign(commitment, hub, payer),
+        fulfillment,
+    }
+}
+
+/// From version 2 on (spec/decisions/signed-rejects.md): a payee's release
+/// of a commitment and what it signs; a payer's dispute with it; and a
+/// hub's states as a claim takes from a hold to wait, as the payer's
+/// dispute puts it back, and as a claim that waited is paid, with the
+/// holds a statement lists with what waits and the version a statement
+/// says.
+fn releases_vector(rules: &Rules) -> Value {
+    let hub = rules.id();
+    let (mut state, payer, payee, hold) = two_members(rules);
+    let number = |key: &NodeKey| state.account_of(&key.public_key()).unwrap();
+    let (from, to) = (number(&payer), number(&payee));
+    let fee = rules.terms.fees.operation;
+    let claim = MemberOperation::Claim {
+        hold,
+        fulfilled: vec![fulfilled(&hub, &payer, hold)],
+    };
+    let claim = by_member(&state, to, &payee, claim);
+    let pending = ledger::Detail::Pending(250);
+    assert_eq!(
+        next(&mut state, core::slice::from_ref(&claim)),
+        [ledger::Outcome::Applied {
+            fee,
+            detail: pending
+        }]
+    );
+    let waiting = state.state_root();
+    let holds = Statement::holds(&state, to);
+    let mut paid = state.clone();
+    let release = Signed::sign(
+        Release::of(&fulfilled(&hub, &payer, hold).commitment.value),
+        &hub,
+        &payee,
+    );
+    let dispute = MemberOperation::Dispute {
+        hold,
+        releases: vec![release],
+    };
+    let dispute = by_member(&state, from, &payer, dispute);
+    let returned = ledger::Detail::Returned(250);
+    assert_eq!(
+        next(&mut state, core::slice::from_ref(&dispute)),
+        [ledger::Outcome::Applied {
+            fee,
+            detail: returned
+        }]
+    );
+    // Undisputed, what waited is paid once the hold's notice passed.
+    let due = paid.hold(hold).unwrap().pending_due;
+    let height = paid.height() + 1;
+    apply(&mut paid, height, due, &[]);
+    assert!(paid.hold(hold).unwrap().pending.is_empty());
+    let statements = holds
+        .into_iter()
+        .chain(Statement::protocol(&state))
+        .map(|statement| {
+            SignedStatement::sign(
+                &hub,
+                ValidatorIndex::new(1).unwrap(),
+                statement,
+                &validator_keys()[1].consensus,
+            )
+        })
+        .collect::<Vec<_>>();
     json!({
+        "release": hex(&release.to_vec()),
+        "releaseDigest": hex(release.value.digest(&hub).as_bytes()),
+        "claim": hex(&claim.to_vec()),
+        "dispute": hex(&dispute.to_vec()),
+        "disputeHash": hex(dispute.hash().as_bytes()),
+        "waiting": hex(waiting.as_bytes()),
+        "snapshot": hex(&state.snapshot()),
+        "returned": hex(state.state_root().as_bytes()),
+        "paid": hex(paid.state_root().as_bytes()),
+        "statements": hex(&SignedStatement::encode_list(&statements)),
+    })
+}
+
+/// A hub of version 1 moved to version 2 (spec/decisions/hub-protocol-version.md):
+/// a validator's vote, and the hub's states after a quorum's votes and
+/// once their notice passed, which pin how the version and the move
+/// waiting are in the state root.
+fn upgrade_vector() -> Value {
+    let rules = rules(1);
+    let vote = ValidatorOperation::Upgrade { version: 2 };
+    let mut state = Ledger::genesis(rules.clone(), GENESIS_MS).unwrap();
+    let votes: Vec<Operation> = (0..3)
+        .map(|index| by_validator(&rules, index, 1, vote.clone()))
+        .collect();
+    apply(&mut state, 1, GENESIS_MS + 100, &votes);
+    let voted = state.state_root();
+    let at = state.pending_upgrade().unwrap().at;
+    apply(&mut state, 2, at, &[]);
+    assert_eq!(state.version(), 2);
+    json!({
+        "rules": hex(&rules.to_vec()),
+        "vote": hex(&votes[0].to_vec()),
+        "voteHash": hex(votes[0].hash().as_bytes()),
+        "voted": hex(voted.as_bytes()),
+        "moved": hex(state.state_root().as_bytes()),
+        "snapshot": hex(&state.snapshot()),
+    })
+}
+
+/// The SHA-256 of `bytes`.
+fn sha256(bytes: &[u8]) -> [u8; 32] {
+    use sha2::{Digest as _, Sha256};
+    Sha256::digest(bytes).into()
+}
+
+/// Every vector of `version` of the hub's protocol, as
+/// `testdata/hub/vectors-v<version>.json` holds them.
+pub fn all(version: u16) -> Value {
+    let rules = rules(version);
+    let mut vectors = json!({
         "comment": "Generated by crates/dassie-hub/examples/hub_vectors.rs; see its header. Do not edit.",
         "open": open(),
         "rules": rules_vector(&rules),
@@ -506,6 +752,11 @@ pub fn all() -> Value {
         "promises": promises_vector(&rules),
         "block": block_vector(&rules),
         "escrow": escrow_vector(&rules),
-        "token": token_vector(),
-    })
+        "token": token_vector(version),
+    });
+    if version >= 2 {
+        vectors["releases"] = releases_vector(&rules);
+        vectors["upgrade"] = upgrade_vector();
+    }
+    vectors
 }

@@ -10,8 +10,9 @@ use crate::rules::Amount;
 
 impl Ledger {
     /// Everything the hub owes: balances and reserves of accounts, holds
-    /// and their reserves, pending withdrawals with their fees, fees not
-    /// yet paid out, and the reserve account.
+    /// with their reserves and the claims on them waiting for their payout,
+    /// pending withdrawals with their fees, fees not yet paid out, and the
+    /// reserve account.
     #[must_use]
     pub fn liabilities(&self) -> Amount {
         let accounts = self
@@ -22,7 +23,11 @@ impl Ledger {
         let holds = self
             .holds
             .values()
-            .map(|h| h.amount.saturating_add(h.reserve))
+            .map(|h| {
+                h.amount
+                    .saturating_add(h.reserve)
+                    .saturating_add(h.pending_amount())
+            })
             .fold(0, Amount::saturating_add);
         let withdrawals = self
             .withdrawals
@@ -207,6 +212,39 @@ impl Ledger {
                 hold.claimed.keys().all(|s| *s > hold.through),
                 "a claimed sequence a redeem passed"
             );
+            assert!(
+                self.takes_releases() || hold.pending.is_empty(),
+                "a claim waits in a hub of version 1"
+            );
+            assert!(
+                hold.pending
+                    .iter()
+                    .all(|(s, p)| *s <= hold.through || hold.claimed.get(s) == Some(&p.amount)),
+                "a pending claim that is not what its sequence took"
+            );
+            assert!(
+                hold.pending.is_empty() == (hold.pending_due == 0),
+                "a due without pending claims, or pending claims without one"
+            );
+            assert!(
+                hold.pending.values().all(|pending| pending.amount > 0),
+                "a pending claim of nothing"
+            );
         }
+        assert!(
+            self.pending_upgrade
+                .is_none_or(|u| u.version > self.version),
+            "a move to a version the hub runs already"
+        );
+        assert!(
+            self.upgrade_votes
+                .iter()
+                .all(|(version, signers)| *version > self.version && signers.count() > 0),
+            "a vote for a version the hub runs already"
+        );
+        assert!(
+            crate::rules::runs(self.version),
+            "a version this code does not run"
+        );
     }
 }

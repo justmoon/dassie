@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use super::Ledger;
 use super::outcome::{Detail, Failure, Outcome, Refusal};
-use super::state::{Account, PendingRules, Phase, ValidatorState};
+use super::state::{Account, PendingRules, PendingUpgrade, Phase, ValidatorState};
 use super::{RESET_QUIET_MS, TESTNET_NETWORK};
 use crate::operation::{AccountNumber, SignedValidatorOperation, ValidatorOperation};
 use crate::rules::Rules;
@@ -100,6 +100,7 @@ impl Ledger {
             }
             ValidatorOperation::AttestIssuer(issuer) => self.attest_issuer(index, *issuer),
             ValidatorOperation::AttestClawback(clawback) => self.attest_clawback(index, clawback),
+            ValidatorOperation::Upgrade { version } => self.vote_upgrade(index, *version),
             ValidatorOperation::Shutdown => {
                 if self.shutdown_votes.contains(index) {
                     return Err(Err(Refusal::NotAllowed));
@@ -186,12 +187,57 @@ impl Ledger {
         Ok(Detail::None)
     }
 
+    /// Votes to move the hub to a newer version of the hub's protocol
+    /// (spec/decisions/hub-protocol-version.md). Every version counts them
+    /// alike, whether its code runs `version` or not, so validators of
+    /// different releases agree on the vote; once a quorum agrees, the hub
+    /// runs it after the notice for new rules, and a validator whose code
+    /// does not run it stops at that block (`BlockError::Version`). A
+    /// validator may change its vote, and one move waits at a time, never
+    /// beside new rules waiting: those name the version the hub runs before
+    /// the move.
+    fn vote_upgrade(&mut self, index: ValidatorIndex, version: u16) -> Executed {
+        if version <= self.version || self.pending_upgrade.is_some() || self.pending_rules.is_some()
+        {
+            return Err(Ok(Failure::Stale));
+        }
+        let quorum = self.validators.quorum();
+        if vote(&mut self.upgrade_votes, index, version, quorum).map_err(Err)? {
+            self.pending_upgrade = Some(PendingUpgrade {
+                version,
+                at: self
+                    .clock()
+                    .saturating_add(self.rules.terms.timers.reconfigure_notice),
+            });
+            self.upgrade_votes.clear();
+        }
+        Ok(Detail::None)
+    }
+
+    /// Moves the hub to the version a quorum voted for, once its notice
+    /// passed by the hub's clock, before the block's operations. A block
+    /// that does so is one this code runs (`Ledger::check_block`).
+    pub(super) fn apply_upgrade(&mut self) {
+        let clock = self.clock();
+        let Some(upgrade) = self.pending_upgrade.filter(|u| u.at <= clock) else {
+            return;
+        };
+        assert!(
+            crate::rules::runs(upgrade.version),
+            "a block of a version this code does not run"
+        );
+        self.version = upgrade.version;
+        self.pending_upgrade = None;
+    }
+
     /// Votes for new rules. They must keep what keys and the escrow hang
     /// on (the nonce, the sponsor, the network and the escrow) and every
-    /// table at least as large. A validator may change its vote.
+    /// table at least as large, and name the version the hub runs, which no
+    /// move waiting will change. A validator may change its vote.
     fn vote_rules(&mut self, index: ValidatorIndex, rules: &Rules) -> Executed {
         let current = &self.rules.terms;
-        let same_hub = rules.terms.nonce == current.nonce
+        let same_hub = rules.terms.version == self.version
+            && rules.terms.nonce == current.nonce
             && rules.terms.sponsor == current.sponsor
             && rules.terms.network == current.network
             && rules.terms.escrow == current.escrow;
@@ -201,6 +247,7 @@ impl Ledger {
             && rules.terms.keeps_tables_of(current)
             && rules.check().is_ok()
             && self.pending_rules.is_none()
+            && self.pending_upgrade.is_none()
             && self.escrow.signer_list.is_none();
         if !acceptable {
             return Err(Ok(Failure::NotYours));
@@ -344,6 +391,7 @@ impl Ledger {
         self.escrow_votes.clear();
         self.rules_votes.clear();
         self.signer_list_votes.clear();
+        self.upgrade_votes.clear();
     }
 
     /// The account of validator key `key`. A key that has a member account

@@ -596,6 +596,10 @@ impl Driver {
             escrow_checked: ledger.escrow().checked,
             xrpl_connected,
             caught_up: self.caught_up,
+            version: ledger.version(),
+            upgrade: ledger
+                .pending_upgrade()
+                .map(|upgrade| (upgrade.version, upgrade.at)),
         }
     }
 }

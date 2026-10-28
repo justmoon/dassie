@@ -336,6 +336,11 @@ pub struct HubStatus {
     /// How often it took a peer's state since it started, being further
     /// behind than peers keep blocks.
     pub caught_up: u64,
+    /// The version of the hub protocol the hub runs.
+    pub version: u16,
+    /// A newer version a quorum voted to move the hub to, and the block
+    /// timestamp, by the hub's clock, from which it runs it.
+    pub upgrade: Option<(u16, u64)>,
 }
 
 /// Where what arrives for one hub goes: what its validators send to a

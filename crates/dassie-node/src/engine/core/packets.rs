@@ -333,9 +333,10 @@ impl Core {
         // method (spec/decisions/settlement-methods.md).
         if prepare.is_none() {
             // The Prepare's slot, whose method may have been dropped since.
-            self.answered_over_hub(now, (&node, ledger), request_id, &packet);
+            let release = self.answered_over_hub(now, (&node, ledger), request_id, &packet);
             // A response is retried by the peer node until it arrives.
-            self.peer.send_response(now, &node, request_id, &packet);
+            self.peer
+                .send_released(now, &node, request_id, &packet, &release);
             self.after_peer();
             return;
         }

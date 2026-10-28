@@ -1,8 +1,14 @@
-//! The hub's golden vectors (spec/areas/hubs.md#golden-vectors): the code
-//! makes exactly the bytes `testdata/hub/vectors.json` holds, and reads
-//! them as the vectors say.
+//! The hub's golden vectors (spec/areas/hubs.md#golden-vectors): for every
+//! version of the hub's protocol it runs, the code makes exactly the bytes
+//! `testdata/hub/vectors-v<version>.json` holds, and reads them as the
+//! vectors say.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 #[path = "support/vectors.rs"]
 mod vectors;
@@ -14,12 +20,17 @@ use dassie_xrpl::codec::{Amount, Payment, Transact};
 use dassie_xrpl::from_hex;
 use serde_json::Value;
 
-fn committed() -> Value {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../testdata/hub/vectors.json"
+fn committed(version: u16) -> Value {
+    let path = format!(
+        "{}/../../testdata/hub/vectors-v{version}.json",
+        env!("CARGO_MANIFEST_DIR")
     );
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// Every version of the hub's protocol this code runs.
+fn versions() -> impl Iterator<Item = u16> {
+    dassie_hub::rules::OLDEST_HUB_VERSION..=dassie_hub::rules::HUB_VERSION
 }
 
 fn bytes(value: &Value) -> Vec<u8> {
@@ -30,18 +41,20 @@ fn bytes(value: &Value) -> Vec<u8> {
 // change to a frozen surface.
 #[test]
 fn the_code_makes_the_committed_vectors() {
-    assert_eq!(
-        vectors::all(),
-        committed(),
-        "regenerate with `cargo run -p dassie-hub --example hub_vectors`, and only for a new version"
-    );
+    for version in versions() {
+        assert_eq!(
+            vectors::all(version),
+            committed(version),
+            "version {version}: regenerate with `cargo run -p dassie-hub --example hub_vectors -- {version}`, and only for a new version"
+        );
+    }
 }
 
 // spec/areas/hubs.md#the-escrow: the opening deposit, as a wallet outside
 // Dassie writes it, opens an account under the key of its memo.
 #[test]
 fn the_opening_deposit_names_its_key() {
-    let open = &committed()["open"];
+    let open = &committed(dassie_hub::rules::HUB_VERSION)["open"];
     assert_eq!(bytes(&open["memoType"]), OPEN_MEMO_TYPE);
     assert_eq!(
         open["memoTypeText"].as_str().unwrap(),
@@ -89,15 +102,21 @@ fn the_opening_deposit_names_its_key() {
 // as the code reads it, within the version the hub ID commits to.
 #[test]
 fn the_vectors_read_as_they_say() {
+    for version in versions() {
+        read_as_they_say(version);
+    }
+    releases_read_as_they_say();
+}
+
+fn read_as_they_say(version: u16) {
     use dassie_hub::Rules;
     use dassie_hub::consensus::wire::Message;
     use dassie_hub::operation::Operation;
     use dassie_hub::promise::{Claim, Commitment, Signed};
-    use dassie_hub::rules::HUB_VERSION;
     use dassie_hub::service::payload::Payload;
     use dassie_oer::{Encode, Reader};
 
-    let vectors = committed();
+    let vectors = committed(version);
     let read = |value: &Value| bytes(value);
     // The rules, and the ID that commits to their version.
     let rules_bytes = read(&vectors["rules"]["rules"]);
@@ -105,17 +124,18 @@ fn the_vectors_read_as_they_say() {
     let rules = Rules::decode(&mut reader).unwrap();
     reader.finish().unwrap();
     assert_eq!(rules.check(), Ok(()));
-    assert_eq!(rules.terms.version, HUB_VERSION);
-    assert_eq!(vectors["rules"]["version"], HUB_VERSION);
+    assert_eq!(rules.terms.version, version);
+    assert_eq!(vectors["rules"]["version"], version);
     assert_eq!(
         rules.id().0.as_bytes().to_vec(),
         read(&vectors["rules"]["hubId"])
     );
     let terms = read(&vectors["rules"]["terms"]);
-    assert_eq!(terms[..2], HUB_VERSION.to_be_bytes(), "the version first");
-    // Another version is refused before anything else is read.
+    assert_eq!(terms[..2], version.to_be_bytes(), "the version first");
+    // A version this code does not run is refused before anything else is
+    // read.
     let mut later = rules_bytes;
-    later[1] = later[1].wrapping_add(1);
+    later[..2].copy_from_slice(&(dassie_hub::rules::HUB_VERSION + 1).to_be_bytes());
     assert!(Rules::decode(&mut Reader::new(&later)).is_err());
     // Operations and promises.
     for kind in ["member", "validator", "issuer", "clawback"] {
@@ -167,4 +187,45 @@ fn the_vectors_read_as_they_say() {
         token.id().0.as_bytes().to_vec(),
         read(&vectors["token"]["hubId"])
     );
+}
+
+// spec/decisions/signed-rejects.md: version 2's release verifies under the
+// payee's key, its dispute decodes as one, the state with a claim that
+// waits restores to its root, and a hub of version 1 moved to version 2
+// restores to its own.
+fn releases_read_as_they_say() {
+    use dassie_hub::client::SignedStatement;
+    use dassie_hub::ledger::Ledger;
+    use dassie_hub::operation::{MemberOperation, Operation};
+    use dassie_hub::promise::{Release, Signed};
+    use dassie_hub::{Digest, Rules};
+    use dassie_oer::Reader;
+
+    let vectors = committed(2);
+    let releases = &vectors["releases"];
+    let rules = vectors::rules(2);
+    let release =
+        Signed::<Release>::decode(&mut Reader::new(&bytes(&releases["release"]))).unwrap();
+    let payee = dassie_identity::NodeKey::from_bytes(&[0x31; 32]).public_key();
+    assert!(release.verifies(&rules.id(), &payee));
+    let encoded = bytes(&releases["dispute"]);
+    let Operation::Member(dispute) = Operation::decode(&mut Reader::new(&encoded)).unwrap() else {
+        panic!("a member's operation");
+    };
+    assert!(matches!(dispute.operation, MemberOperation::Dispute { .. }));
+    let snapshot = bytes(&releases["snapshot"]);
+    let root = Digest(bytes(&releases["returned"]).try_into().unwrap());
+    assert!(Ledger::restore(&snapshot, &root).is_ok());
+    let statements = SignedStatement::decode_list(&bytes(&releases["statements"])).unwrap();
+    let set = rules.validator_set().unwrap();
+    assert!(statements.iter().all(|s| s.verifies(&rules.id(), &set)));
+    let upgrade = &vectors["upgrade"];
+    let old = Rules::decode(&mut Reader::new(&bytes(&upgrade["rules"]))).unwrap();
+    assert_eq!(old.terms.version, 1);
+    let moved = Ledger::restore(
+        &bytes(&upgrade["snapshot"]),
+        &Digest(bytes(&upgrade["moved"]).try_into().unwrap()),
+    )
+    .unwrap();
+    assert_eq!((moved.rules().terms.version, moved.version()), (1, 2));
 }

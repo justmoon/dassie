@@ -161,6 +161,10 @@ pub enum Inbound<'a> {
         /// (spec/designs/settlement-hubs.md#5-joining), on any other
         /// method, and with a Fulfill or Reject.
         commitment: Option<&'a [u8]>,
+        /// The release that came with a Reject in a `hubReject`, for the
+        /// scheme of the method its Prepare went on
+        /// (spec/decisions/signed-rejects.md); `None` otherwise.
+        release: Option<&'a [u8]>,
         /// The acknowledgement, once the node knows the claim it carries on
         /// a Fulfill over a hub. It says nothing of what the node does with
         /// the packet: each side books its own Fulfills

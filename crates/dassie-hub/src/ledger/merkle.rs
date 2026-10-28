@@ -121,6 +121,14 @@ impl Ledger {
         for (hash, ledger) in &self.recent_deposits {
             leaves.push(leaf(Key::RecentDeposit(hash.0), &ledger.to_be_bytes()));
         }
+        // A hold's pending claims are a leaf of their own, last, as their
+        // keys sort, and there only while it has any, so a hub of version 1
+        // keeps the root it had (spec/decisions/hub-protocol-version.md).
+        for (number, hold) in &self.holds {
+            if !hold.pending.is_empty() {
+                leaves.push(leaf(Key::Pending(*number), &hold.pending_bytes()));
+            }
+        }
         merkle_root(&leaves)
     }
 
@@ -166,6 +174,23 @@ impl Ledger {
         }
         self.header_votes(&mut bytes);
         self.header_issuer(&mut bytes);
+        // The version and its votes follow only once there are any, so a
+        // hub of version 1 keeps the root it had.
+        if self.has_protocol_header() {
+            bytes.extend_from_slice(&self.version.to_be_bytes());
+            push_count(&mut bytes, self.upgrade_votes.len());
+            for (version, signers) in &self.upgrade_votes {
+                bytes.extend_from_slice(&version.to_be_bytes());
+                bytes.extend_from_slice(&signers.bits().to_be_bytes());
+            }
+            push_option(&mut bytes, self.pending_upgrade.map(|upgrade| upgrade.at));
+            bytes.extend_from_slice(
+                &self
+                    .pending_upgrade
+                    .map_or(0, |upgrade| upgrade.version)
+                    .to_be_bytes(),
+            );
+        }
         bytes
     }
 

@@ -175,6 +175,13 @@ message HubValidator {
   bool escrow_checked = 9;
   // Whether it follows the escrow on its XRPL server now.
   bool xrpl_connected = 10;
+  // The version of the hub protocol the hub runs
+  // (spec/decisions/hub-protocol-version.md).
+  uint32 protocol_version = 11;
+  // A newer version a quorum of validators voted to move the hub to, and
+  // when it runs it; 0 and unset while no move waits.
+  uint32 upgrade_version = 12;
+  int64 upgrade_unix_ms = 13;
 }
 
 // Where a settlement hub is in its life

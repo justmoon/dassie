@@ -13,6 +13,13 @@
 //! redeemed W, and only subtracts it from a redeem up to W, so a T that
 //! counted it would pay it twice.
 //!
+//! From version 2 on, the peer's Reject comes with its release of the
+//! packet's commitment, which we keep while the hub could still take a
+//! claim of it (spec/decisions/signed-rejects.md). A claim of a released
+//! packet waits in the hold, and we dispute it: it counts in neither T nor
+//! our losses unless the hub pays it all the same, as when our dispute came
+//! too late.
+//!
 //! Amounts: a packet is promised in drops, rounded up, so a commitment
 //! never covers less than its packet; T is what the packets add up to in
 //! internal units, rounded down to drops, so what is less than a drop
@@ -25,7 +32,7 @@ use dassie_settlement::{LossCause, Promised, SchemeError};
 
 use super::{UNITS_PER_DROP, drops_covering};
 use crate::digest::Digest;
-use crate::promise::{Claim, Commitment, Fulfilled, HoldNumber};
+use crate::promise::{Claim, Commitment, Fulfilled, HoldNumber, Release, Signed};
 use crate::rules::{Amount, Millis};
 
 /// Most packets a payer keeps per peer: in flight, waiting for the hub, or
@@ -77,6 +84,11 @@ pub(super) struct Packet {
     pub(super) commitment: Commitment,
     pub(super) state: State,
     pub(super) paid: Option<PaidOnHub>,
+    /// The peer's release of its commitment, which came with its Reject.
+    pub(super) release: Option<Signed<Release>>,
+    /// What a claim of it took that waits, while we dispute it with the
+    /// release: not owed unless the hub pays it all the same.
+    pub(super) disputed: Option<PaidOnHub>,
 }
 
 impl Packet {
@@ -246,6 +258,8 @@ impl Payer {
                 commitment,
                 state: State::InFlight,
                 paid: None,
+                release: None,
+                disputed: None,
             },
         );
         self.requests.insert(request_id, sequence);
@@ -282,16 +296,41 @@ impl Payer {
         (self.claim_value(), loss)
     }
 
+    /// Whether `release` is the peer's release of the commitment of our
+    /// Prepare `request_id`, signed by `key`, the peer's account key.
+    pub(super) fn releases(
+        &self,
+        request_id: u32,
+        release: &Signed<Release>,
+        hub: &crate::rules::HubId,
+        key: &dassie_identity::PublicKey,
+    ) -> bool {
+        self.requests
+            .get(&request_id)
+            .and_then(|sequence| self.packets.get(sequence))
+            .is_some_and(|packet| {
+                packet.state == State::InFlight
+                    && release.value == Release::of(&packet.commitment)
+                    && release.verifies(hub, key)
+            })
+    }
+
     /// The node is done with our Prepare `request_id` without a Fulfill
-    /// taken: the peer rejected it, or the node gave up waiting for the
-    /// hub. Returns a loss if the hub paid it.
-    pub(super) fn answered(&mut self, request_id: u32) -> Option<Loss> {
+    /// taken: the peer rejected it, with its `release` of the commitment if
+    /// it sent one, or the node gave up waiting for the hub. Returns a loss
+    /// if the hub paid it.
+    pub(super) fn answered(
+        &mut self,
+        request_id: u32,
+        release: Option<Signed<Release>>,
+    ) -> Option<Loss> {
         let sequence = self.requests.remove(&request_id)?;
         let packet = self.packets.get_mut(&sequence)?;
         packet.request_id = None;
         let cause = match packet.state {
             State::InFlight => {
                 packet.state = State::Rejected;
+                packet.release = release;
                 LossCause::Cheated
             }
             State::Waiting => {
@@ -349,13 +388,17 @@ impl Payer {
     }
 
     /// The peer won a claim on the hub with `fulfilled`, which paid
-    /// `paid`, in operation `operation`. Returns the waits it decides, with
-    /// their fulfillments, and the losses it caused.
+    /// `paid`, in operation `operation`, or, if `waits`, took it to wait in
+    /// the hold (version 2 on). Returns the waits it decides, with their
+    /// fulfillments, and the losses it caused. A packet the peer released
+    /// that a claim took for, waiting, is ours to dispute
+    /// ([`Self::to_dispute`]).
     pub(super) fn claimed(
         &mut self,
         fulfilled: &[Fulfilled],
         paid: Amount,
         operation: Digest,
+        waits: bool,
     ) -> (Vec<(u32, [u8; 32])>, Vec<Loss>) {
         let mut decided = Vec::new();
         // One claim takes from one hold.
@@ -372,6 +415,18 @@ impl Payer {
             // A sequence the hub took is never ours to give again.
             self.next_sequence = self.next_sequence.max(sequence.saturating_add(1));
             match self.packets.get_mut(&sequence) {
+                Some(packet)
+                    if waits
+                        && packet.state == State::Rejected
+                        && packet.paid.is_none()
+                        && packet.release.is_some_and(|release| {
+                            fulfilled
+                                .iter()
+                                .any(|item| release.value == Release::of(&item.commitment.value))
+                        }) =>
+                {
+                    packet.disputed = Some(paid);
+                }
                 Some(packet) if packet.paid.is_none() => {
                     let was_owed = packet.owed();
                     packet.paid = Some(paid);
@@ -419,6 +474,69 @@ impl Payer {
         (decided, losses)
     }
 
+    /// The releases of what claims took that we dispute, by the hold
+    /// they are on, at most `limit`.
+    pub(super) fn to_dispute(&self, limit: usize) -> Vec<Signed<Release>> {
+        self.packets
+            .values()
+            .filter(|packet| packet.disputed.is_some())
+            .filter_map(|packet| packet.release)
+            .take(limit)
+            .collect()
+    }
+
+    /// Our dispute of `sequences` executed, or failed: what it put back is
+    /// not owed, and what it found paid already the hub said so of
+    /// ([`Self::claims_paid`]).
+    pub(super) fn disputed(&mut self, sequences: &[u64]) {
+        for sequence in sequences {
+            if let Some(packet) = self.packets.get_mut(sequence) {
+                packet.disputed = None;
+            }
+        }
+    }
+
+    /// What claims took and waited in our hold was paid to the peer: the
+    /// `sequences` above the last redeemed W, and, if `unlisted`, whatever
+    /// waited that the account no longer knows the sequences of. A packet
+    /// we disputed and that the hub paid all the same is owed, and the
+    /// peer's cheating: it claimed what it released. One a redeem passed
+    /// first is not: the redeem paid what our claim says, which it is not
+    /// in. Returns the losses.
+    pub(super) fn claims_paid(&mut self, sequences: &[u64], unlisted: bool) -> Vec<Loss> {
+        let redeemed = self.snapshot.through;
+        let paid: Vec<u64> = self
+            .packets
+            .iter()
+            .filter(|(sequence, packet)| {
+                packet.disputed.is_some()
+                    && **sequence > redeemed
+                    && (unlisted || sequences.contains(sequence))
+            })
+            .map(|(sequence, _)| *sequence)
+            .collect();
+        let mut losses = Vec::new();
+        for sequence in paid {
+            let Some(packet) = self.packets.get_mut(&sequence) else {
+                continue;
+            };
+            let Some(disputed) = packet.disputed.take() else {
+                continue;
+            };
+            let was_owed = packet.owed();
+            packet.paid = Some(disputed);
+            losses.push(late(
+                &disputed,
+                LossCause::Cheated,
+                (packet.commitment.hold, sequence),
+            ));
+            if sequence <= self.through && !was_owed {
+                self.through_units = self.through_units.saturating_add(packet.owed_units());
+            }
+        }
+        losses
+    }
+
     /// Moves W past every resolved packet, adding what we owe for each.
     fn advance(&mut self) {
         loop {
@@ -442,9 +560,11 @@ impl Payer {
     fn forget(&mut self, timestamp: Millis) {
         let through = self.through;
         let redeemed = self.snapshot.through;
+        // One we dispute is kept until the dispute or the payout says.
         self.packets.retain(|sequence, packet| {
             let gone = *sequence <= through
                 && packet.state.resolved()
+                && packet.disputed.is_none()
                 && (packet.commitment.expiry <= timestamp || *sequence <= redeemed);
             !gone
         });
@@ -600,7 +720,7 @@ mod tests {
         let (claim, _) = payer.fulfilled(3, false);
         assert_eq!((claim.unwrap().total, claim.unwrap().through), (5, 3));
         // An answer after the claim changes nothing.
-        assert_eq!(payer.answered(3), None);
+        assert_eq!(payer.answered(3, None), None);
         payer.check_invariants();
     }
 
@@ -624,7 +744,7 @@ mod tests {
         payer.commit(2, promised(1_000, 2), MARGIN).unwrap();
         assert_eq!(payer.wait(1), None);
         assert_eq!(payer.wait(2), None);
-        let (decided, losses) = payer.claimed(&[fulfilled(first, 1)], 1, Digest([9; 32]));
+        let (decided, losses) = payer.claimed(&[fulfilled(first, 1)], 1, Digest([9; 32]), false);
         assert_eq!(decided, [(1, [1; 32])]);
         assert!(losses.is_empty());
         assert_eq!(payer.final_block(first.expiry - 1), Vec::<u32>::new());
@@ -638,7 +758,7 @@ mod tests {
     fn a_claim_the_hub_paid_before_the_wait_decides_it_at_once() {
         let mut payer = payer(1_000);
         let first = payer.commit(1, promised(1_000, 1), MARGIN).unwrap();
-        payer.claimed(&[fulfilled(first, 1)], 1, Digest([9; 32]));
+        payer.claimed(&[fulfilled(first, 1)], 1, Digest([9; 32]), false);
         assert_eq!(payer.wait(1), Some(Some([1; 32])));
     }
 
@@ -650,13 +770,14 @@ mod tests {
         let mut payer = payer(1_000);
         let rejected = payer.commit(1, promised(1_000, 1), MARGIN).unwrap();
         let given_up = payer.commit(2, promised(2_000, 2), MARGIN).unwrap();
-        assert_eq!(payer.answered(1), None);
+        assert_eq!(payer.answered(1, None), None);
         payer.wait(2);
-        assert_eq!(payer.answered(2), None);
+        assert_eq!(payer.answered(2, None), None);
         let (_, losses) = payer.claimed(
             &[fulfilled(rejected, 1), fulfilled(given_up, 2)],
             3,
             Digest([4; 32]),
+            false,
         );
         let causes: Vec<(u64, LossCause)> = losses.iter().map(|l| (l.units, l.cause)).collect();
         assert_eq!(
@@ -677,12 +798,13 @@ mod tests {
         let second = payer.commit(2, promised(1_000, 2), MARGIN).unwrap();
         for request in 1..=2 {
             payer.wait(request);
-            payer.answered(request);
+            payer.answered(request, None);
         }
         let (_, losses) = payer.claimed(
             &[fulfilled(first, 1), fulfilled(second, 2)],
             2,
             Digest([4; 32]),
+            false,
         );
         assert_eq!(losses.len(), 2);
         let ids: alloc::collections::BTreeSet<_> =
@@ -696,9 +818,9 @@ mod tests {
     fn a_reject_after_the_hub_paid_is_cheating() {
         let mut payer = payer(1_000);
         let packet = payer.commit(1, promised(1_000, 1), MARGIN).unwrap();
-        let (_, losses) = payer.claimed(&[fulfilled(packet, 1)], 1, Digest([4; 32]));
+        let (_, losses) = payer.claimed(&[fulfilled(packet, 1)], 1, Digest([4; 32]), false);
         assert!(losses.is_empty());
-        let loss = payer.answered(1).unwrap();
+        let loss = payer.answered(1, None).unwrap();
         assert_eq!((loss.units, loss.cause), (1_000, LossCause::Cheated));
     }
 

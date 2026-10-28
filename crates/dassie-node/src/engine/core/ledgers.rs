@@ -871,7 +871,7 @@ impl Core {
                         cause: *cause,
                     });
                     self.book(booking);
-                    if *cause == LossCause::Cheated {
+                    if cause.cheated() {
                         self.end_for_cheating(*peer);
                     }
                 }
@@ -1006,11 +1006,10 @@ impl Core {
         id: Name,
     ) -> Result<(AccountId, AccountId, u64, Reference), EngineError> {
         let losses = self.account(ledger, AccountName::ExpensesLosses)?;
-        let from = match cause {
-            LossCause::ClaimFee => settlement,
-            LossCause::PaidLate | LossCause::Cheated => {
-                self.account(ledger, AccountName::AssetsInterledger(peer))?
-            }
+        let from = if cause.is_fee() {
+            settlement
+        } else {
+            self.account(ledger, AccountName::AssetsInterledger(peer))?
         };
         Ok((losses, from, amount, Reference::Loss { scheme, id }))
     }

@@ -1,10 +1,11 @@
-//! Writes the hub's golden vectors (spec/areas/hubs.md#golden-vectors) to
-//! standard output, from the fixed keys of `tests/support/vectors.rs`.
-//! Ed25519 and the XRP Ledger's signatures are deterministic, so the output
-//! is the same every time. From the repository root:
+//! Writes the hub's golden vectors (spec/areas/hubs.md#golden-vectors) of
+//! one version of the hub's protocol to standard output, from the fixed
+//! keys of `tests/support/vectors.rs`. Ed25519 and the XRP Ledger's
+//! signatures are deterministic, so the output is the same every time. From
+//! the repository root, for version 2:
 //!
 //! ```text
-//! cargo run -p dassie-hub --example hub_vectors > testdata/hub/vectors.json
+//! cargo run -p dassie-hub --example hub_vectors -- 2 > testdata/hub/vectors-v2.json
 //! ```
 //!
 //! What the vectors pin is frozen (spec/overview.md#frozen-surfaces):
@@ -23,5 +24,14 @@
 mod vectors;
 
 fn main() {
-    println!("{}", serde_json::to_string_pretty(&vectors::all()).unwrap());
+    let version = std::env::args()
+        .nth(1)
+        .expect("the version of the hub's protocol")
+        .parse()
+        .expect("a version");
+    assert!(dassie_hub::rules::runs(version), "a version this code runs");
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&vectors::all(version)).unwrap()
+    );
 }

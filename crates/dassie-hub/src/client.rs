@@ -76,6 +76,12 @@ pub struct HoldView {
     pub total: Amount,
     /// W of the last redeemed claim.
     pub through: u64,
+    /// What claims took and wait to pay the payee, from version 2 on
+    /// (spec/decisions/signed-rejects.md): how much, and the block
+    /// timestamp, by the hub's clock, from which it is paid; `(0, 0)` while
+    /// nothing waits. Listed only by a page that has any, so a hub of
+    /// version 1 lists its holds as before.
+    pub pending: (Amount, Millis),
 }
 
 /// What a validator says the log holds, as of a final block.
@@ -164,6 +170,20 @@ pub enum Statement {
         /// fee.
         held: bool,
     },
+    /// The version of the hub's protocol the hub runs after the block at
+    /// `height`, stamped `timestamp`, from version 2 on
+    /// (spec/decisions/hub-protocol-version.md): with every answer to
+    /// `Since`, so a member reads a move to a newer version from what
+    /// f + 1 validators sign alike. A hub of version 1 states none, so a
+    /// member of a release from before version 2 is never sent one.
+    Protocol {
+        /// The block's height.
+        height: u64,
+        /// Its timestamp.
+        timestamp: Millis,
+        /// The version.
+        version: u16,
+    },
 }
 
 /// A statement with the validator's signature.
@@ -236,6 +256,7 @@ impl HoldView {
             reduction: hold.reduction.map(|r| (r.amount, r.at)),
             total: hold.total,
             through: hold.through,
+            pending: (hold.pending_amount(), hold.pending_due),
         }
     }
 }
@@ -307,6 +328,20 @@ impl Statement {
         })
     }
 
+    /// What `ledger` says of the version of the hub's protocol it runs,
+    /// once it is past version 1.
+    #[must_use]
+    pub const fn protocol(ledger: &Ledger) -> Option<Self> {
+        if ledger.version() <= 1 {
+            return None;
+        }
+        Some(Self::Protocol {
+            height: ledger.height(),
+            timestamp: ledger.timestamp(),
+            version: ledger.version(),
+        })
+    }
+
     /// The height it is as of.
     #[must_use]
     pub const fn height(&self) -> u64 {
@@ -316,7 +351,8 @@ impl Statement {
             | Self::Account { height, .. }
             | Self::Trimmed { height, .. }
             | Self::Holds { height, .. }
-            | Self::Issuer { height, .. } => *height,
+            | Self::Issuer { height, .. }
+            | Self::Protocol { height, .. } => *height,
         }
     }
 }
@@ -375,8 +411,9 @@ pub const MAX_SIGNER_BYTES: usize =
 const _: () = assert!(MAX_SIGNER_BYTES >= 2 * crate::service::MAX_SINCE_ANSWER_BYTES);
 const _: () = assert!(MAX_SIGNER_BYTES >= MAX_HOLDS_ANSWER_BYTES);
 
-/// The encoded size of a [`HoldView`].
-const HOLD_VIEW_LEN: usize = 4 + 4 + 8 + 1 + 16 + 8 + 8;
+/// The encoded size of a [`HoldView`] at its longest, on a page that lists
+/// what waits in its holds.
+const HOLD_VIEW_LEN: usize = 4 + 4 + 8 + 1 + 16 + 8 + 8 + 16;
 
 /// The most bytes of a [`Statement::Account`].
 const ACCOUNT_STATEMENT_BYTES: usize = 1 + 8 + 32 + 1 + 4 + (32 + 8 * 3 + 2);
@@ -649,12 +686,14 @@ impl AccountView {
     }
 }
 
-impl Encode for HoldView {
-    fn encoded_len(&self) -> usize {
-        4 + 4 + 8 + 1 + 16 + 8 + 8
+impl HoldView {
+    /// Whether claims wait in it.
+    #[must_use]
+    pub const fn waits(&self) -> bool {
+        self.pending.0 > 0 || self.pending.1 > 0
     }
 
-    fn encode_to(&self, writer: &mut Writer<'_>) {
+    fn encode_with(&self, writer: &mut Writer<'_>, waiting: bool) {
         writer.write_u32(self.payer.0);
         writer.write_u32(self.payee.0);
         writer.write_u64(self.amount);
@@ -664,11 +703,23 @@ impl Encode for HoldView {
         writer.write_u64(at);
         writer.write_u64(self.total);
         writer.write_u64(self.through);
+        if waiting {
+            writer.write_u64(self.pending.0);
+            writer.write_u64(self.pending.1);
+        }
     }
-}
 
-impl HoldView {
-    fn decode(reader: &mut Reader<'_>) -> Result<Self, HubDecodeError> {
+    /// Decodes a hold as a page lists it: with what waits in it if the page
+    /// lists that.
+    fn decode(reader: &mut Reader<'_>, waiting: bool) -> Result<Self, HubDecodeError> {
+        let mut view = Self::decode_v1(reader)?;
+        if waiting {
+            view.pending = (reader.read_u64()?, reader.read_u64()?);
+        }
+        Ok(view)
+    }
+
+    fn decode_v1(reader: &mut Reader<'_>) -> Result<Self, HubDecodeError> {
         let payer = AccountNumber(reader.read_u32()?);
         let payee = AccountNumber(reader.read_u32()?);
         let amount = reader.read_u64()?;
@@ -684,6 +735,7 @@ impl HoldView {
             reduction: has_reduction.then_some(reduction),
             total: reader.read_u64()?,
             through: reader.read_u64()?,
+            pending: (0, 0),
         })
     }
 }
@@ -697,18 +749,17 @@ impl Encode for Statement {
                 } => 8 + 4 + operation.encoded_len() + outcome.encoded_len(),
                 Self::Final { .. } | Self::Trimmed { .. } => 8,
                 Self::Issuer { .. } => 8 + 1 + 8 + 1,
+                Self::Protocol { .. } => 8 + 2,
                 Self::Account { account, .. } => {
                     32 + 1 + account.map_or(0, |(_, view)| 4 + view.encoded_len())
                 }
                 Self::Holds { holds, .. } => {
+                    let waiting = holds.iter().any(|(_, view)| view.waits());
                     8 + 4
                         + 2
                         + 2
                         + size::quantity(holds.len())
-                        + holds
-                            .iter()
-                            .map(|(_, view)| 8 + view.encoded_len())
-                            .sum::<usize>()
+                        + holds.len() * (8 + HOLD_VIEW_LEN - if waiting { 0 } else { 16 })
                 }
             }
     }
@@ -767,6 +818,16 @@ impl Encode for Statement {
                 writer.write_u64(frozen.unwrap_or(0));
                 writer.write_bool(*held);
             }
+            Self::Protocol {
+                height,
+                timestamp,
+                version,
+            } => {
+                writer.write_u8(6);
+                writer.write_u64(*height);
+                writer.write_u64(*timestamp);
+                writer.write_u16(*version);
+            }
         }
     }
 }
@@ -784,7 +845,10 @@ impl Statement {
         else {
             return;
         };
-        writer.write_u8(4);
+        // A page that lists what waits in its holds has a tag of its own,
+        // so one of a hub of version 1 is laid out as before.
+        let waiting = holds.iter().any(|(_, view)| view.waits());
+        writer.write_u8(if waiting { 7 } else { 4 });
         writer.write_u64(*height);
         writer.write_u64(*timestamp);
         writer.write_u32(account.0);
@@ -793,11 +857,15 @@ impl Statement {
         writer.write_quantity(holds.len());
         for (number, view) in holds {
             writer.write_u64(number.0);
-            view.encode_to(writer);
+            view.encode_with(writer, waiting);
         }
     }
 
-    fn decode_holds(reader: &mut Reader<'_>, height: u64) -> Result<Self, HubDecodeError> {
+    fn decode_holds(
+        reader: &mut Reader<'_>,
+        height: u64,
+        waiting: bool,
+    ) -> Result<Self, HubDecodeError> {
         let timestamp = reader.read_u64()?;
         let account = AccountNumber(reader.read_u32()?);
         let page = reader.read_u16()?;
@@ -808,7 +876,16 @@ impl Statement {
         let count = reader.read_quantity(MAX_HOLDS_LISTED)?;
         let mut holds = Vec::with_capacity(count);
         for _ in 0..count {
-            holds.push((HoldNumber(reader.read_u64()?), HoldView::decode(reader)?));
+            holds.push((
+                HoldNumber(reader.read_u64()?),
+                HoldView::decode(reader, waiting)?,
+            ));
+        }
+        // One encoding per page: one that lists what waits has some.
+        if waiting && !holds.iter().any(|(_, view)| view.waits()) {
+            return Err(HubDecodeError::Invalid(
+                "a page of holds where nothing waits",
+            ));
         }
         Ok(Self::Holds {
             height,
@@ -858,7 +935,13 @@ impl Statement {
                 height,
                 below: reader.read_u64()?,
             },
-            4 => Self::decode_holds(reader, height)?,
+            4 => Self::decode_holds(reader, height, false)?,
+            7 => Self::decode_holds(reader, height, true)?,
+            6 => Self::Protocol {
+                height,
+                timestamp: reader.read_u64()?,
+                version: reader.read_u16()?,
+            },
             5 => {
                 let timestamp = reader.read_u64()?;
                 let is_frozen = reader.read_bool()?;
@@ -1231,6 +1314,8 @@ mod tests {
                 total: 0,
                 through: 0,
                 claimed: BTreeMap::new(),
+                pending: BTreeMap::new(),
+                pending_due: 0,
             };
             ledger.holds.insert(HoldNumber(n), hold);
             ledger.hold_index.insert((payee, HoldNumber(n)));
@@ -1265,6 +1350,7 @@ mod tests {
             reduction: None,
             total: 11,
             through: 12,
+            pending: (0, 0),
         };
         let signed: Vec<SignedStatement> = [
             Statement::Holds {

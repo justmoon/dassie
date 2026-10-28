@@ -2755,8 +2755,22 @@ impl dassie_settlement::Commitments for StubTwo {
         self.with_inner(|inner| inner.on_fulfilled(now_ms, peer, request_id, fulfillment));
     }
 
-    fn on_released(&mut self, peer: dassie_ledger::Name, request_id: u32) {
-        self.with_inner(|inner| inner.on_released(peer, request_id));
+    fn on_released(&mut self, peer: dassie_ledger::Name, request_id: u32, release: &mut Vec<u8>) {
+        self.with_inner(|inner| inner.on_released(peer, request_id, release));
+    }
+
+    fn release_refused(
+        &mut self,
+        now_ms: u64,
+        peer: dassie_ledger::Name,
+        commitment: &[u8],
+        release: &mut Vec<u8>,
+    ) {
+        self.with_inner(|inner| inner.release_refused(now_ms, peer, commitment, release));
+    }
+
+    fn on_rejected(&mut self, peer: dassie_ledger::Name, request_id: u32, release: &[u8]) -> bool {
+        self.with_inner(|inner| inner.on_rejected(peer, request_id, release))
     }
 
     fn claim(

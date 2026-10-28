@@ -35,7 +35,7 @@ use dassie_settlement::{Promised, SchemeError};
 use super::payer::Snapshot;
 use super::{UNITS_PER_DROP, drops_covering};
 use crate::consensus::Config;
-use crate::promise::{Claim, Commitment, Fulfilled, HoldNumber, Signed};
+use crate::promise::{Claim, Commitment, Fulfilled, HoldNumber, Release, Signed};
 use crate::rules::{Amount, HubId, MAX_HOLD_MS, Millis};
 
 /// The most packets a payer's claims may leave uncovered before we take
@@ -44,6 +44,11 @@ use crate::rules::{Amount, HubId, MAX_HOLD_MS, Millis};
 pub const MAX_MISSING: usize = 1_024;
 /// Most of its packets in flight through us at once.
 pub(super) const MAX_IN_FLIGHT: usize = 1_024;
+
+/// Most commitments of its we remember releasing while they could still be
+/// claimed: past it, a Reject goes without a release, and the payer waits
+/// for the hub (spec/decisions/signed-rejects.md).
+pub(super) const MAX_RELEASED: usize = 4_096;
 
 /// The furthest ahead of our clock a commitment we take may expire: the
 /// longest a connector holds a packet, and the hub's precision. An honest
@@ -114,6 +119,11 @@ pub(super) struct Payee {
     pub(super) taken: BTreeMap<u64, Taken>,
     pub(super) requests: BTreeMap<u32, u64>,
     pub(super) snapshot: Snapshot,
+    /// The commitments we released, by sequence, with their expiry, until
+    /// they expire or a claim of the payer's passes them: we never take a
+    /// commitment of a sequence we released, or the payer could dispute
+    /// our claim of it with our release. Kept with the books.
+    pub(super) released: BTreeMap<u64, Millis>,
 }
 
 impl Payee {
@@ -216,6 +226,7 @@ impl Payee {
             && commitment.sequence > self.through()
             && commitment.sequence > self.snapshot.through
             && !self.taken.contains_key(&commitment.sequence)
+            && !self.released.contains_key(&commitment.sequence)
             && !self.requests.contains_key(&request_id)
             && signed.verifies(hub, payer);
         if !holds {
@@ -260,15 +271,68 @@ impl Payee {
         self.mark_ready(now_ms);
     }
 
-    /// Its Prepare `request_id` was rejected or expired.
-    pub(super) fn released(&mut self, now_ms: u64, request_id: u32) {
-        let Some(sequence) = self.requests.remove(&request_id) else {
-            return;
-        };
-        if self.taken.get(&sequence).is_some_and(|t| t.done.is_none()) {
+    /// Its Prepare `request_id` was rejected or expired. Returns what we
+    /// give up: the commitment we took with it, which we sign a release of
+    /// for the payer (spec/decisions/signed-rejects.md).
+    pub(super) fn released(&mut self, now_ms: u64, request_id: u32) -> Option<Release> {
+        let sequence = self.requests.remove(&request_id)?;
+        let mut released = None;
+        if let Some(taken) = self.taken.get(&sequence).filter(|t| t.done.is_none()) {
+            let expiry = taken.commitment.value.expiry;
             self.taken.remove(&sequence);
+            released = self.remember_release(sequence, expiry);
         }
         self.mark_ready(now_ms);
+        released
+    }
+
+    /// We refused the payer's Prepare with `signed` without taking it.
+    /// Returns its release, if it is a commitment of the payer's on its
+    /// hold that we never took and never may: one the payer did not sign
+    /// it could not claim, and one we took we may be owed for.
+    pub(super) fn refused(
+        &mut self,
+        signed: &Signed<Commitment>,
+        (hub, payer): (&HubId, &PublicKey),
+    ) -> Option<Release> {
+        let commitment = signed.value;
+        let fresh = Some(commitment.hold) == self.hold
+            && commitment.sequence > self.through()
+            && commitment.sequence > self.snapshot.through
+            && !self.taken.contains_key(&commitment.sequence)
+            && signed.verifies(hub, payer);
+        if !fresh {
+            return None;
+        }
+        self.remember_release(commitment.sequence, commitment.expiry)
+    }
+
+    /// Remembers that we released `sequence`, which expires at `expiry`,
+    /// so we never take it again, and returns its release; none once we
+    /// remember as many as we can.
+    fn remember_release(&mut self, sequence: u64, expiry: Millis) -> Option<Release> {
+        let hold = self.hold?;
+        let through = self.through().max(self.snapshot.through);
+        self.released.retain(|sequence, _| *sequence > through);
+        if self.released.len() >= MAX_RELEASED && !self.released.contains_key(&sequence) {
+            return None;
+        }
+        self.released.insert(sequence, expiry);
+        Some(Release {
+            hold,
+            sequence,
+            expiry,
+        })
+    }
+
+    /// Forgets the releases no claim can take any more: of commitments
+    /// that expired by a final block stamped `timestamp`, by the hub's
+    /// clock, never ours, which may run ahead of it; or that a claim of the
+    /// payer's passed.
+    pub(super) fn forget_releases(&mut self, timestamp: Millis) {
+        let through = self.through().max(self.snapshot.through);
+        self.released
+            .retain(|sequence, expiry| *expiry > timestamp && *sequence > through);
     }
 
     /// Marks the packets we fulfilled whose claim the payer can make now:

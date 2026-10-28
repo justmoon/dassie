@@ -570,9 +570,16 @@ fn validating(hub: &proto::HubValidator, now_ms: i64) -> String {
         format!("no longer one of its {} validators", hub.validators)
     };
     let mut text = format!(
-        "hub {short}…, {which}, block {} in view {}",
-        hub.height, hub.view
+        "hub {short}…, {which}, block {} in view {}, protocol version {}",
+        hub.height, hub.view, hub.protocol_version
     );
+    if hub.upgrade_version > 0 {
+        text.push_str(&format!(
+            "; moving to version {} in {}",
+            hub.upgrade_version,
+            duration(hub.upgrade_unix_ms.saturating_sub(now_ms).max(0))
+        ));
+    }
     let quiet_ms = now_ms.saturating_sub(hub.final_unix_ms);
     let phase = proto::HubPhase::try_from(hub.phase).unwrap_or(proto::HubPhase::Unspecified);
     match phase {
@@ -1093,10 +1100,25 @@ mod tests {
             stalled: false,
             escrow_checked: true,
             xrpl_connected: true,
+            protocol_version: 2,
+            upgrade_version: 0,
+            upgrade_unix_ms: 0,
         };
         assert_eq!(
             validating(&running, now),
-            "hub abababababababab…, validator 2 of 4, block 1234 in view 1300"
+            "hub abababababababab…, validator 2 of 4, block 1234 in view 1300, protocol version 2"
+        );
+        // A move a quorum voted for says when it takes effect.
+        let moving = proto::HubValidator {
+            protocol_version: 1,
+            upgrade_version: 2,
+            upgrade_unix_ms: now + 86_400_000,
+            ..running.clone()
+        };
+        let text = validating(&moving, now);
+        assert!(
+            text.contains("protocol version 1; moving to version 2 in 24 hours"),
+            "{text}"
         );
         let quiet = proto::HubValidator {
             final_unix_ms: now - 5 * 60_000,

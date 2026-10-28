@@ -633,9 +633,13 @@ fn ilp_packet(body: &[u8]) -> Option<(u32, dassie_ilp::Packet<'_>)> {
         return None;
     }
     // A Prepare comes on a method, over a settlement hub with its
-    // commitment, which the simulation does not read.
+    // commitment, and a Reject over a hub with the payee's release, which
+    // the simulation does not read.
     let (Content::InterledgerPacket { request_id, packet }
     | Content::MethodPacket {
+        request_id, packet, ..
+    }
+    | Content::HubReject {
         request_id, packet, ..
     }) = Content::decode_exact(body).ok()?
     else {

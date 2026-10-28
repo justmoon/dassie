@@ -101,6 +101,7 @@ fn accounts_touched(
         | M::HoldRelease { hold }
         | M::Claim { hold, .. } => Some(*hold),
         M::Redeem(claim) => Some(claim.value.hold),
+        M::Dispute { hold, .. } => Some(*hold),
         M::HoldOpen { payee, .. }
         | M::Transfer { to: payee, .. }
         | M::Close(CloseTo::Account(payee)) => {

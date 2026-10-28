@@ -14,6 +14,7 @@ Peers settle over settlement hubs, and only over them ([hubs-only](hubs-only.md)
 
 - **A hub** is a ledger kept by n = 3f + 1 validators from a default list, backed by an escrow account on the XRP Ledger that their signer list controls with quorum 2f + 1. Anyone can found one; a node uses a hub only when it accepts all of its validators.
 - **Holds, not a hub operation per packet.** A payer sets funds aside for each payee, signs a commitment with each Prepare and a cumulative claim with its reply to each Fulfill, and the payee takes from the hold with either. The hub sees settlements and disputes, never the packet path.
+- **A payee releases what it rejects.** From version 2 of the hub protocol, the payee signs a release of a packet's commitment with its Reject, what a claim takes waits for the hold's notice, and the payer disputes with the release a claim of a packet its payee rejected ([signed-rejects](signed-rejects.md)).
 - **One ordered log** for every operation, with Simplex consensus, built without IO as [tigerstyle](tigerstyle.md) asks.
 - **Native multi-signing** for the escrow, each validator signing alone.
 - **Payout even from a stalled hub,** through payout sets that hand the escrow to keys made for that set alone, so the XRP Ledger applies one set and refuses the rest.

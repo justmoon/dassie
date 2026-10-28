@@ -31,7 +31,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [hub-founding](hub-founding.md) | The sponsor founds a hub over a stream of its own, and a quorum's signatures of the genesis found it | hubs, peer-protocol, designs/settlement-hubs |
 | [hub-keys-by-network](hub-keys-by-network.md) | A hub's keys name its network, and a validator validates on its owner's network | hubs, identity, node |
 | [hub-named-when-added](hub-named-when-added.md) | A hub scheme names its hub from the moment it is added (moving a scheme to another hub not built) | hubs, settlement, designs/settlement-hubs |
-| [hub-protocol-version](hub-protocol-version.md) | A hub runs one version of the hub protocol, which its ID commits to (moving a hub to another version not built) | hubs, overview, designs/settlement-hubs |
+| [hub-protocol-version](hub-protocol-version.md) | A hub runs one version of the hub protocol at a time, and its validators move it to a newer one | hubs, overview, designs/settlement-hubs |
 | [hub-scheme-names](hub-scheme-names.md) | A hub scheme's ID names its underlying ledger and its asset | hubs, settlement, xrpl |
 | [hubs-only](hubs-only.md) | Peers settle only over settlement hubs | designs/settlement-hubs, settlement, network, xrpl, testing |
 | [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (transfer fees not built) | xrpl, settlement, connector |
@@ -82,6 +82,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [settlement-hubs](settlement-hubs.md) | Settlement hubs (design, partly built) | designs/settlement-hubs |
 | [settlement-methods](settlement-methods.md) | A peering settles over every hub both nodes are in, and a packet keeps its ledger where it can | network, settlement, connector, peer-protocol |
 | [settlement-offers](settlement-offers.md) | A link state offers the schemes a node takes peers on in one list, each with its scheme's own details | peer-protocol, network, designs/settlement-hubs |
+| [signed-rejects](signed-rejects.md) | A payee signs a release with every Reject over a hub, and a payer disputes a claim of what it released | hubs, designs/settlement-hubs, peer-protocol, connector |
 | [stub-in-debug-builds](stub-in-debug-builds.md) | The stub scheme runs only in builds with debug assertions | settlement, node, wallet, testing |
 | [synced-before-peering](synced-before-peering.md) | A node peers on a scheme only once it has seen its ledger | settlement, network, xrpl |
 | [thresholds-in-packets](thresholds-in-packets.md) | A link's thresholds are counted in its largest packet | settlement, connector |

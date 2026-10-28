@@ -15,8 +15,8 @@ use dassie_oer::{Encode, Reader};
 
 use super::Ledger;
 use super::state::{
-    Account, Escrow, FeePool, Hold, PendingDeposit, PendingRules, Phase, Reduction, ValidatorState,
-    Withdrawal,
+    Account, Escrow, FeePool, Hold, PendingClaim, PendingDeposit, PendingRules, PendingUpgrade,
+    Phase, Reduction, ValidatorState, Withdrawal,
 };
 use crate::codec::{HubDecodeError, read_digest, read_key};
 use crate::digest::Digest;
@@ -108,7 +108,52 @@ impl Ledger {
         self.snapshot_tables(&mut out);
         self.snapshot_votes(&mut out);
         self.snapshot_issuer(&mut out);
+        if self.has_protocol_state() {
+            self.snapshot_protocol(&mut out);
+        }
         out.0
+    }
+
+    /// Whether the state holds anything version 1 has no place for: a
+    /// version other than its rules', votes for a newer one, a move waiting,
+    /// or claims waiting for their payout. A state without any writes the
+    /// bytes it wrote before version 2, so validators of a hub of version 1
+    /// that run a release from before it read one another's snapshots.
+    pub(crate) fn has_protocol_state(&self) -> bool {
+        self.has_protocol_header() || self.holds.values().any(|h| !h.pending.is_empty())
+    }
+
+    /// Whether the header holds the hub's version and its votes: once it
+    /// runs another version than its rules', or votes for a newer one.
+    pub(crate) fn has_protocol_header(&self) -> bool {
+        self.version != self.rules.terms.version
+            || !self.upgrade_votes.is_empty()
+            || self.pending_upgrade.is_some()
+    }
+
+    fn snapshot_protocol(&self, out: &mut Out) {
+        out.u16(self.version);
+        out.count(self.upgrade_votes.len());
+        for (version, signers) in &self.upgrade_votes {
+            out.u16(*version);
+            out.u16(signers.bits());
+        }
+        out.bool(self.pending_upgrade.is_some());
+        let upgrade = self
+            .pending_upgrade
+            .unwrap_or(PendingUpgrade { version: 0, at: 0 });
+        out.u16(upgrade.version);
+        out.u64(upgrade.at);
+        let waiting: Vec<_> = self
+            .holds
+            .iter()
+            .filter(|(_, hold)| !hold.pending.is_empty())
+            .collect();
+        out.count(waiting.len());
+        for (number, hold) in waiting {
+            out.u64(number.0);
+            out.bytes(&hold.pending_bytes());
+        }
     }
 
     fn snapshot_issuer(&self, out: &mut Out) {
@@ -274,13 +319,76 @@ impl Ledger {
             issuer_votes: Vec::new(),
             clawback_votes: Vec::new(),
             recent_clawbacks: BTreeMap::new(),
+            version: rules.terms.version,
+            upgrade_votes: Vec::new(),
+            pending_upgrade: None,
             rules,
         };
         ledger.restore_tables(&mut reader)?;
         ledger.restore_votes(&mut reader)?;
         ledger.restore_issuer(&mut reader)?;
+        if !reader.is_empty() {
+            ledger.restore_protocol(&mut reader)?;
+        }
         reader.finish()?;
         Ok(ledger)
+    }
+
+    /// What `snapshot_protocol` wrote, which is there only if the state
+    /// has any of it.
+    fn restore_protocol(&mut self, reader: &mut Reader<'_>) -> Result<(), HubDecodeError> {
+        self.version = reader.read_u16()?;
+        if !crate::rules::runs(self.version) {
+            return Err(HubDecodeError::Invalid(
+                "a hub version this code does not run",
+            ));
+        }
+        let count = reader.read_u32()?;
+        if usize::try_from(count).unwrap_or(usize::MAX) > crate::validators::MAX_VALIDATORS {
+            return Err(HubDecodeError::Invalid("upgrade votes"));
+        }
+        for _ in 0..count {
+            let version = reader.read_u16()?;
+            let signers = Signers::from_bits(reader.read_u16()?);
+            self.upgrade_votes.push((version, signers));
+        }
+        let has_upgrade = reader.read_bool()?;
+        let upgrade = PendingUpgrade {
+            version: reader.read_u16()?,
+            at: reader.read_u64()?,
+        };
+        if !has_upgrade && upgrade != (PendingUpgrade { version: 0, at: 0 }) {
+            return Err(HubDecodeError::Invalid("upgrade without presence"));
+        }
+        self.pending_upgrade = has_upgrade.then_some(upgrade);
+        let mut last = None;
+        for _ in 0..reader.read_u32()? {
+            let number = HoldNumber(reader.read_u64()?);
+            if last.is_some_and(|last| last >= number) {
+                return Err(HubDecodeError::Invalid("pending claims out of order"));
+            }
+            last = Some(number);
+            let hold = self
+                .holds
+                .get_mut(&number)
+                .ok_or(HubDecodeError::Invalid("pending claims of no hold"))?;
+            hold.pending_due = reader.read_u64()?;
+            for _ in 0..reader.read_u32()? {
+                let sequence = reader.read_u64()?;
+                let pending = PendingClaim {
+                    amount: reader.read_u64()?,
+                    expiry: reader.read_u64()?,
+                };
+                insert_ascending(&mut hold.pending, sequence, pending)?;
+            }
+            if hold.pending.is_empty() {
+                return Err(HubDecodeError::Invalid("a hold without pending claims"));
+            }
+        }
+        if !self.has_protocol_state() {
+            return Err(HubDecodeError::Invalid("protocol state that holds nothing"));
+        }
+        Ok(())
     }
 
     fn restore_tables(&mut self, reader: &mut Reader<'_>) -> Result<(), HubDecodeError> {
@@ -525,6 +633,8 @@ fn read_hold(reader: &mut Reader<'_>) -> Result<Hold, HubDecodeError> {
         total,
         through,
         claimed,
+        pending: BTreeMap::new(),
+        pending_due: 0,
     })
 }
 
