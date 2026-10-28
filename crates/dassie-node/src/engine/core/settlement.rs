@@ -566,10 +566,10 @@ impl Core {
     /// wind-down asks the peer to settle on it once, and its room decides
     /// nothing, since it takes no new Prepare and is dropped within its
     /// bound, so short, it would only end the whole peering over a method
-    /// that goes anyway. Nor one that would settle directly, as one on an
-    /// owner book a peering stored from when the XRPL schemes peered still
-    /// has (spec/areas/settlement.md#owner-books): nothing can be settled
-    /// on it, so a request would only fail, and its room would end the
+    /// that goes anyway. Nor one that would settle directly, which no
+    /// method may be: a method is only over a hub or of unlimited trust
+    /// (spec/areas/settlement.md#owner-books). Nothing can be settled on
+    /// one, so a request would only fail, and its room would end the
     /// peering, its hub methods too, until the peer protocol drops it.
     fn methods_of_active_peers(&self) -> Vec<(NodeId, SchemeId)> {
         self.peer
@@ -586,9 +586,11 @@ impl Core {
             .collect()
     }
 
-    /// Whether `scheme` would settle directly, as an owner book a peering
-    /// stored from when the XRPL schemes peered may still have a method on
-    /// (spec/areas/settlement.md#owner-books): nothing is asked on it.
+    /// Whether `scheme` would settle directly, as an owner book: a method
+    /// is only over a hub or of unlimited trust, and nothing is asked on
+    /// one that is not (spec/areas/settlement.md#owner-books). Direct
+    /// settlement would be switched on in
+    /// [`ActiveScheme::settles_directly`](super::ledgers::ActiveScheme::settles_directly).
     fn settles_directly(&self, scheme: SchemeId) -> bool {
         Name::new(scheme.as_str())
             .ok()

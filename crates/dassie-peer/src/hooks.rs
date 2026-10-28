@@ -123,11 +123,11 @@ pub trait PeeringHooks {
     fn trusts_unlimited(&self, scheme: SchemeId) -> bool;
 
     /// Whether a method on `scheme` would settle directly: it is neither
-    /// over a hub nor of unlimited trust. No peering is made on such a
-    /// scheme, and a method on one, as a peering stored from when a scheme
-    /// settled directly may have, is dropped at once
-    /// (spec/decisions/hubs-only.md). So is one on a scheme the node does
-    /// not run.
+    /// over a hub nor of unlimited trust. A method is only over a hub or of
+    /// unlimited trust (spec/decisions/hubs-only.md): no peering is made on
+    /// such a scheme, and a method on one is dropped at once, as one on a
+    /// scheme the node does not run is. Direct settlement would be switched
+    /// on here.
     fn settles_directly(&self, scheme: SchemeId) -> bool {
         !self.uses_commitments(scheme) && !self.trusts_unlimited(scheme)
     }

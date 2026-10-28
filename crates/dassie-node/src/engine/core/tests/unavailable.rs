@@ -1,10 +1,10 @@
 //! Settlement methods that take nothing new (spec/decisions/settlement-methods.md,
 //! spec/areas/network.md#settlement-methods): one being wound down, which
 //! the regular settlement check asks nothing of, its one request being the
-//! wind-down's; and one on an owner book, which would settle directly, from
-//! a peering stored when the XRPL schemes peered. A method whose scheme can
-//! no longer receive, as one over a hub that failed, is dropped as
-//! `winding.rs` tests.
+//! wind-down's; and one on an owner book, which would settle directly,
+//! which no method may be, as a stored peering is made to hold here. A
+//! method whose scheme can no longer receive, as one over a hub that
+//! failed, is dropped as `winding.rs` tests.
 
 use std::collections::BTreeMap;
 
@@ -142,10 +142,10 @@ fn pair_with_owner_books(seed: u64) -> Sim {
 }
 
 /// Gives node `index`'s stored peering with the other node a method on the
-/// owner book first, as a peering made on it when the XRPL schemes peered,
-/// and the peer's accounts on its ledger with nothing extended: a node that
-/// took it for a method would find the peer short of room there, and ask
-/// it to settle. The node is down after.
+/// owner book first, which no method may be, and the peer's accounts on
+/// its ledger with nothing extended: a node that took it for a method
+/// would find the peer short of room there, and ask it to settle. The node
+/// is down after.
 fn store_owner_book_method(sim: &mut Sim, index: usize) {
     let other = key(1 - index).node_id();
     let peer = Name::new(other.as_str()).unwrap();
@@ -223,10 +223,10 @@ fn takes_nothing_at_start(sim: &Sim, index: usize) {
     );
 }
 
-// spec/areas/settlement.md#owner-books: a peering stored from when the XRP
-// Ledger's schemes peered, made on what is an owner book now, and on the stub
-// with commitments since. An owner book would settle directly: its method,
-// the peering's first, carries no packet and its peer is never asked to
+// spec/areas/settlement.md#owner-books: a method is only over a hub or of
+// unlimited trust. A stored peering is made to hold one on an owner book,
+// its first, and one on the stub with commitments. The owner book would
+// settle directly: its method carries no packet and its peer is never asked to
 // settle on it, though the node extends the peer nothing there; each node
 // drops it at its first review, at its start, without collecting, and the
 // peering carries on over the stub, which a payment then crosses. What the

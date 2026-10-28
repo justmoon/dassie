@@ -6719,8 +6719,8 @@ fn an_owner_book_is_never_asked_for() {
 }
 
 // spec/areas/xrpl.md#owner-books: a settlement message on an XRPL scheme,
-// as one a channel kept from when the scheme peered, is acknowledged as a
-// bare notice: it books nothing, and the channel moves on to the next.
+// an owner book, books nothing, and is acknowledged as a bare notice so the
+// channel moves on to the next.
 // What it states is reported as nothing either.
 #[test]
 fn a_settlement_message_on_an_owner_book_is_applied_and_books_nothing() {
