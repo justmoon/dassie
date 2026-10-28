@@ -48,6 +48,8 @@ let
     dassie-wallet-assets = [ (root + "/crates/dassie-node/src/http/mime.rs") ];
   };
   testExtraFiles = {
+    # The market maker's tests compile dassie-node's daemon support.
+    dassie-cli = [ (root + "/crates/dassie-node/tests/support") ];
     dassie-feed = [ (root + "/testdata/feed") ];
     dassie-hub = [
       (root + "/crates/dassie-identity/tests/data/paths.json")

@@ -15,6 +15,7 @@ pub mod hubs;
 pub mod op;
 pub mod pair;
 pub mod rates;
+pub mod swaps;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;

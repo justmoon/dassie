@@ -44,7 +44,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use dassie_identity::{IdentityKey, NodeId, NodeIdentity, NodeSecret, QuicEndpoint};
 use dassie_kit::ClientKey;
@@ -56,6 +56,9 @@ use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use quinn::{Connection, Endpoint, EndpointConfig, ReadToEndError, TransportConfig, VarInt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::watch;
+// The IO layer's own time, tokio's: real time in production, and paused
+// with the rest in the daemon tests on paused time.
+use tokio::time::Instant;
 use tokio_tungstenite::WebSocketStream;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -873,8 +876,7 @@ impl Quic {
         request: &Request,
         resolver: &Resolver,
     ) -> Result<Response, Failure> {
-        let deadline =
-            tokio::time::Instant::now() + Duration::from_millis(request.timeout_ms.max(1));
+        let deadline = Instant::now() + Duration::from_millis(request.timeout_ms.max(1));
         let (Some(_), Some(endpoint), Some(place)) = (
             self.keys.current(),
             request.endpoint.as_ref(),
@@ -882,7 +884,7 @@ impl Quic {
         ) else {
             return Err(Failure::NotDelivered);
         };
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let left = deadline.saturating_duration_since(Instant::now());
         let periphery = self.periphery.load(Ordering::Relaxed);
         let Some(connection) = self
             .dial(
@@ -932,8 +934,7 @@ impl Quic {
         request: &Request,
         resolver: &Resolver,
     ) -> Result<Response, Failure> {
-        let deadline =
-            tokio::time::Instant::now() + Duration::from_millis(request.timeout_ms.max(1));
+        let deadline = Instant::now() + Duration::from_millis(request.timeout_ms.max(1));
         // Without its key the node cannot prove who it is. TLS 1.3 would
         // only say so after the handshake, on the first stream.
         if self.keys.current().is_none() {
@@ -947,7 +948,7 @@ impl Quic {
         // A connection kept from before may have died since: then the request
         // was not sent, and a fresh one is made once.
         for attempt in 0..2 {
-            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let left = deadline.saturating_duration_since(Instant::now());
             let connection = self
                 .connection(
                     &place,
@@ -1017,7 +1018,7 @@ impl Quic {
         within: Duration,
         dial: bool,
     ) -> Result<Connection, NoConnection> {
-        let deadline = tokio::time::Instant::now() + within;
+        let deadline = Instant::now() + within;
         let mut held = tokio::time::timeout_at(deadline, place.lock())
             .await
             .map_err(|_| NoConnection::NoTime)?;
@@ -1028,7 +1029,7 @@ impl Quic {
         if !dial {
             return Err(NoConnection::NotDialled);
         }
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let left = deadline.saturating_duration_since(Instant::now());
         // A periphery node keeps its connections to its uplinks alive: they
         // are the only way its uplinks reach it.
         let periphery = self.periphery.load(Ordering::Relaxed);
@@ -1090,7 +1091,7 @@ impl Quic {
         within: Duration,
         keep_alive: bool,
     ) -> Option<Connection> {
-        let deadline = tokio::time::Instant::now() + within;
+        let deadline = Instant::now() + within;
         let (host, port) = (endpoint.host(), endpoint.port());
         if let Ok(ip) = host.parse::<IpAddr>()
             && !self.allow_private
@@ -1126,7 +1127,7 @@ impl Quic {
         host: &str,
         addresses: &[SocketAddr],
         config: quinn::ClientConfig,
-        deadline: tokio::time::Instant,
+        deadline: Instant,
     ) -> Option<Connection> {
         // An endpoint on IPv4 alone cannot reach an IPv6 address.
         let ipv6 = self
@@ -1140,7 +1141,7 @@ impl Quic {
             .copied()
             .collect();
         for (index, address) in addresses.iter().enumerate() {
-            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let left = deadline.saturating_duration_since(Instant::now());
             let tries_left = u32::try_from(addresses.len() - index).unwrap_or(1).max(1);
             let share = left / tries_left;
             if share.is_zero() {

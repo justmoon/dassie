@@ -380,8 +380,24 @@ mod tests {
         }
     }
 
+    /// Tokio's paused time, as the fake ledger's clock: these tests run on
+    /// `#[tokio::test(start_paused = true)]`, whose time moves only while
+    /// every task waits on a timer, and then straight to the next deadline
+    /// (spec/areas/testing.md#over-real-sockets).
+    struct PausedClock(tokio::time::Instant);
+
+    impl dassie_node::clock::Clock for PausedClock {
+        fn now_ms(&self) -> u64 {
+            // Any start will do: `close_on` keeps the closes monotonic,
+            // each a second after the last at least, wherever this
+            // clock starts against the system clock the ledger started on.
+            1_800_000_000_000 + u64::try_from(self.0.elapsed().as_millis()).unwrap()
+        }
+    }
+
+    /// The fake ledger, a ledger closing each second of paused time.
     async fn fake_ledger() -> Server {
-        Server::start(Options {
+        let server = Server::start(Options {
             network: &dassie_xrpl::network::TESTNET,
             listen: ([127, 0, 0, 1], 0).into(),
             faucet: Some((
@@ -392,10 +408,14 @@ mod tests {
                     key_pem: std::fs::read_to_string(format!("{}/key.pem", pebble())).unwrap(),
                 },
             )),
-            close_every: Duration::from_millis(100),
+            close_every: Duration::from_secs(1),
         })
         .await
-        .unwrap()
+        .unwrap();
+        server.close_on(std::sync::Arc::new(
+            PausedClock(tokio::time::Instant::now()),
+        ));
+        server
     }
 
     fn client() -> OutboundClient {
@@ -505,7 +525,7 @@ mod tests {
         panic!("no pool");
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn it_reads_a_dsusd_pool_and_swaps_through_it() {
         let server = fake_ledger().await;
         let client = client();
@@ -583,7 +603,7 @@ mod tests {
         server.stop();
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn it_signs_nothing_for_a_server_of_another_network() {
         let server = fake_ledger().await;
         let client = client();
@@ -612,7 +632,8 @@ mod tests {
             let refused = xrpl.rebalance(&paying, paid.account(), &rebalance).await;
             assert!(refused.is_err(), "{refused:?}");
         }
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        // Ledgers close, and none pays.
+        tokio::time::sleep(Duration::from_secs(3)).await;
         assert_eq!(server.ledger().balance(paid.account()), before);
         server.stop();
     }
