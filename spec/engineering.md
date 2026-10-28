@@ -49,7 +49,7 @@ Dassie is not a consensus system ([own-books](decisions/own-books.md)). Each nod
 
 CI runs tests on fixed seeds only, property tests included ([Testing](areas/testing.md#property-tests)). A random seed per commit would fail pull requests on bugs they did not touch. Random-seed campaigns and any fuzzing run outside CI, and never in it, nightly included ([random-seed-simulations](decisions/random-seed-simulations.md)).
 
-No test runs a simulation, in CI or in a local test suite, not even on one fixed seed: simulations are a tool for developing a feature, and the campaign's. A failure one finds becomes a targeted test that sets up its degenerate case directly and runs only the code it turns on, since the rest of a run is noise to the repro and costs every pull request its time ([no-simulations-in-tests](decisions/no-simulations-in-tests.md)).
+No test runs a simulation, a run that `dassie-sim` names, in CI or in a local test suite, not even on one fixed seed: simulations are a tool for developing a feature, and the campaign's. A failure one finds becomes a targeted test that sets up its degenerate case directly and runs only the code it turns on, since the rest of a run is noise to the repro and costs every pull request its time ([no-simulations-in-tests](decisions/no-simulations-in-tests.md)).
 
 For the same reason no Rust test's outcome depends on how fast the machine is: a test over real sockets runs its protocol on a clock it moves by hand, and waits for progress, never for a span of real time ([Testing](areas/testing.md#over-real-sockets)).
 
