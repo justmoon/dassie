@@ -96,7 +96,7 @@ export function footer(): string {
         />
         <img
           src="/brand/img/footer-kopje.svg"
-          alt="A kopje of granite blocks against the sun, in veld grass; one dassie climbs its slab, one keeps lookout on top inside the sun, and one sleeps on the next rock"
+          alt="A kopje of granite blocks against the sun, in veld grass; one dassie climbs its slab, one keeps lookout on top inside the sun, and one sleeps on the next rock; on a wide screen, a pair sits on a kopje to the left"
           width="1200"
           height="197"
           loading="lazy"
