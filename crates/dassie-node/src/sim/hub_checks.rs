@@ -122,13 +122,31 @@ pub fn joined(sim: &Sim) -> bool {
 
 /// Whether every member of the hubs at `places` but the `liar` has its
 /// account there in step with it, and no move into or out of it on its
-/// way.
+/// way; and every member, the liar too, booked in its owner books what
+/// their accounts hold ([`books_caught_up`]).
 #[must_use]
 pub fn idle_in(sim: &Sim, places: &[usize], liar: Option<usize>) -> bool {
     places.iter().all(|&place| {
         members_of(sim, place)
             .filter(|index| Some(*index) != liar)
             .all(|index| in_step_in(sim, index, place) && !moving_in(sim, index, place))
+            && members_of(sim, place).all(|index| books_caught_up(sim, index))
+    })
+}
+
+/// Whether node `index`'s owner books caught up with their accounts on
+/// the XRP Ledger: no payment of its owner's is held on its way out of
+/// any, and each holds what [`check_held`] wants of it. Each side of a move
+/// into or out of a hub books its half when it sees it
+/// (`engine/core/hub_funding.rs`), so the hub's side may show a move done
+/// while the ledger already applied a payment the owner book has yet to
+/// book: a run waits for that, within its deadline, before it judges the
+/// books, which still fail if they never catch up.
+fn books_caught_up(sim: &Sim, index: usize) -> bool {
+    sim.nodes[index].core.as_ref().is_some_and(|core| {
+        sim.settling.owner_books(index).iter().all(|&book| {
+            !core.owner_payments_in_flight(book) && check_held(sim, index, book).is_ok()
+        })
     })
 }
 
@@ -421,7 +439,9 @@ pub(super) fn check_losses(sim: &Sim) -> Result<(), String> {
 /// the network calm long enough for it to read the hub, as the scripted
 /// runs' settling down does, or waits until it sees its account as the hub
 /// has it ([`waiting`]), as the `node` simulation does. One whose account
-/// is not in step at all is left to [`check_in_step_in`].
+/// is not in step at all is left to [`check_in_step_in`]. Nor does a run
+/// wait for a liar's moves and reading: its books in the hub are checked
+/// once it read up to the newest block, its moves done.
 pub(super) fn check_books_in(sim: &Sim, place: usize, liar: Option<usize>) -> Result<(), String> {
     let hub = sim.hub_at(place);
     let ledger = hub.ledger().ok_or("no honest validator runs")?;
@@ -439,17 +459,33 @@ pub(super) fn check_books_in(sim: &Sim, place: usize, liar: Option<usize>) -> Re
             .account_of(&member)
             .ok_or_else(|| format!("node {index} has no account in the {ours} hub"))?;
         let account = ledger.account(number).unwrap();
+        let first = first_of(sim, index, place);
+        let cursor = sim
+            .core(index)
+            .hub_reading()
+            .map_or(0, |(cursor, _, _)| cursor);
+        // A liar's moves and reading are its own, which the run waits for
+        // neither of: one with a move on its way, or that read the hub only
+        // up to a block before the newest, may not have read a deposit the
+        // hub credited it, which moves no sequence of its own. Its books in
+        // the hub are checked once it read up to the newest block, or in a
+        // hub other than its first sees its account as the hub has it, its
+        // moves done, as [`check_owners_in`] checks a node's.
+        let behind = if first {
+            cursor < ledger.height()
+        } else {
+            !read_up_in(sim, index, place)
+        };
+        if Some(index) == liar && (moving_in(sim, index, place) || behind) {
+            continue;
+        }
         // An operation of its own the hub applied after the state it read
         // is booked once it reads it. An honest node may be a block or so
         // behind the newest, as it reads the hub every so often; once it
         // read up to it, it read all.
-        if first_of(sim, index, place) {
+        if first {
             let read = sim.core(index).hub_sequence();
             if read != Some(account.sequence) {
-                let cursor = sim
-                    .core(index)
-                    .hub_reading()
-                    .map_or(0, |(cursor, _, _)| cursor);
                 if Some(index) == liar || cursor < ledger.height() {
                     continue;
                 }
