@@ -1,12 +1,16 @@
 //! The core, as the signed data defines it
-//! (spec/decisions/promotion-to-core.md): of the registered nodes, the
-//! 2-core of the edges both ends advertise, in its component with the most
-//! bootstrap nodes.
+//! (spec/decisions/promotion-to-core.md): grown from the bootstrap nodes in
+//! the 2-core of the edges both ends advertise between registered nodes,
+//! in its component with the most bootstrap nodes, by every registered node
+//! with two edges into it.
 //!
 //! Every node holds the same signed data, the bootstrap nodes' lists and
 //! the link states, so every node computes the same core from it, but for
 //! the time a link state takes to spread. Nothing a node says about itself
-//! makes it core: only edges its neighbors confirm do.
+//! makes it core: only edges its neighbors confirm do. Growing it one node
+//! at a time, each by edges into the core, keeps a group of nodes that
+//! advertise each other out of it, however many registered nodes it has:
+//! each needs two core nodes that promoted it.
 
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::vec::Vec;
@@ -19,13 +23,22 @@ use crate::routing::is_edge;
 /// a node takes bootstrap nodes.
 pub const MAX_DEV_CORE: usize = 64;
 
-/// How many edges a node needs to stay in the core: two, or, in a network
-/// with fewer than three bootstrap nodes, as many as it has less one, so
-/// one bootstrap node is a core alone and two are one together.
+/// How many edges a node needs in the 2-core the bootstrap nodes are taken
+/// from: two, or, in a network with fewer than three bootstrap nodes, as
+/// many as it has less one, so one bootstrap node is a core alone and two
+/// are one together.
 #[must_use]
 pub const fn edges_needed(bootstraps: usize) -> usize {
     let fewer = bootstraps.saturating_sub(1);
     if fewer < 2 { fewer } else { 2 }
+}
+
+/// How many edges into the core a node needs to join it: as many as
+/// [`edges_needed`], but at least one.
+#[must_use]
+pub const fn edges_to_join(bootstraps: usize) -> usize {
+    let needed = edges_needed(bootstraps);
+    if needed < 1 { 1 } else { needed }
 }
 
 /// Computes the core.
@@ -37,9 +50,9 @@ pub const fn edges_needed(bootstraps: usize) -> usize {
 /// - `neighbors`: a node's advertised neighbors, sorted, if its link state
 ///   is fresh.
 ///
-/// No bootstrap nodes at all asks no edges, and gives no core but the dev
-/// core: the caller passes a node that runs alone as its own bootstrap
-/// node.
+/// With no bootstrap nodes at all, the dev core is the only seed, and
+/// grows by single edges; outside a dev network there is no core. The
+/// caller passes a node that runs alone as its own bootstrap node.
 pub fn compute<'a>(
     registered: &BTreeSet<NodeId>,
     bootstrap: &BTreeSet<NodeId>,
@@ -67,9 +80,53 @@ pub fn compute<'a>(
             *entry = edges;
         }
     }
-    peel(&mut graph, edges_needed(bootstrap.len()), dev_core);
-    let mut core = best_component(&graph, bootstrap);
-    core.extend(dev_core.iter().copied());
+    let mut peeled = graph.clone();
+    peel(&mut peeled, edges_needed(bootstrap.len()), dev_core);
+    // The bootstrap nodes of that component are the seed, with the dev
+    // core: core because they peer, or because a dev network says so.
+    let mut seed: BTreeSet<NodeId> = best_component(&peeled, bootstrap)
+        .intersection(bootstrap)
+        .chain(dev_core)
+        .copied()
+        .collect();
+    // A lone seed, such as the only bootstrap node whose link state is
+    // fresh, admits the nodes it advertises itself: with one node in the
+    // core, none could have two edges into it, and the core would shrink
+    // to that node while the others are down.
+    let lone = (seed.len() == 1).then(|| seed.first().copied()).flatten();
+    if let Some(lone) = lone {
+        seed.extend(graph.get(&lone).map(Vec::as_slice).unwrap_or_default());
+    }
+    grow(&graph, seed, edges_to_join(bootstrap.len()))
+}
+
+/// Grows `core` by every node of `graph` with `needed` edges into it, again
+/// until none joins. The result does not depend on the order nodes join
+/// in: one with enough edges into the core keeps them as the core grows.
+fn grow(
+    graph: &BTreeMap<NodeId, Vec<NodeId>>,
+    mut core: BTreeSet<NodeId>,
+    needed: usize,
+) -> BTreeSet<NodeId> {
+    let mut into: BTreeMap<NodeId, usize> = BTreeMap::new();
+    let mut queue: VecDeque<NodeId> = core.iter().copied().collect();
+    while let Some(node) = queue.pop_front() {
+        for other in graph.get(&node).map(Vec::as_slice).unwrap_or_default() {
+            if core.contains(other) {
+                continue;
+            }
+            let count = into.entry(*other).or_default();
+            *count += 1;
+            if *count >= needed {
+                core.insert(*other);
+                queue.push_back(*other);
+            }
+        }
+    }
+    assert!(
+        core.iter().all(|node| graph.contains_key(node)),
+        "the core is of the graph's nodes"
+    );
     core
 }
 
@@ -194,10 +251,25 @@ mod tests {
         );
     }
 
-    // Peeling goes on until none is left to drop: a chain closed by a node
-    // that leaves takes the rest of the chain with it.
+    // A group of registered nodes that advertise each other does not join
+    // with a single honest edge: each node needs two edges into the core,
+    // so two core nodes that promoted it. In a 2-core alone, a triangle of
+    // the attacker's own nodes with one edge to an honest node would.
     #[test]
-    fn peeling_repeats() {
+    fn a_group_vouching_for_itself_stays_out() {
+        let map = graph(&[
+            ("ba", "bb"),
+            ("bb", "bc"),
+            ("bc", "ba"),
+            ("aa", "ba"),
+            ("aa", "ab"),
+            ("ab", "ac"),
+            ("ac", "aa"),
+        ]);
+        let all = ["ba", "bb", "bc", "aa", "ab", "ac"];
+        let bootstrap = ["ba", "bb", "bc"];
+        assert_eq!(core(&map, &all, &bootstrap, &[]), ids(&bootstrap));
+        // Nor a chain that closes through the core at both ends.
         let map = graph(&[
             ("ba", "bb"),
             ("bb", "bc"),
@@ -208,17 +280,78 @@ mod tests {
             ("nc", "bb"),
         ]);
         let all = ["ba", "bb", "bc", "na", "nb", "nc"];
-        let bootstrap = ["ba", "bb", "bc"];
+        assert_eq!(core(&map, &all, &bootstrap, &[]), ids(&bootstrap));
+    }
+
+    // With all bootstrap nodes but one stale, that one admits the nodes it
+    // advertises, and the core grows from them by two edges as before: it
+    // does not shrink to the one bootstrap node while the others are down.
+    #[test]
+    fn a_lone_bootstrap_node_admits_its_neighbors() {
+        let map = graph(&[
+            ("ba", "na"),
+            ("ba", "nb"),
+            ("na", "nb"),
+            ("na", "nc"),
+            ("nb", "nc"),
+            ("nc", "nd"),
+        ]);
+        // bb and bc are configured and registered, but have no fresh link
+        // state, so no edges.
+        let all = ["ba", "bb", "bc", "na", "nb", "nc", "nd"];
         assert_eq!(
-            core(&map, &all, &bootstrap, &[]),
-            ids(&["ba", "bb", "bc", "na", "nb", "nc"]),
-            "a cycle through the core stays"
+            core(&map, &all, &["ba", "bb", "bc"], &[]),
+            ids(&["ba", "na", "nb", "nc"]),
+            "nc joins by two edges, nd with one does not"
         );
-        // nc is not registered: nb has one edge left, then na.
-        let registered = ["ba", "bb", "bc", "na", "nb"];
+        // Two seeds admit nobody by themselves: each node needs two edges.
+        let map = graph(&[("ba", "bb"), ("ba", "na"), ("bb", "nb"), ("na", "nb")]);
         assert_eq!(
-            core(&map, &registered, &bootstrap, &[]),
-            ids(&["ba", "bb", "bc"])
+            core(&map, &["ba", "bb", "na", "nb"], &["ba", "bb", "bc"], &[]),
+            ids(&["ba", "bb"])
+        );
+    }
+
+    // Nodes join one by one, each by two edges into the core as it has
+    // grown: a node whose second edge is to a node that joined first joins
+    // after it.
+    #[test]
+    fn the_core_grows_one_node_at_a_time() {
+        let map = graph(&[
+            ("ba", "bb"),
+            ("bb", "bc"),
+            ("bc", "ba"),
+            ("na", "ba"),
+            ("na", "bb"),
+            ("nb", "na"),
+            ("nb", "bc"),
+            ("nc", "nb"),
+        ]);
+        let all = ["ba", "bb", "bc", "na", "nb", "nc"];
+        assert_eq!(
+            core(&map, &all, &["ba", "bb", "bc"], &[]),
+            ids(&["ba", "bb", "bc", "na", "nb"])
+        );
+    }
+
+    // Bootstrap nodes joined only through other nodes are seeds all the
+    // same, if those nodes are in the 2-core with them: the nodes between
+    // them then join by their edges into the seed.
+    #[test]
+    fn seeds_are_the_bootstrap_nodes_in_the_2_core() {
+        let map = graph(&[
+            ("ba", "na"),
+            ("na", "bb"),
+            ("bb", "nb"),
+            ("nb", "bc"),
+            ("bc", "nc"),
+            ("nc", "ba"),
+        ]);
+        let all = ["ba", "bb", "bc", "na", "nb", "nc"];
+        assert_eq!(
+            core(&map, &all, &["ba", "bb", "bc"], &[]),
+            ids(&all),
+            "a ring through all three"
         );
     }
 
@@ -291,6 +424,14 @@ mod tests {
             [0, 0, 1, 2, 2],
             "edges needed by bootstrap nodes"
         );
+        assert_eq!(
+            [0, 1, 2, 3, 64].map(edges_to_join),
+            [1, 1, 1, 2, 2],
+            "edges into the core needed to join it"
+        );
+        // A node with no edge does not join a lone bootstrap node.
+        let map = graph(&[("na", "nb")]);
+        assert_eq!(core(&map, &["ba", "na", "nb"], &["ba"], &[]), ids(&["ba"]));
         // One bootstrap node is a core alone.
         let map = graph(&[]);
         assert_eq!(core(&map, &["ba"], &["ba"], &[]), ids(&["ba"]));

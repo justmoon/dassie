@@ -557,7 +557,7 @@
         "The node table, link-state flooding, membership by majority and registration",
         "Link states that carry both keys a node ID commits to, Ed25519 and SLH-DSA, offer each settlement scheme a node takes peers on with what the scheme says of itself, such as the hub a scheme settles over and the node's account there, and say whether a node is a periphery node and where a core node answers requests for its snapshot",
         "Peering on its own, and routing, keeping a few first hops per node, picked by a hash only the node itself can compute",
-        "The core, which every node computes alike from the signed data: the registered nodes that peer with at least two others, in the part of the network that holds the most bootstrap nodes, shown to the owner",
+        "The core, which every node computes alike from the signed data: it starts from the bootstrap nodes and takes in every registered node that two core nodes peer with, shown to the owner",
         "Periphery nodes without a URL and with no neighbors in their link state, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any, as many as a market maker trades through",
         "Downlinks that never paid the node take at most half of its places for downlinks, so keys made for nothing cannot keep out those that pay",
         "Advertising only peers that are alive and not stuck short of room, or being wound down, on every method, never ending one for room it could not pay",

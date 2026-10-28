@@ -88,9 +88,9 @@ Every probe spends a token of the node's probe bucket, whatever its outcome: fai
 
 ### The core
 
-Every node computes the core from what it holds, as [promotion-to-core](../decisions/promotion-to-core.md) defines it (`crates/dassie-peer/src/core_nodes.rs`): of the nodes in the majority, the 2-core of the edges both ends advertise in fresh link states, in its component with the most bootstrap nodes, ties going to the component with the lowest bootstrap node ID.
+Every node computes the core from what it holds, as [promotion-to-core](../decisions/promotion-to-core.md) defines it (`crates/dassie-peer/src/core_nodes.rs`). Of the nodes in the majority, it takes the 2-core of the edges both ends advertise in fresh link states, and of that the component with the most bootstrap nodes, ties going to the component with the lowest bootstrap node ID. That component's bootstrap nodes seed the core, and it grows by every node in the majority with two edges into it, until none joins. A lone seed, the only bootstrap node whose link state is fresh, first admits the nodes it advertises itself, so the core does not shrink to it while the others are down. So each node other than a bootstrap node is core through two core nodes that advertise it, and a group of nodes that advertise each other does not join through a single edge.
 
-- **Edges needed.** Two, or, with fewer than three bootstrap nodes, as many as there are less one: one bootstrap node is a core alone, and two are one once they are joined.
+- **Edges needed.** Two, or, with fewer than three bootstrap nodes, as many as there are less one, and at least one to join: one bootstrap node is a core alone, two are one once they are joined, and a node with an edge to either joins them.
 - **No bootstrap node in a component, no core.** A node that sees only components without a configured bootstrap node counts none of them as the core.
 - **A node alone,** with no bootstrap nodes, counts as its own bootstrap node and as registered with itself, so it is a core alone.
 - **The dev core** (`DASSIE_DEV_CORE_NODES`, node IDs, in a build with debug assertions only) is core outright, whatever its edges: dev and test networks have core nodes without the time promotion takes. Every node of such a network is given the same list.
