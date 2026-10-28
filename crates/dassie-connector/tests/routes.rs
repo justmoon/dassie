@@ -73,15 +73,34 @@ fn packets_follow_the_longest_route() {
 }
 
 // A packet never goes straight back to the peer it came from: the next
-// option is used, and with none, F02.
+// option is used.
 #[test]
 fn packets_do_not_bounce_back() {
     let mut harness = harness();
     set(&mut harness, &[("test.das.dfar", &[ONE, TWO])]);
     let packet = prepare("test.das.dfar", 10, NOW + 20_000, [1; 32]);
     assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 1, &packet)), TWO);
-    set(&mut harness, &[("test.das.dfar", &[ONE])]);
-    let outcome = harness.prepare(NOW, ONE, 2, &packet);
+}
+
+// A peer that sent us a packet routes through us, so a route of ours that
+// leads only back to it is one of the two not recomputed yet: on a new
+// peering with TWO, ONE learned the edge and recomputed before we did, and
+// our route to TWO still goes through ONE. That passes as routing
+// converges, so it is T01, which a sender tries again, never F02, which
+// ends an `ilp-protocol-stream` payment.
+#[test]
+fn a_route_only_back_to_the_source_is_temporary() {
+    let mut harness = harness();
+    set(&mut harness, &[("test.das.dtwo", &[ONE])]);
+    let packet = prepare("test.das.dtwo.receiver", 10, NOW + 20_000, [1; 32]);
+    let outcome = harness.prepare(NOW, ONE, 1, &packet);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::T01_PEER_UNREACHABLE);
+    // Once our routes catch up, the same packet goes to TWO.
+    set(&mut harness, &[("test.das.dtwo", &[TWO])]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 2, &packet)), TWO);
+    // A destination we have no route to at all is still F02.
+    let nowhere = prepare("test.das.dnowhere", 10, NOW + 20_000, [2; 32]);
+    let outcome = harness.prepare(NOW, ONE, 3, &nowhere);
     assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
 }
 

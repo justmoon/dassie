@@ -70,6 +70,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [receive-limit-caps-delivery](receive-limit-caps-delivery.md) | A receive limit caps what payments deliver, not only what they reserve | payments, stream |
 | [release-integrity](release-integrity.md) | Release integrity | release |
 | [resident-peers](resident-peers.md) | A peer is in memory only while it is needed: a downlink while it is connected, a core peer while its channel is open | ledger, settlement, network, xrpl, designs/periphery |
+| [route-back-is-temporary](route-back-is-temporary.md) | A route that leads only back to the packet's source answers T01, not F02 | connector, network |
 | [rpc-contract](rpc-contract.md) | UI and CLI RPC contract | rpc, wallet |
 | [rust-and-typescript](rust-and-typescript.md) | What runs in Rust and what in TypeScript | overview, engineering |
 | [scheme-names](scheme-names.md) | A scheme's ID names its ledger, network and asset, and a wallet address names the asset alone | settlement, xrpl, ledger, payments, identity |

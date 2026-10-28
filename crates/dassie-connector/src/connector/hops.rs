@@ -6,7 +6,8 @@
 //! Each packet's next hop is drawn from a route's usable options with a
 //! number the caller draws from its RNG, so a simulation stays
 //! deterministic. A hop is usable while it is an endpoint, is not the
-//! packet's source, is not draining, and has a method available. Among the
+//! packet's source, is not draining, and has a method available; a route
+//! left with only the source leads back, while routing converges. Among the
 //! options with an available method on the ledger the packet came in on,
 //! each is weighted by the fees we earned on packets fulfilled through it on
 //! that ledger that kept it, halved every half-life, and the packet goes on
@@ -37,6 +38,11 @@ pub(crate) enum Hop {
     /// A route has hops, but none with a method a packet may take now: a
     /// want of liquidity, which passes.
     NoMethod,
+    /// A route leads only back to the packet's source, which sent it here
+    /// because its routes lead through us: the two nodes' routes disagree,
+    /// as they do for a moment while routing converges, each node
+    /// recomputing its routes on its own debounce.
+    Back,
     /// No route.
     None,
 }
@@ -84,12 +90,13 @@ impl Connector {
         }
         let text = destination.as_str();
         let mut end = text.len();
-        let mut no_method = false;
+        let (mut no_method, mut back) = (false, false);
         while let Some(prefix) = text.get(..end) {
             if let Some(options) = self.routes.get(prefix) {
                 match self.draw_hop(now_ms, options, (source, incoming), true, draw) {
                     hop @ Hop::To(..) => return hop,
                     Hop::NoMethod => no_method = true,
+                    Hop::Back => back = true,
                     Hop::None => {}
                 }
             }
@@ -98,7 +105,13 @@ impl Connector {
             };
             end = at;
         }
-        if no_method { Hop::NoMethod } else { Hop::None }
+        if no_method {
+            Hop::NoMethod
+        } else if back {
+            Hop::Back
+        } else {
+            Hop::None
+        }
     }
 
     /// One of `options` for a packet from `source` on `incoming`, drawn
@@ -109,7 +122,7 @@ impl Connector {
     /// its first available method, which refuses a packet that moves money
     /// (`amounts`). Without a draw, the first of those it would draw from,
     /// in the order of `options`. With `exclude_source`, the source is no
-    /// option.
+    /// option, and a route left with no other endpoint leads only back.
     fn draw_hop(
         &self,
         now_ms: u64,
@@ -120,6 +133,7 @@ impl Connector {
     ) -> Hop {
         let half_life_ms = self.config.earnings_half_life_ms;
         let mut reachable = false;
+        let mut back = false;
         let mut first = None;
         let mut keeping = [(EndpointId::Peer(0), 0); MAX_ROUTE_OPTIONS];
         let mut kept = 0;
@@ -127,6 +141,7 @@ impl Connector {
         let mut usable = 0;
         for hop in options.iter().flatten().copied() {
             if exclude_source && source == Some(hop) {
+                back = true;
                 continue;
             }
             let Some(endpoint) = self.endpoints.get(hop).filter(|e| !e.draining) else {
@@ -168,6 +183,7 @@ impl Connector {
             _ => match first {
                 Some((hop, ledger)) => Hop::To(hop, Some(ledger)),
                 None if reachable => Hop::NoMethod,
+                None if back => Hop::Back,
                 None => Hop::None,
             },
         }
