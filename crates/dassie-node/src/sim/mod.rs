@@ -559,8 +559,40 @@ const MOST_MOVED_TENTHS: i128 = 1;
 /// priced as one packet there, paying its own impact
 /// (spec/decisions/passive-rebalancing.md), less its fee, and 5% for
 /// packets' rounding and a second hop's fee. The same currency loses only
-/// the 5%.
+/// the 5%. Node 1 holds what each node starts with on each ledger, each an
+/// asset of its own, as a node holds a hub's ledger that no owner book
+/// funds; [`least_across_whole`] for one that funds its hubs from its books.
 pub fn least_across(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
+    least_across_from(ledger, into, sent, Settling::deposit)
+}
+
+/// [`least_across`] for a run across hubs, whose node 1 funds each hub
+/// from its owner book of the hub's asset: it holds each asset whole, in
+/// the hub and the book together, what it started with in the book, as
+/// its prices count it (spec/decisions/passive-rebalancing.md).
+pub fn least_across_whole(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
+    least_across_from(ledger, into, sent, |ledger| {
+        // The node's own mapping, `hub_moves::owner_book_ledger`, which the
+        // prices group by and the sim cannot reach: this must follow it.
+        let book = match ledger {
+            HUB => XRP,
+            HUB_DSUSD => DSUSD,
+            HUB_LIVE => LIVE_XRP,
+            HUB_RLUSD => RLUSD,
+            other => other,
+        };
+        Settling::deposit(book)
+    })
+}
+
+/// [`least_across`], with node 1 starting with `start` of each ledger's
+/// asset.
+fn least_across_from(
+    ledger: LedgerId,
+    into: LedgerId,
+    sent: u64,
+    start: impl Fn(LedgerId) -> i128,
+) -> u64 {
     use dassie_connector::{Holding, Inventory};
     if ledger.asset().code == into.asset().code {
         return sent / 100 * 95;
@@ -573,7 +605,7 @@ pub fn least_across(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
         ledger,
         owner: dassie_ledger::AccountId(0),
         holding: Holding {
-            posted: u128::try_from(Settling::deposit(ledger) * tenths / 10).unwrap(),
+            posted: u128::try_from(start(ledger) * tenths / 10).unwrap(),
             ..Holding::NONE
         },
     };
@@ -3151,7 +3183,7 @@ impl Sim {
 impl Sim {
     /// An outgoing payment across currencies, of a fixed `debit` from
     /// `from`'s first ledger to a receiver on `to`'s last, at no worse than
-    /// [`least_across`].
+    /// [`least_across_whole`].
     pub fn pay_outgoing_across(&mut self, from: usize, to: usize, debit: u64) {
         let ledger = self.settling.ledgers(from)[0];
         let into = *self.settling.ledgers(to).last().unwrap();
@@ -3171,7 +3203,7 @@ impl Sim {
             incoming = Some(payment);
         });
         let incoming = incoming.unwrap();
-        let receive = least_across(ledger, into, debit);
+        let receive = least_across_whole(ledger, into, debit);
         let mut outgoing = None;
         self.step(from, |core| {
             let created = core

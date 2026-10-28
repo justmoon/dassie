@@ -947,7 +947,7 @@ fn check_received_across(sim: &Sim) -> Result<(), String> {
             u128::from(received(sim, payment)),
             u128::from(sent(payment)),
         );
-        let least = u128::from(super::least_across(
+        let least = u128::from(super::least_across_whole(
             payment.ledger,
             into,
             u64::try_from(sent).unwrap(),

@@ -14,6 +14,7 @@ use crate::node::Policies;
 use crate::store::Store;
 
 mod hub_moves;
+mod pricing;
 mod removal;
 mod slots;
 

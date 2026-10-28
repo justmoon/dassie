@@ -63,22 +63,6 @@ const DSUSD_HIGH = 40n * UNIT;
 /** How long the fake ledger may take to answer `amm_info`. */
 const AMM_INFO_TIMEOUT_MS = 10_000;
 
-/**
- * Why the market maker's tests do not check that it moves its targets
- * toward balance, while they do not: a core node prices the ledger of each
- * of its hubs apart from the owner book that funds it
- * (spec/areas/connector.md#inventory-pricing), so its curve follows what
- * its two hub accounts hold, rather than what it holds of each asset. Its
- * feed then offers more than spot for XRP, the asset it holds most of, and
- * the market maker trades it further from balance
- * (spec/areas/rate-feed.md#market-maker). Meanwhile the tests check only
- * that a trade crosses each core node over both hubs, whichever way. They
- * check the whole loop once inventory pricing counts each asset whole
- * (spec/roadmap.md#hubs-only).
- */
-export const PRICED_APART: string | undefined =
-  "a core node prices its hubs' ledgers apart from their owner books (spec/roadmap.md#hubs-only)";
-
 /** The nodes of a market maker's scenario. */
 export interface MarketMakerNodes {
   /** The core nodes, its targets, members of both hubs. */
@@ -136,25 +120,6 @@ export async function held(
   [hub, book]: Asset,
 ): Promise<bigint> {
   return (await owner(node, hub)) + (await owner(node, book));
-}
-
-/**
- * What `node` holds of `asset`, as `held` reads it, while none of its
- * hubs moves funds to or from its owner books: a move on its way is booked
- * out of the ledger it leaves before it is booked into the other, so
- * between the two the sum reads short of it. `undefined` while one moves.
- */
-export async function heldAtRest(
-  node: ScenarioNode,
-  asset: Asset,
-): Promise<bigint | undefined> {
-  const atRest = async () => {
-    const { hubs } = await node.rpc.call("getHubStatus", {});
-    return hubs.every((hub) => hub.moving === undefined);
-  };
-  if (!await atRest()) return undefined;
-  const sum = await held(node, asset);
-  return await atRest() ? sum : undefined;
 }
 
 /**

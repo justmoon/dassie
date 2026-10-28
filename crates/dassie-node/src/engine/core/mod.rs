@@ -809,9 +809,15 @@ impl Core {
                 count += 1;
             }
         }
-        let mut table = PriceTable::build(
+        // Each asset counts whole: a hub's ledger with the owner book that
+        // funds it, between which the node moves the owner's funds by
+        // itself, so that the curve follows what the owner holds of the
+        // asset, not where the moves left it. A book that funds no hub
+        // priced here counts alone.
+        let mut table = PriceTable::build_by_asset(
             &self.prices.rates,
             inventories.get(..count).unwrap_or_default(),
+            |ledger| hub_moves::owner_book_ledger(ledger).unwrap_or(ledger),
             self.peer_settings.pricing(),
             self.now_ms,
             self.connector.config().max_rate_age_ms,
