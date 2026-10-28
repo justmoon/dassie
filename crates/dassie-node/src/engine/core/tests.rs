@@ -2355,7 +2355,7 @@ fn a_paying_candidates_url_is_checked_over_https() {
     core.begin_step(NOW + 4_000);
     core.finish_step(&mut outputs);
     let asked = outputs.iter().any(|output| {
-        matches!(output, Output::CheckHttps { node, url: asked } if *node == id && asked == url)
+        matches!(output, Output::CheckHttps { node, url: asked, .. } if *node == id && asked == url)
     });
     assert!(asked, "the node checks its URL over HTTPS");
     let pending = |core: &Core| {

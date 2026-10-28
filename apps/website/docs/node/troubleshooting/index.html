@@ -249,15 +249,19 @@
         you named in <code>DASSIE_BOOTSTRAP_NODES</code>. A node becomes a member of the network
         once more than half of the bootstrap nodes list it. It registers with
         each of them when it starts, and each one first checks that it can
-        reach your node at its domain name, over QUIC.
+        reach your node at its domain name: over QUIC, on UDP 443, and over
+        HTTPS, on TCP 443, where it fetches your node's discovery document
+        and needs a certificate a public authority issued.
       </p>
       <ul>
         <li>Right after the first start, give it a few minutes.</li>
         <li>
           If it stays at 0: UDP 443 is the usual cause, see
-          <a href="#udp-and-quic">UDP and QUIC</a>. Check too that the domain
-          name points at this server, as for
-          <a href="#certificates">certificates</a>.
+          <a href="#udp-and-quic">UDP and QUIC</a>. Then TCP 443, which must
+          be open too, and the certificate: one <code>dassie init</code> has
+          not obtained yet, or a temporary one the node made, is not taken.
+          See <a href="#certificates">Certificates</a>, which also covers a
+          domain name that does not point at this server.
         </li>
         <li>
           If some list it and others don't, the others may still be checking,

@@ -294,15 +294,20 @@ pub enum Output {
         /// What to post.
         body: Vec<u8>,
     },
-    /// Check that a downlink asking to be promoted answers at its URL over
-    /// HTTPS, with a certificate a public authority issued: a GET of its
-    /// discovery document, which must name it. How it went comes back as
-    /// [`Core::https_checked`] (spec/decisions/promotion-to-core.md).
+    /// Check that a node answers at its URL over HTTPS, with a certificate
+    /// a public authority issued: a GET of its discovery document, which
+    /// must name it. How it went comes back as [`Core::https_checked`], for
+    /// a downlink asking to be promoted or a node registered with us
+    /// (spec/decisions/promotion-to-core.md), or, if `registration`, as
+    /// [`Core::registration_checked`], for a node registering, whose
+    /// registration waits on it (spec/areas/network.md#registration).
     CheckHttps {
-        /// The downlink.
+        /// The node.
         node: dassie_identity::NodeId,
         /// Its URL.
         url: String,
+        /// Whether a registration waits on it.
+        registration: bool,
     },
     /// Fetch a document for an asset, such as a validator list: an HTTPS
     /// GET that follows no redirect, whose body comes back as

@@ -380,6 +380,17 @@ enum Delivery {
         kind: Kind,
         body: Vec<u8>,
     },
+    /// The outcome of `to`'s check of `peer`'s URL over HTTPS, which its
+    /// node's client makes (spec/areas/network.md#promotion): none if it
+    /// was not made.
+    HttpsChecked {
+        to: usize,
+        generation: u64,
+        peer: NodeId,
+        url: String,
+        answered: Option<bool>,
+        registration: bool,
+    },
     /// A request's outcome arriving back at `to`.
     Result {
         to: usize,
@@ -527,6 +538,16 @@ pub struct Network {
     /// The uplinks each node is pinned to, kept across restarts
     /// (spec/areas/network.md#pinned-uplinks).
     pub pinned: BTreeMap<usize, Vec<NodeId>>,
+    /// The nodes whose URL fails a check over HTTPS, as one with a
+    /// certificate no public authority issued: every other node with a URL
+    /// that is up answers one at it, where the asker reaches it.
+    pub https_fails: BTreeSet<usize>,
+    /// The nodes whose checks over HTTPS never come back, as when their
+    /// client has no place for one.
+    pub https_silent: BTreeSet<usize>,
+    /// The nodes that make no check over HTTPS, and say so, as when their
+    /// client has no place for one.
+    pub https_unmade: BTreeSet<usize>,
     /// What each bootstrap node does as a registrar of names: as the
     /// protocol says, unless set here.
     pub roles: BTreeMap<usize, Role>,
@@ -643,6 +664,9 @@ impl Network {
             forgeries_taken: Vec::new(),
             periphery: (count..count + periphery).collect(),
             pinned: BTreeMap::new(),
+            https_fails: BTreeSet::new(),
+            https_silent: BTreeSet::new(),
+            https_unmade: BTreeSet::new(),
             roles: BTreeMap::new(),
             adversary: None,
             tipped: BTreeMap::new(),
@@ -733,6 +757,47 @@ impl Network {
         self.nodes[index].node.as_ref().unwrap()
     }
 
+    /// Answers node `index`'s checks over HTTPS among `events`, a request's
+    /// time later: a node with that URL answers if it is up, has a URL, is
+    /// reached from `index`, and its HTTPS does not fail.
+    fn check_https(&mut self, index: usize, events: &[Event]) {
+        for event in events {
+            let Event::CheckHttps {
+                peer,
+                url,
+                registration,
+            } = event
+            else {
+                continue;
+            };
+            if self.https_silent.contains(&index) {
+                continue;
+            }
+            let answered = (0..self.nodes.len()).any(|at| {
+                key(at).node_id() == *peer
+                    && self.nodes[at].node.is_some()
+                    && !self.periphery.contains(&at)
+                    && !self.https_fails.contains(&at)
+                    && !self.cut.contains(&(index, at))
+                    && !self.cut.contains(&(at, index))
+                    && !self.cut_one_way.contains(&(index, at))
+                    && crate::wire::Endpoint::of_url(&self::url(at))
+                        .is_some_and(|ours| ours.url() == *url)
+            });
+            let answered = (!self.https_unmade.contains(&index)).then_some(answered);
+            let delay = self.latency();
+            let delivery = Delivery::HttpsChecked {
+                to: index,
+                generation: self.nodes[index].generation,
+                peer: *peer,
+                url: url.clone(),
+                answered,
+                registration: *registration,
+            };
+            self.schedule(delay, delivery);
+        }
+    }
+
     fn schedule(&mut self, delay: u64, delivery: Delivery) {
         self.sequence += 1;
         self.queue
@@ -767,6 +832,7 @@ impl Network {
             events.push(event);
         }
         let node_now = node.now_ms;
+        self.check_https(index, &events);
         let sim = &mut self.nodes[index];
         let mut changes = granted(sim, &events, &batch);
         changes.extend(released(sim, &events, &batch, node_now));
@@ -1174,6 +1240,27 @@ impl Network {
                 body,
             } => self.arrive(from, to, request, kind, &body),
             Delivery::Forged { to, kind, body } => self.forged(to, kind, &body),
+            Delivery::HttpsChecked {
+                to,
+                generation,
+                peer,
+                url,
+                answered,
+                registration,
+            } => {
+                if self.nodes[to].generation != generation {
+                    return;
+                }
+                let now = self.local_now(to);
+                if let Some(node) = self.nodes[to].node.as_mut() {
+                    match (registration, answered) {
+                        (true, answered) => node.registration_checked(now, &peer, &url, answered),
+                        (false, Some(answered)) => node.https_checked(now, &peer, &url, answered),
+                        (false, None) => {}
+                    }
+                    self.drain(to);
+                }
+            }
             Delivery::Result {
                 to,
                 generation,

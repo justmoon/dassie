@@ -33,7 +33,7 @@
 - **Becoming core** is a process the owner starts:
   1. a public IP address, a domain, and TLS with a certificate a public authority issued;
   2. uplinks, as a periphery node: as many as the definition asks edges of, two in a network with three or more bootstrap nodes;
-  3. registration with the bootstrap nodes, which probe the URL as they do today;
+  3. registration with the bootstrap nodes, which probe the URL over QUIC and check it over HTTPS;
   4. asking each uplink for promotion.
 - **Promotion** is an uplink advertising the node as its neighbor in its link state, which it does only once the node:
   - is registered;

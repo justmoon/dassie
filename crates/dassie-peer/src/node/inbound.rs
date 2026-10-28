@@ -546,6 +546,17 @@ impl PeerNode {
         if self.deferred >= self.config.max_deferred {
             return refuse(503, "busy");
         }
+        let url = endpoint.url();
+        // A registration waiting on its check over HTTPS is no fault of a
+        // request of the same node's, as its peering request at start: it
+        // is busy, which costs its key nothing.
+        if self
+            .registering
+            .iter()
+            .any(|(probe, checked, _)| probe.accepted.sender == node || *checked == url)
+        {
+            return refuse(503, "its URL is being checked over HTTPS");
+        }
         if self
             .probing
             .iter()
@@ -611,30 +622,105 @@ impl PeerNode {
             let share = self.config.probe_rate_per_network;
             self.network_probes.give_back(network, share, self.now_ms);
         }
-        let reply = match probe.purpose {
-            ProbeFor::Registration(bytes) => match SignedNodeInfo::decode_exact(&bytes) {
-                Ok(_)
-                    if reachable
-                        && !self
-                            .registrations
-                            .take(self.config.registration_rate, self.now_ms) =>
-                {
-                    Reply::refuse(429, "too many new registrations")
+        let reply = match &probe.purpose {
+            ProbeFor::Registration(bytes) => {
+                let url = SignedNodeInfo::decode_exact(bytes)
+                    .ok()
+                    .and_then(|info| Endpoint::of_url(info.info.url))
+                    .map(|endpoint| endpoint.url());
+                match url {
+                    // It answers over QUIC: over HTTPS too, with a certificate
+                    // a public authority issued, before it is registered.
+                    // It took a deferred place before, freed above.
+                    Some(url) if reachable => {
+                        let until = self.now_ms.saturating_add(2 * self.config.poll_timeout_ms);
+                        self.deferred += 1;
+                        self.event(Event::CheckHttps {
+                            peer: node,
+                            url: url.clone(),
+                            registration: true,
+                        });
+                        self.registering.push((Box::new(probe), url, until));
+                        return;
+                    }
+                    _ => Reply::refuse(409, "not reachable at its URL"),
                 }
-                Ok(info) if reachable => match info.verify() {
-                    Ok(key) => self.register(&probe.accepted, &info, probe.network, key.key()),
-                    Err(_) => Reply::refuse(400, "invalid link state"),
-                },
-                _ => Reply::refuse(409, "not reachable at its URL"),
-            },
+            }
             ProbeFor::Peering(content) => {
-                self.complete_peering(hooks, &probe.accepted, &content, reachable)
+                self.complete_peering(hooks, &probe.accepted, content, reachable)
             }
         };
         self.outputs.push_back(Output::Reply {
             inbound: probe.inbound,
             reply,
         });
+    }
+
+    /// How the check of a registrant's URL over HTTPS went, which
+    /// [`Event::CheckHttps`] asked for with `registration`: it answered at
+    /// `url` with a certificate a public authority issued, and its own node
+    /// ID, if `Some(true)`; not at all, if `Some(false)`; and the check was
+    /// not made, as when the node's client had no place for it, if `None`,
+    /// which refuses the registration for now, at once rather than when its
+    /// wait runs out. Only the registration's own check settles it
+    /// (spec/areas/network.md#registration).
+    pub fn registration_checked(
+        &mut self,
+        now_ms: u64,
+        node: &NodeId,
+        url: &str,
+        answered: Option<bool>,
+    ) {
+        self.advance(now_ms);
+        let Some(at) = self
+            .registering
+            .iter()
+            .position(|(probe, checked, _)| probe.accepted.sender == *node && checked == url)
+        else {
+            return;
+        };
+        let (probe, _, _) = self.registering.swap_remove(at);
+        self.deferred = self.deferred.saturating_sub(1);
+        let ProbeFor::Registration(bytes) = &probe.purpose else {
+            return;
+        };
+        let reply = match (SignedNodeInfo::decode_exact(bytes), answered) {
+            (Err(_), _) => Reply::refuse(400, "invalid link state"),
+            (Ok(_), None) => Reply::refuse(503, "its URL could not be checked over HTTPS now"),
+            (Ok(_), Some(false)) => Reply::refuse(409, "not reachable at its URL over HTTPS"),
+            (Ok(_), Some(true))
+                if !self
+                    .registrations
+                    .take(self.config.registration_rate, self.now_ms) =>
+            {
+                Reply::refuse(429, "too many new registrations")
+            }
+            (Ok(info), Some(true)) => match info.verify() {
+                Ok(key) => self.register(&probe.accepted, &info, probe.network, key.key()),
+                Err(_) => Reply::refuse(400, "invalid link state"),
+            },
+        };
+        self.outputs.push_back(Output::Reply {
+            inbound: probe.inbound,
+            reply,
+        });
+    }
+
+    /// Refuses the registrations whose check over HTTPS never came back in
+    /// time, as one the node had no place for: the registrant tries again.
+    pub(super) fn expire_registering(&mut self) {
+        let now = self.now_ms;
+        let (expired, waiting): (Vec<_>, Vec<_>) = core::mem::take(&mut self.registering)
+            .into_iter()
+            .partition(|(_, _, until)| *until <= now);
+        self.registering = waiting;
+        for (probe, _, _) in expired {
+            self.deferred = self.deferred.saturating_sub(1);
+            self.outputs.push_back(Output::Reply {
+                inbound: probe.inbound,
+                reply: Reply::refuse(503, "its URL was not checked over HTTPS in time"),
+            });
+        }
     }
 
     /// Registers the sender, or renews its registration.

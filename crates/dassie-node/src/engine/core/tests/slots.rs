@@ -587,7 +587,7 @@ fn held_if_run(
 fn a_scheme_removed_runs_until_its_dropped_methods_packets_are_claimed() {
     // A seed whose run has the payment fulfilled once the cut heals: in
     // others it expires first, which this test is not about.
-    let mut sim = line(52, false);
+    let mut sim = line(53, false);
     let (zero, one, two) = (key(0).node_id(), key(1).node_id(), key(2).node_id());
     sim.cut.insert((2, 1));
     pay(&mut sim, (0, USD), (2, USD), 1_000_000, 1_000_000);

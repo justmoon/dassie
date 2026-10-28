@@ -215,14 +215,14 @@ pub(super) fn fetch(client: Option<OutboundClient>, commands: mpsc::Sender<Comma
     });
 }
 
-/// Most time a check of a downlink's URL over HTTPS takes: no longer than
-/// its check over QUIC, whose bucket bounds both.
+/// Most time a check of a node's URL over HTTPS takes, a downlink's or a
+/// registrant's: no longer than its check over QUIC.
 const HTTPS_CHECK_TIMEOUT_MS: u64 = 5_000;
 
-/// Most checks of downlinks' URLs over HTTPS in flight at once: a few, of
-/// the outbound client's places, so that they never take the room ledger
-/// fetches, hubs, rate sources and Open Payments need. One past them is
-/// left for the next time.
+/// Most checks of nodes' URLs over HTTPS in flight at once, downlinks' and
+/// registrants': a few, of the outbound client's places, so that they never
+/// take the room ledger fetches, hubs, rate sources and Open Payments need.
+/// One past them is not made, and the core is told so.
 pub(super) const MAX_HTTPS_CHECKS: usize = 4;
 
 /// The longest discovery document a check takes.
@@ -233,38 +233,65 @@ const DISCOVERY_MAX_BYTES: usize = 4_096;
 /// (spec/areas/http.md#the-nodes-discovery-document) must name it. Tells
 /// the core how it went (spec/decisions/promotion-to-core.md), holding
 /// `place`, one of [`MAX_HTTPS_CHECKS`], until then. A failure on our side,
-/// the client too busy, says nothing of the node, and is not told.
+/// the client too busy, says nothing of the node: the core is told the
+/// check was not made where a registration waits on it
+/// ([`HttpsCheck::told`]).
 pub(super) fn check_https(
     client: OutboundClient,
     place: OwnedSemaphorePermit,
     commands: mpsc::Sender<Command>,
-    (node, url): (dassie_identity::NodeId, String),
+    check: HttpsCheck,
 ) {
     tokio::spawn(async move {
         let request = WebRequest {
             method: http::Method::GET,
-            url: format!("{url}{}", crate::http::discovery::PATH),
+            url: format!("{}{}", check.url, crate::http::discovery::PATH),
             headers: Vec::new(),
             body: None,
             timeout_ms: HTTPS_CHECK_TIMEOUT_MS,
             max_response_bytes: DISCOVERY_MAX_BYTES,
         };
         let answered = match client.web(request).await {
-            Ok(response) => response.status == 200 && names(&response.body, &node),
-            Err(WebError::Busy) => {
-                drop(place);
-                return;
-            }
-            Err(WebError::Refused | WebError::Failed(_) | WebError::TooLarge) => false,
+            Ok(response) => Some(response.status == 200 && names(&response.body, &check.node)),
+            Err(WebError::Busy) => None,
+            Err(WebError::Refused | WebError::Failed(_) | WebError::TooLarge) => Some(false),
         };
         drop(place);
-        tracing::debug!(target: target::PEER, %node, %url, answered, "checked a downlink's URL over HTTPS");
-        let call = Command::Call(Box::new(move |core| {
-            core.https_checked(&node, &url, answered);
-            Box::new(|| {})
-        }));
-        let _ = commands.send(call).await;
+        let (node, url) = (check.node, &check.url);
+        tracing::debug!(target: target::PEER, %node, %url, ?answered, "checked a node's URL over HTTPS");
+        if answered.is_some() || check.registration {
+            let _ = commands.send(check.told(answered)).await;
+        }
     });
+}
+
+/// A check of a node's URL over HTTPS, for a registration that waits on it
+/// or not.
+pub(super) struct HttpsCheck {
+    pub node: dassie_identity::NodeId,
+    pub url: String,
+    pub registration: bool,
+}
+
+impl HttpsCheck {
+    /// Tells the core how it went: answered or not, or not made, `None`,
+    /// which says nothing of a downlink, and refuses a registration waiting
+    /// on it for now.
+    pub(super) fn told(self, answered: Option<bool>) -> Command {
+        let Self {
+            node,
+            url,
+            registration,
+        } = self;
+        Command::Call(Box::new(move |core| {
+            match (registration, answered) {
+                (true, answered) => core.registration_checked(&node, &url, answered),
+                (false, Some(answered)) => core.https_checked(&node, &url, answered),
+                (false, None) => {}
+            }
+            Box::new(|| {})
+        }))
+    }
 }
 
 /// Whether `body`, a discovery document, names `node`.

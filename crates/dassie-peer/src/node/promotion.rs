@@ -208,7 +208,11 @@ impl PeerNode {
                 .and_then(|link| link.endpoint.as_ref())
                 .map(Endpoint::url);
             if let Some(url) = url {
-                self.event(Event::CheckHttps { peer: node, url });
+                self.event(Event::CheckHttps {
+                    peer: node,
+                    url,
+                    registration: false,
+                });
             }
         }
     }

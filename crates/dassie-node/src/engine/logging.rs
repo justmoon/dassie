@@ -67,9 +67,7 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         }
         Event::RoutesChanged => emit!(severity, target: target::ROUTING, "routes changed"),
         Event::CoreChanged => emit!(severity, target: target::ROUTING, "the core changed"),
-        Event::CheckHttps { peer, url } => {
-            emit!(severity, target: target::PEER, %peer, %url, "checking a downlink's URL over HTTPS");
-        }
+        Event::CheckHttps { .. } => peer_check(severity, event),
         Event::NodeAdded(node) => emit!(severity, target: target::PEER, %node, "node added"),
         Event::NodeRemoved(node) => emit!(severity, target: target::PEER, %node, "node removed"),
         Event::Registered(node) => emit!(severity, target: target::PEER, %node, "registration"),
@@ -122,6 +120,19 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         | Event::SettlementRequestNotDelivered { .. }
         | Event::SettlementRefused { .. } => peer_settlement(severity, event),
         Event::Name(event) => peer_names(severity, event),
+    }
+}
+
+/// The peer node's check of a node's URL over HTTPS
+/// (spec/decisions/promotion-to-core.md).
+fn peer_check(severity: Severity, event: &dassie_peer::Event) {
+    if let dassie_peer::Event::CheckHttps {
+        peer,
+        url,
+        registration,
+    } = event
+    {
+        emit!(severity, target: target::PEER, %peer, %url, registration, "checking a node's URL over HTTPS");
     }
 }
 
