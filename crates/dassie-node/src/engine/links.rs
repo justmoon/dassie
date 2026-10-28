@@ -25,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{Command, LedgerEvent};
 use crate::log::target;
-use crate::outbound::{OutboundClient, WebRequest, WebSocket};
+use crate::outbound::{OutboundClient, WebError, WebRequest, WebSocket};
 
 /// Most bytes in one message from a ledger: the longest answer an XRPL
 /// account reads, a proof server's proofs and validations
@@ -215,8 +215,15 @@ pub(super) fn fetch(client: Option<OutboundClient>, commands: mpsc::Sender<Comma
     });
 }
 
-/// Most time a check of a downlink's URL over HTTPS takes.
-const HTTPS_CHECK_TIMEOUT_MS: u64 = 10_000;
+/// Most time a check of a downlink's URL over HTTPS takes: no longer than
+/// its check over QUIC, whose bucket bounds both.
+const HTTPS_CHECK_TIMEOUT_MS: u64 = 5_000;
+
+/// Most checks of downlinks' URLs over HTTPS in flight at once: a few, of
+/// the outbound client's places, so that they never take the room ledger
+/// fetches, hubs, rate sources and Open Payments need. One past them is
+/// left for the next time.
+pub(super) const MAX_HTTPS_CHECKS: usize = 4;
 
 /// The longest discovery document a check takes.
 const DISCOVERY_MAX_BYTES: usize = 4_096;
@@ -224,32 +231,33 @@ const DISCOVERY_MAX_BYTES: usize = 4_096;
 /// Checks that `node` answers at `url` over HTTPS, with a certificate a
 /// public authority issued, the client's roots: its discovery document
 /// (spec/areas/http.md#the-nodes-discovery-document) must name it. Tells
-/// the core how it went (spec/decisions/promotion-to-core.md). Without a
-/// client, it did not.
+/// the core how it went (spec/decisions/promotion-to-core.md), holding
+/// `place`, one of [`MAX_HTTPS_CHECKS`], until then. A failure on our side,
+/// the client too busy, says nothing of the node, and is not told.
 pub(super) fn check_https(
-    client: Option<OutboundClient>,
+    client: OutboundClient,
+    place: OwnedSemaphorePermit,
     commands: mpsc::Sender<Command>,
-    node: dassie_identity::NodeId,
-    url: String,
+    (node, url): (dassie_identity::NodeId, String),
 ) {
     tokio::spawn(async move {
-        let answered = match client {
-            Some(client) => {
-                let request = WebRequest {
-                    method: http::Method::GET,
-                    url: format!("{url}{}", crate::http::discovery::PATH),
-                    headers: Vec::new(),
-                    body: None,
-                    timeout_ms: HTTPS_CHECK_TIMEOUT_MS,
-                    max_response_bytes: DISCOVERY_MAX_BYTES,
-                };
-                match client.web(request).await {
-                    Ok(response) if response.status == 200 => names(&response.body, &node),
-                    Ok(_) | Err(_) => false,
-                }
-            }
-            None => false,
+        let request = WebRequest {
+            method: http::Method::GET,
+            url: format!("{url}{}", crate::http::discovery::PATH),
+            headers: Vec::new(),
+            body: None,
+            timeout_ms: HTTPS_CHECK_TIMEOUT_MS,
+            max_response_bytes: DISCOVERY_MAX_BYTES,
         };
+        let answered = match client.web(request).await {
+            Ok(response) => response.status == 200 && names(&response.body, &node),
+            Err(WebError::Busy) => {
+                drop(place);
+                return;
+            }
+            Err(WebError::Refused | WebError::Failed(_) | WebError::TooLarge) => false,
+        };
+        drop(place);
         tracing::debug!(target: target::PEER, %node, %url, answered, "checked a downlink's URL over HTTPS");
         let call = Command::Call(Box::new(move |core| {
             core.https_checked(&node, &url, answered);
