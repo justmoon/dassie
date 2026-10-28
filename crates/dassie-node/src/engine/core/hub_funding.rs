@@ -202,6 +202,10 @@ pub struct Standing {
     /// with its fees. What the hub account holds beyond them is owed to
     /// peers.
     pub hub_owner: u64,
+    /// What the owner has posted on the hub's ledger, with what packets in
+    /// flight hold: what the payments draw on, which count those packets
+    /// as what they are still to send.
+    pub hub_posted: u64,
     /// What the owner's unfinished payments on the hub's ledger are still
     /// to pay, rounded up.
     pub promised: u64,
@@ -417,7 +421,7 @@ impl Funding {
     pub fn due(&self, now_ms: u64, standing: &Standing) -> Option<Planned> {
         let promised = standing.promised;
         // What the payments need beyond the owner's funds in the hub.
-        let deficit = promised.saturating_sub(standing.hub_owner);
+        let deficit = promised.saturating_sub(standing.hub_posted);
         let paused = now_ms < self.paused_until_ms;
         let waiting = self.moving.is_some()
             || standing.unavailable
@@ -671,6 +675,7 @@ mod tests {
             least_deposit: 100_000,
             xrpl: Some(100_000_000),
             hub_owner: 100_000_000,
+            hub_posted: 100_000_000,
             promised: 0,
             paying: OwnerPaymentState::Unknown,
         }
@@ -689,6 +694,7 @@ mod tests {
         let paying = |(balance, exposure), promised, hub_owner| Standing {
             promised,
             hub_owner,
+            hub_posted: hub_owner,
             ..standing(balance, exposure)
         };
         let deposit = funding

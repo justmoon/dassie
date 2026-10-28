@@ -746,6 +746,22 @@ impl HubAccount {
         stuck >= self.set.one_honest() && moving < self.set.one_honest()
     }
 
+    /// Whether the hub made progress lately: f + 1 of its validators, one
+    /// of them honest, named a newer final block within `within_ms` of
+    /// now, as the account heard them. A hub that has stopped is not, long
+    /// before it is judged [stalled](Self::stalled), so the node can tell
+    /// whether money it puts in now would be credited.
+    #[must_use]
+    pub fn progressing(&self, within_ms: u64) -> bool {
+        let lately = self
+            .tips
+            .iter()
+            .flatten()
+            .filter(|tip| self.now_ms.saturating_sub(tip.first_ms) < within_ms)
+            .count();
+        lately >= self.set.one_honest()
+    }
+
     /// Whether the account keeps up with the hub: it was in step with it
     /// since it started ([`Self::is_synced`]), and since then only lags in
     /// reading the newest blocks it heard of, never having fallen so far

@@ -161,3 +161,37 @@ fn a_shut_down_hub_draws_no_deposit_for_payments() {
     assert_eq!(deposits(&mut ledger, escrow).len(), 1, "no deposit");
     assert!(!core.is_sending(id), "it waits out its deadline");
 }
+
+// A hub that stopped is judged stalled only after an hour, but a deposit
+// made meanwhile is never credited: until it shows progress again, a hub
+// that made none for a few minutes takes no deposit for the owner's
+// payments, and the owner book counts nothing toward them; once a new
+// final block is heard, the payment goes.
+#[test]
+fn a_hub_with_no_progress_lately_draws_no_deposit_for_payments() {
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let floor = policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0) / UNITS_PER_DROP;
+    let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
+    let balance = floor.midpoint(ceiling);
+    hub.account(&mut core, balance, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let debit = in_hub(&core) + 2 * ceiling * UNITS_PER_DROP;
+    let id = pay_self(&mut core, debit).unwrap();
+
+    // The hub goes quiet before the funding check sees the payment.
+    wait_and_close(&mut core, &mut ledger, 6 * 60 * 1_000);
+    assert_eq!(core.hub_refill(LedgerId::HubXrplTestnetXrp), 0);
+    assert_eq!(deposits(&mut ledger, escrow).len(), 1, "no deposit");
+    assert!(!core.is_sending(id));
+
+    hub.account(&mut core, balance, opening);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    assert_eq!(deposits(&mut ledger, escrow).len(), 2, "the hub goes on");
+}
