@@ -32,13 +32,12 @@ use crate::quic::proxy::{NoProxy, Proxy};
 /// keys, Ed25519 and SLH-DSA, and each ID is checked against its keys at
 /// startup, like any entry. `DASSIE_BOOTSTRAP_NODES=[]` makes a node run
 /// alone.
-///
-/// Empty until the testnet's reset: a node ID commits to the node's
-/// SLH-DSA key (spec/decisions/post-quantum-node-id.md), which the
-/// bootstrap nodes' new phrases give them, so their entries are known only
-/// once they are set up with them. The reset puts the four entries here,
-/// in the release that carries the new IDs; until then a node runs alone.
-pub const DEFAULT_BOOTSTRAP_NODES: &str = "[]";
+pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
+  {"id":"32f6pclvm5p5xxdeqigvgxpjezayxacvmnnwgcy","url":"https://boot1.dassie.xyz","publicKey":"2DJ7XMcmzgUu-Ec50PSdPvNHL5_4PKo6WmYrP4nMHEU","slhDsaPublicKey":"4nvvGnn31qeJEYBdzzulzaDcIpFtdFq9HeNhA6fJNeg"},
+  {"id":"wfubobuj5r7d7m4zkut4p2vvt5gd4szbif7czby","url":"https://boot2.dassie.xyz","publicKey":"FWAmSiJvL2c0c_6y4qdcWL3BVUF0j1AccrS7IrS4eRw","slhDsaPublicKey":"Usj-SMIJ2xBwIPIe5-TcOMH0sElKvDl344ut413AJj4"},
+  {"id":"2mbtvg34lgihhdssw7v3ecwiogzs5l4jondqxjq","url":"https://boot3.dassie.xyz","publicKey":"MENy-bobL2KCbx2c12FO2aoQvaeWctWtPR38Gtz6qYY","slhDsaPublicKey":"JSGuAoeDSnid0EjtM2bbdt5ltY5ihJMj9ALizTUTjjk"},
+  {"id":"cxctokwbdeczn2ganlberxwwghzyp6xs2coj2qq","url":"https://boot4.dassie.xyz","publicKey":"SwEEVe2I4YSvM-814iProgG_PauuBMWnk49MjW2DMXQ","slhDsaPublicKey":"yftGkX5GBqNR3lJJ6kGcDlbKtgzNDK5F2N9zanQVJMQ"}
+]"#;
 
 /// The relay a node keeps a connection to while it has no hostname, unless
 /// `DASSIE_RELAY` names another: the front door of the node's default name,
@@ -47,10 +46,11 @@ pub const DEFAULT_BOOTSTRAP_NODES: &str = "[]";
 /// spec/areas/node.md#a-chosen-relay). Its ID is checked against its keys
 /// at startup, like any entry. `DASSIE_RELAY=` (empty) keeps no relay.
 ///
-/// None until the testnet's reset: the front door's ID now commits to its
+/// None until the front door is upgraded: its ID now commits to its
 /// SLH-DSA key, which derives from its key file, so its entry is the one it
 /// logs once it runs a release that makes it (`relay_entry` in
-/// `front_door/key.rs`). Until then a node keeps no relay by default.
+/// `front_door/key.rs`), and a later release builds that in. Until then a
+/// node keeps no relay by default.
 pub const DEFAULT_RELAY: Option<&str> = None;
 
 /// Most bootstrap nodes accepted: each a registrar whose name list every
@@ -618,16 +618,27 @@ mod tests {
         entry.to_string()
     }
 
-    // spec/decisions/bootstrap-network.md: the default list is empty until
-    // the testnet's reset gives its bootstrap nodes identities whose IDs
-    // commit to their SLH-DSA keys, so a node with nothing configured runs
-    // alone. The reset fills the list, and this test then checks that it
-    // names boot1–boot4, each passing the checks of a configured entry.
+    // spec/decisions/bootstrap-network.md: the default list names boot1–4,
+    // each passing the checks of a configured entry, its ID among them.
     #[test]
-    fn the_default_bootstrap_list_is_empty_until_the_reset() {
-        assert_eq!(DEFAULT_BOOTSTRAP_NODES, "[]");
-        let nodes = settings(&[("HOME", "/h")]).map(|s| s.bootstrap_nodes.len());
-        assert_eq!(nodes, Ok(0));
+    fn the_default_bootstrap_nodes_are_the_testnet() {
+        let nodes = settings(&[("HOME", "/h")]).map(|s| {
+            s.bootstrap_nodes
+                .iter()
+                .map(|node| (node.id.as_str().to_owned(), node.endpoint.url()))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            nodes,
+            Ok([
+                ("32f6pclvm5p5xxdeqigvgxpjezayxacvmnnwgcy", "boot1"),
+                ("wfubobuj5r7d7m4zkut4p2vvt5gd4szbif7czby", "boot2"),
+                ("2mbtvg34lgihhdssw7v3ecwiogzs5l4jondqxjq", "boot3"),
+                ("cxctokwbdeczn2ganlberxwwghzyp6xs2coj2qq", "boot4"),
+            ]
+            .map(|(id, host)| (id.to_owned(), format!("https://{host}.dassie.xyz")))
+            .to_vec())
+        );
     }
 
     #[test]
@@ -852,9 +863,9 @@ mod tests {
     }
 
     // spec/decisions/default-relay.md: there is no default relay until the
-    // testnet's reset gives the front door of the default name an identity
-    // whose ID commits to its SLH-DSA key, so unset, as empty, keeps none.
-    // The reset builds the front door's entry in, and this test then checks
+    // front door of the default name is upgraded to an identity whose ID
+    // commits to its SLH-DSA key, so unset, as empty, keeps none. A release
+    // then builds the front door's entry in, and this test then checks
     // that unset names it, checked as any entry and kept only without a
     // hostname.
     #[test]

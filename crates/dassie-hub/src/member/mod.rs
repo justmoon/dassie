@@ -55,30 +55,19 @@ pub const GAS_CHECK_LASTS_MS: u64 = 60_000;
 /// with boot1–4 as its validators. A node names another hub in its
 /// scheme's config.
 ///
-/// None is built in until the testnet's hub is founded again under the
-/// current rules and with its keys at the paths that name its network
-/// (spec/decisions/hub-keys-by-network.md). The one founded before, its
-/// margin and its encoding changed, no longer decodes or checks, and it
-/// names validator keys its validators no longer derive. Meanwhile the
-/// wallet does not offer the scheme, and a scheme added without rules of
-/// its own does not start (spec/areas/hubs.md#in-the-node). Founding it
-/// again puts its rules' hex in `default-testnet-hub.hex` and this back to
-/// `Some(include_str!("default-testnet-hub.hex"))`.
-pub const DEFAULT_TESTNET_HUB: Option<&str> = None;
+/// A hub is founded again, and its rules here replaced, whenever what its
+/// ID commits to or the paths its validators' keys derive at change
+/// (spec/decisions/hub-keys-by-network.md): the rules of one founded before
+/// no longer decode, check or name the keys its validators derive.
+pub const DEFAULT_TESTNET_HUB: Option<&str> = Some(include_str!("default-testnet-hub.hex"));
 
 /// The default DSUSD hub of the XRP Ledger testnet, as the hex of its
 /// rules' encoding, kept as [`DEFAULT_TESTNET_HUB`] is: founded by boot1
 /// with boot1–4 as its validators, holding DSUSD
 /// (spec/decisions/token-hubs.md). A node names another DSUSD hub in its
 /// scheme's config.
-///
-/// None is built in until boot1 founds it under the current rules: an
-/// operator's step, which puts its rules' hex in
-/// `default-testnet-dsusd-hub.hex` and this to
-/// `Some(include_str!("default-testnet-dsusd-hub.hex"))`. Meanwhile the
-/// wallet does not offer `hub-xrpl-testnet-dsusd`, and the scheme added
-/// without rules of its own does not start (spec/areas/hubs.md#in-the-node).
-pub const DEFAULT_TESTNET_DSUSD_HUB: Option<&str> = None;
+pub const DEFAULT_TESTNET_DSUSD_HUB: Option<&str> =
+    Some(include_str!("default-testnet-dsusd-hub.hex"));
 
 /// The default hub of XRP on the XRP Ledger's mainnet, as the hex of its
 /// rules' encoding, kept as [`DEFAULT_TESTNET_HUB`] is: founded by the

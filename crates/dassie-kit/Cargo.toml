@@ -1,6 +1,6 @@
 [package]
 name = "dassie-kit"
-version = "0.2.9"
+version.workspace = true
 description = "What Dassie's crates share below every protocol: time units, client keys, and the simulation kit"
 edition.workspace = true
 rust-version.workspace = true

@@ -1025,20 +1025,12 @@ fn a_settlement_spends_only_what_the_books_hold() {
     scheme.check_invariants();
 }
 
-// The default testnet hub built in, once one is, is the one founded on the
-// testnet: its rules decode, check, with a margin that covers finality
-// with one of its validators faulty, and have boot1–4 as its validators,
-// so a release can never ship another by mistake
-// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
-#[test]
-fn the_default_testnet_hub_is_the_one_founded() {
-    let Some(hex) = DEFAULT_TESTNET_HUB else {
-        return;
-    };
-    let bytes: Vec<u8> = (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
-        .collect();
+/// The rules `hex` built in as a default hub, decoded and checked, with a
+/// margin that covers finality with one of its validators faulty, and
+/// boot1–4 as its validators, each the bootstrap node it names, by its node
+/// key and its endpoint.
+fn founded_on_the_boots(hex: &str) -> crate::rules::Rules {
+    let bytes = dassie_xrpl::from_hex(hex.trim()).unwrap();
     let mut reader = dassie_oer::Reader::new(&bytes);
     let rules = crate::rules::Rules::decode(&mut reader).unwrap();
     reader.finish().unwrap();
@@ -1048,7 +1040,6 @@ fn the_default_testnet_hub_is_the_one_founded() {
         "M covers one faulty validator of four"
     );
     assert_eq!(rules.terms.network, 1, "the XRP Ledger testnet");
-    // Each validator is the bootstrap node it names, by its node key.
     let nodes: Vec<alloc::string::String> = rules
         .validators
         .iter()
@@ -1057,10 +1048,10 @@ fn the_default_testnet_hub_is_the_one_founded() {
     assert_eq!(
         nodes,
         [
-            "br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza",
-            "cnayj52pxvacichpys3p4hsqnbxtliup3rkkz5i",
-            "wu3lfwpoqblye7pdjhcspl6whzcux6j4vnkkdfq",
-            "ywpqifdgvbalxycja2oiu4lg5ogogwpagqdtk7q"
+            "32f6pclvm5p5xxdeqigvgxpjezayxacvmnnwgcy",
+            "wfubobuj5r7d7m4zkut4p2vvt5gd4szbif7czby",
+            "2mbtvg34lgihhdssw7v3ecwiogzs5l4jondqxjq",
+            "cxctokwbdeczn2ganlberxwwghzyp6xs2coj2qq"
         ]
     );
     let endpoints: Vec<&str> = rules
@@ -1076,6 +1067,45 @@ fn the_default_testnet_hub_is_the_one_founded() {
             "boot3.dassie.xyz",
             "boot4.dassie.xyz"
         ]
+    );
+    rules
+}
+
+// The default testnet hubs built in are the ones founded on the testnet,
+// by their IDs and escrows, each holding its scheme's asset, so a release
+// can never ship another by mistake
+// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+#[test]
+fn the_default_testnet_hub_is_the_one_founded() {
+    let rules = founded_on_the_boots(DEFAULT_TESTNET_HUB.unwrap());
+    assert_eq!(
+        alloc::format!("{}", rules.id().0),
+        "5b4e3d7b99aa06f03642f872efd905f32a6183a09d2faf02327f49d6f3d2c308"
+    );
+    assert_eq!(
+        crate::escrow::transactions::escrow_account(&rules).to_address(),
+        "rwLtDoCscTc6YWo82BefD27BPmQZVYprV"
+    );
+    assert_eq!(
+        scheme_of(&rules.terms).map(|(scheme, _)| scheme),
+        Some(SCHEME_ID)
+    );
+}
+
+#[test]
+fn the_default_testnet_dsusd_hub_is_the_one_founded() {
+    let rules = founded_on_the_boots(DEFAULT_TESTNET_DSUSD_HUB.unwrap());
+    assert_eq!(
+        alloc::format!("{}", rules.id().0),
+        "8a33d0f5759f5411e1118b98adb1ab9f2831323ca01ab1287c372ccb72a11f3d"
+    );
+    assert_eq!(
+        crate::escrow::transactions::escrow_account(&rules).to_address(),
+        "rDkVZmGMF5PEWnADsnqfTNr8WQDdrXpzS5"
+    );
+    assert_eq!(
+        scheme_of(&rules.terms).map(|(scheme, _)| scheme),
+        Some(DSUSD_SCHEME_ID)
     );
 }
 

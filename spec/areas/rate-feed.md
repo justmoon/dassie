@@ -139,7 +139,7 @@ Each asset has a band of what the node holds of it, in its ledgers' units. What 
 
 ## Test vectors
 
-`testdata/feed/snapshots.json` pins the snapshot's wire format: tags, quotes, first amounts, the step table, ladders, the request, snapshots up to the largest the bounds allow, swaps priced from one, and datagrams refused, each with its reason, all signed with a fixed key. There is no other implementation to take them from, so the crate's own generator makes them (`examples/snapshot_vectors.rs`, which says how to run it), read by `tests/snapshot_vectors.rs`; Ed25519 signs deterministically, so running it again gives the same file. While no release carries the snapshot, it may still change with its vectors; after that, a changed vector is a new version.
+`testdata/feed/snapshots.json` pins the snapshot's wire format: tags, quotes, first amounts, the step table, ladders, the request, snapshots up to the largest the bounds allow, swaps priced from one, and datagrams refused, each with its reason, all signed with a fixed key. There is no other implementation to take them from, so the crate's own generator makes them (`examples/snapshot_vectors.rs`, which says how to run it), read by `tests/snapshot_vectors.rs`; Ed25519 signs deterministically, so running it again gives the same file. Releases carry the snapshot, so a changed vector is a new version.
 
 ## Decisions
 

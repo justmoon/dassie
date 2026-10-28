@@ -22,7 +22,7 @@ Dassie nodes talk to each other with the peer protocol v1: OER messages sent ove
 - **Settlement offers are part of version 2** ([settlement-offers](../decisions/settlement-offers.md)): a link state offers the schemes a node takes peers on in one list of its own, each with what the scheme says of itself ([Settlement offers](#settlement-offers)). Nothing else in a link state names a scheme or a hub.
 - **Post-quantum.** A link state carries the node's SLH-DSA key beside its Ed25519 key, the two its ID commits to; nothing signs with the SLH-DSA key yet. Link-state extension type 1 is kept for the post-quantum signing key the SLH-DSA key is to vouch for, once Ed25519 is trusted no longer ([post-quantum-node-id](../decisions/post-quantum-node-id.md)).
 
-The layouts are pinned by golden vectors ([Test vectors](#test-vectors)). Once a release speaks a version, a change to any of its layouts is a new protocol version, under a new ALPN name; until then no released node speaks it, so its layouts may still move under the same name. Version 2 is in no release yet (the releases speak `dassie/1`): the SLH-DSA key joined its link state under it ([post-quantum-node-id](../decisions/post-quantum-node-id.md)).
+The layouts are pinned by golden vectors ([Test vectors](#test-vectors)). Once a release speaks a version, a change to any of its layouts is a new protocol version, under a new ALPN name; until then no released node speaks it, so its layouts may still move under the same name. Releases speak version 2, so its layouts are fixed: a change is `dassie/3`.
 
 ## Transport
 

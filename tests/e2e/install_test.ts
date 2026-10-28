@@ -248,6 +248,16 @@ class Machine {
       const state = await machine.sh("systemctl is-system-running --wait");
       return ["running", "degraded"].includes(state.stdout.trim());
     });
+    // The node the installer starts stays off the public testnet: no
+    // bootstrap nodes and no relay, in the environment systemd gives every
+    // unit, so that nothing of it is under /etc/systemd/system, which the
+    // uninstall checks.
+    await machine.must(
+      "mkdir -p /etc/systemd/system.conf.d && " +
+        'printf \'[Manager]\\nDefaultEnvironment="DASSIE_BOOTSTRAP_NODES=[]" ' +
+        '"DASSIE_RELAY="\\n\' > /etc/systemd/system.conf.d/dassie-offline.conf && ' +
+        "systemctl daemon-reexec",
+    );
     const [path, update] = TRUST[distro];
     await must("docker", ["cp", mirror.ca, `${id}:${path}`]);
     await machine.must(update);

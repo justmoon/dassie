@@ -297,7 +297,7 @@
       "x": 636,
       "y": 240,
       "w": 167,
-      "desc": "Runs `dassie market-maker` on a small VM of its own, so that the testnet's core nodes are brought back toward balance. Its periphery node runs beside it, a member of the testnet's XRP hub and of its DSUSD hub, pinned to every core node it trades through. It runs once the testnet's default hubs are built into a release.",
+      "desc": "Runs `dassie market-maker` on a small VM of its own, so that the testnet's core nodes are brought back toward balance. Its periphery node runs beside it, a member of the testnet's XRP hub and of its DSUSD hub, pinned to every core node it trades through.",
       "does": [
         "`provision.sh` makes the VM, a network that nothing reaches, and an account that can read only the node's passphrase",
         "On its first boot, installs the newest release with `install.sh --no-service`, and at each boot the units from `main`",
@@ -379,7 +379,7 @@
         "The peer protocol over QUIC, its only transport, with each node's key pinned, and a short backoff from a node it cannot reach; the settlement loop",
         "QUIC over a WebSocket where UDP is blocked: every node takes the same QUIC packets at `/quic` on its HTTPS listener, and a node without a URL dials there when UDP has not connected within a second, keeping whichever connection proves the key first; where the network sets an HTTP proxy, that dial goes through it",
         "QUIC connections held apart by who opened them, as the key each proved says: core peers, downlinks and everyone else each have room of their own, so many downlinks never crowd out the links that carry the network",
-        "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments and by the owner's paired apps; a node without a hostname keeps one to the relay `DASSIE_RELAY` names; the `dassiepay.net` front door is the default again once the testnet's reset builds in its new entry",
+        "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments and by the owner's paired apps; a node without a hostname keeps one to the relay `DASSIE_RELAY` names; the `dassiepay.net` front door is the default again once it is upgraded to its new identity and a release builds in its entry",
         "Front doors: a server with a key of its own and a wildcard certificate that takes Open Payments requests for `<node ID>.<domain>` and passes them to the node the ID names, or for `<name>.<domain>` to the name's holder, which it takes from the registrars' name lists as every node does, over relayed streams it opens on the connection the node keeps to it; it returns only the node's signed JSON, under a policy that lets nothing run, and never a node's page or a cookie; at the root of a name it shows a short static page of its own, saying what the name is and whether the node is connected; on its relay host it takes QUIC over a WebSocket at `/quic` too, so a node whose UDP is blocked keeps it as its relay",
         "RPC with live streams, the log ring, the database inspector, and a discovery document at `/.well-known/dassie/node` that names the node's ID, keys and, while it answers, the port for its snapshot",
         "The owner's names, registered and renewed through the peer node, and how each stands with each registrar, streamed to the wallet; once the node holds a name, it accepts and signs Open Payments requests under `<name>.dassiepay.net` too, and under `<name>.<domain>` at any other front door its owner names it at, which front doors pass on to it, and stops when it no longer holds it",
@@ -535,7 +535,7 @@
         "A member's side: its account in the hub, which trusts what enough validators sign alike and reads the log in order, and the scheme on it that the hub's network and asset name, `hub-xrpl-testnet-xrp` or `hub-xrpl-testnet-dsusd` on the testnet, `hub-xrpl-xrp` or `hub-xrpl-rlusd` on mainnet, which funds holds, runs without an account of its own, advertised with none, until a peer's `pay` opens it, pays a peer without an account in with what it owes once that reaches the hub's minimum for a new account, leaves a redeem's fee in the account with every settlement, signs and checks the promises each packet carries, claims on the hub what its peer's claims leave out, withdraws for the owner, and books the owner's deposits and withdrawals from the account's counts",
         "A member follows a token hub's freeze, keeping what waits for the thaw and claiming what the hub still pays: it reads the freeze from the issuer's hold f + 1 validators state, and the hub's method is unavailable until the thaw",
         "The least XRP a token hub's escrow keeps for its fees, which a member checks, proven, and tops up before it asks for a withdrawal",
-        "The testnet's default hubs, of XRP and of DSUSD, each built in once founded under the current rules, with its keys at paths that name its network: boot1–4 its validators, founded by boot1, its escrow on the XRP Ledger testnet; a node joins one when its owner adds its scheme without naming another, and stays in it: the scheme keeps that hub's rules, whatever default a later release carries",
+        "The testnet's default hubs, of XRP and of DSUSD, built in, each founded under the current rules with its keys at paths that name its network: boot1–4 its validators, founded by boot1, its escrow on the XRP Ledger testnet; a node joins one when its owner adds its scheme without naming another, and stays in it: the scheme keeps that hub's rules, whatever default a later release carries",
         "Places for the default mainnet hubs, of XRP and of RLUSD, empty until the project's mainnet validators found them, and the default list of mainnet validators beside them; a test checks a built-in mainnet hub: its rules check, it holds its scheme's asset on mainnet, and every one of its validators is on the list",
         "A member judges its hub failed once the hub refuses an operation for its shutdown, or f + 1 validators keep naming the same final block for as long as the hub's stall while fewer than f + 1 name a newer one: its scheme then can no longer receive, and the node drops the hub's methods; a freeze is no failure",
         "Validators find the escrow's transactions by walking the history its proven state names, stepping through the proofs of the server's hints, and name the issuer's hold by the ledger it changed in"
@@ -1655,7 +1655,7 @@
             "cli",
             "node"
           ],
-          "text": "A node without a hostname keeps a QUIC connection open to its relay, such as the `dassiepay.net` front door, the default again once the testnet's reset builds in its new entry, from behind its NAT: over UDP, or where UDP is blocked, over a WebSocket to `relay.dassiepay.net/quic`."
+          "text": "A node without a hostname keeps a QUIC connection open to its relay, such as the `dassiepay.net` front door, the default again once it is upgraded to its new identity and a release builds in its entry, from behind its NAT: over UDP, or where UDP is blocked, over a WebSocket to `relay.dassiepay.net/quic`."
         },
         {
           "ids": [
@@ -1819,6 +1819,20 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.3.0",
+      "date": "2026-10-28",
+      "changes": [
+        "Peers settle only over settlement hubs. The testnet's XRP hub and DSUSD hub, both kept by the four bootstrap nodes, are built in, and `dassie setup` joins the XRP hub on the testnet unless `--hub` names others or `none`.",
+        "A node can be in several hubs, one per asset, and each hub two peers share is a settlement method of their peering. A packet's next hop is drawn at random among the routes, weighted by the fees each peer has earned.",
+        "A hub can hold a token such as DSUSD, and follows its issuer: it holds still while the issuer freezes its escrow, and a clawback ends it with a payout pro rata. A node without an account in a hub joins it by being paid in by a peer that is a member.",
+        "Nodes speak peer protocol version 2, `dassie/2`, which 0.2.x nodes don't, so a node peers only with nodes on 0.3.0 or later. Node IDs now commit to a post-quantum SLH-DSA key as well, and recovery phrases are 20 words in a new format that names the realm; `dassie setup` takes the realm from the phrase.",
+        "Peers talk over QUIC only, so a node needs UDP port 443: there's no HTTPS fallback any more, and `dassie.service` doesn't start while UDP 443 is taken. Only a node without a hostname falls back, to QUIC over a WebSocket, when UDP is blocked, through an HTTP proxy where the network sets one.",
+        "The testnet was reset for this release: the bootstrap nodes have new IDs, and phrases and databases from 0.2.x don't work. Set a node up again with a new phrase from a fresh database.",
+        "A node checks what it reads from the XRP Ledger with proofs against ledgers the network's validators signed, and can register a name on the testnet from the wallet. Peers swap assets with each other.",
+        "`dassie market-maker` runs on one node, in both hubs, and trades by swapping with its peers (`SwapWithPeer`) instead of reading the UDP rate feed. Its config changed: `socket` and `passphraseFile` are at the top, each asset names its hub `ledger` and its `ownerBook`, and `targets` is gone, since the targets are the node's `DASSIE_UPLINKS`; `caFile` now names roots to trust the XRP Ledger server by. A config in the old format is refused, so rewrite it."
+      ]
+    },
     {
       "version": "0.2.9",
       "date": "2026-10-24",

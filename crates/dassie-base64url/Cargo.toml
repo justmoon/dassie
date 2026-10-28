@@ -1,6 +1,6 @@
 [package]
 name = "dassie-base64url"
-version = "0.2.9"
+version.workspace = true
 description = "Strict unpadded base64url for Dassie: node IDs, tokens and STREAM connection tokens"
 edition.workspace = true
 rust-version.workspace = true
