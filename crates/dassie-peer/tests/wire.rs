@@ -19,12 +19,13 @@ use dassie_identity::{IdentityKey, NodeId, PublicKey, Signature};
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::{Commitment, MAX_NAME_BYTES, Name, Salt};
 use dassie_peer::wire::{
-    Content, Entry, HubDetails, InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES,
-    MAX_NAME_LIST, MAX_NAME_LIST_BYTES, MAX_OFFER_DETAILS, MAX_OFFERS, MAX_URL_BYTES,
-    MethodResponse, NameHolding, NameListResponse, NameReceipt, NodeInfo, NodeListResponse,
-    PeeringRequest, PeeringResponse, RESERVED_EXTENSIONS, RefusalReason, SchemeId, SettlementOffer,
-    SignedNodeInfo, TerminationReason, decode_expiry, decode_hash, decode_octets, decode_settling,
-    encode_expiry, encode_octets, encode_settling, is_valid_url, peek_kind, sign_node_info,
+    Content, EXTENSION_FEED, EXTENSION_PERIPHERY, EXTENSION_POST_QUANTUM, Entry, HubDetails,
+    InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_NAME_LIST,
+    MAX_NAME_LIST_BYTES, MAX_OFFER_DETAILS, MAX_OFFERS, MAX_URL_BYTES, MethodResponse, NameHolding,
+    NameListResponse, NameReceipt, NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse,
+    RefusalReason, SchemeId, SettlementOffer, SignedNodeInfo, TerminationReason, decode_expiry,
+    decode_hash, decode_octets, decode_settling, encode_expiry, encode_octets, encode_settling,
+    is_valid_url, peek_kind, sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -293,12 +294,12 @@ fn a_request_is_its_content() {
 fn v1_encodings_are_pinned() {
     // The content alone: who sent it is the connection's, and which
     // version its ALPN.
-    assert_eq!(to_hex(&Content::NodeListRequest.to_vec()), "87");
+    assert_eq!(to_hex(&Content::NodeListRequest.to_vec()), "86");
     assert!(Content::decode_exact(&[]).is_err(), "no content");
     assert_eq!(to_hex(&PeeringResponse::Accepted.to_vec()), "80");
     assert_eq!(
         to_hex(&PeeringResponse::Refused(RefusalReason::Capacity).to_vec()),
-        "8104"
+        "8103"
     );
 }
 
@@ -337,7 +338,7 @@ fn link_state_requests_and_answers_are_bounded() {
     );
 }
 
-// Settlements carry their sequence, and tag 10 is `peeringTermination`
+// Settlements carry their sequence, and tag 9 is `peeringTermination`
 // (spec/areas/peer-protocol.md#message-set).
 #[test]
 fn settlements_and_terminations_are_pinned() {
@@ -353,29 +354,28 @@ fn settlements_and_terminations_are_pinned() {
          0ab0001ab0000000000000007"
     );
     let termination = Content::PeeringTermination(TerminationReason::Owner);
-    assert_eq!(to_hex(&termination.to_vec()), "8a01");
+    assert_eq!(to_hex(&termination.to_vec()), "8901");
     assert_eq!(
-        Content::decode_exact(&[0x8a, 0x03]).unwrap(),
+        Content::decode_exact(&[0x89, 0x03]).unwrap(),
         Content::PeeringTermination(TerminationReason::NotPeered)
     );
     // Unknown reasons read as unspecified.
     assert_eq!(
-        Content::decode_exact(&[0x8a, 0x63]).unwrap(),
+        Content::decode_exact(&[0x89, 0x63]).unwrap(),
         Content::PeeringTermination(TerminationReason::Unspecified)
     );
-    assert_eq!(Kind::from_tag(10), Some(Kind::PeeringTermination));
+    assert_eq!(Kind::from_tag(9), Some(Kind::PeeringTermination));
     // spec/decisions/own-fulfills.md: a settlement request names its scheme
     // alone.
     let request = Content::SettlementRequest {
         scheme: SchemeId::parse("stub").unwrap(),
     };
-    assert_eq!(to_hex(&request.to_vec()), "8b0473747562");
-    assert_eq!(Kind::from_tag(11), Some(Kind::SettlementRequest));
-    assert!(Content::decode_exact(&[0x8b]).is_err());
-    assert!(Content::decode_exact(&[0x8c]).is_err());
+    assert_eq!(to_hex(&request.to_vec()), "8a0473747562");
+    assert_eq!(Kind::from_tag(10), Some(Kind::SettlementRequest));
+    assert!(Content::decode_exact(&[0x8a]).is_err());
     assert_eq!(
         to_hex(&PeeringResponse::Refused(RefusalReason::Terminating).to_vec()),
-        "8109"
+        "8108"
     );
 }
 
@@ -653,23 +653,18 @@ fn a_settlement_requests_answer_is_the_amount_on_its_way() {
     assert!(decode_settling(&[1, 2, 3]).is_err());
 }
 
-// Tag 5 is reserved: no message has it, so a node refuses it as malformed,
-// whatever follows it.
+// spec/areas/peer-protocol.md#versions: `dassie/2` numbers its messages
+// from 0 without gaps, and a tag past the last is no message, so a node
+// refuses it as malformed, whatever follows it.
 #[test]
-fn tag_5_is_no_message() {
-    assert_eq!(Kind::from_tag(5), None);
-    assert!(Content::decode_exact(&[0x85]).is_err());
-    assert!(Content::decode_exact(&[0x85, 4, b's', b't', b'u', b'b', 1, 0]).is_err());
-}
-
-// Tag 12 is reserved, as `hubPacket`, which `methodPacket` replaced, had
-// it: no message has it, so a node refuses one as malformed
-// (spec/areas/peer-protocol.md#versions).
-#[test]
-fn tag_12_is_no_message() {
-    assert_eq!(Kind::from_tag(12), None);
-    assert!(Content::decode_exact(&[0x8c]).is_err());
-    assert!(Content::decode_exact(&hex("8c00000007010c02abab")).is_err());
+fn message_tags_have_no_gaps() {
+    for tag in 0..u64::try_from(KINDS).unwrap() {
+        assert_eq!(Kind::from_tag(tag).unwrap().tag(), tag);
+    }
+    let past = u64::try_from(KINDS).unwrap();
+    assert_eq!(Kind::from_tag(past), None);
+    assert!(Content::decode_exact(&[0x80 | u8::try_from(past).unwrap()]).is_err());
+    assert!(Content::decode_exact(&hex("9300000007010c02abab")).is_err());
     assert!(Kind::MethodPacket.carries_packet() && Kind::InterledgerPacket.carries_packet());
     assert!(!Kind::Settlement.carries_packet());
 }
@@ -684,7 +679,7 @@ fn with_offers(offers: &[(&str, &[u8])]) -> Vec<u8> {
             details,
         })
         .collect();
-    sign_node_info(&node_a(), &info)
+    sign_node_info(node_a(), &info)
 }
 
 // spec/areas/peer-protocol.md#settlement-offers: an offer is its scheme
@@ -754,16 +749,16 @@ fn offers_are_bounded() {
     assert!(SignedNodeInfo::decode_exact(&with_offers(&too_many)).is_err());
 }
 
-// spec/areas/peer-protocol.md#versions: entry tag 1, which listed a scheme
-// before the settlement list, is no entry: a link state with one is
-// malformed.
+// spec/areas/peer-protocol.md#link-states: an entry is a neighbor (tag 0)
+// or an extension (tag 1), and a link state with any other is malformed.
 #[test]
-fn entry_tag_1_is_no_entry() {
+fn entries_are_neighbors_and_extensions() {
     let mut info = info_a().to_vec();
-    // The last entry, the neighbor, with tag 1 in place of 0.
+    // The last entry, the neighbor, with tag 2 in place of 0.
     let at = info.len() - 1 - dassie_identity::NODE_ID_BYTES;
     assert_eq!(info[at], 0x80);
-    info[at] = 0x81;
+    assert!(NodeInfo::decode_exact(&info).is_ok());
+    info[at] = 0x82;
     assert!(NodeInfo::decode_exact(&info).is_err());
 }
 
@@ -776,6 +771,29 @@ fn with_extensions(extensions: &[(u16, &[u8])]) -> Vec<u8> {
             .map(|(kind, value)| Entry::Extension { kind: *kind, value }),
     );
     sign_node_info(node_a(), &info)
+}
+
+/// The largest offers a node makes: `MAX_SCHEMES` of them at the longest
+/// scheme IDs, the first `MAX_OWN_HUBS` over hubs, at the largest accounts,
+/// and the others with no details, as the stub's.
+fn largest_offers() -> Vec<dassie_peer::Offer> {
+    let offers: Vec<dassie_peer::Offer> = (0..dassie_peer::MAX_SCHEMES)
+        .map(|n| {
+            let text = format!("{n:02}{}", "a".repeat(dassie_peer::wire::MAX_SCHEME_ID - 2));
+            let scheme = SchemeId::parse(&text).unwrap();
+            if n < dassie_peer::MAX_OWN_HUBS {
+                let hub = HubDetails {
+                    hub_id: [u8::try_from(n).unwrap(); 32],
+                    account: u32::MAX,
+                };
+                dassie_peer::Offer::over_hub(scheme, hub)
+            } else {
+                dassie_peer::Offer::plain(scheme)
+            }
+        })
+        .collect();
+    assert!(dassie_peer::offers_keep_the_rules(&offers));
+    offers
 }
 
 // spec/areas/peer-protocol.md#link-states: the bound a node checks its own
@@ -791,30 +809,7 @@ fn the_largest_own_link_state_fits_its_bound() {
     let ids: Vec<NodeId> = (0..neighbors)
         .map(|n| IdentityKey::from_bytes(&[u8::try_from(n).unwrap() + 8; 32]).node_id())
         .collect();
-    let schemes: Vec<SchemeId> = (0..dassie_peer::MAX_SCHEMES)
-        .map(|n| {
-            let text = format!("{n:02}{}", "a".repeat(dassie_peer::wire::MAX_SCHEME_ID - 2));
-            SchemeId::parse(&text).unwrap()
-        })
-        .collect();
-    // The first `MAX_OWN_HUBS` over hubs, at the largest accounts, and the
-    // others with no details, as the stub's.
-    let offers: Vec<dassie_peer::Offer> = schemes
-        .iter()
-        .zip(0u8..)
-        .map(|(scheme, n)| {
-            if usize::from(n) < dassie_peer::MAX_OWN_HUBS {
-                let hub = HubDetails {
-                    hub_id: [n; 32],
-                    account: u32::MAX,
-                };
-                dassie_peer::Offer::over_hub(*scheme, hub)
-            } else {
-                dassie_peer::Offer::plain(*scheme)
-            }
-        })
-        .collect();
-    assert!(dassie_peer::offers_keep_the_rules(&offers));
+    let offers = largest_offers();
     let details: Vec<Vec<u8>> = offers.iter().map(dassie_peer::Offer::details).collect();
     let port = 4433u16.to_be_bytes();
     let extensions: [(u16, &[u8]); 1] = [(dassie_peer::wire::EXTENSION_FEED, &port)];
@@ -883,8 +878,8 @@ fn name_list() -> NameListResponse {
     ]))
 }
 
-// spec/areas/peer-protocol.md#message-set: the name messages are tags 13
-// to 17. Committing, unsealing and renewing change state and need
+// spec/areas/peer-protocol.md#message-set: the name messages are tags 11
+// to 15. Committing, unsealing and renewing change state and need
 // authentication; the list requests only read.
 #[test]
 fn name_messages_are_pinned() {
@@ -895,26 +890,26 @@ fn name_messages_are_pinned() {
     };
     let renew = Content::NameRenew(name("alice"));
     let pinned = [
-        (commit, format!("8d{}", "ab".repeat(32))),
-        (unseal, format!("8e05616c696365{}", "07".repeat(32))),
-        (renew, "8f05616c696365".to_owned()),
-        (Content::NameListHashRequest, "90".to_owned()),
-        (Content::NameListRequest, "91".to_owned()),
+        (commit, format!("8b{}", "ab".repeat(32))),
+        (unseal, format!("8c05616c696365{}", "07".repeat(32))),
+        (renew, "8d05616c696365".to_owned()),
+        (Content::NameListHashRequest, "8e".to_owned()),
+        (Content::NameListRequest, "8f".to_owned()),
     ];
-    for (tag, (content, hex)) in (13..).zip(pinned) {
+    for (tag, (content, hex)) in (11..).zip(pinned) {
         assert_eq!(to_hex(&content.to_vec()), hex);
         assert_eq!(Content::decode_exact(&content.to_vec()).unwrap(), content);
         assert_eq!(Kind::from_tag(tag), Some(content.kind()));
         assert_eq!(content.kind().tag(), tag);
     }
-    assert_eq!(Kind::from_tag(18), Some(Kind::MethodPacket));
+    assert_eq!(Kind::from_tag(16), Some(Kind::MethodPacket));
     for kind in [Kind::NameCommit, Kind::NameUnseal, Kind::NameRenew] {
         assert!(!kind.is_read_only());
     }
     for kind in [Kind::NameListHashRequest, Kind::NameListRequest] {
         assert!(kind.is_read_only());
     }
-    for kind in (13..=17).filter_map(Kind::from_tag) {
+    for kind in (11..=15).filter_map(Kind::from_tag) {
         assert!(!kind.carries_packet());
     }
 }
@@ -923,18 +918,18 @@ fn name_messages_are_pinned() {
 // syntax (spec/designs/names.md#7-names), whether or not it is reserved.
 #[test]
 fn name_messages_are_bounded() {
-    let commit = hex(&format!("8d{}", "ab".repeat(32)));
+    let commit = hex(&format!("8b{}", "ab".repeat(32)));
     assert!(Content::decode_exact(&commit[..32]).is_err());
     let mut long = commit.clone();
     long.push(0xab);
     assert!(Content::decode_exact(&long).is_err());
-    let unseal = hex(&format!("8e05616c696365{}", "07".repeat(32)));
+    let unseal = hex(&format!("8c05616c696365{}", "07".repeat(32)));
     assert!(Content::decode_exact(&unseal[..unseal.len() - 1]).is_err());
     let mut long = unseal.clone();
     long.push(7);
     assert!(Content::decode_exact(&long).is_err());
     let renew = |text: &str| {
-        let mut bytes = vec![0x8f, u8::try_from(text.len()).unwrap()];
+        let mut bytes = vec![0x8d, u8::try_from(text.len()).unwrap()];
         bytes.extend(text.as_bytes());
         Content::decode_exact(&bytes).map(|content| content.to_vec())
     };
@@ -1036,7 +1031,7 @@ fn name_answers_are_pinned_and_bounded() {
 }
 
 // spec/areas/peer-protocol.md#message-set: the settlement-method messages
-// are tags 18 to 20 (spec/decisions/settlement-methods.md). Each changes
+// are tags 16 to 18 (spec/decisions/settlement-methods.md). Each changes
 // state, or moves money, and needs authentication; a `methodPacket`
 // carries a Prepare, with a commitment that is empty on a method not over a
 // hub, and bounded.
@@ -1048,22 +1043,22 @@ fn settlement_method_messages_are_pinned_and_bounded() {
         packet: &[0x0c],
         commitment: &[0xab, 0xab],
     };
-    assert_eq!(to_hex(&packet.to_vec()), "92000000070473747562010c02abab");
+    assert_eq!(to_hex(&packet.to_vec()), "90000000070473747562010c02abab");
     let direct = Content::MethodPacket {
         request_id: 7,
         scheme: stub(),
         packet: &[0x0c],
         commitment: &[],
     };
-    assert_eq!(to_hex(&direct.to_vec()), "92000000070473747562010c00");
+    assert_eq!(to_hex(&direct.to_vec()), "90000000070473747562010c00");
     let add = Content::MethodAdd {
         scheme: stub(),
         data: &[0xab],
     };
-    assert_eq!(to_hex(&add.to_vec()), "93047374756201ab");
+    assert_eq!(to_hex(&add.to_vec()), "91047374756201ab");
     let drop = Content::MethodDrop { scheme: stub() };
-    assert_eq!(to_hex(&drop.to_vec()), "940473747562");
-    for (tag, content) in [(18, &packet), (19, &add), (20, &drop)] {
+    assert_eq!(to_hex(&drop.to_vec()), "920473747562");
+    for (tag, content) in [(16, &packet), (17, &add), (18, &drop)] {
         assert_eq!(
             Content::decode_exact(&content.to_vec()).as_ref(),
             Ok(content)
@@ -1074,8 +1069,8 @@ fn settlement_method_messages_are_pinned_and_bounded() {
         assert_eq!(kind.carries_packet(), kind == Kind::MethodPacket);
     }
     assert_eq!(Content::decode_exact(&direct.to_vec()).unwrap(), direct);
-    assert_eq!(Kind::from_tag(21), None);
-    assert!(Content::decode_exact(&[0x95]).is_err());
+    assert_eq!(Kind::from_tag(19), None);
+    assert!(Content::decode_exact(&[0x93]).is_err());
 
     // A commitment past the bound is malformed; one at it is not.
     let at_bound = Content::MethodPacket {
@@ -1104,16 +1099,16 @@ fn method_answers_are_pinned() {
     let accepted = MethodResponse::Accepted;
     assert_eq!(to_hex(&accepted.to_vec()), "80");
     let refused = MethodResponse::Refused(RefusalReason::Capacity);
-    assert_eq!(to_hex(&refused.to_vec()), "8104");
+    assert_eq!(to_hex(&refused.to_vec()), "8103");
     for response in [accepted, refused] {
         assert_eq!(
             MethodResponse::decode_exact(&response.to_vec()),
             Ok(response)
         );
     }
-    // Unknown reasons, and the reserved 3, read as unspecified; unknown
-    // tags are malformed.
-    for code in [0x03, 0x63] {
+    // Unknown reasons, past the last, read as unspecified; unknown tags are
+    // malformed.
+    for code in [0x09, 0x63] {
         assert_eq!(
             MethodResponse::decode_exact(&[0x81, code]),
             Ok(MethodResponse::Refused(RefusalReason::Unspecified))
@@ -1122,12 +1117,16 @@ fn method_answers_are_pinned() {
     assert!(MethodResponse::decode_exact(&[0x82, 0x00]).is_err());
 }
 
-// spec/areas/peer-protocol.md#versions: extension types 2, 5, 6 and 7 are
-// reserved. No node issues them, and a link state that carries one, empty
-// or not, still verifies and keeps it, as one of an unknown type.
+// spec/areas/peer-protocol.md#link-states: `dassie/2` numbers its
+// extension types from 1 without gaps, and keeps one of a type it does not
+// know, empty or not, as it came: the link state still verifies.
 #[test]
-fn reserved_extensions_are_kept_as_unknown() {
-    for kind in RESERVED_EXTENSIONS {
+fn extension_types_have_no_gaps_and_unknown_ones_are_kept() {
+    assert_eq!(
+        [EXTENSION_POST_QUANTUM, EXTENSION_PERIPHERY, EXTENSION_FEED],
+        [1, 2, 3]
+    );
+    for kind in [EXTENSION_POST_QUANTUM, 4, 7, u16::MAX] {
         for value in [&[][..], &[0][..], &[0x11; 37][..]] {
             let bytes = with_extensions(&[(kind, value)]);
             let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
@@ -1138,13 +1137,8 @@ fn reserved_extensions_are_kept_as_unknown() {
                     .entries
                     .contains(&Entry::Extension { kind, value })
             );
-            assert!(
-                signed
-                    .info
-                    .settlement
-                    .iter()
-                    .all(|offer| offer.scheme == stub())
-            );
+            assert!(!signed.info.is_periphery());
+            assert_eq!(signed.info.feed_port(), None);
         }
     }
 }

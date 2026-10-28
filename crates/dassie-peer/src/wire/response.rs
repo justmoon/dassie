@@ -14,8 +14,8 @@ use super::{
 use crate::names::{Name, name_len, read_name, write_name};
 
 /// Why a peering request was refused. Unknown values read as
-/// [`RefusalReason::Unspecified`]. Codes 3 and 10 are reserved: no reason
-/// has them.
+/// [`RefusalReason::Unspecified`]. `dassie/2` numbers its own, from 0
+/// without gaps (spec/areas/peer-protocol.md#versions).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RefusalReason {
     /// No reason given.
@@ -48,12 +48,12 @@ impl RefusalReason {
             Self::Unspecified => 0,
             Self::UnknownNode => 1,
             Self::UnsupportedScheme => 2,
-            Self::Capacity => 4,
-            Self::Concurrent => 5,
-            Self::SchemeRefused => 6,
-            Self::Unreachable => 7,
-            Self::Banned => 8,
-            Self::Terminating => 9,
+            Self::Capacity => 3,
+            Self::Concurrent => 4,
+            Self::SchemeRefused => 5,
+            Self::Unreachable => 6,
+            Self::Banned => 7,
+            Self::Terminating => 8,
         }
     }
 
@@ -63,12 +63,12 @@ impl RefusalReason {
         match code {
             1 => Self::UnknownNode,
             2 => Self::UnsupportedScheme,
-            4 => Self::Capacity,
-            5 => Self::Concurrent,
-            6 => Self::SchemeRefused,
-            7 => Self::Unreachable,
-            8 => Self::Banned,
-            9 => Self::Terminating,
+            3 => Self::Capacity,
+            4 => Self::Concurrent,
+            5 => Self::SchemeRefused,
+            6 => Self::Unreachable,
+            7 => Self::Banned,
+            8 => Self::Terminating,
             _ => Self::Unspecified,
         }
     }

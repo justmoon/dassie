@@ -81,9 +81,6 @@ fn name_of(content: &Content<'_>) -> String {
     core::iter::once(first).chain(chars).collect()
 }
 
-/// The tags no message has: 5, and 12, which `hubPacket` had.
-pub const RESERVED: [usize; 2] = [5, 12];
-
 /// Every message of the protocol, by name: one of each kind, as the
 /// never-panics properties send them, carrying [`link_state`]; and a
 /// `methodPacket` on a method not over a hub, with no commitment, beside
@@ -93,7 +90,6 @@ pub const RESERVED: [usize; 2] = [5, 12];
 pub fn messages() -> BTreeMap<String, Vec<u8>> {
     let state = link_state();
     let mut messages: BTreeMap<String, Vec<u8>> = (0..KINDS)
-        .filter(|tag| !RESERVED.contains(tag))
         .map(|tag| {
             let bytes = content(tag, &state);
             (name_of(&Content::decode_exact(&bytes).unwrap()), bytes)

@@ -18,14 +18,12 @@ use super::{
 /// An entry of a link state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Entry<'a> {
-    /// `neighbor [0]`: a node this one is peered with and advertises. Tag 1
-    /// follows it unused: it was `settlementScheme`, which the settlement
-    /// list replaced ([`NodeInfo::settlement`]), and is reserved, never
-    /// given to another entry.
+    /// `neighbor [0]`: a node this one is peered with and advertises.
     Neighbor(NodeId),
-    /// `extension [2]`: anything later versions add, such as a post-quantum
-    /// key (type 1). Unknown types are kept, since the signature covers
-    /// them, and otherwise ignored.
+    /// `extension [1]`: anything later versions add, such as a post-quantum
+    /// key ([`EXTENSION_POST_QUANTUM`](super::EXTENSION_POST_QUANTUM)).
+    /// Unknown types are kept, since the signature covers them, and
+    /// otherwise ignored.
     Extension {
         /// What it is.
         kind: u16,
@@ -50,7 +48,7 @@ impl Encode for Entry<'_> {
                 write_node_id(writer, id);
             }
             Self::Extension { kind, value } => {
-                writer.write_context_tag(2);
+                writer.write_context_tag(1);
                 writer.write_u16(*kind);
                 writer.write_octets(value, Size::range(0, MAX_EXTENSION_BYTES));
             }
@@ -65,7 +63,7 @@ impl<'a> Decode<'a> for Entry<'a> {
         let offset = reader.offset();
         match reader.read_context_tag()? {
             0 => Ok(Self::Neighbor(read_node_id(reader)?)),
-            2 => Ok(Self::Extension {
+            1 => Ok(Self::Extension {
                 kind: reader.read_u16()?,
                 value: reader.read_octets(Size::range(0, MAX_EXTENSION_BYTES))?,
             }),

@@ -17,7 +17,7 @@
 - **A scheme is offered exactly when the node takes peers on it.** No flag says otherwise: a node that wants no new peers on a scheme stops offering it, and its owner does so by removing the scheme, whose methods then wind down with `methodDrop` ([settlement-methods](settlement-methods.md)).
 - **Details are read by the reader's own schemes.** A node reads another's offer only on a scheme it offers itself, as its own offer's kind says; it keeps and forwards every other offer unread. Two nodes peer only on schemes both offer, over a hub only where both name the same hub and one has an account there, in the order of the asking node's offers.
 - **A broken offer is absent, not the link state.** An offer whose scheme an earlier one names, whose details are not its scheme's canonical encoding, or whose hub an offer taken before names, is taken as absent, as a known extension that breaks its rule is; the rest of the link state stands. A node's own list keeps the rules, no scheme twice, no hub twice and at most `MAX_OWN_HUBS` over hubs, which it checks before it signs.
-- **The numbers left free stay reserved:** entry tag 1, which listed a scheme, and extension types 5 and 7, which named hubs, join types 2 and 6 as reserved, never given another meaning.
+- **The numbers close up.** The scheme entry's tag and the hub extensions' types are not kept free: `dassie/2` numbers its entries, extension types, message tags and refusal reasons from the first without gaps, since no release has spoken it ([Peer protocol](../areas/peer-protocol.md#versions)).
 
 ## Accepted
 
@@ -32,4 +32,4 @@
 - *A list of hubs, each a scheme with its hub and account, beside the scheme entries:* the scheme still named twice, and a scheme that settles directly coming back would need a layout of its own, and so a new protocol version.
 - *A typed CHOICE of offer kinds on the wire:* every node would have to know every kind to read a link state at all, so each new kind of scheme would be a new protocol version; opaque details let a node of an earlier release skip what it does not know.
 - *Keeping the flag that a node takes no new peers over a hub:* always set, so a state that nothing produces and every reader must handle; taking the offer off says the same.
-- *Renumbering the extensions that remain* (the periphery one and the feed port down to 2 and 3): nothing released reads `dassie/2`'s numbers, but a number that meant one thing and then another makes test data, captured link states and the code's history harder to read, for no gain: types are 16 bits.
+- *Keeping the freed numbers reserved,* as a released version must: no node of a release reads `dassie/2`, so a gap would guard against nothing, and would only leave every reader of the layouts to ask what once stood there. `dassie/1` keeps its numbers, and the connection's ALPN says which version's apply.

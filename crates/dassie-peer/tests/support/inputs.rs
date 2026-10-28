@@ -89,13 +89,11 @@ pub fn mutate(bytes: &[u8], mutations: &[Mutation]) -> Vec<u8> {
     bytes
 }
 
-/// How many tags of content there are: 0 to 20, of which 5 and 12 are
-/// reserved.
-pub const KINDS: usize = 21;
+/// How many tags of content there are: 0 to 18, without gaps.
+pub const KINDS: usize = 19;
 
 /// A valid encoding of the content with CHOICE tag `tag`, carrying the
-/// link state `info` where it has one; for the reserved tags 5 and 12,
-/// bytes that would be one if they were not.
+/// link state `info` where it has one.
 pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
     let stub = SchemeId::parse("stub").unwrap();
     let info = SignedNodeInfo::decode_exact(info).unwrap();
@@ -123,41 +121,32 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
             data: &[0xab],
             sequence: 1,
         },
-        // Tag 5 is reserved: no message has it, and every node refuses it.
-        5 => return vec![0x85, 4, b's', b't', b'u', b'b', 3, 1, 2, 3],
-        6 => Content::NodeListHashRequest,
-        7 => Content::NodeListRequest,
-        8 => Content::Registration(info),
-        9 => Content::PeeringInfoRequest { scheme: stub },
-        10 => Content::PeeringTermination(TerminationReason::Owner),
-        11 => Content::SettlementRequest { scheme: stub },
-        // Tag 12 is reserved, as `hubPacket` was: a Prepare and a
-        // commitment, which every node refuses.
-        12 => {
-            let mut bytes = vec![0x8c, 0, 0, 0, 42, 10, 12, 0x10, 0, 0, 0, 0, 0, 0, 0, 1, 96];
-            bytes.extend([0xc0; 96]);
-            return bytes;
-        }
-        13 => Content::NameCommit(Commitment([0xc1; 32])),
+        5 => Content::NodeListHashRequest,
+        6 => Content::NodeListRequest,
+        7 => Content::Registration(info),
+        8 => Content::PeeringInfoRequest { scheme: stub },
+        9 => Content::PeeringTermination(TerminationReason::Owner),
+        10 => Content::SettlementRequest { scheme: stub },
+        11 => Content::NameCommit(Commitment([0xc1; 32])),
         // The longest name, so that a mutation can shorten it.
-        14 => Content::NameUnseal {
+        12 => Content::NameUnseal {
             name: Name::parse("a-name-of-thirty-two-characters0").unwrap(),
             salt: Salt([0xc2; 32]),
         },
-        15 => Content::NameRenew(Name::parse("alice").unwrap()),
-        16 => Content::NameListHashRequest,
-        17 => Content::NameListRequest,
-        18 => Content::MethodPacket {
+        13 => Content::NameRenew(Name::parse("alice").unwrap()),
+        14 => Content::NameListHashRequest,
+        15 => Content::NameListRequest,
+        16 => Content::MethodPacket {
             request_id: 42,
             scheme: SchemeId::parse("hub-stub").unwrap(),
             packet: &[12, 0x10, 0, 0, 0, 0, 0, 0, 0, 1],
             commitment: &[0xc0; 96],
         },
-        19 => Content::MethodAdd {
+        17 => Content::MethodAdd {
             scheme: stub,
             data: &[1, 2, 3],
         },
-        20 => Content::MethodDrop { scheme: stub },
+        18 => Content::MethodDrop { scheme: stub },
         _ => panic!("no content has tag {tag}"),
     };
     assert_eq!(content.kind().tag(), u64::try_from(tag).unwrap());
