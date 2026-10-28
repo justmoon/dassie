@@ -1414,17 +1414,6 @@ impl Core {
             }
             // A downlink's URL, checked over HTTPS by the node's client
             // (spec/decisions/promotion-to-core.md).
-            Event::CheckHttps {
-                peer,
-                url,
-                registration,
-            } => {
-                self.outputs_peer.push(Output::CheckHttps {
-                    node: peer,
-                    url,
-                    registration,
-                });
-            }
             other => self.lifecycle_event(other),
         }
     }
@@ -1475,6 +1464,17 @@ impl Core {
                         active.scheme.on_closed(name);
                     }
                 }
+            }
+            Event::CheckHttps {
+                peer,
+                url,
+                registration,
+            } => {
+                self.outputs_peer.push(Output::CheckHttps {
+                    node: peer,
+                    url,
+                    registration,
+                });
             }
             _ => {}
         }

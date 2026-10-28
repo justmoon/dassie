@@ -1128,6 +1128,8 @@ fn a_node_with_a_url_is_promoted_into_the_core() {
     assert_eq!(network.node(0).core(), &seeds, "the bootstrap nodes peer");
     let turning = core;
     let node = id(turning);
+    // Its URL fails over HTTPS for now: neither registered nor promoted.
+    network.https_fails.insert(turning);
     set_url(&mut network, turning, Some(dassie_peer::sim::url(turning)));
     settle(&mut network, 60_000);
     assert!(
@@ -1148,16 +1150,19 @@ fn a_node_with_a_url_is_promoted_into_the_core() {
     settle(&mut network, Config::DEV.promotion_standing_ms);
     assert!(
         !network.node(0).core().contains(&node),
-        "not checked over HTTPS"
+        "its URL fails over HTTPS"
     );
-    let url = dassie_peer::sim::url(turning);
-    for (at, _) in &uplinks {
-        network.act(*at, |peer, now| peer.https_checked(now, &node, &url, true));
-    }
+    // It answers over HTTPS: it registers, and passes its uplinks' next
+    // checks, each a bucket of its standing apart.
+    network.https_fails.clear();
+    let bucket = Config::DEV.promotion_standing_ms / dassie_peer::STANDING_BUCKETS;
     let start = network.now;
     while !(0..=core).all(|index| network.node(index).core().contains(&node)) {
         settle(&mut network, 5_000);
-        assert!(network.now < start + 60_000, "every node computes it core");
+        assert!(
+            network.now < start + 2 * bucket + Config::DEV.max_backoff_ms,
+            "every node computes it core"
+        );
     }
     for (at, since) in &uplinks {
         let peer = network.node(*at);
@@ -1202,18 +1207,17 @@ fn a_promoted_node_comes_back_after_an_outage(network: &mut Network, turning: us
     }
 }
 
-/// Node `index` pays and has room at each of `uplinks`, and answers their
-/// checks over HTTPS, which the simulation does not make: as a downlink
-/// that asks to be promoted does (spec/decisions/promotion-to-core.md).
+/// Node `index` pays and has room at each of `uplinks`, as a downlink that
+/// asks to be promoted does (spec/decisions/promotion-to-core.md); its URL
+/// answers their checks over HTTPS, as the simulation's do.
 fn pays_for_promotion(network: &mut Network, index: usize, uplinks: &[usize]) {
-    let (node, url) = (id(index), dassie_peer::sim::url(index));
+    let node = id(index);
     for at in uplinks {
         network.act_with_hooks(*at, |peer, hooks, now| {
             hooks
                 .room_packets
                 .insert(node, dassie_peer::PROMOTION_ROOM_PACKETS);
             peer.paid_by(now, hooks, &node);
-            peer.https_checked(now, &node, &url, true);
         });
     }
 }
