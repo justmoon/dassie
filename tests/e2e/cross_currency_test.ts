@@ -13,7 +13,7 @@
  * peer with nobody. d1 pays an incoming payment of d3's on the hub's
  * ledger: the quote measures the path's rate, d1 pays from its dollars, d2
  * converts them, and d3 receives XRP over the hub. d2's fees grow; d2
- * settles with d3 over the hub, its hold toward d3 growing, and d3's
+ * settles with d3 over the hub, funding its hold toward d3 as d3 asks, and d3's
  * owner gets what arrived, less the fees of d3's own moves; d1 and d2
  * settle nothing; after all three restart, the books are as they were. The validators keep running
  * meanwhile, so the hub does too.
@@ -47,6 +47,11 @@ import {
 } from "@dassie/dev/scenario";
 
 const USD = "stub+usd";
+/** A drop of XRP in the books' units, the least the hub moves. */
+const UNITS_PER_DROP = 1_000n;
+/** What a payee lets its payer's claims add before it redeems them: two
+ * of the largest packets, at 0.1 XRP (`policy::redeem_threshold`). */
+const REDEEM_THRESHOLD = 200_000_000n;
 /** What the stub holds when it starts: 100 dollars. */
 const STUB_START = 100_000_000_000n;
 /** 2 XRP: twenty of the largest packets, so d2 funds its hold toward d3
@@ -230,6 +235,7 @@ test(
         HUB_WITHIN_MS,
       );
       const holdBefore = await holdToward(d2, d3);
+      const hubBefore = (await owed(scenario)).hub;
       const d3Before = await ownerFunds(d3);
       const usdBefore = (await ledger(d1, USD)).ownerBalance;
       const feesBefore = await balance(d2, `${USD}:revenue/fees`);
@@ -290,14 +296,34 @@ test(
         () => settledOverHub(scenario),
         HUB_WITHIN_MS,
       );
-      // Over the hub: d2's hold toward d3 grew, by no more than d3
-      // received, and d3's owner got what arrived, less the fees of d3's
-      // own moves; settledOverHub found d3's book of the hub holding its
-      // account there and d2's hold toward it.
-      const moved = await holdToward(d2, d3) - holdBefore;
+      // Over the hub: d2 funded its hold toward d3 as d3 asked, and d3 was
+      // paid from the hold for what arrived. Each side's books of the
+      // other moved by the packets less d2's fundings, and the two agree,
+      // since d2 counts what it funded as d3 does, from the hub
+      // (spec/areas/settlement.md#settlement-hubs). The hold lost what d2
+      // funded less what d3 redeemed: what arrived, in whole drops, since
+      // a claim's total is the packets' rounded down to drops and these are
+      // the first packets on it, but for the claims d3 has not redeemed,
+      // which it lets add up to less than its threshold before it pays the
+      // hub's fee to redeem them (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+      // How far the hold moves in all depends on how much of it d2 funded
+      // before the payment, which a request d2 could not fund in full at
+      // joining tops up once it can
+      // (spec/decisions/settle-when-funds-arrive.md). settledOverHub found
+      // d3's book of the hub holding its account there and d2's hold
+      // toward it.
+      const hubAfter = (await owed(scenario)).hub;
+      const change = (pair: string) =>
+        hubAfter.get(pair)! - (hubBefore.get(pair) ?? 0n);
+      assertEquals(change("d2>d3"), -change("d3>d2"), "the books agree");
+      const funded = change("d3>d2") + incoming.receivedAmount;
+      assert(funded > 0n, `d2 funded ${funded}`);
+      const claimed = incoming.receivedAmount -
+        incoming.receivedAmount % UNITS_PER_DROP;
+      const redeemed = funded - (await holdToward(d2, d3) - holdBefore);
       assert(
-        moved > 0n && moved <= incoming.receivedAmount,
-        `d2's hold toward d3 grew by ${moved}`,
+        redeemed <= claimed && claimed - redeemed < REDEEM_THRESHOLD,
+        `d3 redeemed ${redeemed} of ${claimed} claimed, d2 funding ${funded}`,
       );
       const got = await ownerFunds(d3) - d3Before;
       assert(
