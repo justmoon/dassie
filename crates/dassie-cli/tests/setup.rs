@@ -85,6 +85,17 @@ fn dassie(args: &[&str], ipc: &Path) -> Output {
         .unwrap()
 }
 
+/// `dassie setup` from the passphrase in `phrase`, with `flags`, and
+/// `--hub none`: the node joins no hub built into the release, whose
+/// validators and XRP Ledger server are on the public testnet, which no
+/// test reaches (spec/areas/testing.md).
+fn setup(phrase: &str, flags: &[&str], ipc: &Path) -> Output {
+    let mut args = vec!["setup", "--passphrase-file", phrase];
+    args.extend_from_slice(flags);
+    args.extend_from_slice(&["--hub", "none"]);
+    dassie(&args, ipc)
+}
+
 /// A passphrase file of a test-realm phrase whose secret is `byte`
 /// sixteen times, and its node ID.
 fn phrase_file(dir: &Path, name: &str, byte: u8) -> (String, String) {
@@ -113,7 +124,7 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
 
     a_fresh_node_refuses_a_live_phrase(dir.path(), &ipc);
 
-    let first = dassie(&["setup", "--passphrase-file", &owner], &ipc);
+    let first = setup(&owner, &[], &ipc);
     let text = describe(&first);
     assert!(first.status.success(), "{text}");
     assert!(
@@ -126,7 +137,7 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
     );
     assert!(text.contains("The node's engine is running."), "{text}");
 
-    let again = dassie(&["setup", "--passphrase-file", &owner], &ipc);
+    let again = setup(&owner, &[], &ipc);
     let text = describe(&again);
     assert!(again.status.success(), "{text}");
     assert!(
@@ -137,10 +148,7 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
     refuses_a_phrase_of_another_realm(dir.path(), &owner, &ipc);
     names_hubs_by_their_schemes(&owner, &ipc);
 
-    let refused = dassie(
-        &["setup", "--passphrase-file", &stranger, "--scheme", "stub"],
-        &ipc,
-    );
+    let refused = setup(&stranger, &["--scheme", "stub"], &ipc);
     let text = describe(&refused);
     assert_eq!(refused.status.code(), Some(3), "{text}");
     assert!(
@@ -152,22 +160,18 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
     assert!(status.contains(&format!("the node ID is {id}")), "{status}");
     assert!(!status.contains("stub+"), "{status}");
 
-    let scheme = dassie(
-        &["setup", "--passphrase-file", &owner, "--scheme", "stub"],
-        &ipc,
-    );
+    let scheme = setup(&owner, &["--scheme", "stub"], &ipc);
     let text = describe(&scheme);
     assert!(scheme.status.success(), "{text}");
     assert!(text.contains("Added the settlement scheme stub."), "{text}");
     let status = describe(&dassie(&["status"], &ipc));
     assert!(status.contains("stub+"), "{status}");
+    // No setup joined a hub built into the release.
+    assert!(!status.contains("hub-xrpl"), "{status}");
 
     sets_an_accounts_config(&owner, &ipc);
 
-    let unchanged = dassie(
-        &["setup", "--passphrase-file", &owner, "--scheme", "stub"],
-        &ipc,
-    );
+    let unchanged = setup(&owner, &["--scheme", "stub"], &ipc);
     let text = describe(&unchanged);
     assert!(unchanged.status.success(), "{text}");
     assert!(
@@ -279,27 +283,19 @@ fn a_fresh_node_refuses_a_live_phrase(dir: &Path, ipc: &Path) {
 
 /// `dassie setup --asset` sets an account's config apart from its schemes,
 /// checked as the account reads it, and the same again changes nothing.
-/// The node joined the default XRP hub at its first setup, whose scheme
-/// settles through the account, so the node takes the config at its next
-/// start.
 fn sets_an_accounts_config(owner: &str, ipc: &Path) {
     let account = r#"xrpl-testnet-account/0={"server":"wss://ledger.example","faucet":null}"#;
     for _ in 0..2 {
-        let asset = dassie(
-            &["setup", "--passphrase-file", owner, "--asset", account],
-            ipc,
-        );
+        let asset = setup(owner, &["--asset", account], ipc);
         let text = describe(&asset);
         assert!(asset.status.success(), "{text}");
         assert!(
-            text.contains(
-                "Set the config of xrpl-testnet-account/0; the node takes it at its next start"
-            ),
+            text.contains("Set the config of xrpl-testnet-account/0."),
             "{text}"
         );
     }
     let bad = r#"xrpl-testnet-account/0={"server":"https://ledger.example"}"#;
-    let refused = dassie(&["setup", "--passphrase-file", owner, "--asset", bad], ipc);
+    let refused = setup(owner, &["--asset", bad], ipc);
     let text = describe(&refused);
     assert_eq!(refused.status.code(), Some(1), "{text}");
     assert!(

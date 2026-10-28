@@ -126,6 +126,10 @@ fn socket_activated_daemon_reports_ready_and_stopping() {
             dir.path().join("state").display()
         ))
         .arg(format!("--setenv=NOTIFY_SOCKET={}", notify_path.display()))
+        .args([
+            "--setenv=DASSIE_BOOTSTRAP_NODES=[]",
+            "--setenv=DASSIE_RELAY=",
+        ])
         .args([DASSIE, "daemon"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -198,6 +202,8 @@ fn the_standalone_daemon_cleans_up_its_socket() {
         .env_clear()
         .env("DASSIE_STATE_DIRECTORY", &state)
         .env("DASSIE_IPC_SOCKET_PATH", &ipc)
+        .env("DASSIE_BOOTSTRAP_NODES", "[]")
+        .env("DASSIE_RELAY", "")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -237,6 +243,8 @@ fn the_standalone_daemon_listens_where_it_is_told() {
         .env_clear()
         .env("DASSIE_STATE_DIRECTORY", dir.path().join("state"))
         .env("DASSIE_IPC_SOCKET_PATH", &ipc)
+        .env("DASSIE_BOOTSTRAP_NODES", "[]")
+        .env("DASSIE_RELAY", "")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -278,7 +286,8 @@ fn verify_install_checks_the_database_and_tls() {
     assert_eq!(output.status.success(), stdout.contains("Success!"));
 }
 
-/// Starts a standalone daemon on `state`, with its socket at `ipc`, and
+/// Starts a standalone daemon on `state`, alone (no bootstrap nodes and no
+/// relay, so it dials nothing outside), with its socket at `ipc`, and
 /// waits until it answers.
 fn start_standalone(state: &Path, ipc: &Path, ports: [&str; 2]) -> Option<Child> {
     let child = Command::new(DASSIE)
@@ -287,6 +296,8 @@ fn start_standalone(state: &Path, ipc: &Path, ports: [&str; 2]) -> Option<Child>
         .env_clear()
         .env("DASSIE_STATE_DIRECTORY", state)
         .env("DASSIE_IPC_SOCKET_PATH", ipc)
+        .env("DASSIE_BOOTSTRAP_NODES", "[]")
+        .env("DASSIE_RELAY", "")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

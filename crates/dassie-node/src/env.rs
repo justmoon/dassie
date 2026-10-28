@@ -46,10 +46,11 @@ pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
 /// spec/areas/node.md#a-chosen-relay). Its ID is checked against its keys
 /// at startup, like any entry. `DASSIE_RELAY=` (empty) keeps no relay.
 ///
-/// None until the testnet's reset: the front door's ID now commits to its
+/// None until the front door is upgraded: its ID now commits to its
 /// SLH-DSA key, which derives from its key file, so its entry is the one it
 /// logs once it runs a release that makes it (`relay_entry` in
-/// `front_door/key.rs`). Until then a node keeps no relay by default.
+/// `front_door/key.rs`), and a later release builds that in. Until then a
+/// node keeps no relay by default.
 pub const DEFAULT_RELAY: Option<&str> = None;
 
 /// Most bootstrap nodes accepted: each a registrar whose name list every
@@ -862,9 +863,9 @@ mod tests {
     }
 
     // spec/decisions/default-relay.md: there is no default relay until the
-    // testnet's reset gives the front door of the default name an identity
-    // whose ID commits to its SLH-DSA key, so unset, as empty, keeps none.
-    // The reset builds the front door's entry in, and this test then checks
+    // front door of the default name is upgraded to an identity whose ID
+    // commits to its SLH-DSA key, so unset, as empty, keeps none. A release
+    // then builds the front door's entry in, and this test then checks
     // that unset names it, checked as any entry and kept only without a
     // hostname.
     #[test]
