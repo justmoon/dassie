@@ -1148,7 +1148,8 @@ export type SwapWithPeerRequest = Message<"dassie.owner.v1.SwapWithPeerRequest">
 
   /**
    * The least it takes per unit it pays, in units of back_on's ledger:
-   * rate_numerator / rate_denominator, not 0.
+   * rate_numerator / rate_denominator, neither of them 0: a rate of 0, as
+   * one left out reads, is INVALID_ARGUMENT.
    *
    * @generated from field: uint64 rate_numerator = 5;
    */

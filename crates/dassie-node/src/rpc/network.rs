@@ -158,6 +158,13 @@ async fn swap_with_peer(
     request: proto::SwapWithPeerRequest,
 ) -> Result<response::Method, RpcError> {
     let peer = node_id(&request.node)?;
+    // A rate of 0, as one left out reads, would take whatever the peer's
+    // snapshot says.
+    if request.rate_numerator == 0 || request.rate_denominator == 0 {
+        return Err(RpcError::invalid(
+            "a rate is required, and neither of its parts is 0",
+        ));
+    }
     let ledger = async |scheme: &str| {
         engine
             .method_ledger(scheme.to_owned())

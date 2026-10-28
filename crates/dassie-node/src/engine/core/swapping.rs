@@ -180,6 +180,27 @@ pub(super) struct Swapping {
     /// The swaps the owner asked for, by the engine's ID.
     owner: BTreeMap<u64, OwnerJob>,
     stats: SwapStats,
+    /// Whether something it decides by changed since it last decided:
+    /// only then does it look at its peers and pairs again.
+    dirty: bool,
+    /// What it last decided by, of the node's own.
+    seen: Option<Seen>,
+    /// When it next has something to do by the clock alone: a backoff
+    /// that ends, or an owner's swap whose time runs out.
+    wake_ms: Option<u64>,
+    /// How many times it decided.
+    rounds: u64,
+}
+
+/// What the service decides by of the node's own: its prices and what it
+/// holds, which the books' counters follow, its settings, and whether it
+/// is a periphery node.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Seen {
+    table: dassie_connector::PriceTable,
+    books: dassie_ledger::Stats,
+    settings: crate::store::PeerSettings,
+    periphery: bool,
 }
 
 /// What the service knows of one peer.
@@ -379,7 +400,10 @@ impl Core {
     /// snapshot of the peer prices the pair, or too many of the owner's
     /// swaps run.
     pub fn start_owner_swap(&mut self, id: u64, swap: OwnerSwap) -> Result<(), EngineError> {
-        if swap.amount == 0 || swap.rate.1 == 0 || swap.pay_on == swap.back_on {
+        // A rate of nothing would take whatever the peer's snapshot says,
+        // which the peer alone makes: refused, as a missing one is.
+        let (numerator, denominator) = swap.rate;
+        if swap.amount == 0 || numerator == 0 || denominator == 0 || swap.pay_on == swap.back_on {
             return Err(EngineError::Invalid(
                 "a swap pays something on one method for at least a rate on another".into(),
             ));
@@ -410,6 +434,7 @@ impl Core {
             ended: None,
         };
         self.swapping.owner.insert(id, job);
+        self.swapping.dirty = true;
         Ok(())
     }
 
@@ -432,6 +457,7 @@ impl Core {
         let now = self.now_ms();
         if let Some(job) = self.swapping.owner.get_mut(&id) {
             job.deadline_ms = job.deadline_ms.min(now);
+            self.swapping.dirty = true;
         }
     }
 
@@ -445,17 +471,47 @@ impl Core {
 
     /// The service's step: what came of its swaps, the peers' snapshots,
     /// the owner's swaps, and its own.
+    ///
+    /// It looks at its peers and pairs again only when something it decides
+    /// by changed: a snapshot, an outcome, a backoff that ended or an
+    /// owner's swap whose time ran out, the node's prices, holdings or
+    /// settings, or anything the step persists, such as a peering or a
+    /// scheme's state, which say what methods are available.
     pub(super) fn run_swaps(&mut self) {
         self.orphaned_swaps();
         self.swap_outcomes();
         self.read_snapshots();
-        self.owner_swaps();
-        if self.swaps_by_itself() {
-            self.own_swaps();
+        let seen = Seen {
+            table: self.prices.table,
+            books: self.ledger.stats(),
+            settings: self.peer_settings,
+            periphery: self.peer.is_periphery(),
+        };
+        let now = self.now_ms();
+        let swapping = &mut self.swapping;
+        swapping.dirty |= swapping.seen != Some(seen)
+            || swapping.wake_ms.is_some_and(|wake| wake <= now)
+            || !self.batch.is_empty();
+        swapping.seen = Some(seen);
+        if swapping.dirty {
+            swapping.dirty = false;
+            swapping.rounds += 1;
+            self.owner_swaps();
+            if self.swaps_by_itself() {
+                self.own_swaps();
+            }
+            // A swap the connector refused at once has its outcome already.
+            self.swap_outcomes();
+            self.swapping.dirty = false;
+            self.swapping.wake_ms = self.swap_deadline();
         }
-        // A swap the connector refused at once has its outcome already.
-        self.swap_outcomes();
         self.end_owner_swaps();
+    }
+
+    /// How many times the service looked at its peers and pairs.
+    #[cfg(test)]
+    pub(super) const fn swap_rounds(&self) -> u64 {
+        self.swapping.rounds
     }
 
     /// When the service next has something to do: a backoff that ends, or
@@ -508,6 +564,7 @@ impl Core {
     fn swap_outcomes(&mut self) {
         let ours: BTreeSet<u32> = self.swapping.sent.keys().copied().collect();
         for outcome in self.take_swap_outcomes(|id| ours.contains(&id)) {
+            self.swapping.dirty = true;
             self.swap_ended(outcome);
         }
     }
@@ -572,12 +629,14 @@ impl Core {
             .take(MAX_SWAP_PEERS)
             .map(|(node, bytes)| (*node, bytes))
             .collect();
-        let (peers, sent) = (&mut self.swapping.peers, &self.swapping.sent);
+        let swapping = &mut self.swapping;
+        let (peers, sent) = (&mut swapping.peers, &swapping.sent);
         let mut changed = Vec::new();
         for (node, bytes) in &pushed {
             let peer = peers.entry(*node).or_default();
             peer.pushed = true;
             if peer.bytes.as_slice() != *bytes {
+                swapping.dirty = true;
                 peer.bytes = bytes.to_vec();
                 changed.push(*node);
                 peer.stopped = None;
@@ -604,11 +663,14 @@ impl Core {
             .map(|job| job.swap.peer)
             .collect();
         let peers = &mut self.swapping.peers;
+        let mut gone = false;
         for (node, peer) in peers.iter_mut() {
-            if !pushed.contains_key(node) {
+            if peer.pushed && !pushed.contains_key(node) {
                 peer.pushed = false;
+                gone = true;
             }
         }
+        self.swapping.dirty |= gone;
         // A peer is kept while it pushes a snapshot, has swaps in flight,
         // or the owner swaps with it.
         peers.retain(|node, peer| peer.pushed || peer.in_flight > 0 || owner.contains(node));

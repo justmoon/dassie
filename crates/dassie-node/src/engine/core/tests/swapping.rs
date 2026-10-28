@@ -14,7 +14,7 @@ use dassie_feed::FEED_VALIDITY_MS;
 use dassie_ilp::ErrorCode;
 use dassie_ledger::{LedgerId, Name};
 
-use super::super::{OwnerSwap, Quoting, SnapshotSource, SwapEnd, SwapStats};
+use super::super::{EngineError, OwnerSwap, Quoting, SnapshotSource, SwapEnd, SwapStats};
 use super::STUB_TWO;
 use super::swaps::{holds, pair};
 use crate::sim::{Sim, key};
@@ -116,6 +116,13 @@ fn skewed_nodes_swap_toward_their_targets() {
                 .peer_snapshot(&other)
                 .map(|snapshot| snapshot.sequence_ms);
             assert!(now.is_some() && now != seen[index], "seed {seed}");
+        }
+        // A step that changes nothing it decides by has it look at nothing.
+        for index in 0..2 {
+            sim.step(index, |_| {});
+            let rounds = sim.core(index).swap_rounds();
+            sim.step(index, |_| {});
+            assert_eq!(sim.core(index).swap_rounds(), rounds, "seed {seed}");
         }
         crate::sim::checks::check_hub_packets(&sim).unwrap();
     }
@@ -321,6 +328,15 @@ fn the_owner_swaps_at_a_rate() {
         assert_eq!(id, 8);
         assert_eq!((report.paid, report.received), (0, 0));
         assert_eq!(report.ended, SwapEnd::Exhausted);
+        // A rate of nothing, as one left out reads, would take whatever the
+        // peer's snapshot says: refused, as is a rate over nothing.
+        for rate in [(0, 1), (0, 0), (1, 0)] {
+            let free = OwnerSwap { rate, ..swap };
+            sim.step(0, |core| {
+                let refused = core.start_owner_swap(10, free);
+                assert!(matches!(refused, Err(EngineError::Invalid(_))), "{rate:?}");
+            });
+        }
         // Without a snapshot of the pair, none starts.
         let other = OwnerSwap {
             back_on: LedgerId::XrplTestnetXrp,
