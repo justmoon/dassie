@@ -722,6 +722,7 @@ enum Delivery {
         node: dassie_identity::NodeId,
         url: String,
         answered: bool,
+        registration: bool,
     },
     /// A member's hub account asks a hub's validator.
     HubRequest {
@@ -2017,7 +2018,11 @@ impl Sim {
             }
             // A node answers at its own URL while it runs, with its own ID:
             // every node's certificate is good here.
-            Output::CheckHttps { node, url } => {
+            Output::CheckHttps {
+                node,
+                url,
+                registration,
+            } => {
                 self.count("URLs checked over HTTPS");
                 let answered = (0..self.nodes.len()).any(|i| {
                     crate::sim::url(i) == url
@@ -2034,6 +2039,7 @@ impl Sim {
                         node,
                         url,
                         answered,
+                        registration,
                     },
                 );
             }
@@ -2446,9 +2452,16 @@ impl Sim {
                 node,
                 url,
                 answered,
+                registration,
             } => {
                 if self.nodes[to].generation == generation {
-                    self.step(to, |core| core.https_checked(&node, &url, answered));
+                    self.step(to, |core| {
+                        if registration {
+                            core.registration_checked(&node, &url, Some(answered));
+                        } else {
+                            core.https_checked(&node, &url, answered);
+                        }
+                    });
                 }
             }
             Delivery::HubRequest {

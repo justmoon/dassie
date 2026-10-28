@@ -638,6 +638,7 @@ impl PeerNode {
                         self.event(Event::CheckHttps {
                             peer: node,
                             url: url.clone(),
+                            registration: true,
                         });
                         self.registering.push((Box::new(probe), url, until));
                         return;
@@ -655,53 +656,22 @@ impl PeerNode {
         });
     }
 
-    /// How the check of a registrant's URL over HTTPS went: it answered at
+    /// How the check of a registrant's URL over HTTPS went, which
+    /// [`Event::CheckHttps`] asked for with `registration`: it answered at
     /// `url` with a certificate a public authority issued, and its own node
-    /// ID, if `answered`. Returns whether a registration waited on it, which
-    /// it registers or refuses.
-    pub(super) fn https_for_registration(
+    /// ID, if `Some(true)`; not at all, if `Some(false)`; and the check was
+    /// not made, as when the node's client had no place for it, if `None`,
+    /// which refuses the registration for now, at once rather than when its
+    /// wait runs out. Only the registration's own check settles it
+    /// (spec/areas/network.md#registration).
+    pub fn registration_checked(
         &mut self,
+        now_ms: u64,
         node: &NodeId,
         url: &str,
-        answered: bool,
-    ) -> bool {
-        let Some(at) = self
-            .registering
-            .iter()
-            .position(|(probe, checked, _)| probe.accepted.sender == *node && checked == url)
-        else {
-            return false;
-        };
-        let (probe, _, _) = self.registering.swap_remove(at);
-        self.deferred = self.deferred.saturating_sub(1);
-        let ProbeFor::Registration(bytes) = &probe.purpose else {
-            return true;
-        };
-        let reply = match SignedNodeInfo::decode_exact(bytes) {
-            Ok(_) if !answered => Reply::refuse(409, "not reachable at its URL over HTTPS"),
-            Ok(_)
-                if !self
-                    .registrations
-                    .take(self.config.registration_rate, self.now_ms) =>
-            {
-                Reply::refuse(429, "too many new registrations")
-            }
-            Ok(info) => match info.verify() {
-                Ok(key) => self.register(&probe.accepted, &info, probe.network, key.key()),
-                Err(_) => Reply::refuse(400, "invalid link state"),
-            },
-            Err(_) => Reply::refuse(400, "invalid link state"),
-        };
-        self.outputs.push_back(Output::Reply {
-            inbound: probe.inbound,
-            reply,
-        });
-        true
-    }
-
-    /// Refuses, for now, the registration of `node` waiting on the check of
-    /// `url` over HTTPS that the node could not make.
-    pub(super) fn refuse_unchecked_registration(&mut self, node: &NodeId, url: &str) {
+        answered: Option<bool>,
+    ) {
+        self.advance(now_ms);
         let Some(at) = self
             .registering
             .iter()
@@ -711,9 +681,28 @@ impl PeerNode {
         };
         let (probe, _, _) = self.registering.swap_remove(at);
         self.deferred = self.deferred.saturating_sub(1);
+        let ProbeFor::Registration(bytes) = &probe.purpose else {
+            return;
+        };
+        let reply = match (SignedNodeInfo::decode_exact(bytes), answered) {
+            (Err(_), _) => Reply::refuse(400, "invalid link state"),
+            (Ok(_), None) => Reply::refuse(503, "its URL could not be checked over HTTPS now"),
+            (Ok(_), Some(false)) => Reply::refuse(409, "not reachable at its URL over HTTPS"),
+            (Ok(_), Some(true))
+                if !self
+                    .registrations
+                    .take(self.config.registration_rate, self.now_ms) =>
+            {
+                Reply::refuse(429, "too many new registrations")
+            }
+            (Ok(info), Some(true)) => match info.verify() {
+                Ok(key) => self.register(&probe.accepted, &info, probe.network, key.key()),
+                Err(_) => Reply::refuse(400, "invalid link state"),
+            },
+        };
         self.outputs.push_back(Output::Reply {
             inbound: probe.inbound,
-            reply: Reply::refuse(503, "its URL could not be checked over HTTPS now"),
+            reply,
         });
     }
 

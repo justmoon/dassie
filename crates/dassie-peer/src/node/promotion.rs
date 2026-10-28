@@ -208,7 +208,11 @@ impl PeerNode {
                 .and_then(|link| link.endpoint.as_ref())
                 .map(Endpoint::url);
             if let Some(url) = url {
-                self.event(Event::CheckHttps { peer: node, url });
+                self.event(Event::CheckHttps {
+                    peer: node,
+                    url,
+                    registration: false,
+                });
             }
         }
     }
@@ -219,9 +223,6 @@ impl PeerNode {
     /// `answered`. An answer for a URL it no longer has says nothing.
     pub fn https_checked(&mut self, now_ms: u64, peer: &NodeId, url: &str, answered: bool) {
         self.advance(now_ms);
-        if self.https_for_registration(peer, url, answered) {
-            return;
-        }
         let Some(entry) = self.table.get_mut(peer) else {
             return;
         };
@@ -234,15 +235,6 @@ impl PeerNode {
             entry.url.https = Some(answered);
             entry.url.settle(self.now_ms);
         }
-    }
-
-    /// A check of `peer`'s URL over HTTPS, which [`Event::CheckHttps`]
-    /// asked for, that the node could not make: it had no place or client
-    /// for it. It says nothing of the node; a registration waiting on it is
-    /// refused at once, for now, rather than when its wait runs out.
-    pub fn https_unchecked(&mut self, now_ms: u64, peer: &NodeId, url: &str) {
-        self.advance(now_ms);
-        self.refuse_unchecked_registration(peer, url);
     }
 
     /// The checks of candidates' URLs in flight: each a request in flight,

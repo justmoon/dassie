@@ -915,3 +915,42 @@ fn a_registration_whose_https_check_is_not_made_is_refused_for_now() {
         );
     }
 }
+
+// Review of #707: only a registration's own check over HTTPS settles it. A
+// routine check of the same node at the same URL, which failed, refuses
+// nothing; the registration's own answer registers it.
+#[test]
+fn only_its_own_https_check_settles_a_registration() {
+    let mut network = Network::new(46, 2, 1, Config::DEV);
+    network.https_silent.insert(0);
+    let id = *network.node(1).own();
+    let asked = |network: &Network| {
+        network.events.iter().any(|(index, event)| {
+            *index == 0
+                && matches!(event, Event::CheckHttps { peer, registration: true, .. } if *peer == id)
+        })
+    };
+    let start = network.now;
+    while !asked(&network) {
+        settle(&mut network, 100);
+        assert!(
+            network.now < start + 60_000,
+            "a registration waits on HTTPS"
+        );
+    }
+    let url = dassie_peer::wire::Endpoint::of_url(&url(1)).unwrap().url();
+    let registered = |network: &Network| {
+        network
+            .node(0)
+            .nodes()
+            .into_iter()
+            .find(|view| view.id == id)
+            .and_then(|view| view.registered_until_ms)
+            .is_some()
+    };
+    network.act(0, |node, now| node.https_checked(now, &id, &url, false));
+    network.act(0, |node, now| {
+        node.registration_checked(now, &id, &url, Some(true))
+    });
+    assert!(registered(&network), "its own check registered it");
+}

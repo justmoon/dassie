@@ -389,6 +389,7 @@ enum Delivery {
         peer: NodeId,
         url: String,
         answered: Option<bool>,
+        registration: bool,
     },
     /// A request's outcome arriving back at `to`.
     Result {
@@ -761,7 +762,12 @@ impl Network {
     /// reached from `index`, and its HTTPS does not fail.
     fn check_https(&mut self, index: usize, events: &[Event]) {
         for event in events {
-            let Event::CheckHttps { peer, url } = event else {
+            let Event::CheckHttps {
+                peer,
+                url,
+                registration,
+            } = event
+            else {
                 continue;
             };
             if self.https_silent.contains(&index) {
@@ -786,6 +792,7 @@ impl Network {
                 peer: *peer,
                 url: url.clone(),
                 answered,
+                registration: *registration,
             };
             self.schedule(delay, delivery);
         }
@@ -1239,15 +1246,17 @@ impl Network {
                 peer,
                 url,
                 answered,
+                registration,
             } => {
                 if self.nodes[to].generation != generation {
                     return;
                 }
                 let now = self.local_now(to);
                 if let Some(node) = self.nodes[to].node.as_mut() {
-                    match answered {
-                        Some(answered) => node.https_checked(now, &peer, &url, answered),
-                        None => node.https_unchecked(now, &peer, &url),
+                    match (registration, answered) {
+                        (true, answered) => node.registration_checked(now, &peer, &url, answered),
+                        (false, Some(answered)) => node.https_checked(now, &peer, &url, answered),
+                        (false, None) => {}
                     }
                     self.drain(to);
                 }

@@ -1144,12 +1144,13 @@ impl Core {
         self.after_peer();
     }
 
-    /// A check of `node`'s URL over HTTPS, which [`Output::CheckHttps`]
-    /// asked for, that the engine could not make: no place or client for
-    /// it. It says nothing of the node.
-    pub fn https_unchecked(&mut self, node: &NodeId, url: &str) {
+    /// How the check of a registrant's URL over HTTPS went, which
+    /// [`Output::CheckHttps`] asked for with `registration`: none if the
+    /// engine could not make it, as with no place or client for it.
+    pub fn registration_checked(&mut self, node: &NodeId, url: &str, answered: Option<bool>) {
         let now = self.now_ms;
-        self.peer.https_unchecked(now, node, url);
+        self.peer.registration_checked(now, node, url, answered);
+        self.changes.network = true;
         self.after_peer();
     }
 
@@ -1393,9 +1394,16 @@ impl Core {
             }
             // A downlink's URL, checked over HTTPS by the node's client
             // (spec/decisions/promotion-to-core.md).
-            Event::CheckHttps { peer, url } => {
-                self.outputs_peer
-                    .push(Output::CheckHttps { node: peer, url });
+            Event::CheckHttps {
+                peer,
+                url,
+                registration,
+            } => {
+                self.outputs_peer.push(Output::CheckHttps {
+                    node: peer,
+                    url,
+                    registration,
+                });
             }
             other => self.lifecycle_event(other),
         }

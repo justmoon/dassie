@@ -902,13 +902,26 @@ impl Driver<'_> {
     /// one of the checks' own few places: past them, the check is not made,
     /// so it never takes the room of the node's other fetches, and the core
     /// is told so, which says nothing of the node.
-    fn check_https(&self, node: dassie_identity::NodeId, url: String) {
+    fn check_https(&self, output: Output) {
+        let Output::CheckHttps {
+            node,
+            url,
+            registration,
+        } = output
+        else {
+            return;
+        };
         let client = self.node.outbound().cloned();
         let place = Arc::clone(&self.https_checks).try_acquire_owned().ok();
+        let check = links::HttpsCheck {
+            node,
+            url,
+            registration,
+        };
         if let (Some(client), Some(place)) = (client, place) {
-            links::check_https(client, place, self.commands.clone(), (node, url));
-        } else {
-            let _ = self.commands.try_send(links::https_unchecked(node, url));
+            links::check_https(client, place, self.commands.clone(), check);
+        } else if registration {
+            let _ = self.commands.try_send(check.told(None));
         }
     }
 
@@ -1156,8 +1169,8 @@ impl Driver<'_> {
                     self.ledger_output(output);
                     continue;
                 }
-                Output::CheckHttps { node, url } => {
-                    self.check_https(node, url);
+                output @ Output::CheckHttps { .. } => {
+                    self.check_https(output);
                     continue;
                 }
                 Output::Btp { link, message } => (link, message),
