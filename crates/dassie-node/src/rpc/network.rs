@@ -370,6 +370,7 @@ fn node(view: &NodeView) -> proto::NetworkNode {
         peering: None,
         core: view.core,
         free_core: view.free_core.map(u32::from),
+        refused_until_unix_ms: view.refused_until_ms.map_or(0, convert::time),
     }
 }
 

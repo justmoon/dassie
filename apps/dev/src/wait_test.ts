@@ -18,8 +18,9 @@ test("a socket file nobody answers on is not a published socket", async () => {
     await once(listener, "close");
     // Some systems unlink on close: a plain file stands in for the socket.
     await stat(path).catch(() => writeFile(path, ""));
+    // Without time to wait, one probe decides: nobody answers.
     await assertRejects(
-      () => waitForSocket(path, 300),
+      () => waitForSocket(path, 0),
       Error,
       "did not appear",
     );

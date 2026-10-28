@@ -20,6 +20,8 @@ import {
   attribute,
   click,
   count,
+  followRpc,
+  handled,
   signIn,
   text,
   type,
@@ -159,9 +161,26 @@ test("every page of the wallet works against two nodes", {
         assertMatch(url, /\/incoming-payments\/[0-9a-f-]{36}$/);
         await click(page, "stream-credentials");
         assertMatch(await text(page, "stream-destination"), /^test\.das\./);
-        // A change of balance does not take the request away.
+        // A change of balance does not take the request away: once the
+        // page has the new balance, the request is still there.
+        const stub = async () =>
+          (await d1.rpc.call("listLedgers", {})).ledgers.find((ledger) =>
+            ledger.id === "stub+usd"
+          )?.ownerBalance;
+        const before = await stub();
+        assert(before !== undefined, "d1 has no stub ledger");
+        await followRpc(page);
         await d1.rpc.call("stubDeposit", { amount: 1n });
-        await new Promise((resolve) => setTimeout(resolve, 1_500));
+        await handled(
+          page,
+          "the page has the new balance",
+          (message) =>
+            message.kind.case === "item" &&
+            message.kind.value.method.case === "subscribeLedgers" &&
+            message.kind.value.method.value.ledgers.some((ledger) =>
+              ledger.id === "stub+usd" && ledger.ownerBalance === before + 1n
+            ),
+        );
         assertEquals(await count(page, "stream-destination"), 1);
         await picture(page, "02-receive");
         // Activity shows it, and completes it.

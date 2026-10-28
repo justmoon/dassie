@@ -62,9 +62,6 @@ const DEPOSIT_DROPS = 5_000_000n;
  * the dev rate, 200,000 XRP, twice RLUSD's floor. */
 const POOL_VALUE = "100000";
 const POOL_FEE = 500;
-/** Longer than the node's settlement interval with dev timings: a deposit
- * booked twice would show within it. */
-const SETTLE_CHECK_MS = 5_000;
 /** Clear of the other files' ports (harness.ts). */
 const PORT_OFFSET = PORT_OFFSETS["mainnet_test.ts"];
 
@@ -164,9 +161,17 @@ test(
         return nowOnLedger === onLedger + deposited &&
           nowOwned === owned + deposited && pending === 0n;
       }, 60_000);
-      await new Promise((resolve) => setTimeout(resolve, SETTLE_CHECK_MS));
       const kept = await books(node);
       assertEquals(kept[0], [onLedger + deposited, owned + deposited, 0n]);
+      assertEquals(
+        await deposits(node),
+        [deposited, first[0]],
+        "the deposit booked once",
+      );
+      // Once synced again after the restart, the node has read the
+      // account's history again from where its book stood, the deposit's
+      // ledger among it, and matched the balance as of a later ledger: a
+      // deposit booked twice, by either, shows by then.
       const { code, output } = (await node.stop())!;
       assertEquals(code, 0, output);
       await node.start();
@@ -178,7 +183,6 @@ test(
             LedgerConnection.SYNCED,
         60_000,
       );
-      await new Promise((resolve) => setTimeout(resolve, SETTLE_CHECK_MS));
       assertEquals(await books(node), kept, "the books after a restart");
       assertEquals(
         await deposits(node),

@@ -8,6 +8,7 @@
  */
 
 import { connect, createServer, type Server, type Socket } from "node:net";
+import type { Readable } from "node:stream";
 import { MAX_HELLO_BYTES, parseSni } from "./sni.ts";
 
 /** How long a client has to send its ClientHello. */
@@ -110,8 +111,8 @@ async function pass(socket: Socket, options: ProxyOptions): Promise<void> {
  * What the client sent until its ClientHello was whole, and the name. The
  * socket is paused after it, for the pipe to take over.
  */
-function readHello(
-  socket: Socket,
+export function readHello(
+  socket: Readable,
 ): Promise<{ bytes: Uint8Array; name?: string } | undefined> {
   return new Promise((resolve) => {
     let received = new Uint8Array(0);

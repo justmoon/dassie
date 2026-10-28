@@ -243,7 +243,8 @@ test(
       // d1's owner ends the peering: d1 asks d2 to settle once more, which
       // on the stub with unlimited trust settles nothing, then tells it,
       // and it ends on both sides (spec/decisions/ending-a-peering.md).
-      // Nothing moves, and they do not peer again at once.
+      // Nothing moves, and they do not peer again at once: each keeps the
+      // other away for the cooldown, neither asking nor taking a request.
       const before = await peerAccounts(scenario);
       await d1.rpc.call("terminatePeering", { node: d2.id });
       await scenario.until("parted", async () => {
@@ -257,7 +258,14 @@ test(
         new Map([["d1", DEPOSIT], ["d2", DEPOSIT]]),
       );
       await assertNothingSettled(scenario);
-      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      for (const [node, peer] of [[d1, d2], [d2, d1]]) {
+        const { nodes } = await node.rpc.call("listNodes", {});
+        const entry = nodes.find((entry) => entry.id === peer.id);
+        assert(
+          entry && entry.refusedUntilUnixMs > 0n,
+          `${node.name} keeps ${peer.name} away for the cooldown`,
+        );
+      }
       assertEquals(
         await scenario.peerings(),
         new Map([["d1", []], ["d2", []]]),
