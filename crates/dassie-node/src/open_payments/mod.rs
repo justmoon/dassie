@@ -1,12 +1,17 @@
 //! Open Payments around the engine (spec/decisions/open-payments.md): the
 //! URLs of the node's wallet addresses and resources, and which ledger a
-//! wallet address names.
+//! wallet address books on.
 //!
-//! Each active ledger has a wallet address at `https://host/pay/<name>`,
-//! its name for people (`LedgerId::wallet_name`), never its slug, which
-//! names plumbing (spec/decisions/scheme-names.md).
+//! Each asset of the active ledgers has one wallet address, at
+//! `https://host/pay/<name>`, the asset's name for people
+//! (`LedgerId::wallet_name`), never a ledger's slug, which names plumbing
+//! (spec/decisions/scheme-names.md). It books on the ledger the asset
+//! arrives on over Interledger: its settlement hub's where the node runs
+//! one, since peers settle only over hubs, and else the asset's own, such
+//! as the stub's (spec/areas/payments.md#wallet-addresses). So where the
+//! owner keeps the money never shows in a URL that payers and grants keep.
 //! `$host`, that is `https://host/.well-known/pay`, names the default
-//! ledger: the one the owner chose, or else the lowest active one.
+//! asset: the one the owner chose, or else the first active one.
 //!
 //! Every URL is built from one of the node's names ([`Names`]): a node
 //! with a hostname has only that; a node without one answers to its
@@ -46,7 +51,7 @@ use crate::store::{PaymentId, StoreError};
 
 /// The path `$host` stands for.
 pub const WELL_KNOWN_PATH: &str = dassie_payments::pointer::WELL_KNOWN_PATH;
-/// The prefix of each ledger's wallet address path.
+/// The prefix of each wallet address path, before its asset's name.
 pub const PAY_PREFIX: &str = "/pay/";
 /// The authorization server's grant endpoint.
 pub const GRANT_PATH: &str = "/gnap";
@@ -353,7 +358,8 @@ impl Urls {
         &self.origin
     }
 
-    /// A wallet address path: the well-known one for the default ledger.
+    /// The path of the wallet address that books on `ledger`: the
+    /// well-known one for the default.
     #[must_use]
     pub fn wallet_address_path(ledger: LedgerId, is_default: bool) -> String {
         if is_default {
@@ -423,23 +429,44 @@ impl Urls {
     }
 }
 
-/// The node's wallet addresses as of one moment: the active ledgers and
-/// which is the default.
+/// The node's wallet addresses as of one moment: one per asset of the
+/// active ledgers, each with the ledger it books on, and which is the
+/// default (spec/areas/payments.md#wallet-addresses).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalletAddresses {
-    /// The active ledgers, in order.
+    /// The ledger each wallet address books on, in the order of the
+    /// ledgers: the asset's hub's where one is active, since everything
+    /// that arrives over Interledger arrives there, and else the asset's
+    /// own, such as the stub's.
     pub ledgers: Vec<LedgerId>,
-    /// The ledger `$host` names, if any is active.
+    /// The ledger `$host` books on, if any is active.
     pub default: Option<LedgerId>,
 }
 
 impl WalletAddresses {
-    /// From the active ledgers and the stored choice of default.
+    /// From the active ledgers and the name of the wallet address chosen
+    /// as the default, its asset's.
     #[must_use]
-    pub fn new(mut ledgers: Vec<LedgerId>, chosen: Option<LedgerId>) -> Self {
-        ledgers.sort();
+    pub fn new(mut active: Vec<LedgerId>, chosen: Option<&str>) -> Self {
+        active.sort();
+        let mut ledgers: Vec<LedgerId> = Vec::with_capacity(active.len());
+        for ledger in active {
+            let same = ledgers
+                .iter_mut()
+                .find(|known| known.wallet_name() == ledger.wallet_name());
+            match same {
+                Some(known) if ledger.is_hub() && !known.is_hub() => *known = ledger,
+                Some(_) => {}
+                None => ledgers.push(ledger),
+            }
+        }
         let default = chosen
-            .filter(|ledger| ledgers.contains(ledger))
+            .and_then(|name| {
+                ledgers
+                    .iter()
+                    .copied()
+                    .find(|ledger| ledger.wallet_name() == name)
+            })
             .or_else(|| ledgers.first().copied());
         Self { ledgers, default }
     }
@@ -455,10 +482,10 @@ impl WalletAddresses {
             .ledgers()
             .await
             .map_err(|_| AddressError::Unavailable)?;
-        let chosen = node.store().default_ledger()?;
+        let chosen = node.store().default_address()?;
         Ok(Self::new(
             views.iter().map(|view| view.id).collect(),
-            chosen,
+            chosen.as_deref(),
         ))
     }
 
@@ -468,17 +495,22 @@ impl WalletAddresses {
         self.default == Some(ledger)
     }
 
+    /// The ledger the wallet address called `name` books on.
+    #[must_use]
+    pub fn ledger_named(&self, name: &str) -> Option<LedgerId> {
+        self.ledgers
+            .iter()
+            .copied()
+            .find(|&ledger| ledger.wallet_name() == name)
+    }
+
     /// The ledger a wallet address path names.
     #[must_use]
     pub fn ledger_of_path(&self, path: &str) -> Option<LedgerId> {
         if path == WELL_KNOWN_PATH {
             return self.default;
         }
-        let name = path.strip_prefix(PAY_PREFIX)?;
-        self.ledgers
-            .iter()
-            .copied()
-            .find(|&ledger| ledger.wallet_name() == name)
+        self.ledger_named(path.strip_prefix(PAY_PREFIX)?)
     }
 
     /// The ledger a wallet address URL of this node names, under any of
@@ -536,14 +568,59 @@ mod tests {
         assert_eq!(addresses.ledger_of_path("/pay/usd/"), None);
         let chosen = WalletAddresses::new(
             vec![LedgerId::StubUsd, LedgerId::XrplTestnetXrp],
-            Some(LedgerId::XrplTestnetXrp),
+            Some("xrp"),
         );
         assert_eq!(
             chosen.ledger_of_path(WELL_KNOWN_PATH),
             Some(LedgerId::XrplTestnetXrp)
         );
-        let gone = WalletAddresses::new(vec![LedgerId::StubUsd], Some(LedgerId::XrplXrp));
+        let gone = WalletAddresses::new(vec![LedgerId::StubUsd], Some("xrp"));
         assert_eq!(gone.default, Some(LedgerId::StubUsd));
+    }
+
+    // spec/areas/payments.md#wallet-addresses: an asset has one wallet
+    // address, which books on its hub's ledger where the node runs one,
+    // since everything that arrives over Interledger arrives there; the
+    // owner book of the asset has none, and neither does a hub's name.
+    #[test]
+    fn an_asset_with_a_hub_books_on_the_hub() {
+        let addresses = WalletAddresses::new(
+            vec![
+                LedgerId::HubXrplTestnetDsusdUsd,
+                LedgerId::XrplTestnetXrp,
+                LedgerId::HubXrplTestnetXrp,
+                LedgerId::XrplTestnetDsusdUsd,
+                LedgerId::StubUsd,
+            ],
+            Some("xrp"),
+        );
+        assert_eq!(
+            addresses.ledgers,
+            [
+                LedgerId::StubUsd,
+                LedgerId::HubXrplTestnetXrp,
+                LedgerId::HubXrplTestnetDsusdUsd,
+            ]
+        );
+        assert_eq!(
+            addresses.ledger_of_path("/pay/xrp"),
+            Some(LedgerId::HubXrplTestnetXrp)
+        );
+        assert_eq!(
+            addresses.ledger_of_path(WELL_KNOWN_PATH),
+            Some(LedgerId::HubXrplTestnetXrp)
+        );
+        assert_eq!(
+            addresses.ledger_of_path("/pay/dsusd"),
+            Some(LedgerId::HubXrplTestnetDsusdUsd)
+        );
+        assert_eq!(addresses.ledger_of_path("/pay/hub-xrp"), None);
+        // Without a default chosen, the first asset's: the stub's dollars.
+        let first = WalletAddresses::new(addresses.ledgers.clone(), None);
+        assert_eq!(first.default, Some(LedgerId::StubUsd));
+        // A hub alone still has its asset's address.
+        let alone = WalletAddresses::new(vec![LedgerId::HubXrplXrp], None);
+        assert_eq!(alone.ledger_of_path("/pay/xrp"), Some(LedgerId::HubXrplXrp));
     }
 
     #[test]
@@ -876,10 +953,11 @@ mod tests {
             ]
         }
 
-        fn ledgers() -> impl Strategy<Value = (Vec<LedgerId>, Option<LedgerId>)> {
+        fn ledgers() -> impl Strategy<Value = (Vec<LedgerId>, Option<&'static str>)> {
             (
                 proptest::sample::subsequence(LedgerId::ALL.to_vec(), 0..=LedgerId::ALL.len()),
-                proptest::option::of(proptest::sample::select(LedgerId::ALL.to_vec())),
+                proptest::option::of(proptest::sample::select(LedgerId::ALL.to_vec()))
+                    .prop_map(|ledger| ledger.map(LedgerId::wallet_name)),
             )
         }
 

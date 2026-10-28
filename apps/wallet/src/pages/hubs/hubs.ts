@@ -144,23 +144,33 @@ export function givenUpText(move: HubMove, currency: Currency): string {
   }. The hub may still show it; your node then books it, once. Until you move funds or turn its own moves on again, your node moves nothing by itself.`;
 }
 
-/** Whether the node moves funds by itself now, for people. */
+/** Whether the node moves funds by itself now, for people: above the
+ * floor, and below the ceiling only where the owner keeps what the node
+ * receives on the own account (spec/areas/payments.md#where-received-money-is-kept). */
 export function automaticText(
-  status: Pick<HubStatus, "automatic" | "pausedUntilUnixMs">,
+  status:
+    & Pick<HubStatus, "automatic" | "pausedUntilUnixMs">
+    & Partial<Pick<HubStatus, "sweeps">>,
   nowMs: number,
 ): string {
   if (!status.automatic) {
     return "Your node moves nothing by itself. You move funds yourself.";
   }
+  const keeps = status.sweeps
+    ? "between its floor and ceiling"
+    : "above its floor";
+  const rest = status.sweeps
+    ? " What is beyond goes to your own account."
+    : " What you receive stays here.";
   const left = status.pausedUntilUnixMs === undefined
     ? 0
     : Number(status.pausedUntilUnixMs) - nowMs;
   if (left >= 1_000) {
     return `Your last move pauses your node's own moves for ${
       durationText(left)
-    } more. Then it keeps this account between its floor and ceiling by itself again.`;
+    } more. Then it keeps this account ${keeps} by itself again.${rest}`;
   }
-  return "Your node keeps this account between its floor and ceiling by itself.";
+  return `Your node keeps this account ${keeps} by itself.${rest}`;
 }
 
 /** A duration of at least a second, for people, rounded up to the unit it

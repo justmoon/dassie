@@ -84,8 +84,9 @@ message Request {
   // (spec/decisions/mainnet-schemes.md). 14 was SetPorts: the standalone
   // runtime binds 80 and 443 unless its flags say otherwise
   // (spec/areas/node.md#runtimes). 70 was CreateStreamCredentials, which
-  // incoming payments replaced.
-  reserved 13, 14, 70;
+  // incoming payments replaced. 72 was SetDefaultLedger: the default names
+  // an asset's wallet address, not a ledger (SetDefaultWalletAddress).
+  reserved 13, 14, 70, 72;
 
   oneof method {
     // Public: the only method an unauthenticated socket may call.
@@ -129,7 +130,8 @@ message Request {
     SetBtpTokenCapRequest set_btp_token_cap = 63;
 
     ListWalletAddressesRequest list_wallet_addresses = 71;
-    SetDefaultLedgerRequest set_default_ledger = 72;
+    SetDefaultWalletAddressRequest set_default_wallet_address = 79;
+    SetFundsKeptRequest set_funds_kept = 139;
     CreateIncomingPaymentRequest create_incoming_payment = 73;
     CompleteIncomingPaymentRequest complete_incoming_payment = 74;
     ListIncomingPaymentsRequest list_incoming_payments = 75;
@@ -223,7 +225,7 @@ message ServerMessage {
 }
 
 message Response {
-  reserved 13, 14, 70;
+  reserved 13, 14, 70, 72;
 
   oneof method {
     GetBasicStateResponse get_basic_state = 1;
@@ -260,7 +262,8 @@ message Response {
     SetBtpTokenCapResponse set_btp_token_cap = 63;
 
     ListWalletAddressesResponse list_wallet_addresses = 71;
-    SetDefaultLedgerResponse set_default_ledger = 72;
+    SetDefaultWalletAddressResponse set_default_wallet_address = 79;
+    SetFundsKeptResponse set_funds_kept = 139;
     CreateIncomingPaymentResponse create_incoming_payment = 73;
     CompleteIncomingPaymentResponse complete_incoming_payment = 74;
     ListIncomingPaymentsResponse list_incoming_payments = 75;

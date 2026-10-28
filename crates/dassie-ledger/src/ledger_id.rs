@@ -94,21 +94,42 @@ impl LedgerId {
         }
     }
 
-    /// The ledger's name for people, in its wallet address
-    /// (`/pay/<name>`): its asset, short, `hub-` before it for a settlement
-    /// hub's. Unique among the ledgers of a realm, which are all a node
-    /// runs. Its ID's slug, which names its scheme, its STREAM receiver and
-    /// its payer, is plumbing (spec/decisions/scheme-names.md).
+    /// The name of the node's wallet address for the ledger's asset
+    /// (`/pay/<name>`), for people: the asset, short. A settlement hub's
+    /// ledger shares it with the owner book of its asset, since an asset
+    /// has one wallet address, which books what arrives over Interledger
+    /// on the hub's ledger where the node runs one ([`Self::is_hub`]). A
+    /// realm has at most one ledger of each name besides a hub's, which
+    /// are all a node runs. Its ID's slug, which names its scheme, its
+    /// STREAM receiver and its payer, is plumbing
+    /// (spec/decisions/scheme-names.md).
     #[must_use]
     pub const fn wallet_name(self) -> &'static str {
         match self {
             Self::StubUsd => "usd",
-            Self::XrplTestnetXrp | Self::XrplXrp => "xrp",
-            Self::XrplTestnetRlusdUsd | Self::XrplRlusdUsd => "rlusd",
-            Self::XrplTestnetDsusdUsd => "dsusd",
-            Self::HubXrplTestnetXrp | Self::HubXrplXrp => "hub-xrp",
-            Self::HubXrplTestnetDsusdUsd => "hub-dsusd",
-            Self::HubXrplRlusdUsd => "hub-rlusd",
+            Self::XrplTestnetXrp | Self::XrplXrp | Self::HubXrplTestnetXrp | Self::HubXrplXrp => {
+                "xrp"
+            }
+            Self::XrplTestnetRlusdUsd | Self::XrplRlusdUsd | Self::HubXrplRlusdUsd => "rlusd",
+            Self::XrplTestnetDsusdUsd | Self::HubXrplTestnetDsusdUsd => "dsusd",
+        }
+    }
+
+    /// Whether the ledger is a settlement hub's: what the node holds in
+    /// its account there.
+    #[must_use]
+    pub const fn is_hub(self) -> bool {
+        match self {
+            Self::HubXrplTestnetXrp
+            | Self::HubXrplTestnetDsusdUsd
+            | Self::HubXrplXrp
+            | Self::HubXrplRlusdUsd => true,
+            Self::StubUsd
+            | Self::XrplTestnetXrp
+            | Self::XrplXrp
+            | Self::XrplTestnetRlusdUsd
+            | Self::XrplRlusdUsd
+            | Self::XrplTestnetDsusdUsd => false,
         }
     }
 
@@ -176,29 +197,34 @@ mod tests {
         assert_eq!(LedgerId::parse("stub+eur"), None);
     }
 
-    // spec/decisions/scheme-names.md: a ledger's name for people is unique
-    // among its realm's, and names its asset, a hub's with `hub-` before
-    // it; its slug names its scheme.
+    // spec/decisions/scheme-names.md, spec/areas/payments.md#wallet-addresses:
+    // a wallet address names an asset, which a hub's ledger shares with the
+    // owner book of its asset; within a realm, at most one ledger besides a
+    // hub's has each name, and so does at most one hub's.
     #[test]
-    fn wallet_names_are_unique_within_a_realm() {
+    fn wallet_names_name_one_asset_within_a_realm() {
         for ledger in LedgerId::ALL {
             let name = ledger.wallet_name();
             let code = ledger.asset().code.to_ascii_lowercase();
-            let asset = name.strip_prefix("hub-").unwrap_or(name);
             assert!(
-                asset == code || ledger.asset().code == "USD",
+                name == code || ledger.asset().code == "USD",
                 "{ledger}: {name}"
             );
             assert_eq!(
-                name.starts_with("hub-"),
+                ledger.is_hub(),
                 ledger.as_str().starts_with("hub-"),
                 "{ledger}"
             );
             for other in LedgerId::ALL {
-                if other != ledger && other.realm() == ledger.realm() {
+                if other != ledger
+                    && other.realm() == ledger.realm()
+                    && other.is_hub() == ledger.is_hub()
+                {
                     assert_ne!(name, other.wallet_name(), "{ledger}, {other}");
                 }
             }
         }
+        assert_eq!(LedgerId::HubXrplTestnetXrp.wallet_name(), "xrp");
+        assert_eq!(LedgerId::HubXrplRlusdUsd.wallet_name(), "rlusd");
     }
 }

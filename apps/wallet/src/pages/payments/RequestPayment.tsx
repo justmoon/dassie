@@ -14,7 +14,7 @@ import { useNodeData } from "@dassie/ui/node-data";
 import { Link } from "@dassie/ui/router";
 import { describe, useClient } from "@dassie/ui/rpc";
 import { CopyButton, ErrorText, Field, Masked } from "@dassie/ui/ui";
-import { useWalletAddresses } from "./WalletAddresses.tsx";
+import { assetLabel, useWalletAddresses } from "./WalletAddresses.tsx";
 
 export function RequestPayment(): JSX.Element {
   const client = useClient();
@@ -27,13 +27,12 @@ export function RequestPayment(): JSX.Element {
   const [pending, setPending] = createSignal(false);
   const [created, setCreated] = createSignal<IncomingPayment>();
   const addresses = useWalletAddresses();
-  // The ledger the form shows, and sends: the one chosen, else the
-  // default, `$host`'s.
+  // The ledger the form shows, and sends: the one the chosen asset's
+  // wallet address books on, else the default's, `$host`'s.
   const chosen = () => {
     const wanted = ledger() ??
       addresses.addresses()?.find((address) => address.isDefault)?.ledger;
-    return data.ledgers()?.find((entry) => entry.id === wanted) ??
-      data.ledgers()?.[0];
+    return data.ledgers()?.find((entry) => entry.id === wanted);
   };
   const create = async (event: SubmitEvent) => {
     event.preventDefault();
@@ -66,17 +65,20 @@ export function RequestPayment(): JSX.Element {
     <div class="stack">
       <form class="request-payment" onSubmit={create}>
         <h3>Request a Payment</h3>
-        <Show when={(data.ledgers()?.length ?? 0) > 1}>
-          <Field label="Ledger" for={`${id}-ledger`}>
+        <Show when={(addresses.addresses()?.length ?? 0) > 1}>
+          <Field label="Asset" for={`${id}-ledger`}>
             <select
               id={`${id}-ledger`}
               data-testid="request-ledger"
               onChange={(event) => setLedger(event.currentTarget.value)}
             >
-              <For each={data.ledgers() ?? []}>
+              <For each={addresses.addresses() ?? []}>
                 {(entry) => (
-                  <option value={entry.id} selected={entry.id === chosen()?.id}>
-                    {entry.id}
+                  <option
+                    value={entry.ledger}
+                    selected={entry.ledger === chosen()?.id}
+                  >
+                    {assetLabel(entry.name)}
                   </option>
                 )}
               </For>

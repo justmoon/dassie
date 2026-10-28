@@ -63,6 +63,71 @@ async fn wallet_addresses_and_their_keys() {
     node.stop().await;
 }
 
+// spec/areas/payments.md#wallet-addresses,
+// spec/areas/payments.md#where-received-money-is-kept: the owner lists one
+// address per asset, chooses the default by its asset's name, and chooses
+// where funds are kept only for an asset a settlement hub of the realm
+// holds, all of them at once with no name.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owner_names_the_default_and_where_funds_are_kept() {
+    use dassie_node::rpc::proto::response;
+
+    let (node, _) = start().await;
+    let mut owner = node.ipc().await;
+    let listed = match owner
+        .call(Method::ListWalletAddresses(
+            proto::ListWalletAddressesRequest {},
+        ))
+        .await
+        .unwrap()
+    {
+        response::Method::ListWalletAddresses(list) => list.wallet_addresses,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].name, "usd");
+    assert_eq!(listed[0].ledger, "stub+usd");
+    assert_eq!(listed[0].deposit_ledger, "stub+usd");
+    assert_eq!(listed[0].funds_kept(), proto::FundsKept::Unspecified);
+    assert!(listed[0].is_default);
+
+    let default = |name: &str| {
+        Method::SetDefaultWalletAddress(proto::SetDefaultWalletAddressRequest { name: name.into() })
+    };
+    let keep = |name: &str, kept: proto::FundsKept| {
+        Method::SetFundsKept(proto::SetFundsKeptRequest {
+            name: name.into(),
+            funds_kept: kept.into(),
+        })
+    };
+    // No ledger of XRP runs, and a ledger's slug or a hub's name is no
+    // wallet address.
+    for name in ["xrp", "stub+usd", "hub-xrp"] {
+        let refused = owner.call(default(name)).await.unwrap_err();
+        assert_eq!(refused.code(), proto::ErrorCode::NotFound, "{name}");
+    }
+    owner.call(default("usd")).await.unwrap();
+    owner.call(default("")).await.unwrap();
+
+    // The stub's dollars are held by no hub; a choice must say where.
+    let refused = owner
+        .call(keep("usd", proto::FundsKept::OwnAccount))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code(), proto::ErrorCode::NotFound);
+    let refused = owner
+        .call(keep("xrp", proto::FundsKept::Unspecified))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code(), proto::ErrorCode::InvalidArgument);
+    owner
+        .call(keep("xrp", proto::FundsKept::OwnAccount))
+        .await
+        .unwrap();
+    owner.call(keep("", proto::FundsKept::Hub)).await.unwrap();
+    node.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_client_creates_and_reads_incoming_payments() {
     let (node, _) = start().await;

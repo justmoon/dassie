@@ -435,6 +435,7 @@ pub(super) fn ledger(view: &LedgerView) -> proto::Ledger {
         removal_blockers: view.removal_blockers.iter().map(blocker).collect(),
         reserve: view.reserve,
         deposit_address: view.deposit_address.clone().unwrap_or_default(),
+        deposit_tag: view.deposit_tag,
         issuer: view.issuer.clone().unwrap_or_default(),
         faucet: view.faucet,
         realm: realm(view.id.realm()).into(),

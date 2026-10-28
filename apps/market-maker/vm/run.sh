@@ -37,8 +37,12 @@ setup() {
     "$dassie" setup --passphrase-file "$dir/$node.phrase" "$@"
 }
 
-setup xrp --hub hub-xrpl-testnet-xrp
-setup dsusd --hub hub-xrpl-testnet-dsusd
+# Each node keeps what it is paid on its owner's own account, so that its
+# hub's funding sweeps it beyond the ceiling into the owner book, which the
+# market maker's rebalances spend from (spec/areas/rate-feed.md#bands). Setup
+# runs at every start, so this holds for nodes set up before too.
+setup xrp --hub hub-xrpl-testnet-xrp --keep-funds account
+setup dsusd --hub hub-xrpl-testnet-dsusd --keep-funds account
 
 umask 077
 jq -n \

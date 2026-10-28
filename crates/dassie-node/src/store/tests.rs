@@ -852,6 +852,51 @@ fn a_channel_stored_with_the_mark_of_an_end_for_room_loads_without_it() {
     assert_eq!(indexes, 0);
 }
 
+// spec/areas/node.md#database, spec/areas/payments.md#wallet-addresses: a
+// database written while the default named a ledger moves forward through
+// migration 7. The ledger becomes its asset's wallet address, a hub's
+// ledger the same as its owner book's; where funds are kept starts in the
+// hub for every asset, and each choice round-trips.
+#[test]
+fn a_default_ledger_becomes_its_assets_wallet_address() {
+    for (ledger, name) in [
+        ("hub-xrpl-testnet-xrp+xrp", Some("xrp")),
+        ("xrpl-testnet-dsusd+usd", Some("dsusd")),
+        ("stub+usd", Some("usd")),
+        ("eur+eur", None),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        {
+            let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+            schema::prepare(&mut connection, &schema::MIGRATIONS[..6]).unwrap();
+            connection
+                .execute(
+                    "UPDATE payment_settings SET default_ledger = ?1 WHERE id = 1",
+                    [ledger],
+                )
+                .unwrap();
+        }
+        let store = Store::open(temp.path()).unwrap();
+        assert_eq!(
+            store.default_address().unwrap().as_deref(),
+            name,
+            "{ledger}"
+        );
+    }
+    let store = Store::open_in_memory().unwrap();
+    assert_eq!(store.default_address().unwrap(), None);
+    store.set_default_address(Some("xrp")).unwrap();
+    assert_eq!(store.default_address().unwrap().as_deref(), Some("xrp"));
+    assert_eq!(store.funds_kept("xrp").unwrap(), FundsKept::Hub);
+    store
+        .set_funds_kept(&["xrp", "dsusd"], FundsKept::OwnAccount)
+        .unwrap();
+    store.set_funds_kept(&["dsusd"], FundsKept::Hub).unwrap();
+    assert_eq!(store.funds_kept("xrp").unwrap(), FundsKept::OwnAccount);
+    assert_eq!(store.funds_kept("dsusd").unwrap(), FundsKept::Hub);
+    assert_eq!(store.funds_kept("rlusd").unwrap(), FundsKept::Hub);
+}
+
 // spec/areas/node.md#database, spec/areas/hubs.md#the-validator-in-the-node:
 // a database written before a hub's validator kept its verifier moves
 // forward through migration 5. Its cursor loads as it was, with nothing

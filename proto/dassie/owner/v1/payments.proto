@@ -3,39 +3,86 @@ syntax = "proto3";
 package dassie.owner.v1;
 
 // Open Payments (spec/decisions/open-payments.md): the node's wallet
-// addresses, one per active ledger, their incoming and outgoing payments, and
-// the grants the owner decides. FAILED_PRECONDITION until the node has a
-// hostname, which every URL names.
+// addresses, one per asset of the active ledgers, their incoming and
+// outgoing payments, and the grants the owner decides. FAILED_PRECONDITION
+// until the node has a hostname, which every URL names.
 
-// A wallet address.
+// A wallet address: one per asset (spec/areas/payments.md#wallet-addresses).
+// What arrives at it over Interledger is booked on the ledger the asset
+// arrives on: its settlement hub's where the node runs one, else the
+// asset's own, such as the stub's.
 message WalletAddress {
-  // Its URL, as other wallets and clients use it: https://host/pay/<slug>,
-  // or https://host/.well-known/pay for the default ledger.
+  // Its URL, as other wallets and clients use it: https://host/pay/<name>,
+  // or https://host/.well-known/pay for the default.
   string url = 1;
-  // The same as a payment pointer: $host, or $host/pay/<slug>.
+  // The same as a payment pointer: $host, or $host/pay/<name>.
   string payment_pointer = 2;
+  // The ledger it books on.
   string ledger = 3;
   string asset_code = 4;
   uint32 asset_scale = 5;
-  // Whether $host names it. The default ledger's address is also at
-  // https://host/pay/<slug>; this is the one listed.
+  // Whether $host names it. The default's address is also at
+  // https://host/pay/<name>; this is the one listed.
   bool is_default = 6;
+  // Its name, the asset's for people, as its URL ends: usd, xrp, dsusd or
+  // rlusd.
+  string name = 7;
+  // Where the node keeps what arrives in the asset, which the owner
+  // chooses (SetFundsKept); UNSPECIFIED for an asset no settlement hub of
+  // the node's realm holds, which stays where it arrives.
+  FundsKept funds_kept = 8;
+  // The ledger whose deposit method Receive shows for the asset, for
+  // deposits on its underlying ledger rather than over Interledger: the
+  // hub's, whose deposit address and tag name the node's account in the
+  // hub, while the funds are kept in the hub and that account has its
+  // number; else the asset's own ledger, where the owner's account is.
+  // Empty when neither is active.
+  string deposit_ledger = 9;
+}
+
+// Where the node keeps what it receives in an asset over Interledger
+// (spec/areas/payments.md#where-received-money-is-kept). It arrives on the
+// ledger of the asset's settlement hub either way.
+enum FundsKept {
+  // Not an asset a settlement hub holds.
+  FUNDS_KEPT_UNSPECIFIED = 0;
+  // In the hub, where it arrives: the default.
+  FUNDS_KEPT_HUB = 1;
+  // On the owner's own account on the hub's underlying ledger: the node
+  // withdraws there what its hub account holds beyond the ceiling, back to
+  // the midpoint between floor and ceiling (HubStatus).
+  FUNDS_KEPT_OWN_ACCOUNT = 2;
 }
 
 message ListWalletAddressesRequest {}
 
 message ListWalletAddressesResponse {
-  // By ledger.
+  // In the order of their ledgers.
   repeated WalletAddress wallet_addresses = 1;
 }
 
-// Chooses the ledger $host names. NOT_FOUND unless it is active.
-message SetDefaultLedgerRequest {
-  // Empty to go back to the lowest active ledger.
-  string ledger = 1;
+// Chooses the wallet address $host names, by its name. NOT_FOUND unless a
+// ledger of its asset is active.
+message SetDefaultWalletAddressRequest {
+  // Empty to go back to the first.
+  string name = 1;
 }
 
-message SetDefaultLedgerResponse {
+message SetDefaultWalletAddressResponse {
+  repeated WalletAddress wallet_addresses = 1;
+}
+
+// Chooses where the node keeps what it receives in an asset, or in every
+// asset a settlement hub of the node's realm holds. The database keeps it,
+// for a hub joined later too. NOT_FOUND for the name of an asset no
+// settlement hub of the realm holds; INVALID_ARGUMENT for UNSPECIFIED.
+message SetFundsKeptRequest {
+  // The wallet address's name, such as xrp; empty for every asset.
+  string name = 1;
+  FundsKept funds_kept = 2;
+}
+
+message SetFundsKeptResponse {
   repeated WalletAddress wallet_addresses = 1;
 }
 
@@ -73,7 +120,10 @@ message IncomingPayment {
 // pay the node from a STREAM client. RESOURCE_EXHAUSTED when too many are
 // open.
 message CreateIncomingPaymentRequest {
-  // Empty for the default ledger.
+  // The ledger a wallet address books on (WalletAddress.ledger), whose
+  // address it is created at; empty for the default's. FAILED_PRECONDITION
+  // for any other, such as the owner book of an asset that arrives on its
+  // hub's ledger.
   string ledger = 1;
   // The most it accepts; none for no limit.
   optional uint64 incoming_amount = 2;

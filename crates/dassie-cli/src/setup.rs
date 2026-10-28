@@ -21,7 +21,10 @@
 //! (spec/designs/settlement-hubs.md#11-choosing-a-hub); `--hub none` joins
 //! none. For each it adds the owner books the hub funds from, peering with
 //! nobody, unless they are active, then the hub's scheme with no config,
-//! which joins the default hub of its asset.
+//! which joins the default hub of its asset. With `--keep-funds`, it
+//! first sets where the node keeps what it receives in each asset a hub
+//! holds: in the hub, the default, or on the owner's own account
+//! (spec/areas/payments.md#where-received-money-is-kept).
 //!
 //! A phrase names its realm (spec/decisions/phrase-format.md), so no flag
 //! does: one could only agree with the phrase or refuse it. A phrase that
@@ -216,6 +219,23 @@ pub struct Options {
     pub assets: Vec<Scheme>,
     /// The settlement hubs to join.
     pub hubs: Hubs,
+    /// Where the node keeps what it receives over Interledger in each
+    /// asset a settlement hub holds (`--keep-funds`), if the owner says;
+    /// otherwise the node's choice stays as it is, in the hub for a new
+    /// node.
+    pub keep_funds: Option<KeepFunds>,
+}
+
+/// Where the node keeps what it receives in an asset a settlement hub
+/// holds (spec/areas/payments.md#where-received-money-is-kept).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeepFunds {
+    /// In the hub, where it arrives (`--keep-funds hub`).
+    Hub,
+    /// On the owner's own account on the hub's underlying ledger: the node
+    /// withdraws what the hub holds beyond its ceiling
+    /// (`--keep-funds account`).
+    OwnAccount,
 }
 
 /// A settlement scheme to add, or an external asset to configure, with
@@ -234,6 +254,7 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Options, lexopt::Error> {
     let mut schemes: Vec<Scheme> = Vec::new();
     let mut assets: Vec<Scheme> = Vec::new();
     let mut hubs = Hubs::Default;
+    let mut keep_funds = None;
     while let Some(argument) = parser.next()? {
         match argument {
             Long("passphrase-file") => passphrase_file = Some(PathBuf::from(parser.value()?)),
@@ -241,6 +262,18 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Options, lexopt::Error> {
                 return Err("--no-hub is gone: pass --hub none to join no settlement hub".into());
             }
             Long("hub") => hubs.add(&parser.value()?.string()?)?,
+            Long("keep-funds") => {
+                keep_funds = Some(match parser.value()?.string()?.as_str() {
+                    "hub" => KeepFunds::Hub,
+                    "account" => KeepFunds::OwnAccount,
+                    other => {
+                        return Err(format!(
+                            "--keep-funds {other:?}: say hub, or account for your own account"
+                        )
+                        .into());
+                    }
+                });
+            }
             Long("scheme") => {
                 let scheme = scheme("scheme", &parser.value()?.string()?)?;
                 add_once("scheme", &mut schemes, scheme, MAX_SCHEMES)?;
@@ -258,6 +291,7 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Options, lexopt::Error> {
         schemes,
         assets,
         hubs,
+        keep_funds,
     })
 }
 
@@ -410,7 +444,39 @@ async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
     for scheme in &options.schemes {
         add_scheme(&mut client, scheme, &after.active_settlement_schemes).await?;
     }
+    if let Some(keep) = options.keep_funds {
+        keep_funds(&mut client, keep).await?;
+    }
     settle_hubs(&mut client, &options.hubs, realm).await
+}
+
+/// Keeps what the node receives in every asset a settlement hub holds
+/// where `keep` says: the node keeps the choice, for hubs it joins later
+/// too.
+async fn keep_funds(client: &mut Client, keep: KeepFunds) -> Result<(), Failure> {
+    let funds_kept = match keep {
+        KeepFunds::Hub => proto::FundsKept::Hub,
+        KeepFunds::OwnAccount => proto::FundsKept::OwnAccount,
+    };
+    let request = proto::SetFundsKeptRequest {
+        name: String::new(),
+        funds_kept: funds_kept.into(),
+    };
+    match call(client, Method::SetFundsKept(request)).await? {
+        response::Method::SetFundsKept(_) => {}
+        _ => return Err(unexpected()),
+    }
+    println!(
+        "{}",
+        match keep {
+            KeepFunds::Hub => "The node keeps what it receives in its settlement hubs.",
+            KeepFunds::OwnAccount => {
+                "The node keeps what it receives on your own account: it withdraws from its \
+                 settlement hubs what is beyond their ceiling."
+            }
+        }
+    );
+    Ok(())
 }
 
 /// Refuses a hub `--hub` names of another realm than `realm`, the
@@ -1142,6 +1208,21 @@ mod tests {
         assert!(refused.contains("Nothing was changed"), "{refused}");
         let testnet = Hubs::Named(vec![hub("hub-xrpl-testnet-dsusd")]);
         assert!(check_hub_realms(&testnet, Realm::Live, file).is_err());
+    }
+
+    // spec/areas/payments.md#where-received-money-is-kept: what the node
+    // receives stays in the hub unless the owner says otherwise; without
+    // the flag, setup leaves the node's choice alone.
+    #[test]
+    fn keeping_funds_is_the_owners_choice() {
+        assert_eq!(parse(&["--passphrase-file", "p"]).unwrap().keep_funds, None);
+        let hub = parse(&["--passphrase-file", "p", "--keep-funds", "hub"]).unwrap();
+        assert_eq!(hub.keep_funds, Some(KeepFunds::Hub));
+        let own = parse(&["--passphrase-file", "p", "--keep-funds", "account"]).unwrap();
+        assert_eq!(own.keep_funds, Some(KeepFunds::OwnAccount));
+        let wrong = parse(&["--passphrase-file", "p", "--keep-funds", "ledger"]);
+        assert!(wrong.unwrap_err().contains("--keep-funds"));
+        assert!(parse(&["--passphrase-file", "p", "--keep-funds"]).is_err());
     }
 
     fn listed(id: &str, active: bool) -> proto::SettlementSchemeInfo {

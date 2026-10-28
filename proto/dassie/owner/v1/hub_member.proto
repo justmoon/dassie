@@ -84,8 +84,8 @@ message HubStatus {
   repeated HubHold paying = 8;
   // Peers' holds toward us.
   repeated HubHold taking = 9;
-  // Below the floor the node deposits, above the ceiling it withdraws,
-  // each time back to the midpoint.
+  // Below the floor the node deposits, above the ceiling it withdraws
+  // when it sweeps, each time back to the midpoint.
   uint64 floor = 10;
   uint64 ceiling = 11;
   // Whether the node moves funds by itself.
@@ -121,6 +121,11 @@ message HubStatus {
   // the token, or a transfer fee. While it does, the escrow pays out
   // nothing, and a hub that ended pays out only once the issuer lets go.
   bool escrow_held = 21;
+  // Whether the node's own moves withdraw what is beyond the ceiling to
+  // the owner's own account: the owner keeps what the node receives in the
+  // hub's asset there (FUNDS_KEPT_OWN_ACCOUNT, SetFundsKept). Otherwise it
+  // stays in the hub, where it arrives.
+  bool sweeps = 22;
 }
 
 // Every hub the node is in whose scheme runs, in the order of their
