@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Every settlement scheme a node can run, by its ID: its ledger, network, asset and realm, the external asset it settles through, and the default hubs."
+    />
+    <title>Schemes and hubs · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Schemes and hubs</h1>
+      <p class="lede">
+        A settlement scheme is how your node holds and moves one asset on one
+        ledger. This page lists every scheme a node can run, by the ID that
+        <code>dassie status</code>, <code>dassie hub</code> and
+        <code>dassie setup --scheme</code> use, beside the name the wallet
+        shows for it.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="reading-an-id">Reading an ID</h2>
+      <p>
+        A scheme's ID names its ledger, its network and its asset, in that
+        order: <code>&lt;ledger&gt;-&lt;network&gt;-&lt;asset&gt;</code>. The
+        network is left out on mainnet, so <code>xrpl-testnet-xrp</code> is
+        XRP on the XRP Ledger testnet, and <code>xrpl-xrp</code> is XRP on
+        mainnet. A settlement hub's scheme puts <code>hub-</code> before the
+        ID of the owner book it sits on: <code>hub-xrpl-testnet-xrp</code>
+        is a hub of testnet XRP.
+      </p>
+      <p>
+        Each scheme books on a ledger of its own in your node,
+        <code>&lt;scheme&gt;+&lt;asset&gt;</code>, such as
+        <code>xrpl-testnet-xrp+xrp</code>. Dollar tokens book as
+        <code>USD</code>, one to one. People pay you at a
+        <a href="/docs/wallet/receive/">wallet address</a> that names the
+        asset alone, such as <code>/pay/xrp</code>; a hub's ledger shares the
+        address of its asset.
+      </p>
+      <p>
+        Each scheme belongs to one realm. A node runs only its own realm's
+        schemes, fixed when it is set up, and the wallet offers only those.
+        The live realm, which holds real money, is refused.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/scheme-names.md">Why the names read this way</a>
+      </p>
+
+      <h2 id="at-a-glance">At a glance</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Scheme</th>
+              <th>In the wallet</th>
+              <th>Ledger</th>
+              <th>Network</th>
+              <th>Asset</th>
+              <th>Realm</th>
+              <th>Address</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><a href="#xrpl-testnet-xrp"><code>xrpl-testnet-xrp</code></a></td>
+              <td>XRP Ledger Testnet</td>
+              <td>XRP Ledger</td>
+              <td>testnet</td>
+              <td>XRP</td>
+              <td>test</td>
+              <td><code>/pay/xrp</code></td>
+            </tr>
+            <tr>
+              <td><a href="#xrpl-testnet-dsusd"><code>xrpl-testnet-dsusd</code></a></td>
+              <td>DSUSD on the XRP Ledger Testnet</td>
+              <td>XRP Ledger</td>
+              <td>testnet</td>
+              <td>DSUSD, as USD</td>
+              <td>test</td>
+              <td><code>/pay/dsusd</code></td>
+            </tr>
+            <tr>
+              <td><a href="#hub-xrpl-testnet-xrp"><code>hub-xrpl-testnet-xrp</code></a></td>
+              <td>XRP in a settlement hub on the XRP Ledger Testnet</td>
+              <td>a hub on the XRP Ledger</td>
+              <td>testnet</td>
+              <td>XRP</td>
+              <td>test</td>
+              <td><code>/pay/xrp</code></td>
+            </tr>
+            <tr>
+              <td><a href="#hub-xrpl-testnet-dsusd"><code>hub-xrpl-testnet-dsusd</code></a></td>
+              <td>DSUSD in a settlement hub on the XRP Ledger Testnet</td>
+              <td>a hub on the XRP Ledger</td>
+              <td>testnet</td>
+              <td>DSUSD, as USD</td>
+              <td>test</td>
+              <td><code>/pay/dsusd</code></td>
+            </tr>
+            <tr>
+              <td><a href="#xrpl-xrp"><code>xrpl-xrp</code></a></td>
+              <td>XRP Ledger</td>
+              <td>XRP Ledger</td>
+              <td>mainnet</td>
+              <td>XRP</td>
+              <td>live</td>
+              <td><code>/pay/xrp</code></td>
+            </tr>
+            <tr>
+              <td><a href="#xrpl-rlusd"><code>xrpl-rlusd</code></a></td>
+              <td>RLUSD on the XRP Ledger</td>
+              <td>XRP Ledger</td>
+              <td>mainnet</td>
+              <td>RLUSD, as USD</td>
+              <td>live</td>
+              <td><code>/pay/rlusd</code></td>
+            </tr>
+            <tr>
+              <td><a href="#hub-xrpl-xrp"><code>hub-xrpl-xrp</code></a></td>
+              <td>XRP in a settlement hub on the XRP Ledger</td>
+              <td>a hub on the XRP Ledger</td>
+              <td>mainnet</td>
+              <td>XRP</td>
+              <td>live</td>
+              <td><code>/pay/xrp</code></td>
+            </tr>
+            <tr>
+              <td><a href="#hub-xrpl-rlusd"><code>hub-xrpl-rlusd</code></a></td>
+              <td>RLUSD in a settlement hub on the XRP Ledger</td>
+              <td>a hub on the XRP Ledger</td>
+              <td>mainnet</td>
+              <td>RLUSD, as USD</td>
+              <td>live</td>
+              <td><code>/pay/rlusd</code></td>
+            </tr>
+            <tr>
+              <td><a href="#stub"><code>stub</code></a></td>
+              <td>Stub</td>
+              <td>none</td>
+              <td>none</td>
+              <td>USD</td>
+              <td>test</td>
+              <td><code>/pay/usd</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="owner-books">Owner books</h2>
+      <p>
+        The schemes on the XRP Ledger itself are owner books: they keep the
+        books of what your node holds on its own XRP Ledger account, with your
+        deposits and withdrawals, the ledger's fees and reserve. They peer
+        with nobody. Peers settle with each other only over settlement hubs,
+        and a hub is funded from the owner book of its asset.
+      </p>
+      <p>
+        Your node has one account on each network, whose keys come from your
+        recovery phrase. The XRP and the dollar token of a network sit on the
+        same account, and a token's fees are paid in that account's XRP. An
+        owner book takes no config of its own: leave it empty.
+      </p>
+      <dl class="ref">
+        <dt id="xrpl-testnet-xrp"><code>xrpl-testnet-xrp</code></dt>
+        <dd>
+          <p>
+            XRP on the XRP Ledger testnet, on ledger
+            <code>xrpl-testnet-xrp+xrp</code>. It settles through the external
+            asset <code>xrpl-testnet-account/0</code>. An account without
+            funds asks the testnet faucet for test XRP.
+          </p>
+        </dd>
+        <dt id="xrpl-testnet-dsusd"><code>xrpl-testnet-dsusd</code></dt>
+        <dd>
+          <p>
+            DSUSD on the XRP Ledger testnet: Dassie's own test dollar token,
+            issued by <code>rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M</code>, booked
+            as <code>USD</code> on ledger
+            <code>xrpl-testnet-dsusd+usd</code>. It settles through
+            <code>xrpl-testnet-account/0</code> too, and pays its fees in that
+            account's XRP. See
+            <a href="/docs/wallet/peg-guard/">Dollar tokens and the peg
+            guard</a>.
+          </p>
+        </dd>
+        <dt id="xrpl-xrp"><code>xrpl-xrp</code></dt>
+        <dd>
+          <p>
+            XRP on the XRP Ledger mainnet, on ledger <code>xrpl-xrp+xrp</code>,
+            through <code>xrpl-account/0</code>. Real money, in the live
+            realm, which nodes refuse today. Mainnet has no faucet.
+          </p>
+        </dd>
+        <dt id="xrpl-rlusd"><code>xrpl-rlusd</code></dt>
+        <dd>
+          <p>
+            RLUSD on the XRP Ledger mainnet, issued by
+            <code>rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De</code>, booked as
+            <code>USD</code> on ledger <code>xrpl-rlusd+usd</code>, through
+            <code>xrpl-account/0</code>. Real money, in the live realm, which
+            nodes refuse today.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        RLUSD on the testnet, <code>xrpl-testnet-rlusd</code>, is disabled:
+        DSUSD stands in for it. A node that ran it before keeps its books as
+        they were, but the scheme no longer starts and cannot be added.
+      </p>
+
+      <h3 id="account-config">The account's config</h3>
+      <p>
+        The external asset, your node's account on a network, has a config of
+        its own, apart from its schemes. Set it with
+        <a href="/docs/reference/cli/#dassie-setup"><code>dassie setup --asset</code></a>,
+        or with <code>SetAssetConfig</code> in the owner's API. An account
+        already running keeps its old config until the node restarts. The
+        config is JSON, each field optional; empty takes the network's
+        defaults:
+      </p>
+      <dl class="ref">
+        <dt><code>server</code></dt>
+        <dd>
+          <p>
+            The XRP Ledger server, a <code>wss://</code> URL. By default the
+            project's <a href="/docs/reference/proof-servers/">proof
+            server</a> of that network. A server on another network than the
+            account's stops the account.
+          </p>
+        </dd>
+        <dt><code>faucet</code></dt>
+        <dd>
+          <p>
+            The faucet an account without funds asks, an
+            <code>https://</code> URL, or <code>null</code> to never ask. By
+            default the testnet's. Mainnet takes only <code>null</code>.
+          </p>
+        </dd>
+        <dt><code>publishers</code></dt>
+        <dd>
+          <p>
+            The validator list publishers whose lists the node checks the
+            ledger's proofs against. By default the network's own; a list you
+            give replaces them.
+          </p>
+        </dd>
+      </dl>
+      <pre><code><span class="prompt">$</span>dassie setup --passphrase-file /root/phrase.txt \
+  --asset 'xrpl-testnet-account/0={"server":"wss://xrpl.example.net"}'</code></pre>
+
+      <h2 id="hub-schemes">Hub schemes</h2>
+      <p>
+        A hub scheme is your node's account in one
+        <a href="/docs/concepts/hubs/">settlement hub</a>, and the way it
+        settles with its peers. A node is in at most one hub per asset, and
+        the scheme's ID names that account too. Deposits into the hub leave
+        the owner book of its asset, and withdrawals reach it, so a node in a
+        hub runs that owner book as well. A DSUSD hub needs the XRP book
+        beside it, which pays its escrow's fees.
+      </p>
+      <p>
+        A hub scheme's config is the rules of its hub,
+        <code>{"rules":"&lt;hex&gt;"}</code>, which the hub's founder gives
+        out. Where the release has a <a href="#default-hubs">default hub</a>
+        built in for the scheme, adding it without a config joins that hub,
+        and the node stores the hub's rules as the config, so the scheme
+        stays in that hub whatever a later release's default is. To
+        see and move the funds in a hub, use the wallet's
+        <a href="/docs/wallet/hubs/">Hubs page</a> or
+        <a href="/docs/reference/cli/#dassie-hub"><code>dassie hub</code></a>.
+      </p>
+      <dl class="ref">
+        <dt id="hub-xrpl-testnet-xrp"><code>hub-xrpl-testnet-xrp</code></dt>
+        <dd>
+          <p>
+            XRP in a hub on the XRP Ledger testnet, on ledger
+            <code>hub-xrpl-testnet-xrp+xrp</code>, funded from
+            <code>xrpl-testnet-xrp</code>. Once the testnet's default hub is
+            built in, this is the hub <code>dassie setup</code> joins by
+            default in the test realm. That default is
+            <a href="/docs/project/roadmap/">not there yet</a>.
+          </p>
+        </dd>
+        <dt id="hub-xrpl-testnet-dsusd"><code>hub-xrpl-testnet-dsusd</code></dt>
+        <dd>
+          <p>
+            DSUSD in a hub on the XRP Ledger testnet, booked as
+            <code>USD</code> on ledger <code>hub-xrpl-testnet-dsusd+usd</code>,
+            funded from <code>xrpl-testnet-dsusd</code>, with
+            <code>xrpl-testnet-xrp</code> paying its escrow's fees.
+          </p>
+        </dd>
+        <dt id="hub-xrpl-xrp"><code>hub-xrpl-xrp</code></dt>
+        <dd>
+          <p>
+            XRP in a hub on the XRP Ledger mainnet, on ledger
+            <code>hub-xrpl-xrp+xrp</code>, funded from <code>xrpl-xrp</code>.
+            Real money, in the live realm, which nodes refuse today.
+          </p>
+        </dd>
+        <dt id="hub-xrpl-rlusd"><code>hub-xrpl-rlusd</code></dt>
+        <dd>
+          <p>
+            RLUSD in a hub on the XRP Ledger mainnet, booked as
+            <code>USD</code> on ledger <code>hub-xrpl-rlusd+usd</code>, funded
+            from <code>xrpl-rlusd</code>, with <code>xrpl-xrp</code> paying
+            its escrow's fees. Real money, in the live realm, which nodes
+            refuse today.
+          </p>
+        </dd>
+      </dl>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hubs-only.md">Why peers settle only over hubs</a>
+      </p>
+
+      <h2 id="default-hubs">Default hubs</h2>
+      <p>
+        A release can build in a default hub for each hub scheme, with that
+        hub's rules. This release builds in none yet. While a scheme has no
+        default, the wallet does not offer it, and you add it only with the
+        rules of a hub as its config. <code>dassie setup</code> joins no hub
+        by default, and says that this build has no default hub yet. Once a
+        scheme has a default built in, the wallet offers it, and adding it
+        without a config joins that hub.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Scheme</th>
+              <th>Default hub</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>hub-xrpl-testnet-xrp</code></td>
+              <td>None built in yet.</td>
+            </tr>
+            <tr>
+              <td><code>hub-xrpl-testnet-dsusd</code></td>
+              <td>None built in yet.</td>
+            </tr>
+            <tr>
+              <td><code>hub-xrpl-xrp</code></td>
+              <td>None built in yet.</td>
+            </tr>
+            <tr>
+              <td><code>hub-xrpl-rlusd</code></td>
+              <td>None built in yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="not-yet">
+        The default hubs are not there yet: the testnet's two come once the
+        bootstrap nodes found them again under the current rules, and
+        mainnet's once the project's validators found them. Until then, join a
+        hub with its rules, as its founder gives them out.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p>
+        To found a hub of your own, see
+        <a href="/docs/services/found-a-hub/">Found a hub</a>.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hub-named-when-added.md">Why a scheme stays in the hub it was added with</a>
+      </p>
+
+      <h2 id="testing">For testing</h2>
+      <dl class="ref">
+        <dt id="stub"><code>stub</code></dt>
+        <dd>
+          <p>
+            Test dollars with no ledger beneath them, on ledger
+            <code>stub+usd</code>, for development and tests. Anyone peered
+            over it can mint money, so only a build with debug assertions
+            runs it: the <a href="/docs/build/dev-network/">local dev
+            network</a>, the tests and the simulations. A release neither
+            offers nor runs it.
+          </p>
+          <p>
+            Its config picks its kind: <code>{"trust":"unlimited"}</code> or
+            empty, whose peers never settle, or
+            <code>{"commitments":N}</code>, which behaves like a hub's member
+            without a hub.
+          </p>
+        </dd>
+      </dl>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/stub-in-debug-builds.md">Why the stub stays out of releases</a>
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

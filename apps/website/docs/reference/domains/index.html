@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="The domain names Dassie uses: which ones others keep and never move, and which ones name the project's own machines."
+    />
+    <title>Public domains · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Public domains</h1>
+      <p class="lede">
+        Dassie uses a handful of domain names. Some end up in places the
+        project can't reach, such as other people's wallets, the XRP Ledger
+        and owners' scripts, so they never move. The rest name the project's
+        own machines, and a release can move them.
+      </p>
+
+      <h2 id="the-names">The names</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>What it is</th>
+              <th>Can it move?</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>dassiepay.net</code></td>
+              <td>
+                <a href="#payment-names">Payment names</a>:
+                <code>&lt;node ID&gt;.dassiepay.net</code> and
+                <code>&lt;name&gt;.dassiepay.net</code>
+              </td>
+              <td>Never</td>
+            </tr>
+            <tr>
+              <td><code>test.dassiepay.net</code></td>
+              <td>
+                Reserved for the testnet's payment names, which move there
+                later; not used yet
+              </td>
+              <td>Never</td>
+            </tr>
+            <tr>
+              <td><code>dassie.land</code></td>
+              <td>
+                This site, and the domain of Dassie's
+                <a href="#memo-types">memo types</a>
+              </td>
+              <td>Never</td>
+            </tr>
+            <tr>
+              <td><code>get.dassie.land</code></td>
+              <td><a href="#the-mirror">The release mirror</a></td>
+              <td>Never</td>
+            </tr>
+            <tr>
+              <td><code>sh.dassie.land</code></td>
+              <td><a href="#the-mirror">The installer</a></td>
+              <td>Never</td>
+            </tr>
+            <tr>
+              <td><code>relay.dassiepay.net</code></td>
+              <td>
+                Where a node connects to the project's front door as its
+                relay, so that it can be reached at its payment names. Not
+                built into the release yet
+              </td>
+              <td>With a release</td>
+            </tr>
+            <tr>
+              <td>
+                <code>boot1.dassie.xyz</code> to
+                <code>boot4.dassie.xyz</code>
+              </td>
+              <td>
+                The testnet's bootstrap nodes. Not built into the release
+                yet
+              </td>
+              <td>With a release</td>
+            </tr>
+            <tr>
+              <td>
+                <code>testnet.xrpl.dassieland.net</code>,
+                <code>mainnet.xrpl.dassieland.net</code>
+              </td>
+              <td><a href="/docs/reference/proof-servers/">Proof servers</a></td>
+              <td>With a release</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A name that never moves can still gain a successor: the new name is
+        served beside the old one for as long as anyone may still use the
+        old one.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/public-domains.md"
+          >Why it works this way</a
+        >
+        and why payment names live apart from <code>dassie.land</code>.
+      </p>
+
+      <h2 id="payment-names">Payment names</h2>
+      <p>
+        A node without a hostname of its own is paid at its node ID under
+        <code>dassiepay.net</code>, such as
+        <code>gstpaogawdidju5a6m4lolevaes3cm4dj7omffq.dassiepay.net</code>.
+        A node that holds a name is also paid at
+        <code>&lt;name&gt;.dassiepay.net</code>. Its wallet addresses are
+        under that name: <code>https://&lt;name&gt;.dassiepay.net/.well-known/pay</code>
+        for its default asset and
+        <code>https://&lt;name&gt;.dassiepay.net/pay/&lt;asset&gt;</code> for
+        each one, as on the
+        <a href="/docs/reference/open-payments/">Open Payments endpoints</a>
+        page.
+      </p>
+      <p>
+        The node answers to these names, but a request reaches it only
+        while it keeps a connection to the front door, which it does when
+        <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
+        names that front door. Without one, the front door answers requests
+        for the node with <code>503</code>.
+      </p>
+      <p class="not-yet">
+        The front door's entry is not built into the release yet, so a node
+        keeps no relay unless you set <code>DASSIE_RELAY</code>.
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      </p>
+      <ul>
+        <li>
+          <strong>Others keep these names.</strong> Other wallets store them
+          as wallet addresses, in grants and in payment requests. That is
+          why the domain never moves.
+        </li>
+        <li>
+          <strong>A front door answers for them.</strong> It passes each
+          request on to the node over the connection the node keeps to it.
+          The node signs every answer with its own key, and a Dassie-aware
+          client checks that signature against the node ID in the host, or,
+          for a name, against the node that holds the name in the client's
+          view of the registrars' lists. So the front door can't answer in
+          the node's place.
+          <a href="/docs/build/signed-responses/">Signed responses and names</a>
+          shows how.
+        </li>
+        <li>
+          <strong>Some labels are reserved.</strong> <code>relay</code> and
+          <code>test</code> are the project's, and nobody can register them
+          as a name, along with others such as <code>www</code> and
+          <code>admin</code>. The full list is <code>RESERVED</code> in
+          <a href="https://github.com/justmoon/dassie/blob/main/crates/dassie-peer/src/names/name.rs"><code>name.rs</code></a>.
+        </li>
+        <li>
+          <strong>A node with its own hostname</strong> is paid under that
+          hostname alone, and the payment names don't apply to it.
+        </li>
+      </ul>
+      <p>
+        Dassie takes test money only, and a node refuses the live realm. So
+        every name under <code>dassiepay.net</code> today belongs to a
+        testnet node. Testnet names can be reset along with the testnet, so
+        don't print one anywhere you can't change later.
+        <a href="/docs/concepts/names/">Names and addresses</a> explains how
+        a node gets a name.
+      </p>
+      <p class="not-yet">
+        The move of testnet names to <code>&lt;node ID&gt;.test.dassiepay.net</code>
+        and <code>&lt;name&gt;.test.dassiepay.net</code>, which leaves
+        <code>dassiepay.net</code> to the live realm, is not there yet.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+
+      <h2 id="memo-types">Memo types</h2>
+      <p>
+        A payment on the XRP Ledger can carry memos, and each memo has a
+        type. Dassie's memo types are URIs under
+        <code>https://dassie.land/</code>. They stay on the ledger for good,
+        so their meaning never changes: a new meaning gets a new path.
+      </p>
+      <dl class="ref">
+        <dt id="hub-open-v1"><code>https://dassie.land/hub/open/v1</code></dt>
+        <dd>
+          <p>
+            The memo on the deposit that opens an account in a settlement
+            hub. It goes to the hub's escrow with destination tag 0, and
+            the memo's data is the new account's key, 32 bytes. Your node writes it
+            with its first deposit to a hub, and wallets outside Dassie may
+            write it too. Later deposits name the account by its tag and
+            need no memo.
+            <a href="/docs/concepts/hubs/">Settlement hubs</a> explains the
+            rest.
+          </p>
+        </dd>
+        <dt id="settlement-memo">
+          <code>https://dassie.land/settlement/&lt;scheme&gt;/v&lt;n&gt;</code>
+        </dt>
+        <dd>
+          <p>
+            Once marked settlements made directly on the XRP Ledger, one
+            type per scheme, such as <code>xrpl-testnet-xrp</code>. Nodes
+            now settle only through settlement hubs, so no node writes or
+            reads these. The memos already on the ledger keep their
+            meaning.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        A memo type is a name, not a link. Nothing is served at its path,
+        and nothing fetches it.
+      </p>
+
+      <h2 id="the-mirror">The mirror and the installer</h2>
+      <ul>
+        <li>
+          <strong><code>get.dassie.land</code></strong> holds every release,
+          its signed sums and its NixOS flake. The installer and
+          <code>dassie update</code> download from it, and a NixOS owner's
+          <code>flake.lock</code> records a release's flake there.
+          <a href="/docs/reference/mirror/">Release mirror and key</a> lists
+          what it holds. To use another mirror, set
+          <a href="/docs/reference/environment/#DASSIE_MIRROR_URL"><code>DASSIE_MIRROR_URL</code></a>
+          or pass <code>dassie update --mirror &lt;url&gt;</code>.
+        </li>
+        <li>
+          <strong><code>sh.dassie.land</code></strong> serves
+          <code>install.sh</code>, which the one-line install runs:
+        </li>
+      </ul>
+      <pre><code><span class="prompt">$</span>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh</code></pre>
+      <p>
+        Both realms share the mirror, since one binary serves both.
+      </p>
+
+      <h2 id="the-projects-machines">The project's own machines</h2>
+      <p>
+        The proof servers are named in the release, and nothing outside a
+        release stores them. So a release can move them, and nodes follow
+        when they update. The bootstrap nodes and the front door's relay
+        address run too, but a node doesn't use them unless you name them.
+      </p>
+      <p class="not-yet">
+        The bootstrap nodes and the front door's relay entry are not built
+        into the release yet: they come with the testnet's reset, which
+        gives them new node IDs. Until then a node runs alone and keeps no
+        relay unless you set the variables below.
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      </p>
+      <p>You can name machines of your own, or the project's:</p>
+      <ul>
+        <li>
+          Other bootstrap nodes with
+          <a href="/docs/reference/environment/#DASSIE_BOOTSTRAP_NODES"><code>DASSIE_BOOTSTRAP_NODES</code></a>.
+        </li>
+        <li>
+          Another relay, or none, with
+          <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>.
+          <a href="/docs/desktop/reach/">How others reach you</a> explains
+          what the relay does.
+        </li>
+        <li>
+          Another proof server for your XRP Ledger account, as
+          <a href="/docs/reference/proof-servers/">Proof servers</a> shows.
+        </li>
+      </ul>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

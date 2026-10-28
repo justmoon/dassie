@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="The rate feed's UDP datagrams, byte for byte: Subscribe, Challenge and the signed Feed, how a subscriber checks one, and how versions change."
+    />
+    <title>Rate feed wire format · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Rate feed wire format</h1>
+      <p class="lede">
+        A core node publishes what it converts at as a signed UDP datagram,
+        its rate feed. This page describes every byte of it, for anyone who
+        writes their own subscriber.
+        <a href="/docs/build/rate-feed/">Read a rate feed</a> shows how to
+        use one.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="the-socket">Where the feed is</h2>
+      <p>
+        A core node serves its feed on a UDP port of its own, 7768 by
+        default, at the host of its URL. Two places name the port:
+      </p>
+      <ul>
+        <li>
+          <strong>The discovery document,</strong>
+          <code>https://&lt;host&gt;/.well-known/dassie/node</code>, as
+          <code>feedPort</code>, beside the node's <code>id</code>, its
+          <code>publicKey</code> and its <code>slhDsaPublicKey</code>, both
+          in base64url.
+        </li>
+        <li>
+          <strong>The node's link state,</strong> in extension type 3, for
+          tools that read link states.
+        </li>
+      </ul>
+      <p>
+        Neither names a port the node doesn't serve. A periphery node, one
+        without a URL, has no feed.
+      </p>
+
+      <h2 id="encoding">Encoding</h2>
+      <p>
+        Every datagram is canonical OER (ITU-T X.696) and starts with a
+        version byte, today <code>2</code>. Integers are big-endian and
+        fixed in size. Lengths are OER length determinants: one byte below
+        128, otherwise <code>0x80</code> plus the number of bytes that
+        follow. A list count is the count as a big-endian integer in as few
+        bytes as it fits, after one byte that gives how many bytes it takes:
+        zero entries is <code>01 00</code>, two is <code>01 02</code>. A
+        <code>CHOICE</code> tag is one byte, <code>0x80</code> plus the tag
+        number.
+      </p>
+      <p>
+        Every value has exactly one encoding, and a decoder refuses anything
+        else: lists in another order, a pair twice, non-zero padding, or a
+        length not written in its shortest form. So a feed's bytes are
+        exactly what was signed. Every datagram fits in 1,200 bytes, which
+        one packet carries on any path IPv6 runs on.
+      </p>
+      <pre><code>Datagram ::= SEQUENCE {
+  version  UInt8 (2),
+  message  CHOICE {
+    subscribe [0] SEQUENCE {
+      cookie   CHOICE { absent [0] NULL, present [1] OCTET STRING (SIZE (16)) },
+      padding  zero octets, up to 64 bytes in all
+    },
+    challenge [1] SEQUENCE { cookie OCTET STRING (SIZE (16)) },
+    feed      [2] SEQUENCE {
+      feed       OCTET STRING CONTAINING Feed,  -- what the signature covers
+      signature  OCTET STRING (SIZE (64))
+    }
+  }
+}
+
+Feed ::= SEQUENCE {
+  type             OBJECT IDENTIFIER (1.3.6.1.4.1.54392.5.1399.3.2),
+  publicKey        OCTET STRING (SIZE (32)),
+  sequence         UInt64,                       -- ms, only grows
+  validUntil       UInt64,                       -- ms, after sequence
+  feePpm           UInt32 (0..1000000),
+  methods          SEQUENCE (SIZE (0..8)) OF SEQUENCE {   -- ascending by id
+    id               IA5String (SIZE (2..32)),  -- a scheme's, [a-z0-9-]
+    maxPacketAmount  UInt64
+  },
+  rates            SEQUENCE (SIZE (0..56)) OF SEQUENCE {  -- ascending
+    from UInt8, to UInt8,                       -- indexes into methods
+    rate UInt64                                 -- out per in, × 10^15
+  }
+}</code></pre>
+      <p>
+        The layouts are in
+        <a href="https://github.com/justmoon/dassie/blob/main/crates/dassie-feed/src/wire.rs"><code>crates/dassie-feed/src/wire.rs</code></a>.
+      </p>
+
+      <h2 id="subscribe">Subscribe</h2>
+      <p>From a subscriber to the node. Always exactly 64 bytes.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Bytes</th>
+              <th>Field</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>02</code></td>
+              <td>Version</td>
+            </tr>
+            <tr>
+              <td><code>80</code></td>
+              <td>Subscribe</td>
+            </tr>
+            <tr>
+              <td><code>80</code>, or <code>81</code> and 16 bytes</td>
+              <td>No cookie, or the cookie the node handed out last</td>
+            </tr>
+            <tr>
+              <td>Zeros</td>
+              <td>Padding, to 64 bytes in all</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The padding makes a Subscribe at least as large as the node's
+        Challenge, so the node never answers an address with more bytes
+        than it got from it.
+      </p>
+
+      <h2 id="challenge">Challenge</h2>
+      <p>
+        From the node, in answer to a Subscribe without a valid cookie.
+        Always 18 bytes: <code>02</code>, <code>81</code>, then the 16-byte
+        cookie. Send a Subscribe with that cookie at once.
+      </p>
+      <p>
+        The cookie proves that you receive datagrams at your address: it is
+        an HMAC-SHA256 of your address, port and the current two-minute
+        epoch, cut to 16 bytes, under a secret the node draws each time it
+        starts. The node takes a cookie in its own epoch and the next, so it
+        lives two to four minutes. When you renew with one from the epoch
+        before, the node sends a fresh Challenge along with your renewal.
+        After the node restarts, every cookie is void, and you are
+        challenged again.
+      </p>
+
+      <h2 id="feed">Feed</h2>
+      <p>
+        From the node, to every subscriber, once per feed. The outer part is
+        <code>02</code>, <code>82</code>, the length of the signed feed, the
+        signed feed, then the 64-byte Ed25519 signature. The signed feed's
+        fields:
+      </p>
+      <dl class="ref">
+        <dt id="type"><code>type</code></dt>
+        <dd>
+          <p>
+            The object identifier <code>1.3.6.1.4.1.54392.5.1399.3.2</code>,
+            always these 14 bytes:
+            <code>0d 2b 06 01 04 01 83 a8 78 05 8a 77 03 02</code>. It
+            makes sure a feed's signature never passes for anything else
+            the node signs.
+          </p>
+        </dd>
+        <dt id="publicKey"><code>publicKey</code></dt>
+        <dd>
+          <p>
+            The node's Ed25519 public key, 32 bytes. The node's ID derives
+            from it and from its SLH-DSA key, which the feed leaves out.
+          </p>
+        </dd>
+        <dt id="sequence"><code>sequence</code></dt>
+        <dd>
+          <p>
+            When the feed was made, in milliseconds since the Unix epoch.
+            Each feed of a node has a larger one, even if its clock went
+            back.
+          </p>
+        </dd>
+        <dt id="validUntil"><code>validUntil</code></dt>
+        <dd>
+          <p>
+            When the feed stops counting, in milliseconds; always after
+            <code>sequence</code>. Usually 90 seconds after it, three
+            heartbeats, or earlier when a rate the node uses ages out.
+          </p>
+        </dd>
+        <dt id="feePpm"><code>feePpm</code></dt>
+        <dd>
+          <p>
+            The fee the node takes from every packet it passes on, in parts
+            per million, at most 1,000,000.
+          </p>
+        </dd>
+        <dt id="methods"><code>methods</code></dt>
+        <dd>
+          <p>
+            The settlement methods the node's peers pay it on, at most 8,
+            in ascending order of their IDs, each once. Each is its
+            scheme's ID, such as <code>hub-xrpl-testnet-xrp</code>
+            (<a href="/docs/reference/schemes/">Schemes and hubs</a>), with
+            the largest amount one packet may carry when it comes in on that
+            method, in the units of the scheme's ledger. IDs are strings, so
+            a subscriber can read a feed that names a method it doesn't
+            know.
+          </p>
+        </dd>
+        <dt id="rates"><code>rates</code></dt>
+        <dd>
+          <p>
+            One rate per ordered pair of methods the node converts between,
+            at most 56, in ascending order of <code>(from, to)</code>.
+            <code>from</code> and <code>to</code> are indexes into
+            <code>methods</code>, never equal. <code>rate</code> is what one
+            unit in gets out, times 10<sup>15</sup>, in the units of each
+            method's ledger, the node's spread included, and never zero. A
+            pair the node doesn't convert now is left out.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        A packet that comes in with <code>amount</code> on one method goes
+        out on the other with at most
+        <code>floor((amount − fee) × rate / 10^15)</code>, the fee being
+        <code>feePpm</code> of <code>amount</code>. It gets less the larger
+        it is against the node's holdings, since each packet pays for its
+        own effect on them. The rates are what a vanishingly small packet
+        gets, so a feed never promises more than a packet gets.
+      </p>
+
+      <h3 id="an-example">An example</h3>
+      <p>
+        A heartbeat from a node with no methods, from the test vectors: 137
+        bytes.
+      </p>
+      <pre><code><span class="comment"># version, Feed, length 70</span>
+02 82 46
+<span class="comment"># type</span>
+0d 2b 06 01 04 01 83 a8 78 05 8a 77 03 02
+<span class="comment"># publicKey</span>
+03 a1 07 bf f3 ce 10 be 1d 70 dd 18 e7 4b c0 99
+67 e4 d6 30 9b a5 0d 5f 1d dc 86 64 12 55 31 b8
+<span class="comment"># sequence 1790000000000, validUntil 1790000090000</span>
+00 00 01 a0 c4 50 6c 00
+00 00 01 a0 c4 51 cb 90
+<span class="comment"># feePpm 1000</span>
+00 00 03 e8
+<span class="comment"># no methods, no rates</span>
+01 00
+01 00
+<span class="comment"># signature</span>
+db 9c c6 13 70 a3 90 2c db 94 30 e9 2f 09 43 98
+d4 de 9f f0 ba b1 ed 9a 2e ab e1 2e ae 7d 1d 4c
+ca 8d a0 77 71 b3 d3 30 6e f8 cc 31 ba ed da fe
+a7 37 5a f3 ad 55 61 ff 26 11 e7 9a 0a 7d cc 03</code></pre>
+
+      <h2 id="checking-a-feed">Checking a feed</h2>
+      <p>
+        The signature is Ed25519 by the node key, over the signed feed's
+        bytes exactly as received, starting with <code>type</code>. Before
+        you act on a feed:
+      </p>
+      <ol class="steps">
+        <li>
+          Take datagrams only from the node's address and port.
+        </li>
+        <li>
+          Decode it, and refuse it if it is of another version, not
+          canonical, or breaks a rule above.
+        </li>
+        <li>
+          Verify the signature by the ZIP-215 rules, and refuse a key of
+          small order.
+        </li>
+        <li>
+          Check that <code>publicKey</code> is the Ed25519 key of the node
+          you subscribed to. You learned both its keys, and checked them
+          against its ID, from its discovery document or its link state.
+        </li>
+        <li>
+          Take it only if its <code>sequence</code> is after the last one
+          you took and <code>validUntil</code> is still ahead, so a
+          replayed or delayed datagram never sets rates back.
+        </li>
+      </ol>
+      <p>
+        A feed is signed, not encrypted. It says nothing the node's packets
+        wouldn't.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/rate-feed.md#signing"
+          >Why it works this way</a
+        >
+        and why a feed carries only the key that signs it.
+      </p>
+
+      <h2 id="timing">Timing and limits</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>What</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Least time between two feeds</td>
+              <td>1 second</td>
+            </tr>
+            <tr>
+              <td>Heartbeat, when nothing changes</td>
+              <td>30 seconds</td>
+            </tr>
+            <tr>
+              <td>How long a feed counts</td>
+              <td>90 seconds at most</td>
+            </tr>
+            <tr>
+              <td>How often a subscriber renews</td>
+              <td>Every minute</td>
+            </tr>
+            <tr>
+              <td>A subscription without renewal lasts</td>
+              <td>5 minutes</td>
+            </tr>
+            <tr>
+              <td>Subscribers per node</td>
+              <td>1,024</td>
+            </tr>
+            <tr>
+              <td>Subscribers per client (an IPv4 address or IPv6 /56)</td>
+              <td>4</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A full table refuses newcomers and sends them nothing; it never
+        pushes out a subscriber who keeps renewing. A newly subscribed
+        address gets the latest feed at once, if it still counts. Feeds are
+        sent once, with no retries.
+      </p>
+
+      <h2 id="versions">Versions</h2>
+      <p>
+        Within a version, the layout never changes: subscribers run software
+        of their own, outside Dassie's releases. A change is a new version
+        byte, and its feed is signed under a new object identifier, so no
+        signature passes for another version's.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Version</th>
+              <th>Signed under</th>
+              <th>Names</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>2</code></td>
+              <td><code>…1399.3.2</code></td>
+              <td>The settlement methods peers pay the node on. Nodes speak it.</td>
+            </tr>
+            <tr>
+              <td><code>1</code></td>
+              <td><code>…1399.3.1</code></td>
+              <td>The node's ledgers. Refused.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A datagram of any other version is refused. The bounds on methods
+        and rates are part of the layout: a feed with every field at its
+        bound still fits in one datagram, and one method more would not.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/feed-by-method.md"
+          >Why a feed names methods</a
+        >
+        and why it is a signed datagram rather than an HTTPS endpoint, in
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/passive-rebalancing.md"
+          >passive rebalancing</a
+        >.
+      </p>
+
+      <h2 id="test-vectors">Test vectors</h2>
+      <p>
+        <a href="https://github.com/justmoon/dassie/blob/main/testdata/feed/vectors.json"><code>testdata/feed/vectors.json</code></a>
+        holds Subscribes, a Challenge, feeds from a heartbeat to the largest
+        the bounds allow (1,027 bytes), and feeds that decode but must not
+        verify, all signed with a fixed key. A changed vector means a new
+        version.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>
