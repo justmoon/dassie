@@ -151,6 +151,17 @@ pub trait PeeringHooks {
     /// peers' (spec/decisions/account-budgets.md).
     fn wants_method(&self, peer: NodeId, downlink: bool, scheme: SchemeId) -> bool;
 
+    /// Whether the node takes a newcomer on `scheme` now, a new peering or
+    /// a further method of one, from a downlink if `downlink`, else from a
+    /// core node: a node whose pool in a hub would not cover one more peer
+    /// takes none over it (spec/decisions/slots-by-liquidity.md). One it
+    /// does not take it refuses for capacity, as past its caps, and asks
+    /// none. Every one by default.
+    fn takes_newcomer(&self, scheme: SchemeId, downlink: bool) -> bool {
+        let _ = (scheme, downlink);
+        true
+    }
+
     /// Whether nothing is in flight with `peer` any more: no packet waits
     /// for its response, in either direction. A terminating peering ends
     /// only then, so no response is lost with it.

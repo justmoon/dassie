@@ -8,7 +8,8 @@
  * (spec/areas/hubs.md#payout-bundles). No stream carries hubs, so the page
  * asks again every few seconds while it shows (spec/areas/wallet.md#live-data).
  * A token hub its issuer froze says so, and since when
- * (spec/areas/hubs.md#a-frozen-hub). A withdrawal from a token hub that
+ * (spec/areas/hubs.md#a-frozen-hub), and one whose pool takes no newcomer
+ * says whom it refuses (spec/decisions/slots-by-liquidity.md). A withdrawal from a token hub that
  * the node holds back while it checks the escrow's XRP goes again by
  * itself, a few times, while the page shows. It draws in Kopje
  * (apps/website/brand/index.html): the value cube only beside the balance,
@@ -66,6 +67,7 @@ import {
   HUB_POLL_MS,
   hubCurrency,
   hubIssuerText,
+  hubLiquidityText,
   hubStandingText,
   LATE_TEXT,
   moveText,
@@ -236,6 +238,17 @@ function HubCard(
               : "Held by its issuer"}
             tone="warning"
             testid={`hub-frozen-${id()}`}
+          >
+            {text()}
+          </Alert>
+        )}
+      </Show>
+      <Show when={hubLiquidityText(props.status, props.polled.now())}>
+        {(text) => (
+          <Alert
+            title="Short of funds for its peers"
+            tone="warning"
+            testid={`hub-liquidity-${id()}`}
           >
             {text()}
           </Alert>

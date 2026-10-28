@@ -194,10 +194,16 @@ pub enum TerminationReason {
     /// without a settlement, for too long
     /// (spec/decisions/peering-lifecycle.md).
     ShortOfRoom,
+    /// The sender's pool in a settlement hub stayed short of a largest
+    /// packet for each of its peerings over it
+    /// (spec/decisions/slots-by-liquidity.md). Kept by the sender alone:
+    /// the message says no reason ([`TerminationReason::told`]).
+    ShortOfLiquidity,
 }
 
 impl TerminationReason {
-    /// The reason's code.
+    /// The reason's code, as the node's store keeps it; a message says
+    /// [`told`](Self::told)'s.
     #[must_use]
     pub const fn code(self) -> u8 {
         match self {
@@ -206,6 +212,18 @@ impl TerminationReason {
             Self::Unresponsive => 2,
             Self::NotPeered => 3,
             Self::ShortOfRoom => 4,
+            Self::ShortOfLiquidity => 5,
+        }
+    }
+
+    /// The reason as `peeringTermination` says it: an end for the sender's
+    /// own liquidity says none, as the peer did nothing to be kept away
+    /// for, and `dassie/2` keeps the reasons it had.
+    #[must_use]
+    pub const fn told(self) -> Self {
+        match self {
+            Self::ShortOfLiquidity => Self::Unspecified,
+            other => other,
         }
     }
 
@@ -217,6 +235,7 @@ impl TerminationReason {
             2 => Self::Unresponsive,
             3 => Self::NotPeered,
             4 => Self::ShortOfRoom,
+            5 => Self::ShortOfLiquidity,
             _ => Self::Unspecified,
         }
     }
@@ -347,7 +366,7 @@ impl Encode for Content<'_> {
             Self::PeeringInfoRequest { scheme }
             | Self::SettlementRequest { scheme }
             | Self::MethodDrop { scheme } => scheme.write(writer),
-            Self::PeeringTermination(reason) => writer.write_u8(reason.code()),
+            Self::PeeringTermination(reason) => writer.write_u8(reason.told().code()),
             Self::NameCommit(commitment) => writer.write_bytes(&commitment.0),
             Self::NameUnseal { name, salt } => {
                 write_name(writer, name);
@@ -405,7 +424,7 @@ impl<'a> Decode<'a> for Content<'a> {
                 scheme: SchemeId::read(reader)?,
             },
             Kind::PeeringTermination => {
-                Self::PeeringTermination(TerminationReason::from_code(reader.read_u8()?))
+                Self::PeeringTermination(TerminationReason::from_code(reader.read_u8()?).told())
             }
             Kind::SettlementRequest => Self::SettlementRequest {
                 scheme: SchemeId::read(reader)?,

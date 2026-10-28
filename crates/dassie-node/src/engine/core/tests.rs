@@ -7384,6 +7384,9 @@ mod move_races;
 // them.
 mod hold_allotment;
 
+// Fewer peer slots when a hub's pool is too short.
+mod liquidity;
+
 /// The package's directory, as cargo and nextest name it to a test they
 /// run, never `env!`'s from when the test compiled: a build is reused in
 /// other checkouts of the repository, whose files are their own.

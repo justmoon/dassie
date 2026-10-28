@@ -327,6 +327,51 @@ fn a_node_that_takes_no_further_method_keeps_one() {
     assert_eq!(methods(&network, 1, &a), [scheme(STUB)]);
 }
 
+// spec/decisions/slots-by-liquidity.md: a node whose pool over a scheme's
+// hub would not cover one more peer takes no newcomer on it, of the kind it
+// refuses: it asks none, and refuses one for capacity, a peering as a
+// further method; once it takes newcomers again, they come.
+#[test]
+fn a_scheme_that_takes_no_newcomer_is_neither_asked_nor_taken() {
+    let mut network = Network::new(76, 2, 1, Config::DEV);
+    for index in 0..2 {
+        network.set_running(index, scheme(SECOND), true);
+        network.nodes[index]
+            .hooks
+            .shut
+            .insert((scheme(STUB), false));
+    }
+    let (a, b) = (*network.node(0).own(), *network.node(1).own());
+    settle(&mut network, 60_000);
+    // Both peer, but on the scheme that takes newcomers only.
+    wait(&mut network, |network| {
+        network.node(0).is_advertised(&b) && network.node(1).is_advertised(&a)
+    });
+    assert_eq!(methods(&network, 0, &b), [scheme(SECOND)]);
+    let asks = |network: &Network| {
+        (network.trace.iter())
+            .filter(|line| line.ends_with("MethodAdd"))
+            .count()
+    };
+    assert_eq!(
+        asks(&network),
+        0,
+        "nobody asks on a scheme it takes none on"
+    );
+    // The one that asks takes newcomers again, the other not yet: it asks,
+    // and is refused.
+    let asked = requester(&network, &b);
+    network.nodes[asked].hooks.shut.clear();
+    settle(&mut network, 60_000);
+    assert!(asks(&network) >= 1);
+    assert_eq!(methods(&network, 0, &b), [scheme(SECOND)]);
+    assert_eq!(methods(&network, 1, &a), [scheme(SECOND)]);
+    network.nodes[1 - asked].hooks.shut.clear();
+    wait(&mut network, |network| {
+        methods(network, 0, &b) == two() && methods(network, 1, &a) == two()
+    });
+}
+
 // A peering's methods are persisted with it: a node that restarts holds
 // them as before, and settles on each.
 #[test]

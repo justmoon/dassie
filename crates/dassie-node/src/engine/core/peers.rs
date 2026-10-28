@@ -43,6 +43,9 @@ pub(super) struct Hooks<'a> {
     pub now_ms: u64,
     /// The largest packet, which a downlink's room is counted in.
     pub max_packet: u64,
+    /// The hubs whose pool takes no newcomer of a kind
+    /// (spec/decisions/slots-by-liquidity.md).
+    pub liquidity: &'a super::liquidity::Liquidity,
 }
 
 impl Hooks<'_> {
@@ -434,6 +437,19 @@ impl PeeringHooks for Hooks<'_> {
             }
     }
 
+    /// None over a hub whose pool would not cover one more of its kind
+    /// (spec/decisions/slots-by-liquidity.md).
+    fn takes_newcomer(&self, scheme: SchemeId, downlink: bool) -> bool {
+        let Ok(name) = Name::new(scheme.as_str()) else {
+            return true;
+        };
+        if downlink {
+            !self.liquidity.refuses_downlinks(name)
+        } else {
+            !self.liquidity.refuses_core(name)
+        }
+    }
+
     fn drained(&self, peer: NodeId) -> bool {
         self.endpoints
             .get(&peer)
@@ -777,6 +793,7 @@ impl Core {
             settings: self.peer_settings,
             now_ms: now,
             max_packet: self.settle.max_packet,
+            liquidity: &self.liquidity,
         };
         f(&mut self.peer, &mut hooks, now)
     }

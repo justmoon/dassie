@@ -151,6 +151,38 @@ message HubStatus {
   uint64 target = 23;
   // Whether the owner set the target.
   bool target_by_owner = 24;
+  // The pool against the node's peerings over the hub, once the node
+  // judged it: not before the hub agreed a state of the account, nor while
+  // the hub cannot pay the node's peers.
+  HubLiquidity liquidity = 25;
+}
+
+// What the node can have on hold toward its peers over a hub, against one
+// largest packet for each peering over it, as its last check found it
+// (spec/decisions/slots-by-liquidity.md). The node deposits to keep a packet
+// per peering and one more while its own account can pay; once it cannot, a
+// newcomer over the hub needs the pool to cover it too, core peers before
+// downlinks, and a pool short of its peerings for long enough ends some.
+message HubLiquidity {
+  // The pool: the balance and the node's holds toward its peers.
+  uint64 pool = 1;
+  // The peerings with a method over the hub, those being ended or winding
+  // it down aside.
+  uint32 peerings = 2;
+  // How many of them the pool covers, at one largest packet each.
+  uint64 covered = 3;
+  // Since when the pool has fallen short of them with no deposit of the
+  // node's own coming: its own account cannot pay, or its moves are off,
+  // paused, given up or backing off.
+  optional int64 short_since_unix_ms = 4;
+  // From when the node ends peerings over the hub, downlinks first, if the
+  // pool is still short then: as many as bring it back to a packet each.
+  // Never on a node outside the core without downlinks over the hub.
+  optional int64 ends_from_unix_ms = 5;
+  // Whether the node takes no new downlink over the hub.
+  bool refusing_downlinks = 6;
+  // Whether it takes no new core peer over the hub either, nor asks one.
+  bool refusing_core_peers = 7;
 }
 
 // Every hub the node is in whose scheme runs, in the order of their

@@ -50,11 +50,17 @@ impl PeerNode {
             }
             // Not while we are telling the peer we dropped it: the drop
             // could arrive after the request.
+            // Nor on a scheme that takes no newcomer of the peer's kind now
+            // (spec/decisions/slots-by-liquidity.md): asked again once it
+            // does.
+            let downlink = entry.is_downlink();
             let missing: Vec<SchemeId> = self
                 .methods_with(hooks, link)
                 .into_iter()
                 .filter(|scheme| {
-                    !peering.has(*scheme) && !self.dropping.contains_key(&(*id, *scheme))
+                    !peering.has(*scheme)
+                        && !self.dropping.contains_key(&(*id, *scheme))
+                        && hooks.takes_newcomer(*scheme, downlink)
                 })
                 .collect();
             // The one after the scheme asked for last, round the list.
@@ -280,7 +286,9 @@ impl PeerNode {
             Some(RefusalReason::Terminating)
         } else if self.bans.contains(&sender) {
             Some(RefusalReason::Banned)
-        } else if peering.methods.len() >= MAX_METHODS {
+        } else if peering.methods.len() >= MAX_METHODS
+            || !hooks.takes_newcomer(scheme, self.is_downlink(&sender))
+        {
             Some(RefusalReason::Capacity)
         } else if self.dropping.contains_key(&(sender, scheme)) {
             // Our drop of it is still on its way: asked again after it.

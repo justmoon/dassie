@@ -207,6 +207,33 @@ pub struct HubStatus {
     /// in [`Core::owner_hub_statuses`], also while a request of ours to
     /// settle over it is on its way or due.
     pub settling: bool,
+    /// The pool against the peerings over the hub, once a check judged it.
+    pub liquidity: Option<HubLiquidity>,
+}
+
+/// A hub's pool against the node's peerings over it, as the last check
+/// found it (spec/decisions/slots-by-liquidity.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HubLiquidity {
+    /// What the node can have on hold toward its peers there, in internal
+    /// units: the balance and its holds toward them.
+    pub pool: u64,
+    /// The peerings with a method over the hub, those being ended or
+    /// winding it down aside.
+    pub peerings: usize,
+    /// How many of them the pool covers at a largest packet each.
+    pub covered: u64,
+    /// Since when the pool has fallen short of them, without covering them
+    /// with the margin since.
+    pub short_since_ms: Option<u64>,
+    /// From when the node ends peerings over the hub, if the pool is still
+    /// short then; never on a node outside the core without downlinks.
+    pub ends_from_ms: Option<u64>,
+    /// Whether the node takes no new downlink over the hub.
+    pub refusing_downlinks: bool,
+    /// Whether it takes no new core peer over the hub either, nor asks
+    /// one.
+    pub refusing_core: bool,
 }
 
 /// Internal units in the hub asset's smallest unit, rounded up: a floor is
@@ -620,7 +647,7 @@ impl Core {
     /// kept from ten largest packets to the most an owner may set, should
     /// the largest packet change since; or the default
     /// (spec/decisions/generous-hub-target.md).
-    fn hub_target(&self, scheme: Name) -> u64 {
+    pub(super) fn hub_target(&self, scheme: Name) -> u64 {
         let max_packet = self.settle.max_packet;
         self.funding
             .get(&scheme)
@@ -676,7 +703,7 @@ impl Core {
 
     /// What a move of the hub of `scheme` is decided from, while the
     /// scheme runs.
-    fn standing(&self, scheme: Name) -> Option<Standing> {
+    pub(super) fn standing(&self, scheme: Name) -> Option<Standing> {
         let account = self.hub_account(scheme)?;
         let active = self.schemes.get(&scheme)?;
         let terms = account.terms();
@@ -716,6 +743,8 @@ impl Core {
             floor,
             ceiling,
             least_spendable,
+            least_pool: drops_up(self.least_pool(scheme)),
+            pool_step: policy::hub_step(target) / UNITS_PER_DROP,
             opening: fees
                 .account_reserve
                 .saturating_add(fees.starting_balance)
@@ -1497,7 +1526,23 @@ impl Core {
             frozen_since_ms: account.frozen(),
             escrow_held: account.escrow_held(),
             settling: self.hub_settling(scheme, funding, account),
+            liquidity: self.hub_liquidity(scheme),
         })
+    }
+
+    /// The pool of the hub of `scheme` against its peerings, as the last
+    /// check judged it (spec/decisions/slots-by-liquidity.md).
+    fn hub_liquidity(&self, scheme: Name) -> Option<HubLiquidity> {
+        self.shortfall(scheme)
+            .map(|(shortfall, ends_from_ms)| HubLiquidity {
+                pool: shortfall.pool,
+                peerings: shortfall.peerings,
+                covered: shortfall.covered,
+                short_since_ms: shortfall.since_ms,
+                ends_from_ms,
+                refusing_downlinks: shortfall.refusing_downlinks,
+                refusing_core: shortfall.refusing_core,
+            })
     }
 
     /// Whether settling over the hub of `scheme` is under way: a move

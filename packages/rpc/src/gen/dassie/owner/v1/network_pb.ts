@@ -282,8 +282,8 @@ export type NetworkPeer = Message<"dassie.owner.v1.NetworkPeer"> & {
 
   /**
    * Why it is being ended, if it is: "owner", "unresponsive", "not-peered",
-   * "short-of-room"
-   * or "unspecified".
+   * "short-of-room", "short-of-liquidity" (this node's own pool in a hub,
+   * spec/decisions/slots-by-liquidity.md) or "unspecified".
    *
    * @generated from field: string termination_reason = 10;
    */

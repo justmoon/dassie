@@ -6,8 +6,10 @@
 //!
 //! - `dassie hub status` shows each hub's account, its holds, the target it
 //!   keeps the account near, the floor below which it deposits, the
-//!   ceiling it withdraws beyond to the owner's own account, and the move
-//!   on its way.
+//!   ceiling it withdraws beyond to the owner's own account, the move on
+//!   its way, and how many peerings over the hub its pool covers, with the
+//!   newcomers the node refuses while it does not cover one more
+//!   (spec/decisions/slots-by-liquidity.md).
 //! - `dassie hub deposit <scheme> <amount>` and `dassie hub withdraw
 //!   <scheme> <amount>` move funds now, which pauses the node's own moves
 //!   of that hub for a while. A token hub's withdrawal may first have the
@@ -222,12 +224,62 @@ fn brief(status: &proto::HubStatus) -> String {
         Some(number) => format!("account {number}, {}", text(status, status.balance)),
         None => "no account yet".into(),
     };
+    let short = status
+        .liquidity
+        .as_ref()
+        .and_then(refusing)
+        .map(|refusing| format!("; {refusing}"))
+        .unwrap_or_default();
     format!(
-        "{account}, {}; {} of {} validators answering",
+        "{account}, {}; {} of {} validators answering{short}",
         standing(status),
         status.validators_answering,
         status.validators
     )
+}
+
+/// The newcomers the node refuses over a hub for want of pool, and why, if
+/// it refuses any (spec/decisions/slots-by-liquidity.md).
+fn refusing(liquidity: &proto::HubLiquidity) -> Option<String> {
+    let whom = match (liquidity.refusing_core_peers, liquidity.refusing_downlinks) {
+        (true, _) => "no new peers",
+        (false, true) => "no new downlinks",
+        (false, false) => return None,
+    };
+    let covers = format!(
+        "its pool covers {} of its {} peerings at a largest packet each",
+        liquidity.covered, liquidity.peerings
+    );
+    let why = if liquidity.short_since_unix_ms.is_some() {
+        covers
+    } else {
+        format!("{covers}, and no more")
+    };
+    Some(format!("takes {whom}: {why}"))
+}
+
+/// The pool against the peerings over the hub, in full: what it covers, the
+/// newcomers it refuses, and when the node ends peerings if it stays short.
+fn liquidity_text(status: &proto::HubStatus, liquidity: &proto::HubLiquidity) -> String {
+    let Some(refusing) = refusing(liquidity) else {
+        return format!(
+            "{} covers its {} peerings at a largest packet each, and more; takes new peers",
+            text(status, liquidity.pool),
+            liquidity.peerings
+        );
+    };
+    let ends = liquidity
+        .ends_from_unix_ms
+        .filter(|_| liquidity.short_since_unix_ms.is_some())
+        .map(|from| {
+            format!(
+                "; if it is still short at {}, the node ends as many peerings as bring it back to a \
+                 packet each, downlinks first",
+                date(from)
+            )
+        })
+        .unwrap_or_default();
+    format!("{}: {refusing}{ends}", text(status, liquidity.pool))
 }
 
 fn standing(status: &proto::HubStatus) -> &'static str {
@@ -299,6 +351,9 @@ fn show(status: &proto::HubStatus, now_ms: i64) {
     }
     if let Some(given_up) = &status.given_up {
         line("Given up", &given_up_text(status, given_up));
+    }
+    if let Some(liquidity) = &status.liquidity {
+        line("Pool", &liquidity_text(status, liquidity));
     }
     line("Paying", &holds(status, &status.paying, "to"));
     line("Taking", &holds(status, &status.taking, "from"));
@@ -595,6 +650,50 @@ mod tests {
             ]
         );
         assert_eq!(holds(&status, &[], "from"), "no holds");
+    }
+
+    // spec/decisions/slots-by-liquidity.md: a pool that covers no more
+    // peerings says which newcomers the node refuses, and a short one when
+    // it ends some.
+    #[test]
+    fn a_short_pool_says_whom_it_refuses() {
+        let mut liquidity = proto::HubLiquidity {
+            pool: 300_000_000,
+            peerings: 3,
+            covered: 4,
+            ..Default::default()
+        };
+        let mut status = proto::HubStatus {
+            account: Some(5),
+            connection: proto::LedgerConnection::Synced.into(),
+            validators: 4,
+            validators_answering: 4,
+            liquidity: Some(liquidity),
+            ..Default::default()
+        };
+        assert!(brief(&status).ends_with("4 of 4 validators answering"));
+        assert_eq!(
+            liquidity_text(&status, &liquidity),
+            "0.3 XRP covers its 3 peerings at a largest packet each, and more; takes new peers"
+        );
+        liquidity.covered = 3;
+        liquidity.refusing_downlinks = true;
+        status.liquidity = Some(liquidity);
+        assert!(brief(&status).ends_with(
+            "; takes no new downlinks: its pool covers 3 of its 3 peerings at a largest packet \
+             each, and no more"
+        ));
+        liquidity.covered = 1;
+        liquidity.refusing_core_peers = true;
+        liquidity.short_since_unix_ms = Some(0);
+        liquidity.ends_from_unix_ms = Some(60_000);
+        let full = liquidity_text(&status, &liquidity);
+        assert!(full.starts_with("0.3 XRP: takes no new peers: its pool covers 1 of its 3"));
+        assert!(
+            full.contains("still short at 1970-01-01 00:01 UTC"),
+            "{full}"
+        );
+        assert!(!full.contains("  "), "{full}");
     }
 
     // A hub's amounts are in its asset, which its scheme names last.

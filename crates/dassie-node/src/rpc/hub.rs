@@ -127,6 +127,15 @@ fn hub_status(status: &HubStatus) -> proto::HubStatus {
         frozen_since_unix_ms: status.frozen_since_ms.map(convert::time),
         escrow_held: status.escrow_held,
         settling: status.settling,
+        liquidity: status.liquidity.map(|liquidity| proto::HubLiquidity {
+            pool: liquidity.pool,
+            peerings: u32::try_from(liquidity.peerings).unwrap_or(u32::MAX),
+            covered: liquidity.covered,
+            short_since_unix_ms: liquidity.short_since_ms.map(convert::time),
+            ends_from_unix_ms: liquidity.ends_from_ms.map(convert::time),
+            refusing_downlinks: liquidity.refusing_downlinks,
+            refusing_core_peers: liquidity.refusing_core,
+        }),
     }
 }
 

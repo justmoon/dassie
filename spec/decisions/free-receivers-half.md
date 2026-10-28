@@ -2,6 +2,8 @@
 
 **Areas:** [Network](../areas/network.md#downlinks), [Settlement](../areas/settlement.md#settlement-channels), [Periphery](../designs/periphery.md#8-free-receivers).
 
+Amended by [slots-by-liquidity](slots-by-liquidity.md): a downlink, free or paying, may be ended for the node's own liquidity in a hub, newest and free first. This rule still ends and displaces nothing.
+
 ## Facts
 
 - A core node takes downlinks, up to `max_downlinks`. A downlink proves only that it holds its key: it is not registered, not probed, and pays nothing to peer; the uplink extends it no credit ([Settlement](../areas/settlement.md#credit)). A key costs nothing, and keeping a peering costs a heartbeat now and then. So anyone could make keys and hold every downlink place for as long as they kept heartbeating, and the node would refuse real periphery nodes for capacity.
@@ -14,7 +16,7 @@
 
 - **A free receiver is a downlink that never paid us:** the node's books never took a settlement of at least one largest packet from it, the least an honest node settles ([thresholds-in-packets](thresholds-in-packets.md)), on any ledger. The node marks the node's settlement channel when its books take one (`paid_us`), and the mark stays for good, open or closed ([closing-channels](closing-channels.md)).
 - **Free receivers hold at most half of the downlinks' places** (`Config::max_free_downlinks`, half of `max_downlinks` rounded down). A place is an open channel with a downlink, so they count those peered with and those not long ago, as the downlinks' bound does. Once free receivers hold that many, a new downlink that never paid us is refused for capacity. One that paid us is bounded by `max_downlinks` alone.
-- **Only newcomers are refused.** A downlink whose channel is open as a downlink's holds its place already and gets in, and a repeated request is answered with the peering as it was made. Nothing is ever ended or displaced by the rule. A free receiver that pays holds a paying place from then on, and leaves its free one to another.
+- **Only newcomers are refused.** A downlink whose channel is open as a downlink's holds its place already and gets in, and a repeated request is answered with the peering as it was made. Nothing is ever ended or displaced by the rule; a pool too short for the node's peerings ends some by a rule of its own ([slots-by-liquidity](slots-by-liquidity.md)). A free receiver that pays holds a paying place from then on, and leaves its free one to another.
 - **A node that takes downlinks has room for a free receiver:** `max_downlinks` is zero or at least two (`Config::validate`).
 
 ## Accepted

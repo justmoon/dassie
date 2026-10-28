@@ -252,7 +252,14 @@ impl PeerNode {
             {
                 continue;
             }
-            let Some(&scheme) = self.methods_with(hooks, link).first() else {
+            // A peer we ask is a core node, and a newcomer over the scheme
+            // we ask on: the first that takes one
+            // (spec/decisions/slots-by-liquidity.md).
+            let Some(scheme) = self
+                .methods_with(hooks, link)
+                .into_iter()
+                .find(|scheme| hooks.takes_newcomer(*scheme, false))
+            else {
                 continue;
             };
             let unreachable = !self.routes.contains_key(id);
@@ -283,7 +290,8 @@ impl PeerNode {
     /// whose peers trust each other without limit, the test stub's. A scheme
     /// that is neither over a hub nor of unlimited trust would settle
     /// directly, so it is never a method (spec/decisions/hubs-only.md). The
-    /// first is the one to ask for a peering on, and each of the others a
+    /// first that takes a newcomer is the one to ask for a peering on
+    /// ([`PeeringHooks::takes_newcomer`]), and each of the others a
     /// further method of it. A hub scheme without a shared hub would leave
     /// each side without the other's account
     /// (spec/designs/settlement-hubs.md#11-choosing-a-hub). At most one per
@@ -676,10 +684,12 @@ impl PeerNode {
         }
         // A downlink is in no node list: it enters the table by asking.
         let Some(entry) = self.table.get(sender) else {
-            return if downlink {
+            return if !downlink {
+                Err(RefusalReason::UnknownNode)
+            } else if hooks.takes_newcomer(request.scheme, true) {
                 self.downlink_room(hooks, sender)
             } else {
-                Err(RefusalReason::UnknownNode)
+                Err(RefusalReason::Capacity)
             };
         };
         if entry.termination().is_some() || entry.refuse_until_ms > self.now_ms {
@@ -701,6 +711,11 @@ impl PeerNode {
                 return Err(RefusalReason::Concurrent);
             }
             self.abandon_attempt(*sender);
+        }
+        // A newcomer the node's pool over the scheme's hub would not cover
+        // is refused as past the caps (spec/decisions/slots-by-liquidity.md).
+        if !hooks.takes_newcomer(request.scheme, downlink) {
+            return Err(RefusalReason::Capacity);
         }
         if downlink {
             return self.downlink_room(hooks, sender);

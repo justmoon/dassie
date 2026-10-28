@@ -153,6 +153,14 @@
                 hub.
               </td>
             </tr>
+            <tr>
+              <td>Short of funds for its peers</td>
+              <td>
+                Shown only while your node takes no new peers over the hub
+                because its funds there would not cover them: see
+                <a href="#short-of-funds">below</a>.
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -286,6 +294,35 @@
       <p>
         While a move is on its way, you cannot remove the hub's ledger. Wait
         for the move, or give it up once it is late.
+      </p>
+
+      <h2 id="short-of-funds">Short of funds for its peers</h2>
+      <p>
+        Your node gives each peer it settles with over a hub at least one
+        largest packet's worth of room, paid from its funds there: your
+        balance and what it holds for your peers. While your own account can
+        pay, your node deposits whatever that takes, even past the ceiling.
+        When those funds would not cover one more peer that way, the card
+        says so, with how many of
+        your peers they cover, and your node takes on no new peers over
+        that hub. Nodes that use yours as their uplink are refused first;
+        other core nodes only once the funds no longer cover even them.
+      </p>
+      <p>
+        If the funds stay short of a packet for every peer while no deposit
+        can come, for about ten minutes, long enough for a deposit of yours
+        to land, your
+        node ends as many peerings over the hub as bring it back to a packet
+        each. It ends the nodes that use yours as their uplink first, those
+        that never paid it before those that did, the newest first, and
+        other core nodes only once none of those is left, never the last.
+        The card says from when. A node outside the core ends none of its
+        uplinks.
+      </p>
+      <p>
+        Fund your own account, or turn your node's own moves back on, to keep
+        them. Once the funds cover your peers
+        with a few packets to spare, your node takes new peers again.
       </p>
 
       <h2 id="frozen-or-ended">A frozen or ended hub</h2>
