@@ -557,6 +557,8 @@ impl Core {
             self.prices.rates.set_at(code, rate, as_of_ms);
         }
         self.peer_settings = store.peer_settings().map_err(text)?;
+        self.connector
+            .set_offer_swaps(self.peer_settings.offer_swaps);
         self.load_tokens(&store).map_err(text)?;
         self.load_schemes(&store)?;
         self.load_funding()?;

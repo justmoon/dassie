@@ -194,6 +194,7 @@ fn a_node_that_offers_no_swaps_refuses_and_forgets_its_subscribers() {
         ..PeerSettings::DEFAULT
     };
     core.set_peer_settings(off).unwrap();
+    assert!(!core.connector.offers_swaps(), "nor does it take swaps");
     let at = NOW + 2_000;
     let (answered, outputs) = subscribe(&mut core, &downlink, at);
     assert_eq!(
@@ -204,6 +205,7 @@ fn a_node_that_offers_no_swaps_refuses_and_forgets_its_subscribers() {
     assert_eq!(core.peer.own_snapshot(), None);
 
     core.set_peer_settings(PeerSettings::DEFAULT).unwrap();
+    assert!(core.connector.offers_swaps());
     step(&mut core, at + 1);
     let (answered, outputs) = subscribe(&mut core, &downlink, at + 2);
     assert_eq!(answered, SubscriptionResponse::Accepted);

@@ -20,8 +20,9 @@ use super::Core;
 use super::ledgers::ActiveScheme;
 
 // A snapshot fits one of the feed's datagrams, as the peer protocol bounds
-// it: the two bounds are one.
+// it: the two bounds are one, and the feed's snapshot fits either.
 const _: () = assert!(MAX_SNAPSHOT_BYTES == MAX_DATAGRAM_BYTES);
+const _: () = assert!(dassie_feed::MAX_SNAPSHOT_BYTES <= MAX_SNAPSHOT_BYTES);
 // A subscriber waits three of a publisher's heartbeats before it subscribes
 // again, so that one or two lost do not count.
 const _: () = assert!(dassie_peer::SUBSCRIPTION_SILENCE_MS >= 3 * FEED_HEARTBEAT_MS);

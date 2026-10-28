@@ -592,6 +592,9 @@ impl Core {
             ));
         }
         self.peer_settings = settings;
+        // Whether the connector takes a peer's swaps follows the owner's
+        // word (spec/decisions/peer-swaps.md).
+        self.connector.set_offer_swaps(settings.offer_swaps);
         self.prices.due = true;
         self.batch.peer_settings = Some(settings);
         self.changes.network = true;

@@ -834,6 +834,8 @@ fn peer_settings_are_checked_and_kept() {
     let core = core_on(store, 13);
     assert_eq!(core.peer_settings(), settings);
     assert_eq!(core.price_table().pricing(), settings.pricing());
+    // And it takes no swaps, as kept.
+    assert!(!core.connector.offers_swaps());
 }
 
 // spec/decisions/random-seed-simulations.md: a commit that fails stops the
