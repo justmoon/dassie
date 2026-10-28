@@ -123,7 +123,7 @@ test("the move on its way says which way, how much, who and since when", () => {
 });
 
 test("whether the node moves funds by itself, and its pause", () => {
-  const sweeping = { automatic: true, sweeps: true };
+  const sweeping = { automatic: true };
   const between =
     "Your node keeps this account between its floor and ceiling by itself. What is beyond goes to your own account.";
   assertMatch(
@@ -131,12 +131,6 @@ test("whether the node moves funds by itself, and its pause", () => {
     /moves nothing by itself/,
   );
   assertEquals(automaticText(sweeping, NOW), between);
-  // What the node receives stays in the hub unless the owner keeps it on
-  // the own account (spec/areas/payments.md#where-received-money-is-kept).
-  assertEquals(
-    automaticText({ automatic: true }, NOW),
-    "Your node keeps this account above its floor by itself. What you receive stays here.",
-  );
   // A pause that is over says nothing of it.
   assertEquals(
     automaticText(

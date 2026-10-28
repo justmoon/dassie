@@ -8,12 +8,10 @@
 //! book of the asset on its XRP Ledger account, which funds the hub and
 //! which its rebalances spend from. The node moves funds between the two
 //! by itself, between the hub's floor and ceiling
-//! (spec/areas/hubs.md#in-the-node), since its owner keeps what it receives
-//! on the own account, which the hub's funding sweeps beyond the ceiling
-//! into the book (`dassie setup --keep-funds account`,
-//! spec/areas/payments.md#where-received-money-is-kept), so what it holds
-//! is both: a move between them counts where the ledger it leaves still
-//! has it, and nowhere while it is on neither.
+//! (spec/areas/hubs.md#in-the-node), sweeping what is beyond the ceiling
+//! into the book (spec/decisions/one-balance-per-asset.md), so what it
+//! holds is both: a move between them counts where the ledger it leaves
+//! still has it, and nowhere while it is on neither.
 //!
 //! A trade is the owner's swap (`SwapWithPeer`): the node prices it by the
 //! target's snapshot, as its swap service prices its own, and sends each

@@ -5,9 +5,8 @@
 //! Amounts are in the hub's asset, which its scheme names.
 //!
 //! - `dassie hub status` shows each hub's account, its holds, the floor it
-//!   keeps the account above, and the ceiling it withdraws beyond when the
-//!   owner keeps what the node receives on the own account, and the move
-//!   on its way.
+//!   keeps the account above, the ceiling it withdraws beyond to the
+//!   owner's own account, and the move on its way.
 //! - `dassie hub deposit <scheme> <amount>` and `dassie hub withdraw
 //!   <scheme> <amount>` move funds now, which pauses the node's own moves
 //!   of that hub for a while. A token hub's withdrawal may first have the
@@ -328,21 +327,13 @@ fn keeps(status: &proto::HubStatus, now_ms: i64) -> String {
         }
         (true, _) => "the node moves funds by itself".into(),
     };
-    // spec/areas/payments.md#where-received-money-is-kept: what the node
-    // receives stays in the hub unless the owner keeps it on the own
-    // account, beyond the ceiling.
-    if status.sweeps {
-        format!(
-            "between {} and {}, what is beyond going to your own account; {who}",
-            text(status, status.floor),
-            text(status, status.ceiling)
-        )
-    } else {
-        format!(
-            "above {}, with what the node receives; {who}",
-            text(status, status.floor)
-        )
-    }
+    // spec/decisions/one-balance-per-asset.md: the hub keeps a float, and
+    // what is beyond it goes to the owner's own account.
+    format!(
+        "between {} and {}, what is beyond going to your own account; {who}",
+        text(status, status.floor),
+        text(status, status.ceiling)
+    )
 }
 
 /// A move the owner gave up: what the other side may still show.
@@ -474,11 +465,6 @@ mod tests {
             brief(&status),
             "account 5, 5.2 XRP, in sync; 3 of 4 validators answering"
         );
-        assert_eq!(
-            keeps(&status, 0),
-            "above 0.4 XRP, with what the node receives; the node moves funds by itself"
-        );
-        status.sweeps = true;
         assert_eq!(
             keeps(&status, 0),
             "between 0.4 XRP and 10 XRP, what is beyond going to your own account; the node \

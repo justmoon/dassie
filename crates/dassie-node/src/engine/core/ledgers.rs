@@ -124,14 +124,10 @@ pub struct LedgerView {
     /// What the underlying ledger holds back, never spendable.
     pub reserve: u64,
     /// Where the owner sends money to fund it, if anywhere: its asset's
-    /// address, or for a hub's ledger, the hub's escrow, once the node's
-    /// account there has its number.
+    /// address. Never a hub's escrow: the owner deposits on the asset's own
+    /// ledger, and the node moves into the hub what it needs there
+    /// (spec/decisions/one-balance-per-asset.md).
     pub deposit_address: Option<String>,
-    /// The destination tag a deposit to `deposit_address` must carry: for
-    /// a hub's ledger, the number of the node's account, which names it to
-    /// the hub (spec/areas/hubs.md#the-escrow). `None` where any payment
-    /// to the address arrives.
-    pub deposit_tag: Option<u32>,
     /// Who issues what it settles in, for a token: an address on its
     /// underlying ledger.
     pub issuer: Option<String>,
@@ -1233,25 +1229,12 @@ impl Core {
         let owner = self.account(ledger, AccountName::EquityOwner).ok()?;
         let group = self.ledger.group_balance(owner)?;
         let asset = active.asset.and_then(|asset| self.assets.get(&asset));
-        // A deposit to a hub's escrow names the node's account by its tag,
-        // once the account has its number and the hub agreed on it; the
-        // first deposit, which opens it, is the node's own. An account that
-        // failed, as one the hub names another number for, names none: the
-        // number it knew may be someone else's, who a deposit would credit.
-        let (deposit_address, deposit_tag) = match self.hub_account(*id) {
-            Some(account) => match (
-                account.number(),
-                account.view(),
-                dassie_settlement::ExternalAsset::status(account),
-            ) {
-                (_, _, LedgerStatus::Failed(_)) => (None, None),
-                (Some(number), Some(_), _) => (
-                    Some(dassie_xrpl::AccountId(account.terms().escrow).to_address()),
-                    Some(number.0),
-                ),
-                _ => (None, None),
-            },
-            None => (asset.and_then(|asset| asset.asset.address()), None),
+        // The owner deposits on the asset's own ledger, never to a hub's
+        // escrow: the node moves into the hub what it needs there
+        // (spec/decisions/one-balance-per-asset.md).
+        let deposit_address = match self.hub_account(*id) {
+            Some(_) => None,
+            None => asset.and_then(|asset| asset.asset.address()),
         };
         Some(LedgerView {
             id: ledger,
@@ -1261,7 +1244,6 @@ impl Core {
             on_ledger_balance: active.scheme.balance(),
             reserve: active.scheme.reserve(),
             deposit_address,
-            deposit_tag,
             issuer: active.scheme.issuer(),
             faucet: asset.is_some_and(|asset| asset.asset.has_faucet()),
             status: match active.failed {

@@ -32,6 +32,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     MIGRATION_7,
     MIGRATION_8,
     MIGRATION_9,
+    MIGRATION_10,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -807,6 +808,13 @@ CREATE TABLE swap_targets (
 ) STRICT, WITHOUT ROWID;
 ";
 
+/// Migration 10: where the node keeps what it receives is no longer the
+/// owner's choice: its hubs keep a float and the rest is withdrawn to the
+/// owner's own account (spec/decisions/one-balance-per-asset.md).
+const MIGRATION_10: &str = "
+DROP TABLE funds_kept;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1254,11 +1262,6 @@ pub const TABLES: &[Table] = &[
             ("default_address", "TEXT", false, false),
             ("display_currency", "TEXT", false, false),
         ],
-    },
-    Table {
-        name: "funds_kept",
-        without_rowid: true,
-        columns: &[("asset", "TEXT", true, true), ("kept", "TEXT", true, false)],
     },
     Table {
         name: "peer_settings",

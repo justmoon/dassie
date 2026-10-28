@@ -1043,9 +1043,8 @@ pub struct Sim {
     /// node, peer and hub scheme.
     pub hub_most_held: BTreeMap<(usize, String, String), (u64, u64)>,
     /// The withdrawals each node's hub funding made by itself, by node,
-    /// hub scheme and when it made them: what the owner keeps on the own
-    /// account swept beyond the ceiling
-    /// (spec/areas/payments.md#where-received-money-is-kept).
+    /// hub scheme and when it made them: what is beyond the ceiling, swept
+    /// to the owner's own account (spec/decisions/one-balance-per-asset.md).
     pub swept: BTreeSet<(usize, String, u64)>,
     /// The swaps each node's owner asked for that are done, by node:
     /// their IDs and what they moved.
@@ -1204,28 +1203,6 @@ impl Sim {
                 failing: None,
                 fulfills: BTreeMap::new(),
             });
-        }
-        // Where each member keeps what it receives
-        // (spec/areas/payments.md#where-received-money-is-kept): in the
-        // hub, the default, or on its owner's own account, which its hub
-        // funding sweeps beyond the ceiling, drawn per node apart from
-        // every other draw, so that runs over hubs take both ways.
-        let mut keep = SeededRng::new(seed ^ 0x6b65_6570_2d6f_776e);
-        for index in 0..count {
-            let own = keep.below(2) == 0;
-            if own && settling.ledgers(index).iter().any(|ledger| ledger.is_hub()) {
-                let names: Vec<&str> = settling
-                    .ledgers(index)
-                    .iter()
-                    .filter(|ledger| ledger.is_hub())
-                    .map(|ledger| ledger.wallet_name())
-                    .collect();
-                sim.nodes[index]
-                    .store
-                    .set_funds_kept(&names, crate::store::FundsKept::OwnAccount)
-                    .unwrap();
-                sim.count("members keeping funds on the own account");
-            }
         }
         if let Some(validators) = settling.hub_validators() {
             sim.latency_ms = REGIONAL_LATENCY_MS;
@@ -1624,17 +1601,12 @@ impl Sim {
             return;
         };
         // A withdrawal the node made by itself is a sweep beyond the
-        // ceiling, which only an owner who keeps funds on the own account
-        // has: counted once each, to show runs take that way too.
+        // ceiling: counted once each, to show runs take that way too.
         for status in core.hub_statuses() {
             if let Some(moving) = status.moving
                 && moving.direction == crate::engine::Direction::Withdraw
                 && !moving.owner
             {
-                assert!(
-                    status.sweeps,
-                    "node {index} withdrew by itself, keeping funds in the hub"
-                );
                 let key = (index, status.scheme.to_string(), moving.sent_ms);
                 if self.swept.insert(key) {
                     self.counts

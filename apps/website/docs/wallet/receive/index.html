@@ -67,7 +67,7 @@
         shows it as your payment pointer. The default asset is also reachable
         at its own <code>/pay/&lt;asset&gt;</code> form, such as
         <code>$pay.example.com/pay/xrp</code>. An address names an asset, never a
-        ledger or a hub, so where you keep the money can change and the address
+        ledger or a hub, so where the node keeps the money can change and the address
         stays the same.
       </p>
       <p>
@@ -153,44 +153,24 @@
       <h2 id="deposits">Deposits on the XRP Ledger</h2>
       <p>
         Beside <strong>Open Payments</strong>, Receive has a tab for each asset,
-        with where to send it on the XRP Ledger testnet:
+        with where to send it on the XRP Ledger testnet: your own account,
+        with its address and the faucet. It needs no destination tag.
+        <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> goes
+        through it.
       </p>
-      <ul>
-        <li>
-          <strong>Your own account,</strong> with its address and the faucet.
-          <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> goes
-          through it.
-        </li>
-        <li>
-          <strong>Your account in a settlement hub,</strong> when you keep what
-          you receive in that asset in the hub, the default, and your account
-          there has its number. The tab then shows the hub's escrow address
-          and a destination tag.
-        </li>
-      </ul>
-      <aside class="warning">
-        <p>
-          <strong>Careful.</strong> A deposit to a hub's escrow must carry
-          your destination tag, always. The escrow refuses a payment without
-          one, and a payment with another tag is credited to someone else's
-          account.
-        </p>
-      </aside>
 
       <h2 id="where-it-is-kept">Where the money stays</h2>
       <p>
-        What other nodes pay you arrives in your settlement hub of its asset,
-        and stays there by default, ready to spend. For each asset a hub
-        holds, <strong>Received Funds</strong> in <strong>Settings</strong> lets
-        you keep it on your own account instead:
-        then your node keeps a float in the hub and moves the rest to your
-        account. <a href="/docs/wallet/hubs/#holds-floor-and-ceiling">Your
-        hubs</a> explains the float.
+        What other nodes pay you arrives in your settlement hub of its asset.
+        Your node keeps a float there, enough to settle with its peers, and
+        moves the rest to your own account. What you deposit goes to your own
+        account too, and your node moves into the hub what it needs there.
+        <a href="/docs/wallet/hubs/#holds-floor-and-ceiling">Your hubs</a>
+        explains the float.
       </p>
       <p class="why">
-        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/one-address-per-asset.md">Why it works this way</a>:
-        one address per asset, and deposits that follow where you keep your
-        money.
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/one-balance-per-asset.md">Why it works this way</a>:
+        one balance per asset, with the hub's part of it managed by your node.
       </p>
     </main>
     <!-- footer -->

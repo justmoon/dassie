@@ -164,10 +164,10 @@
           from its own account on the XRP Ledger, once that has funds, with
           destination tag 0 and a memo
           that names the new account's key. The hub opens the account, locks
-          its reserve, and keeps the rest as its balance. Later deposits name
-          the account by its number, as the destination tag, and can come
-          from any wallet. While you keep received money in the hub, your
-          wallet's Receive page shows the escrow and your tag.
+          its reserve, and keeps the rest as its balance. Later deposits are
+          your node's too, naming the account by its number as the
+          destination tag. You deposit to your own account, never to the
+          escrow, and your node moves into the hub what it needs.
         </li>
         <li>
           <strong>By being paid in.</strong> A node with no account yet can
@@ -199,10 +199,9 @@
         </li>
         <li>
           <strong>The ceiling</strong> bounds what it keeps in the hub. What
-          you receive arrives in the hub and stays there by default, ready to
-          spend. If you choose to keep received money on your own account
-          instead, your node withdraws what is above the ceiling, back down
-          to halfway.
+          you receive arrives in the hub, and once it takes the account above
+          the ceiling, your node withdraws the excess to your own account,
+          back down to halfway.
         </li>
       </ul>
       <p>

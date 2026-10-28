@@ -44,7 +44,8 @@ Each file records one choice between real alternatives: the facts that forced it
 | [nix-flake-on-the-mirror](nix-flake-on-the-mirror.md) | NixOS takes a release from a flake on the mirror | release |
 | [no-simulations-in-tests](no-simulations-in-tests.md) | No test runs a simulation: a case one finds becomes a targeted test | testing, engineering |
 | [node-and-pnpm](node-and-pnpm.md) | Tooling on Node and pnpm, not Deno | engineering |
-| [one-address-per-asset](one-address-per-asset.md) | One wallet address per asset, booking where the asset arrives, and where the owner keeps it is a setting of the node's | payments, hubs, wallet, ledger |
+| [one-address-per-asset](one-address-per-asset.md) | One wallet address per asset, booking where the asset arrives | payments, hubs, wallet, ledger |
+| [one-balance-per-asset](one-balance-per-asset.md) | The owner holds one balance per asset, and the node manages the hub's part of it (deposit on demand and the one balance not built) | hubs, payments, wallet, settlement |
 | [open-payments](open-payments.md) | Open Payments, fully, and no SPSP | payments, http |
 | [open-rate-sources](open-rate-sources.md) | A node takes its rates only from sources whose terms allow its use: XRP's from mainnet's XRP/RLUSD pool, the fiat currencies' from central banks, with no peg guard until a dollar token has a price of its own (not built) | connector, xrpl, dsusd-keeper, wallet |
 | [own-books](own-books.md) | Each node keeps its own books | engineering, settlement, testing |

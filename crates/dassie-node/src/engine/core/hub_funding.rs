@@ -13,13 +13,12 @@
 //!   below a ceiling, both counted in largest packets
 //!   (`policy::hub_floor`, `policy::hub_ceiling`). Below the floor, the node
 //!   deposits from its XRPL account up to the midpoint, never past the
-//!   ceiling; above the ceiling, it withdraws down to the midpoint, never
-//!   below the floor, but only when the owner keeps what the node receives
-//!   in the hub's asset on the own account
-//!   (spec/areas/payments.md#where-received-money-is-kept): by default it
-//!   stays in the hub, where it arrives. Holds toward us grow by our peers'
-//!   settlements alone, so only they can take the hub past the ceiling,
-//!   until they are taken and withdrawn.
+//!   ceiling; above the ceiling, it withdraws to the owner's own account
+//!   down to the midpoint, never below the floor: the hub keeps a float, and
+//!   the owner's funds are kept on the own account
+//!   (spec/decisions/one-balance-per-asset.md). Holds toward us grow by our
+//!   peers' settlements alone, so only they can take the hub past the
+//!   ceiling, until they are taken and withdrawn.
 //! - **Joining by deposit.** While the hub has no account for the node's
 //!   key, the first deposit opens it: tag 0, the account key as the memo,
 //!   of the hub's type for it (`dassie_hub::escrow::OPEN_MEMO_TYPE`),
@@ -288,11 +287,6 @@ pub enum GasNext {
 pub struct Funding {
     /// Whether the node moves funds by itself: the owner's choice.
     pub automatic: bool,
-    /// Whether the node withdraws what the hub account holds beyond the
-    /// ceiling to the owner's own account: the owner keeps what the node
-    /// receives in the hub's asset there, rather than in the hub, where it
-    /// arrives (spec/areas/payments.md#where-received-money-is-kept).
-    pub sweeps: bool,
     /// Until when an owner's move pauses the automatic ones.
     pub paused_until_ms: u64,
     /// The move on its way.
@@ -322,7 +316,6 @@ impl Funding {
     pub const fn new(now_ms: u64, interval_ms: u64) -> Self {
         Self {
             automatic: true,
-            sweeps: false,
             paused_until_ms: 0,
             moving: None,
             given_up: None,
@@ -409,9 +402,7 @@ impl Funding {
 
     /// The automatic move due now, if any: none while one is on its way,
     /// the owner turned them off or paused them, gave one up and has not
-    /// acted since, or a failure's backoff lasts. A withdrawal beyond the
-    /// ceiling only while the node [`sweeps`](Self::sweeps): otherwise
-    /// what it receives stays in the hub.
+    /// acted since, or a failure's backoff lasts.
     pub fn due(&self, now_ms: u64, standing: &Standing) -> Option<Planned> {
         let waiting = self.moving.is_some()
             || standing.unavailable
@@ -433,7 +424,7 @@ impl Funding {
             return (drops >= standing.least_deposit)
                 .then(|| Planned::deposit(drops, held.deposited, false));
         }
-        if self.sweeps && held.exposure > standing.ceiling {
+        if held.exposure > standing.ceiling {
             let spare = held
                 .balance
                 .saturating_sub(standing.floor)
@@ -651,14 +642,6 @@ mod tests {
         Name::new("abc").unwrap()
     }
 
-    /// Funding of an owner who keeps what the node receives on the own
-    /// account: what is beyond the ceiling is withdrawn.
-    fn sweeping() -> Funding {
-        let mut funding = Funding::new(0, 4_000);
-        funding.sweeps = true;
-        funding
-    }
-
     /// `low` with the account's counters at `deposited` and `withdrawn`.
     fn counted(mut standing: Standing, deposited: u64, withdrawn: u64) -> Standing {
         if let Some(held) = &mut standing.held {
@@ -673,7 +656,7 @@ mod tests {
     // value that shows it done.
     #[test]
     fn moves_go_back_to_the_midpoint() {
-        let funding = sweeping();
+        let funding = Funding::new(0, 4_000);
         let middle = 5_200_000;
         let low = funding.due(1, &standing(100_000, 2_100_000)).unwrap();
         assert_eq!(low.direction, Direction::Deposit);
@@ -686,25 +669,12 @@ mod tests {
         assert_eq!(funding.due(1, &standing(3_000_000, 5_000_000)), None);
     }
 
-    // spec/areas/payments.md#where-received-money-is-kept: by default what
-    // the node receives stays in the hub, where it arrives: nothing is
-    // withdrawn beyond the ceiling, and the floor is kept all the same.
-    #[test]
-    fn kept_in_the_hub_nothing_is_withdrawn() {
-        let funding = Funding::new(0, 4_000);
-        assert!(!funding.sweeps);
-        assert_eq!(funding.due(1, &standing(12_000_000, 14_000_000)), None);
-        assert_eq!(funding.due(1, &standing(1_500_000, 30_000_000)), None);
-        let low = funding.due(1, &standing(100_000, 2_100_000)).unwrap();
-        assert_eq!(low.direction, Direction::Deposit);
-    }
-
     // A deposit never takes the hub past its ceiling, and a withdrawal never
     // the balance below the floor: holds toward us count toward the
     // ceiling, and only peers' settlements grow them.
     #[test]
     fn the_ceiling_and_the_floor_bound_each_move() {
-        let funding = sweeping();
+        let funding = Funding::new(0, 4_000);
         let low = funding.due(1, &standing(100_000, 9_000_000)).unwrap();
         assert_eq!(low.drops, 1_000_000);
         assert_eq!(funding.due(1, &standing(100_000, 9_950_000)), None);
@@ -788,7 +758,7 @@ mod tests {
     // its ledger fee included.
     #[test]
     fn a_withdrawal_is_done_by_what_withdrawals_took() {
-        let mut funding = sweeping();
+        let mut funding = Funding::new(0, 4_000);
         let high = standing(12_000_000, 14_000_000);
         let planned = funding.due(1, &high).unwrap();
         funding.start(1, planned, payment());
@@ -824,7 +794,7 @@ mod tests {
     // ledger: what the account holds beyond them is owed to hub peers.
     #[test]
     fn a_withdrawal_takes_only_the_owners_funds() {
-        let funding = sweeping();
+        let funding = Funding::new(0, 4_000);
         let mut high = standing(12_000_000, 14_000_000);
         high.hub_owner = 2_000_000;
         let planned = funding.due(1, &high).unwrap();
@@ -1002,7 +972,7 @@ mod tests {
     // finds the gas starts the backoff from its first wait again.
     #[test]
     fn a_failed_top_up_backs_off_the_check_alone() {
-        let mut funding = sweeping();
+        let mut funding = Funding::new(0, 4_000);
         let mut seen = GasSeen {
             anchor: Some(12),
             proven: Some((None, 12)),
@@ -1050,7 +1020,7 @@ mod tests {
     // is unavailable, as a frozen one is.
     #[test]
     fn nothing_moves_while_the_hub_is_unavailable() {
-        let funding = sweeping();
+        let funding = Funding::new(0, 4_000);
         for mut standing in [
             standing(100_000, 2_000_000),
             standing(12_000_000, 14_000_000),

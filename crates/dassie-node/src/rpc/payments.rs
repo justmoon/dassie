@@ -1,6 +1,6 @@
 //! Open Payments for the owner (spec/decisions/open-payments.md): the wallet
-//! addresses, one per asset, the default, where received funds are kept,
-//! and incoming and outgoing payments.
+//! addresses, one per asset, the default, and incoming and outgoing
+//! payments.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -15,7 +15,7 @@ use super::{RpcError, convert};
 use crate::engine::{Engine, EngineError, LedgerView, NewIncoming};
 use crate::node::Node;
 use crate::open_payments::{AddressError, Urls, WalletAddresses};
-use crate::store::{FundsKept, IncomingRow, OutgoingRow, PaymentId};
+use crate::store::{IncomingRow, OutgoingRow, PaymentId};
 
 /// Page sizes for incoming payments.
 const DEFAULT_LIMIT: u32 = 100;
@@ -42,12 +42,6 @@ pub async fn dispatch(
         Method::SetDefaultWalletAddress(request) => {
             set_default(node, &request).await?;
             response::Method::SetDefaultWalletAddress(proto::SetDefaultWalletAddressResponse {
-                wallet_addresses: wallet_addresses(node, engine, &urls).await?,
-            })
-        }
-        Method::SetFundsKept(request) => {
-            set_funds_kept(node, engine, &request).await?;
-            response::Method::SetFundsKept(proto::SetFundsKeptResponse {
                 wallet_addresses: wallet_addresses(node, engine, &urls).await?,
             })
         }
@@ -100,7 +94,6 @@ pub const fn is_payments(method: &Method) -> bool {
         method,
         Method::ListWalletAddresses(_)
             | Method::SetDefaultWalletAddress(_)
-            | Method::SetFundsKept(_)
             | Method::CreateIncomingPayment(_)
             | Method::CompleteIncomingPayment(_)
             | Method::ListIncomingPayments(_)
@@ -126,39 +119,11 @@ async fn addresses(node: &Node) -> Result<WalletAddresses, RpcError> {
         })
 }
 
-/// The names of the assets a settlement hub of the node's realm holds:
-/// where the node keeps what it receives in them is the owner's choice
-/// (spec/areas/payments.md#where-received-money-is-kept).
-fn hub_assets(node: &Node) -> Vec<&'static str> {
-    let realm = crate::engine::ledger_realm(node.config().realm);
-    let mut names: Vec<&'static str> = LedgerId::ALL
-        .into_iter()
-        .filter(|ledger| ledger.is_hub() && ledger.realm() == realm)
-        .map(LedgerId::wallet_name)
-        .collect();
-    names.sort_unstable();
-    names.dedup();
-    names
-}
-
 /// The ledger whose deposit method Receive shows for the asset of the
-/// wallet address that books on `ledger`: the hub's while the funds are
-/// kept there and the node's account in it has its number, which its
-/// deposits must name; else the asset's own ledger, where the owner's
-/// account is.
-fn deposit_ledger(
-    ledger: LedgerId,
-    kept: Option<FundsKept>,
-    views: &[LedgerView],
-) -> Option<LedgerId> {
-    let in_hub = ledger.is_hub()
-        && kept == Some(FundsKept::Hub)
-        && views
-            .iter()
-            .any(|view| view.id == ledger && view.deposit_tag.is_some());
-    if in_hub {
-        return Some(ledger);
-    }
+/// wallet address that books on `ledger`: the asset's own ledger, where the
+/// owner's account is, never a hub's
+/// (spec/decisions/one-balance-per-asset.md).
+fn deposit_ledger(ledger: LedgerId, views: &[LedgerView]) -> Option<LedgerId> {
     views
         .iter()
         .map(|view| view.id)
@@ -177,17 +142,11 @@ async fn wallet_addresses(
         views.iter().map(|view| view.id).collect(),
         chosen.as_deref(),
     );
-    let hubbed = hub_assets(node);
     addresses
         .ledgers
         .iter()
         .map(|&ledger| {
             let name = ledger.wallet_name();
-            let kept = hubbed
-                .contains(&name)
-                .then(|| node.store().funds_kept(name))
-                .transpose()
-                .map_err(RpcError::internal)?;
             let is_default = addresses.is_default(ledger);
             let asset = ledger.asset();
             Ok(proto::WalletAddress {
@@ -198,13 +157,7 @@ async fn wallet_addresses(
                 asset_scale: asset.scale.into(),
                 is_default,
                 name: name.into(),
-                funds_kept: match kept {
-                    None => proto::FundsKept::Unspecified,
-                    Some(FundsKept::Hub) => proto::FundsKept::Hub,
-                    Some(FundsKept::OwnAccount) => proto::FundsKept::OwnAccount,
-                }
-                .into(),
-                deposit_ledger: deposit_ledger(ledger, kept, &views)
+                deposit_ledger: deposit_ledger(ledger, &views)
                     .map(|deposit| deposit.as_str().to_string())
                     .unwrap_or_default(),
             })
@@ -228,37 +181,6 @@ async fn set_default(
     node.store()
         .set_default_address(chosen)
         .map_err(RpcError::internal)
-}
-
-/// Chooses where the node keeps what it receives in one asset, or in
-/// every asset a hub of its realm holds: the database keeps it, then the
-/// hubs follow it.
-async fn set_funds_kept(
-    node: &Node,
-    engine: &Engine,
-    request: &proto::SetFundsKeptRequest,
-) -> Result<(), RpcError> {
-    let kept = match proto::FundsKept::try_from(request.funds_kept) {
-        Ok(proto::FundsKept::Hub) => FundsKept::Hub,
-        Ok(proto::FundsKept::OwnAccount) => FundsKept::OwnAccount,
-        _ => return Err(RpcError::invalid("say where to keep the funds")),
-    };
-    let hubbed = hub_assets(node);
-    let names: Vec<&str> = if request.name.is_empty() {
-        hubbed
-    } else {
-        let name = hubbed
-            .into_iter()
-            .find(|name| *name == request.name)
-            .ok_or_else(|| RpcError::not_found("no settlement hub holds that asset"))?;
-        vec![name]
-    };
-    node.store()
-        .set_funds_kept(&names, kept)
-        .map_err(RpcError::internal)?;
-    let name = (!request.name.is_empty()).then(|| request.name.clone());
-    engine.set_funds_kept(name, kept).await?;
-    Ok(())
 }
 
 async fn create(

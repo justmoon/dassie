@@ -26,7 +26,6 @@ import {
 import type { ThemeSetting } from "@dassie/ui/theme";
 import { ApiKeys } from "./ApiKeys.tsx";
 import { Devices } from "./Devices.tsx";
-import { Funds } from "./Funds.tsx";
 import { RateSettings } from "./RateSettings.tsx";
 import { chargeText, parseCharge } from "./rates.ts";
 import { assetLedgers, targetsFrom, targetText } from "./swaps.ts";
@@ -41,7 +40,6 @@ export function Settings(): JSX.Element {
           <Wallet />
           <Appearance />
           <NodeSettings />
-          <Funds />
           <PeerSettings />
           <RateSettings />
         </div>

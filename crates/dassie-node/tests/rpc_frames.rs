@@ -750,13 +750,6 @@ fn payments() -> BoxedStrategy<Method> {
             Method::SetDefaultWalletAddress(proto::SetDefaultWalletAddressRequest { name })
         }),
         (
-            field(&["usd", "xrp", "dsusd", "rlusd", "hub-xrp"]),
-            any::<i32>()
-        )
-            .prop_map(|(name, funds_kept)| {
-                Method::SetFundsKept(proto::SetFundsKeptRequest { name, funds_kept })
-            }),
-        (
             field(LEDGERS),
             proptest::option::of(number()),
             signed(),

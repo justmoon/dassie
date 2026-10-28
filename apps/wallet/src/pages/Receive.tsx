@@ -2,11 +2,10 @@
  * Receive (spec/areas/wallet.md#pages): the wallet addresses other wallets
  * pay through Open Payments, one per asset, a request for a payment, and a
  * tab per asset with its deposit method, as the node reports it for the
- * asset's wallet address: the stub's test money; while the owner keeps what
- * the node receives in a settlement hub, once the node's account there has
- * its number, the hub's escrow and the account's destination tag; else the
- * address of the owner's own account, with the testnet faucet where the
- * node has one. A ledger that settles in a token names both what its
+ * asset's wallet address: the stub's test money, or the address of the
+ * owner's own account, never a settlement hub's escrow
+ * (spec/decisions/one-balance-per-asset.md), with the testnet faucet where
+ * the node has one. A ledger that settles in a token names both what its
  * account needs there: the token, and the ledger's own asset for fees.
  */
 
@@ -25,11 +24,9 @@ import { assetTab } from "./receive.ts";
 import { assetOf } from "./assets/assets.ts";
 import { RequestPayment } from "./payments/RequestPayment.tsx";
 import {
-  assetLabel,
   useWalletAddresses,
   WalletAddresses,
 } from "./payments/WalletAddresses.tsx";
-import { HubDeposit } from "./ledgers/HubDeposit.tsx";
 import { LedgerDeposit } from "./ledgers/LedgerDeposit.tsx";
 import { TokenDeposit } from "./ledgers/TokenDeposit.tsx";
 
@@ -38,12 +35,10 @@ export function Receive(): JSX.Element {
   const addresses = useWalletAddresses();
   const tab = useSearchParam("tab");
   const [selected, setSelected] = createSignal(tab() ?? "open-payments");
-  // Where a deposit goes follows the node's ledgers: a hub account that
-  // got its number, or a ledger added or removed, is asked for again.
+  // Where a deposit goes follows the node's ledgers: a ledger added or
+  // removed is asked for again.
   createEffect(
-    () =>
-      data.ledgers()?.map((ledger) => `${ledger.id}:${ledger.depositTag}`)
-        .join(" "),
+    () => data.ledgers()?.map((ledger) => ledger.id).join(" "),
     () => void addresses.reload(),
   );
   const deposits = () =>
@@ -51,7 +46,7 @@ export function Receive(): JSX.Element {
       const ledger = data.ledgers()?.find((entry) =>
         entry.id === address.depositLedger
       );
-      return ledger ? [{ ledger, asset: assetLabel(address.name) }] : [];
+      return ledger ? [ledger] : [];
     });
   const tabs = () => [
     {
@@ -64,10 +59,10 @@ export function Receive(): JSX.Element {
         </div>
       ),
     },
-    ...deposits().map(({ ledger, asset }) => ({
+    ...deposits().map((ledger) => ({
       id: ledger.settlementScheme,
       title: schemeName(ledger.settlementScheme),
-      panel: () => <Deposit id={ledger.id} asset={asset} />,
+      panel: () => <Deposit id={ledger.id} />,
     })),
   ];
   return (
@@ -90,7 +85,7 @@ export function Receive(): JSX.Element {
 
 /** The panel stays while its tab does: it follows the ledger as it changes,
  * funded or topped up. */
-function Deposit(props: { id: string; asset: string }): JSX.Element {
+function Deposit(props: { id: string }): JSX.Element {
   const data = useNodeData();
   const live = () => data.ledgers()?.find((ledger) => ledger.id === props.id);
   return (
@@ -106,21 +101,10 @@ function Deposit(props: { id: string; asset: string }): JSX.Element {
               }
             >
               {(address) => (
-                <Show
-                  when={ledger().depositTag}
-                  fallback={
-                    <OwnDeposit ledger={ledger()} address={address()} />
-                  }
-                >
-                  {(tag) => (
-                    <HubDeposit
-                      ledger={ledger()}
-                      address={address()}
-                      tag={tag()}
-                      asset={props.asset}
-                    />
-                  )}
-                </Show>
+                <OwnDeposit
+                  ledger={ledger()}
+                  address={address()}
+                />
               )}
             </Show>
           }

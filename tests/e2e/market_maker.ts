@@ -14,7 +14,7 @@
 import { assert } from "@std/assert";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { FundsKept, type PeerSnapshot } from "@dassie/rpc/proto";
+import type { PeerSnapshot } from "@dassie/rpc/proto";
 import {
   hubLedger,
   hubOwnerLedger,
@@ -337,14 +337,6 @@ export async function writeConfig(
 ): Promise<string> {
   const phrase = join(dir, `${node.name}.phrase`);
   await writeFile(phrase, `${node.identity.phrase}\n`, { mode: 0o600 });
-  // Its rebalances spend from the owner books, so what the node is paid
-  // must reach them: its owner keeps it on the own account, which each
-  // hub's funding sweeps beyond the ceiling, as the VM's setup does with
-  // `--keep-funds account` (spec/areas/rate-feed.md#bands).
-  await node.rpc.call("setFundsKept", {
-    name: "",
-    fundsKept: FundsKept.OWN_ACCOUNT,
-  });
   const xrpHeld = await held(node, XRP);
   const config = {
     socket: node.socket,

@@ -298,21 +298,11 @@ function HubAccount(
           <dt>Returned by withdrawals the escrow could not pay</dt>
           <dd>{amount(props.status.returned, "hub-returned")}</dd>
         </Show>
-        <Show
-          when={props.status.sweeps}
-          fallback={
-            <>
-              <dt>Kept above, with what you receive</dt>
-              <dd>{amount(props.status.floor, "hub-floor")}</dd>
-            </>
-          }
-        >
-          <dt>Kept between, the rest going to your own account</dt>
-          <dd>
-            {amount(props.status.floor, "hub-floor")} and{" "}
-            {amount(props.status.ceiling, "hub-ceiling")}
-          </dd>
-        </Show>
+        <dt>Kept between, the rest going to your own account</dt>
+        <dd>
+          {amount(props.status.floor, "hub-floor")} and{" "}
+          {amount(props.status.ceiling, "hub-ceiling")}
+        </dd>
       </dl>
       <Holds
         title="You hold for your peers"

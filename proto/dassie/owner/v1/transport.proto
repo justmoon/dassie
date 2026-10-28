@@ -131,7 +131,6 @@ message Request {
 
     ListWalletAddressesRequest list_wallet_addresses = 71;
     SetDefaultWalletAddressRequest set_default_wallet_address = 79;
-    SetFundsKeptRequest set_funds_kept = 139;
     CreateIncomingPaymentRequest create_incoming_payment = 73;
     CompleteIncomingPaymentRequest complete_incoming_payment = 74;
     ListIncomingPaymentsRequest list_incoming_payments = 75;
@@ -266,7 +265,6 @@ message Response {
 
     ListWalletAddressesResponse list_wallet_addresses = 71;
     SetDefaultWalletAddressResponse set_default_wallet_address = 79;
-    SetFundsKeptResponse set_funds_kept = 139;
     CreateIncomingPaymentResponse create_incoming_payment = 73;
     CompleteIncomingPaymentResponse complete_incoming_payment = 74;
     ListIncomingPaymentsResponse list_incoming_payments = 75;

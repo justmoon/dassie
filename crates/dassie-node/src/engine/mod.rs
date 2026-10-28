@@ -589,21 +589,6 @@ impl Engine {
             .await
     }
 
-    /// The owner keeps what the node receives in the asset of the wallet
-    /// address called `name`, or in every asset, where `kept` says, which
-    /// the database keeps already: the hubs follow it from now on.
-    pub async fn set_funds_kept(
-        &self,
-        name: Option<String>,
-        kept: crate::store::FundsKept,
-    ) -> Result<(), EngineError> {
-        self.call(move |core| {
-            core.set_funds_kept(name.as_deref(), kept);
-            Ok(())
-        })
-        .await
-    }
-
     /// Changes the owner's peer settings.
     pub async fn set_peer_settings(
         &self,
