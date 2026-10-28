@@ -260,19 +260,11 @@ impl PeerNode {
             .link
             .as_ref()
             .is_none_or(|old| old.neighbors != link.neighbors);
+        entry.watch_link(&link, from == Some(id), now);
         // What a peer offered before, to tell an account it names anew.
         let before =
             (entry.peering().is_some()).then(|| entry.link.as_ref().map(|old| old.offers.clone()));
         entry.key = Some(key.key());
-        // Straight from its subject, a new sequence of a link state we held
-        // shows its clock, which issued it a moment ago and sent it on at
-        // once; one we see first may be up to a reissue old
-        // (spec/decisions/promotion-to-core.md).
-        if from == Some(id) && entry.link.is_some() {
-            let sequence = i64::try_from(signed.info.sequence).unwrap_or(i64::MAX);
-            let now = i64::try_from(now).unwrap_or(i64::MAX);
-            entry.standing.skew_ms = Some(sequence.saturating_sub(now));
-        }
         entry.link = Some(link);
         entry.refresh_failures = 0;
         self.dirty.insert(id);

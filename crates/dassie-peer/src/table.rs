@@ -849,6 +849,27 @@ impl Entry {
         }
     }
 
+    /// What a new link state, `new`, in place of the one it holds, tells of
+    /// its node for its promotion (spec/decisions/promotion-to-core.md).
+    /// Straight from its subject (`direct`), a new sequence of a link state
+    /// we held shows its clock, which issued it a moment ago and sent it on
+    /// at once; one we see first may be up to a reissue old. A new URL is
+    /// checked anew: the old one's answer says nothing of it.
+    pub fn watch_link(&mut self, new: &LinkState, direct: bool, now_ms: u64) {
+        let Some(old) = &self.link else {
+            return;
+        };
+        if direct {
+            let sequence = i64::try_from(new.sequence).unwrap_or(i64::MAX);
+            let now = i64::try_from(now_ms).unwrap_or(i64::MAX);
+            self.standing.skew_ms = Some(sequence.saturating_sub(now));
+        }
+        if old.endpoint != new.endpoint {
+            self.standing.url_answered = None;
+            self.standing.url_check_at_ms = 0;
+        }
+    }
+
     /// The peering, if peered or terminating.
     #[must_use]
     pub const fn peering(&self) -> Option<&Peering> {

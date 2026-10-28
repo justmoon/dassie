@@ -1083,6 +1083,10 @@ fn an_uplink_watches_its_downlink_for_promotion() {
         assert!(pending.contains(&check), "{check:?} in {pending:?}");
     }
     assert!(early.skew_ms.is_some(), "its clock, from its link state");
+    assert_eq!(
+        early.url_answered, None,
+        "a URL is checked only once it paid us"
+    );
 
     room.set(PROMOTION_ROOM_PACKETS);
     network.act_with_hooks(uplink, |peer, hooks, now| peer.paid_by(now, hooks, &node));

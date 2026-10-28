@@ -683,6 +683,7 @@ impl PeerNode {
             "no route to ourselves"
         );
         self.check_core();
+        self.check_url_checks();
         for route in self.routes.values() {
             assert!(
                 !route.first_hops.is_empty() && route.first_hops.len() <= routing::MAX_FIRST_HOPS,

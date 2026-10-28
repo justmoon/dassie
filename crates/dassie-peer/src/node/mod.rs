@@ -349,6 +349,12 @@ pub struct PeerNode {
     /// Probes in flight: the node and the host probed.
     pub(crate) probing: Vec<(NodeId, Endpoint)>,
     pub(crate) probes: Bucket,
+    /// Our checks of candidates' URLs (spec/decisions/promotion-to-core.md),
+    /// apart from the probes inbound requests wait on, so that they never
+    /// take those probes' room: their bucket, and those in flight, by node
+    /// and host.
+    pub(crate) url_checks: Bucket,
+    pub(crate) url_checking: Vec<(NodeId, Endpoint)>,
     /// Each network's share of the probes, spent by those that fail.
     pub(crate) network_probes: NetworkBuckets,
     pub(crate) outputs: VecDeque<Output>,
@@ -466,6 +472,8 @@ impl PeerNode {
             answers: Vec::new(),
             probing: Vec::new(),
             probes: Bucket::full(config.probe_rate, now_ms),
+            url_checks: Bucket::full(promotion::url_check_rate(&config), now_ms),
+            url_checking: Vec::new(),
             network_probes: NetworkBuckets::new(config.max_probe_networks),
             outputs: VecDeque::new(),
             events: VecDeque::new(),
@@ -768,10 +776,15 @@ impl PeerNode {
             Ok(response) => Err(Problem::Status(response.status)),
             Err(failure) => Err(Problem::Failed(failure)),
         };
-        self.note_reach(outstanding.to, &outstanding.purpose, &checked);
+        // A URL check reaches a downlink other than over its connection,
+        // the only way we reach it: its answer says nothing of the peering.
+        let url_check = matches!(outstanding.purpose, Purpose::UrlCheck(_));
+        if !url_check {
+            self.note_reach(outstanding.to, &outstanding.purpose, &checked);
+        }
         if checked.is_err() {
             self.stats.requests_failed += 1;
-        } else {
+        } else if !url_check {
             self.settlement_reachable(&outstanding.to);
             if self.peering_of(&outstanding.to).is_some() {
                 self.saw(&outstanding.to);

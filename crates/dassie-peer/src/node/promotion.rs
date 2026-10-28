@@ -139,47 +139,65 @@ impl PeerNode {
     /// bucket of its standing: a `linkStateRequest` for it at its URL, on a
     /// connection pinned to its key, which must return its own link state
     /// at the sequence we hold or later, as a probe for a registration does
-    /// (spec/areas/network.md#registration). Each spends a token
-    /// of the probe bucket, and none goes twice at once to a node or host,
-    /// so this never hammers anyone.
+    /// (spec/areas/network.md#registration). Only a candidate that paid us
+    /// is checked: a settlement of at least one largest packet, which keys
+    /// made for nothing never pay, so a node's free downlinks cost it no
+    /// checks. The checks have a bucket of their own, sized for every
+    /// downlink the node may have, apart from the probes inbound requests
+    /// wait on, so they never take those probes' room, and none goes twice
+    /// at once to a node or host.
     pub(super) fn check_candidate_urls(&mut self) {
         let now = self.now_ms;
         let due: Vec<(NodeId, Endpoint, u64)> = self
             .table
             .iter()
-            .filter(|(_, entry)| is_candidate(entry) && entry.standing.url_check_at_ms <= now)
+            .filter(|(id, entry)| {
+                is_candidate(entry)
+                    && entry.standing.url_check_at_ms <= now
+                    && self.channels.get(id).is_some_and(|channel| channel.paid_us)
+            })
             .filter_map(|(id, entry)| {
                 let link = entry.link.as_ref()?;
                 Some((*id, link.endpoint.clone()?, link.sequence))
             })
             .collect();
         let (bucket, timeout) = (self.standing_bucket_ms(), self.config.poll_timeout_ms);
+        let rate = url_check_rate(&self.config);
         for (node, endpoint, sequence) in due {
             if self
-                .probing
+                .url_checking
                 .iter()
-                .any(|(id, probed)| *id == node || *probed == endpoint)
+                .any(|(id, checked)| *id == node || *checked == endpoint)
             {
                 continue;
             }
-            if !self.probes.take(self.config.probe_rate, now) {
+            if !self.url_checks.take(rate, now) {
                 return;
             }
-            self.probing.push((node, endpoint.clone()));
+            self.url_checking.push((node, endpoint.clone()));
             let content = Content::LinkStateRequest(alloc::vec![node]);
             let purpose = Purpose::UrlCheck(sequence);
             if self
                 .send_via(node, Some(endpoint), &content, purpose, timeout)
                 .is_none()
             {
-                self.probing.retain(|(id, _)| *id != node);
-                self.probes.give_back(self.config.probe_rate);
+                self.url_checking.retain(|(id, _)| *id != node);
+                self.url_checks.give_back(rate);
                 return;
             }
             if let Some(entry) = self.table.get_mut(&node) {
                 entry.standing.url_check_at_ms = now.saturating_add(bucket);
             }
         }
+    }
+
+    /// The checks of candidates' URLs in flight: each a request in flight,
+    /// so bounded as those are.
+    pub(super) fn check_url_checks(&self) {
+        assert!(
+            self.url_checking.len() <= self.config.max_requests,
+            "URL checks within bounds"
+        );
     }
 
     /// The answer to a check of `node`'s URL.
@@ -189,11 +207,23 @@ impl PeerNode {
         sequence: u64,
         result: Result<Vec<u8>, Problem>,
     ) {
-        self.probing.retain(|(id, _)| *id != node);
+        self.url_checking.retain(|(id, _)| *id != node);
         let answered = super::inbound::answers_as(node, sequence, result);
         if let Some(entry) = self.table.get_mut(&node) {
             entry.standing.url_answered = Some(answered);
         }
+    }
+}
+
+/// The rate of our checks of candidates' URLs: as many as the node may
+/// have downlinks, once per bucket of their standing, in bursts as large as
+/// the probes'.
+pub(super) fn url_check_rate(config: &Config) -> crate::config::Rate {
+    let bucket_ms = config.promotion_standing_ms / crate::table::STANDING_BUCKETS;
+    crate::config::Rate {
+        burst: config.probe_rate.burst,
+        refill_ms: (bucket_ms / u64::try_from(config.max_downlinks.max(1)).unwrap_or(u64::MAX))
+            .max(1),
     }
 }
 
