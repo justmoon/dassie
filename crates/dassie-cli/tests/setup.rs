@@ -110,9 +110,15 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
     let (stranger, other_id) = phrase_file(dir.path(), "stranger", 9);
     let child = start(&state, &ipc);
 
+    a_fresh_node_refuses_a_live_phrase(dir.path(), &ipc);
+
     let first = dassie(&["setup", "--passphrase-file", &owner], &ipc);
     let text = describe(&first);
     assert!(first.status.success(), "{text}");
+    assert!(
+        text.contains(&format!("is node {id}, of the test realm.")),
+        "{text}"
+    );
     assert!(
         text.contains(&format!("Set the node up as {id}, in the test realm.")),
         "{text}"
@@ -174,23 +180,18 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
     assert!(!log.contains(&first_words), "{log}");
 }
 
-/// A phrase names its realm: read as another realm's, it is refused as a
-/// phrase of its own, and a phrase of a realm the node does not run is
-/// refused too, before the node is touched.
+/// A phrase names its realm, so no flag does, and a phrase of a realm the
+/// node does not run is refused before the node is touched.
 fn refuses_a_phrase_of_another_realm(dir: &Path, owner: &str, ipc: &Path) {
-    let live = dassie(
-        &["setup", "--passphrase-file", owner, "--realm", "live"],
+    let flagged = dassie(
+        &["setup", "--passphrase-file", owner, "--realm", "test"],
         ipc,
     );
-    let text = describe(&live);
-    assert_eq!(live.status.code(), Some(1), "{text}");
-    assert!(text.contains("phrase of the test realm"), "{text}");
+    let text = describe(&flagged);
+    assert_eq!(flagged.status.code(), Some(2), "{text}");
 
     let (live_owner, _) = phrase_file_in(Realm::Live, dir, "live", 7);
-    let live = dassie(
-        &["setup", "--passphrase-file", &live_owner, "--realm", "live"],
-        ipc,
-    );
+    let live = dassie(&["setup", "--passphrase-file", &live_owner], ipc);
     let text = describe(&live);
     assert_eq!(live.status.code(), Some(1), "{text}");
     assert!(
@@ -198,14 +199,25 @@ fn refuses_a_phrase_of_another_realm(dir: &Path, owner: &str, ipc: &Path) {
         "{text}"
     );
     assert!(text.contains("a phrase of the live realm"), "{text}");
+}
 
-    // Read by default as the test realm's, it is refused before the node is
-    // touched, with the flag that reads it as its own.
-    let unflagged = dassie(&["setup", "--passphrase-file", &live_owner], ipc);
-    let text = describe(&unflagged);
-    assert_eq!(unflagged.status.code(), Some(1), "{text}");
+/// A fresh node that may not run the live realm, as none may but by the
+/// dev switch, refuses a setup with a phrase of it, and stays as it was.
+fn a_fresh_node_refuses_a_live_phrase(dir: &Path, ipc: &Path) {
+    let (live_owner, live_id) = phrase_file_in(Realm::Live, dir, "live", 7);
+    let live = dassie(&["setup", "--passphrase-file", &live_owner], ipc);
+    let text = describe(&live);
+    assert_eq!(live.status.code(), Some(1), "{text}");
     assert!(
-        text.contains("a phrase of the live realm, not of the test realm: pass --realm live"),
+        text.contains(&format!("is node {live_id}, of the live realm.")),
+        "{text}"
+    );
+    assert!(
+        text.contains("The node refused setup in the live realm, which the passphrase names"),
+        "{text}"
+    );
+    assert!(
+        text.contains("the live realm is not supported yet"),
         "{text}"
     );
 }

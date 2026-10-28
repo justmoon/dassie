@@ -329,6 +329,16 @@ fn operation_hash(operation: &SignedMemberOperation) -> Digest {
 }
 
 impl HubScheme {
+    /// Whether a `settlement` message on this scheme books what it states
+    /// ([`SettlementScheme::books_messages`]): never. Its message is a
+    /// bare notice, whose data names the settlement and which only moves
+    /// the settlement channel on; the hub says what arrived, once. So the
+    /// node posts a hub settlement as soon as the hub applied it, and only
+    /// its notice waits behind other methods' messages to the peer
+    /// (spec/areas/hubs.md#in-the-node). The node's tests take their
+    /// pretend hubs' from here.
+    pub const BOOKS_MESSAGES: bool = false;
+
     /// The scheme that settles through `account`, whose largest packet on
     /// the ledger is `max_packet`, with what the books last checkpointed
     /// and the state they kept.
@@ -1655,6 +1665,10 @@ impl SettlementScheme for HubScheme {
                 });
             }
         }
+    }
+
+    fn books_messages(&self) -> bool {
+        Self::BOOKS_MESSAGES
     }
 
     /// The message books nothing: the hub says what arrived, once.

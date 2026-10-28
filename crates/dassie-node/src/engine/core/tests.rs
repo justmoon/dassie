@@ -2417,6 +2417,14 @@ pub(super) const STUB_TWO: &str = "stub-two";
 /// stub's, so that two nodes running both share two hubs.
 const STUB_TWO_HUB: [u8; 32] = *b"the second stub's pretend hub..!";
 
+/// A third stub with commitments, [`StubTwo`] on the DSUSD hub's ledger
+/// and in a pretend hub of its own, for the tests of settlements on
+/// several methods whose messages are a hub's ([`stub_two_as_hub`]).
+pub(super) const STUB_THREE: &str = "stub-three";
+
+/// The pretend hub every third stub is a member of.
+const STUB_THREE_HUB: [u8; 32] = *b"the third stub's pretend hub...!";
+
 std::thread_local! {
     /// The packets any [`StubTwo`] of this thread committed to or took a
     /// commitment for. A test runs its cores on its own thread, so it
@@ -2427,6 +2435,23 @@ std::thread_local! {
     /// settlement, as a hub's scheme once its hub stalled
     /// (spec/areas/settlement.md#when-peers-cannot-pay-us).
     static STUB_TWO_UNPAYABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Whether every [`StubTwo`] of this thread, the third stub too, sends
+    /// and takes settlement messages as a hub's scheme does.
+    static STUB_TWO_AS_HUB: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Makes every [`StubTwo`] of this test, the third stub too, send and take
+/// settlement messages as a hub's scheme does, or as the stub's again: its
+/// messages book as [`dassie_hub::member::HubScheme::BOOKS_MESSAGES`] says,
+/// so the stand-in follows the real scheme, and a peer's book nothing, as
+/// the hub's `handle_settlement` books nothing.
+fn stub_two_as_hub(as_hub: bool) {
+    STUB_TWO_AS_HUB.with(|cell| cell.set(as_hub));
+}
+
+/// Whether [`StubTwo`] settles as a hub's scheme in this test.
+fn stub_two_is_hub() -> bool {
+    STUB_TWO_AS_HUB.with(std::cell::Cell::get)
 }
 
 /// Makes every [`StubTwo`] of this test unable to receive, or able again.
@@ -2446,25 +2471,51 @@ fn count_stub_two_packet() {
 
 /// The stub with commitments under another name, on a ledger of its own,
 /// the XRP hub's, whose owner book has no peg guard, and in a pretend hub
-/// of its own: what it does is the stub's.
+/// of its own: what it does is the stub's. As the third stub, the same on
+/// the DSUSD hub's ledger, in a pretend hub of its own again.
 /// Its stub is in a cell: the commitments' reads take `&self`, and the
 /// stub lends them only as `&mut`.
-pub(super) struct StubTwo(std::cell::RefCell<dassie_settlement::Stub>);
+pub(super) struct StubTwo {
+    stub: std::cell::RefCell<dassie_settlement::Stub>,
+    id: dassie_ledger::Name,
+    ledger: dassie_ledger::LedgerId,
+    hub: [u8; 32],
+}
 
 impl StubTwo {
-    /// The scheme, as the node makes it.
+    /// The scheme `id`, [`STUB_TWO`] or [`STUB_THREE`], as the node makes
+    /// it.
     pub(super) fn boxed(
+        id: &str,
         config: &str,
         checkpoint: Option<u64>,
         state: &[u8],
     ) -> Result<Box<dyn dassie_settlement::SettlementScheme>, dassie_settlement::SchemeError> {
+        use dassie_settlement::SchemeError;
         let stub = dassie_settlement::Stub::new(config, checkpoint, state)?;
-        Ok(Box::new(Self(std::cell::RefCell::new(stub))))
+        let (ledger, hub) = Self::of(id).ok_or(SchemeError::UnknownScheme)?;
+        let id = dassie_ledger::Name::new(id).map_err(|_| SchemeError::UnknownScheme)?;
+        Ok(Box::new(Self {
+            stub: std::cell::RefCell::new(stub),
+            id,
+            ledger,
+            hub,
+        }))
+    }
+
+    /// The ledger and the pretend hub of scheme `id`, if it is one of them.
+    pub(super) fn of(id: &str) -> Option<(dassie_ledger::LedgerId, [u8; 32])> {
+        use dassie_ledger::LedgerId;
+        match id {
+            STUB_TWO => Some((LedgerId::HubXrplTestnetXrp, STUB_TWO_HUB)),
+            STUB_THREE => Some((LedgerId::HubXrplTestnetDsusdUsd, STUB_THREE_HUB)),
+            _ => None,
+        }
     }
 
     /// Runs `f` on the stub.
     fn stub<R>(&self, f: impl FnOnce(&mut dassie_settlement::Stub) -> R) -> R {
-        f(&mut self.0.borrow_mut())
+        f(&mut self.stub.borrow_mut())
     }
 
     /// Runs `f` on the stub's commitments.
@@ -2476,7 +2527,7 @@ impl StubTwo {
 
 impl dassie_settlement::SettlementScheme for StubTwo {
     fn id(&self) -> dassie_ledger::Name {
-        dassie_ledger::name!(STUB_TWO)
+        self.id
     }
 
     fn can_receive(&self) -> bool {
@@ -2484,7 +2535,16 @@ impl dassie_settlement::SettlementScheme for StubTwo {
     }
 
     fn ledger(&self) -> dassie_ledger::LedgerId {
-        dassie_ledger::LedgerId::HubXrplTestnetXrp
+        self.ledger
+    }
+
+    /// As a hub's scheme's, if the test says so.
+    fn books_messages(&self) -> bool {
+        if stub_two_is_hub() {
+            dassie_hub::member::HubScheme::BOOKS_MESSAGES
+        } else {
+            true
+        }
     }
 
     fn balance(&self) -> u64 {
@@ -2577,6 +2637,10 @@ impl dassie_settlement::SettlementScheme for StubTwo {
         state: &[u8],
         effects: &mut Vec<dassie_settlement::Effect>,
     ) -> Result<(), dassie_settlement::SchemeError> {
+        // A hub's message books nothing: its hub says what arrived.
+        if stub_two_is_hub() {
+            return Ok(());
+        }
         self.stub(|stub| stub.handle_settlement(peer, amount, data, state, effects))
     }
 
@@ -2589,7 +2653,7 @@ impl dassie_settlement::SettlementScheme for StubTwo {
     }
 
     fn commitments(&mut self) -> Option<&mut dyn dassie_settlement::Commitments> {
-        self.0.get_mut().commitments()?;
+        self.stub.get_mut().commitments()?;
         Some(self)
     }
 
@@ -2685,7 +2749,7 @@ impl dassie_settlement::Commitments for StubTwo {
 
     fn membership(&self) -> Option<dassie_settlement::Membership> {
         Some(dassie_settlement::Membership {
-            hub: STUB_TWO_HUB,
+            hub: self.hub,
             // An account, as the stub's: two members without one do not
             // peer over their hub.
             account: 1,
@@ -6221,4 +6285,9 @@ fn a_dropped_method_takes_its_slot_and_brings_it_back() {
 mod winding;
 
 mod joining;
+mod refusals;
 mod unavailable;
+
+// Our settlements on two methods of a peering, behind each other's
+// messages on its one channel.
+mod held_settlements;

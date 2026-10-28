@@ -72,21 +72,7 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         Event::RegisteredWith(node) => {
             emit!(severity, target: target::PEER, %node, "registered with a bootstrap node");
         }
-        Event::PacketFailed {
-            peer,
-            request_id,
-            definite,
-        } => {
-            emit!(severity, target: target::PEER, %peer, request_id, definite, "a packet to a peer failed");
-        }
-        Event::FulfillReply {
-            peer,
-            request_id,
-            claim,
-        } => {
-            let bytes = claim.len();
-            emit!(severity, target: target::PEER, %peer, request_id, bytes, "the peer's reply to our Fulfill carries a claim");
-        }
+        Event::PacketFailed { .. } | Event::FulfillReply { .. } => peer_packet(severity, event),
         Event::PeeringFailed { node, reason } => {
             emit!(severity, target: target::PEER, %node, reason, "peering failed");
         }
@@ -211,6 +197,30 @@ fn own_names(severity: Severity, event: &dassie_peer::NameEvent) {
             expires_ms,
         } => {
             emit!(severity, target: target::PEER, %name, %registrar, expires_ms, "a registrar answered our renewal of a name");
+        }
+        _ => {}
+    }
+}
+
+/// The peer node's events about the ILP packets we sent a peer.
+fn peer_packet(severity: Severity, event: &dassie_peer::Event) {
+    use dassie_peer::Event;
+    match event {
+        Event::PacketFailed {
+            peer,
+            request_id,
+            definite,
+            status,
+        } => {
+            emit!(severity, target: target::PEER, %peer, request_id, definite, ?status, "a packet to a peer failed");
+        }
+        Event::FulfillReply {
+            peer,
+            request_id,
+            claim,
+        } => {
+            let bytes = claim.len();
+            emit!(severity, target: target::PEER, %peer, request_id, bytes, "the peer's reply to our Fulfill carries a claim");
         }
         _ => {}
     }
@@ -426,6 +436,7 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::Reconciling { .. }
         | SettlementEvent::UnknownExecuted { .. }
         | SettlementEvent::AnnounceFailed { .. }
+        | SettlementEvent::MessageWaits { .. }
         | SettlementEvent::UnknownCancelled { .. }
         | SettlementEvent::Failed { .. }
         | SettlementEvent::PeerSettled { .. }
@@ -478,6 +489,9 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         }
         SettlementEvent::AnnounceFailed { peer, error } => {
             emit!(severity, target: target::SETTLEMENT, %peer, ?error, "a settlement could not be announced");
+        }
+        SettlementEvent::MessageWaits { peer, scheme } => {
+            emit!(severity, target: target::SETTLEMENT, %peer, %scheme, "a settlement whose message books was posted while another message was on its way: its message waits");
         }
         SettlementEvent::UnknownCancelled { scheme, id } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, %id, "an unknown settlement was cancelled");

@@ -332,6 +332,16 @@ pub enum SettlementEvent {
         /// The settlement.
         id: Name,
     },
+    /// Our settlement on a scheme whose messages book was posted while
+    /// another message to the peer was still on its way: its message
+    /// waits for the channel, in memory, and a restart before it goes
+    /// loses it on the peer's side.
+    MessageWaits {
+        /// The peer.
+        peer: NodeId,
+        /// The scheme.
+        scheme: Name,
+    },
     /// A settlement was posted, and could not be announced to the peer.
     AnnounceFailed {
         /// The peer.
@@ -560,6 +570,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::PrepareFailed { .. }
         | SettlementEvent::UnknownExecuted { .. }
         | SettlementEvent::UnknownCancelled { .. }
+        | SettlementEvent::MessageWaits { .. }
         | SettlementEvent::Failed { .. }
         | SettlementEvent::PeerLoss { .. }
         | SettlementEvent::PeerSettlementRefused { .. }

@@ -809,21 +809,28 @@ fn a_hold_with_funds_keeps_the_channel() {
     scheme.check_invariants();
 }
 
+// spec/areas/hubs.md#in-the-node: a settlement message over a hub is a
+// bare notice, whatever amount it states: the node neither checks nor
+// books it, and the hub says what arrived.
 #[test]
 fn the_scheme_books_nothing_on_its_own() {
     let hub = Hub::new();
     let account = hub.account();
     let mut scheme = HubScheme::new(&account, 100_000_000, None, &[]).unwrap();
+    assert!(!scheme.books_messages());
+    assert_eq!(scheme.books_messages(), HubScheme::BOOKS_MESSAGES);
     let mut effects = Vec::new();
     assert_eq!(
         scheme.deposit(5, &mut effects),
         Err(SchemeError::Unsupported)
     );
     let peer = Name::new("peer").unwrap();
-    assert_eq!(
-        scheme.handle_settlement(peer, 5, &[0; 16], &[], &mut effects),
-        Ok(())
-    );
+    for amount in [0, 5, u64::MAX] {
+        assert_eq!(
+            scheme.handle_settlement(peer, amount, &[0; 16], &[], &mut effects),
+            Ok(())
+        );
+    }
     assert_eq!(
         scheme.handle_settlement(peer, 5, &[0; 3], &[], &mut effects),
         Err(SchemeError::InvalidData)

@@ -133,6 +133,24 @@ fn name(peer: NodeId) -> Option<Name> {
     Name::new(peer.as_str()).ok()
 }
 
+/// The Reject for a Prepare that surely did not reach its peer, or that the
+/// peer did not act on, by the status it answered with, if any
+/// (spec/areas/connector.md#responses-and-expiry): T05 when it refused us
+/// for a rate, so that the sender backs off as from a peer's rate limit, and
+/// T01 for everything else.
+pub(super) const fn undelivered(status: Option<u16>) -> (ErrorCode, &'static str) {
+    match status {
+        Some(429) => (
+            ErrorCode::T05_RATE_LIMITED,
+            "the peer refused the packet for its rate",
+        ),
+        _ => (
+            ErrorCode::T01_PEER_UNREACHABLE,
+            "the peer could not be reached",
+        ),
+    }
+}
+
 /// The accounts peers of one kind may take, downlinks or core peers: an
 /// even share of what the ledger's accounts leave beside every account the
 /// node opens for itself ([`OWN_ACCOUNTS`]), so neither kind's former peers
@@ -1153,10 +1171,12 @@ impl Core {
                 peer,
                 request_id,
                 definite,
+                status,
             } => {
-                // Only a packet that surely did not arrive is failed now:
-                // one that may have is left to expire, so a peer that
-                // fulfilled it does not bear its loss.
+                // Only a packet that surely did not arrive, or that the
+                // peer did not act on, is failed now: one that may have
+                // been is left to expire, so a peer that fulfilled it does
+                // not bear its loss.
                 if definite && let Some(&endpoint) = self.peer_endpoints.get(&peer) {
                     // Over a hub, the scheme of the packet's method forgets
                     // the commitment too, a dropped method's as well.
@@ -1166,12 +1186,13 @@ impl Core {
                     {
                         self.with_commitments(scheme, |c| c.on_answered(name, request_id));
                     }
+                    let (code, message) = undelivered(status);
                     self.connector.fail_forwarded(
                         self.now_ms,
                         EndpointId::Peer(endpoint),
                         request_id,
-                        ErrorCode::T01_PEER_UNREACHABLE,
-                        "the peer could not be reached",
+                        code,
+                        message,
                     );
                 }
             }

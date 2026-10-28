@@ -8,9 +8,10 @@
 //! and posts it with the setup token to `/api/setup`
 //! (spec/areas/http.md#setup). So the node checks a setup from
 //! here exactly as one from a browser, and the phrase never reaches the
-//! node, only the key does, with the realm the node runs, the test realm
-//! unless `--realm` says otherwise: it is fixed then, for good
-//! (spec/decisions/mainnet-schemes.md). Then it waits for the engine, sets
+//! node, only the key does, with the realm the phrase names, which is the
+//! node's for good then (spec/decisions/mainnet-schemes.md); a node that
+//! may not run that realm refuses the setup, as it refuses the wallet's.
+//! Then it waits for the engine, sets
 //! the config of each external asset it is given, and adds each settlement
 //! scheme it is given that is not active. Then it joins the realm's default
 //! settlement hub when the node offers one: the owner book the hub funds
@@ -20,11 +21,11 @@
 //! joins a hub only once its owner turns hubs on
 //! (spec/designs/settlement-hubs.md#11-choosing-a-hub).
 //!
-//! A phrase names its realm (spec/decisions/phrase-format.md), so it is
-//! read as a phrase of that realm and refused as one of the other; one
-//! that needs correcting, or that says it was made more than a day after
-//! the host's clock, is refused too, since no one is here to confirm or to
-//! set the clock.
+//! A phrase names its realm (spec/decisions/phrase-format.md), so no flag
+//! does: one could only agree with the phrase or refuse it. A phrase that
+//! needs correcting, or that says it was made more than a day after the
+//! host's clock, is refused, since no one is here to confirm or to set the
+//! clock.
 //!
 //! Running it again changes nothing, and a node set up with another phrase,
 //! or in another realm than the phrase's, is refused, untouched. Every
@@ -122,9 +123,6 @@ pub struct Options {
     pub schemes: Vec<Scheme>,
     /// The external assets' configs, set before any scheme is added.
     pub assets: Vec<Scheme>,
-    /// The realm the node is set up in, if `--realm` names one: the test
-    /// realm otherwise.
-    pub realm: Option<Realm>,
     /// Whether to leave the realm's default settlement hub alone
     /// (`--no-hub`), rather than join it.
     pub no_hub: bool,
@@ -159,7 +157,6 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Options, lexopt::Error> {
     let mut passphrase_file = None;
     let mut schemes: Vec<Scheme> = Vec::new();
     let mut assets: Vec<Scheme> = Vec::new();
-    let mut realm = None;
     let mut no_hub = false;
     let mut hub = false;
     while let Some(argument) = parser.next()? {
@@ -167,12 +164,6 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Options, lexopt::Error> {
             Long("passphrase-file") => passphrase_file = Some(PathBuf::from(parser.value()?)),
             Long("no-hub") => no_hub = true,
             Long("hub") => hub = true,
-            Long("realm") => {
-                let text = parser.value()?.string()?;
-                let parsed = Realm::parse(&text)
-                    .map_err(|_| format!("--realm takes test or live, not {text:?}"))?;
-                realm = Some(parsed);
-            }
             Long("scheme") => {
                 let scheme = scheme("scheme", &parser.value()?.string()?)?;
                 add_once("scheme", &mut schemes, scheme, MAX_SCHEMES)?;
@@ -192,7 +183,6 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Options, lexopt::Error> {
         passphrase_file,
         schemes,
         assets,
-        realm,
         no_hub,
         hub,
     })
@@ -273,35 +263,25 @@ pub fn run(options: &Options) -> ExitCode {
     }
 }
 
-/// The node key of the passphrase file, a phrase of `realm`. A phrase of
-/// the other realm is valid, and the operator may only have left out
-/// `--realm`, so the refusal says how to read it as its own.
-fn node_key(options: &Options, realm: Realm) -> Result<NodeKey, String> {
-    let phrase_realm = match realm {
-        Realm::Test => dassie_identity::Realm::Test,
-        Realm::Live => dassie_identity::Realm::Live,
+/// The realm the passphrase file's phrase names, which the node is set up
+/// in, and the node key of the phrase in it.
+fn node_key(options: &Options) -> Result<(Realm, NodeKey), String> {
+    let (realm, key) =
+        passphrase::own_realm_key_from_file(&options.passphrase_file, passphrase::now_ms())?;
+    let realm = match realm {
+        dassie_identity::Realm::Test => Realm::Test,
+        dassie_identity::Realm::Live => Realm::Live,
     };
-    passphrase::node_key_from_file(
-        &options.passphrase_file,
-        phrase_realm,
-        passphrase::now_ms(),
-    )
-    .map_err(|refusal| match refusal {
-        passphrase::Refusal::OtherRealm { message, realm } => format!(
-            "{message}: pass --realm {realm} to set the node up in the {realm} realm. Nothing was \
-             changed."
-        ),
-        passphrase::Refusal::Other(message) => message,
-    })
+    Ok((realm, key))
 }
 
 async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
-    let realm = options.realm.unwrap_or_default();
-    let key = node_key(options, realm)?;
+    let (realm, key) = node_key(options)?;
     let id = key.node_id();
     println!(
-        "The passphrase in {} is node {id}.",
-        options.passphrase_file.display()
+        "The passphrase in {} is node {id}, of the {} realm.",
+        options.passphrase_file.display(),
+        realm.as_str()
     );
     let mut client = tokio::time::timeout(CALL_TIMEOUT, Client::connect(env))
         .await
@@ -555,7 +535,7 @@ async fn claim(client: &mut Client, key: &NodeKey, realm: Realm) -> Result<bool,
         realm: Some(realm.as_str().into()),
     })
     .map_err(|error| error.to_string())?;
-    post_setup(&listener, body).await
+    post_setup(&listener, body, realm).await
 }
 
 /// The node's HTTPS listener, as the daemon describes it over the owner's
@@ -589,10 +569,10 @@ fn is_token(text: &str) -> bool {
     text.len() == TOKEN_HEX_CHARS && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// Posts `body` to `/api/setup` on the node's HTTPS listener on this host.
-/// True once set up; false if the route is gone, which it is once the node
-/// has an identity.
-async fn post_setup(listener: &Listener, body: String) -> Result<bool, Failure> {
+/// Posts `body`, a setup in `realm`, to `/api/setup` on the node's HTTPS
+/// listener on this host. True once set up; false if the route is gone,
+/// which it is once the node has an identity.
+async fn post_setup(listener: &Listener, body: String, realm: Realm) -> Result<bool, Failure> {
     let port = listener.port;
     let origin = format!("https://localhost:{port}");
     let exchange = async {
@@ -632,7 +612,14 @@ async fn post_setup(listener: &Listener, body: String) -> Result<bool, Failure> 
     match status {
         http::StatusCode::OK => Ok(true),
         http::StatusCode::NOT_FOUND => Ok(false),
-        other => Err(format!("The node refused setup ({other}): {}", shown(&text)).into()),
+        // The realm is the phrase's, which the node may not run: the
+        // refusal says so, in the node's words.
+        other => Err(format!(
+            "The node refused setup in the {} realm, which the passphrase names ({other}): {}",
+            realm.as_str(),
+            shown(&text)
+        )
+        .into()),
     }
 }
 
@@ -923,12 +910,8 @@ mod tests {
         }
         let many: Vec<&str> = many.iter().map(String::as_str).collect();
         assert!(parse(&many).unwrap_err().contains("more than"));
-        // The realm: the test realm unless named.
-        assert_eq!(options.realm, None);
-        let live = parse(&["--passphrase-file", "p", "--realm", "live"]).unwrap();
-        assert_eq!(live.realm, Some(Realm::Live));
-        let main = parse(&["--passphrase-file", "p", "--realm", "main"]);
-        assert!(main.unwrap_err().contains("test or live"));
+        // The realm is the phrase's, so no flag names it.
+        assert!(parse(&["--passphrase-file", "p", "--realm", "live"]).is_err());
     }
 
     // spec/designs/settlement-hubs.md#11-choosing-a-hub: in the test realm
@@ -943,7 +926,7 @@ mod tests {
         let no_hub = parse(&["--passphrase-file", "p", "--no-hub"]).unwrap();
         assert!(no_hub.no_hub);
         assert!(!no_hub.joins_hub(Realm::Test) && !no_hub.joins_hub(Realm::Live));
-        let hub = parse(&["--passphrase-file", "p", "--realm", "live", "--hub"]).unwrap();
+        let hub = parse(&["--passphrase-file", "p", "--hub"]).unwrap();
         assert!(hub.hub);
         assert!(hub.joins_hub(Realm::Live) && hub.joins_hub(Realm::Test));
         assert!(parse(&["--passphrase-file", "p", "--no-hub=yes"]).is_err());
