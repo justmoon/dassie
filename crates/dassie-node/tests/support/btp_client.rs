@@ -184,6 +184,13 @@ pub fn entry<'a>(
     }
 }
 
+/// How many times a payment whose rate could not be measured starts again
+/// ([`pay_stream_waiting`]).
+const MEASURE_TRIES: usize = 5;
+
+/// How many steps of 100 ms the clock moves between two such tries.
+const MEASURE_PAUSE_STEPS: usize = 20;
+
 /// Pays `amount` over STREAM, from `client` to `destination`, until it is
 /// all sent.
 pub async fn pay_stream(
@@ -207,7 +214,12 @@ pub async fn pay_stream_waiting(
     amount: u64,
     idle: std::time::Duration,
 ) {
-    let outcome = send(
+    // A peering's first moments may refuse every probe for a reason that
+    // passes as the clock moves, such as a junior's advance settlement
+    // still on its way (T04): start again, a bounded number of times, each
+    // try moving the clock through its own rounds. A payment that can never
+    // be measured still fails after the last.
+    let mut outcome = send(
         clock,
         client,
         destination,
@@ -217,6 +229,27 @@ pub async fn pay_stream_waiting(
         idle,
     )
     .await;
+    for _ in 1..MEASURE_TRIES {
+        if !outcome.unmeasured || outcome.sent > 0 {
+            break;
+        }
+        // Moves the clock on, as a wait for progress does, so what refused
+        // the probes can pass before the next try.
+        for _ in 0..MEASURE_PAUSE_STEPS {
+            clock.advance(100);
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        outcome = send(
+            clock,
+            client,
+            destination,
+            shared_secret,
+            amount,
+            10_000,
+            idle,
+        )
+        .await;
+    }
     assert!(
         !outcome.unmeasured,
         "the payment did not start: the exchange rate to {destination} could not be measured"
