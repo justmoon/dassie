@@ -315,7 +315,8 @@ impl Connector {
         }
         // Unroutable, including anything below our own address that is no
         // endpoint's and our own address itself. A route whose hops have
-        // no method available now is short of liquidity, which passes.
+        // no method available now is short of liquidity, and one that
+        // leads only back to the source is routing converging: both pass.
         let asker = (Some(source), Some(in_ledger));
         let (to, method) = match self.next_hop(now_ms, prepare.destination, asker, Some(draw)) {
             Hop::To(to, method) => (to, method),
@@ -323,6 +324,16 @@ impl Connector {
                 return Err(refuse(
                     ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
                     "no settlement method available",
+                ));
+            }
+            // The source's routes lead through us and ours back through it:
+            // one of us has not recomputed its routes yet. That passes as
+            // routing converges, so the sender may try again, and its next
+            // packet may be drawn another way.
+            Hop::Back => {
+                return Err(refuse(
+                    ErrorCode::T01_PEER_UNREACHABLE,
+                    "the only route leads back",
                 ));
             }
             Hop::None => return Err(refuse(ErrorCode::F02_UNREACHABLE, "no route found")),

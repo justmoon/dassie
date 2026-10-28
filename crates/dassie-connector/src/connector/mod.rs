@@ -875,7 +875,9 @@ impl Connector {
         let address = Address::parse(destination).ok()?;
         match self.next_hop(0, address, (None, ledger), None) {
             hops::Hop::To(hop, Some(ledger)) => Some((hop, ledger)),
-            hops::Hop::To(_, None) | hops::Hop::NoMethod | hops::Hop::None => None,
+            hops::Hop::To(_, None) | hops::Hop::NoMethod | hops::Hop::Back | hops::Hop::None => {
+                None
+            }
         }
     }
 
