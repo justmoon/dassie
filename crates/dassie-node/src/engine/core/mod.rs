@@ -28,6 +28,7 @@ mod peers;
 mod probes;
 mod schemes;
 mod settlement;
+mod swaps;
 mod tokens;
 mod trust;
 
@@ -70,6 +71,9 @@ pub use probes::{
 };
 pub use schemes::{AssetView, LedgerEvent, SCHEMES, offered};
 pub use settlement::Lie;
+pub use swaps::{
+    MAX_SWAP_OUTCOMES, NewSwap, SWAP_DATA_LENGTH, SWAP_DATA_VERSION, SwapOutcome, SwapSent,
+};
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 
 use incoming::OpenIncoming;
@@ -381,6 +385,8 @@ pub struct Core {
     ledger_stats: dassie_ledger::Stats,
     /// What sends outgoing payments.
     spending: payers::Spending,
+    /// The node's own swaps with its peers.
+    swaps: swaps::Swaps,
     /// The owner's peer settings.
     peer_settings: PeerSettings,
     /// When the invariants are swept.
@@ -527,6 +533,7 @@ impl Core {
             held_names_changed: true,
             ledger_stats: dassie_ledger::Stats::default(),
             spending: payers::Spending::default(),
+            swaps: swaps::Swaps::default(),
             peer_settings: PeerSettings::DEFAULT,
             sweeps: Sweeps::DUE,
             events: Events::new(),
@@ -1082,9 +1089,9 @@ fn check_name_bounds(policies: &Policies) {
     );
 }
 
-/// Most local endpoints at once: a receiver and a payer for each ledger
-/// there is.
-pub const MAX_LOCAL_ENDPOINTS: usize = 8;
+/// Most local endpoints at once: a receiver, a payer and a swap endpoint
+/// for each ledger of a realm.
+pub const MAX_LOCAL_ENDPOINTS: usize = 3 * MAX_PRICED_LEDGERS;
 
 /// The peer protocol's state machine, from what the store kept of it,
 /// pinned to `uplinks` while it runs as a periphery node.

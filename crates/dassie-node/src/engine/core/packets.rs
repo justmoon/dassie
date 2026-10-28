@@ -382,10 +382,14 @@ impl Core {
     }
 
     /// Sends a Prepare the connector forwarded: to the node's own receiver,
-    /// or out.
+    /// to its swap endpoint (one of its swaps coming back, which only a
+    /// peer's Prepare can be), or out.
     fn forwarded(&mut self, now: u64, forwarded: Forwarded) {
         match forwarded.to {
-            EndpointId::Local(_) => self.deliver(now, forwarded),
+            EndpointId::Local(_) => match self.connector.swap_ledger(forwarded.to) {
+                Some(ledger) => self.swap_arrived(now, ledger, forwarded),
+                None => self.deliver(now, forwarded),
+            },
             EndpointId::Btp(_) | EndpointId::Peer(_) => self.forward_out(now, forwarded),
         }
     }
@@ -523,6 +527,10 @@ impl Core {
                 ));
             }
             EndpointId::Local(_) => {
+                if let Some(ledger) = self.connector.swap_ledger(upstream.to) {
+                    self.swap_answered(ledger, upstream.request_id, upstream.length);
+                    return;
+                }
                 let Some(ledger) = self.receiver_ledger(upstream.to) else {
                     if self.payer_ledger(upstream.to).is_some() {
                         let answer = Answer::Up(upstream.length);

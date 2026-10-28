@@ -12,6 +12,7 @@ use dassie_ledger::{
 use dassie_oer::{Decode, Encode};
 
 use super::hops::Hop;
+use super::swaps::is_link_local;
 use super::{Connector, Forwarded, OpensAccounts, OpensNone, Outcome, Pending};
 use crate::PacketTransfers;
 use crate::cap::CapRefusal;
@@ -26,14 +27,14 @@ const ILDCP_RESPONSE_LENGTH: usize = 3 + dassie_ilp::MAX_ADDRESS_LENGTH + 1 + 3 
 
 /// A refusal before the packet goes anywhere.
 #[derive(Clone, Copy)]
-struct Refusal {
+pub(super) struct Refusal {
     code: ErrorCode,
     message: &'static str,
     /// F08 data.
     too_large: Option<AmountTooLarge>,
 }
 
-const fn refuse(code: ErrorCode, message: &'static str) -> Refusal {
+pub(super) const fn refuse(code: ErrorCode, message: &'static str) -> Refusal {
     Refusal {
         code,
         message,
@@ -42,7 +43,7 @@ const fn refuse(code: ErrorCode, message: &'static str) -> Refusal {
 }
 
 /// Where a routed packet goes, and what it books.
-struct Route {
+pub(super) struct Route {
     to: EndpointId,
     /// The ledger of the source's slot it came in on, and of the
     /// destination's slot it goes out on.
@@ -52,6 +53,13 @@ struct Route {
     /// Our fee, out of the incoming amount: only on transit.
     fee: u64,
     amount_out: u64,
+}
+
+impl Route {
+    /// Whether it goes out on another ledger than it came in on.
+    pub(super) fn converts(&self) -> bool {
+        self.in_ledger != self.out_ledger
+    }
 }
 
 /// A packet's pending transfers, and what a spending cap counts of it.
@@ -164,16 +172,43 @@ impl Connector {
             return self.ildcp(now_ms, trace, (source, in_ledger), &prepare, out);
         }
         let from = (source, in_ledger);
-        let route = match self.route(now_ms, from, &prepare, prices, ledger, draw) {
+        // Addresses under `peer.` are the link's, never routed: a swap, or
+        // nothing (spec/areas/connector.md#swaps).
+        let routed = if is_link_local(prepare.destination) {
+            self.route_swap(now_ms, from, &prepare, prices, ledger)
+        } else {
+            self.route(now_ms, from, &prepare, prices, ledger, draw)
+        };
+        let route = match routed {
             Ok(route) => route,
             Err(refusal) => return self.answer(now_ms, trace, &refusal, out),
         };
-        let books = (ledger, accounts);
-        let booked = match self.book(now_ms, trace, source, &route, prepare.amount, books) {
+        self.book_and_forward(
+            now_ms,
+            (trace, source, request_id),
+            &prepare,
+            &route,
+            (ledger, accounts),
+            out,
+        )
+    }
+
+    /// Books a routed packet and forwards it, or answers the source with
+    /// the ledger's refusal.
+    pub(super) fn book_and_forward(
+        &mut self,
+        now_ms: u64,
+        (trace, source, request_id): (TraceId, EndpointId, u32),
+        prepare: &Prepare<'_>,
+        route: &Route,
+        books: (&mut Ledger, &mut dyn OpensAccounts),
+        out: &mut [u8],
+    ) -> Outcome {
+        let booked = match self.book(now_ms, trace, source, route, prepare.amount, books) {
             Ok(booked) => booked,
             Err(refusal) => return self.answer(now_ms, trace, &refusal, out),
         };
-        self.forward(trace, source, request_id, &prepare, &route, booked, out)
+        self.forward(trace, source, request_id, prepare, route, booked, out)
     }
 
     /// The ledger of `source`'s slot on `on` (its first if `None`) that a
@@ -219,7 +254,7 @@ impl Connector {
     }
 
     /// Answers at once with a reject from this node.
-    fn answer(
+    pub(super) fn answer(
         &mut self,
         now_ms: u64,
         trace: TraceId,
@@ -289,6 +324,25 @@ impl Connector {
         Outcome::Respond(length)
     }
 
+    /// Whether the connector, and `source`'s share of it, has room for
+    /// another packet in flight: T03, or T05 for the source.
+    pub(super) fn has_room(&self, source: EndpointId) -> Result<(), Refusal> {
+        let from = self
+            .endpoints
+            .get(source)
+            .ok_or(refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error"))?;
+        if self.pending.len() >= self.config.max_pending {
+            return Err(refuse(ErrorCode::T03_CONNECTOR_BUSY, "connector busy"));
+        }
+        if from.pending_from >= self.max_pending_from(source) {
+            return Err(refuse(
+                ErrorCode::T05_RATE_LIMITED,
+                "too many packets in flight",
+            ));
+        }
+        Ok(())
+    }
+
     /// Capacity, route, expiry, amount and conversion.
     fn route(
         &self,
@@ -299,20 +353,7 @@ impl Connector {
         ledger: &Ledger,
         draw: u64,
     ) -> Result<Route, Refusal> {
-        let config = &self.config;
-        let from = self
-            .endpoints
-            .get(source)
-            .ok_or(refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error"))?;
-        if self.pending.len() >= config.max_pending {
-            return Err(refuse(ErrorCode::T03_CONNECTOR_BUSY, "connector busy"));
-        }
-        if from.pending_from >= self.max_pending_from(source) {
-            return Err(refuse(
-                ErrorCode::T05_RATE_LIMITED,
-                "too many packets in flight",
-            ));
-        }
+        self.has_room(source)?;
         // Unroutable, including anything below our own address that is no
         // endpoint's and our own address itself. A route whose hops have
         // no method available now is short of liquidity, and one that
@@ -338,6 +379,29 @@ impl Connector {
             }
             Hop::None => return Err(refuse(ErrorCode::F02_UNREACHABLE, "no route found")),
         };
+        self.route_onto(
+            now_ms,
+            (source, in_ledger),
+            (to, method),
+            prepare,
+            prices,
+            ledger,
+        )
+    }
+
+    /// The rest of a route once its next hop is known, `to` on its method
+    /// on `method` (for a converting peer's packet, the one with the best
+    /// rate if `None`): expiry, amount, conversion and the money in flight.
+    pub(super) fn route_onto(
+        &self,
+        now_ms: u64,
+        (source, in_ledger): (EndpointId, LedgerId),
+        (to, method): (EndpointId, Option<LedgerId>),
+        prepare: &Prepare<'_>,
+        prices: &PriceTable,
+        ledger: &Ledger,
+    ) -> Result<Route, Refusal> {
+        let config = &self.config;
         let incoming_ms = prepare.expires_at.unix_ms;
         let latest_ms = incoming_ms.saturating_sub(config.message_window_ms);
         if latest_ms < now_ms.saturating_add(config.min_timeout_ms) {

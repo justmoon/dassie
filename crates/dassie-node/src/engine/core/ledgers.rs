@@ -193,11 +193,11 @@ const COMMON_ACCOUNTS: [AccountName; 8] = [
 ];
 
 /// Most accounts the node opens for itself, never a peer's: one for every
-/// BTP token ever made, and on every ledger its common accounts and its
-/// payer's. Peers' accounts, which stay when their channels close, leave
-/// room for these (spec/decisions/closing-channels.md).
+/// BTP token ever made, and on every ledger its common accounts, its
+/// payer's and its swap endpoint's. Peers' accounts, which stay when their
+/// channels close, leave room for these (spec/decisions/closing-channels.md).
 pub(super) const OWN_ACCOUNTS: usize =
-    super::tokens::MAX_TOKEN_ROWS + LedgerId::ALL.len() * (COMMON_ACCOUNTS.len() + 1);
+    super::tokens::MAX_TOKEN_ROWS + LedgerId::ALL.len() * (COMMON_ACCOUNTS.len() + 2);
 
 impl Core {
     /// Whether the connector converts to and from the ledger of `active`
@@ -424,6 +424,7 @@ impl Core {
         self.update_peer_schemes();
         self.add_receiver(ledger)?;
         self.add_payer(ledger)?;
+        self.add_swap_endpoint(ledger)?;
         Ok(ledger)
     }
 
@@ -733,6 +734,9 @@ impl Core {
         }
         if let Some(payer) = self.spending.payers.remove(&ledger) {
             self.connector.remove_endpoint(now, payer.endpoint);
+        }
+        if let Some(swaps) = self.connector.swap_endpoint(ledger) {
+            self.connector.remove_endpoint(now, swaps);
         }
         self.expire(now);
     }
@@ -1153,6 +1157,7 @@ impl Core {
                     .payers
                     .values()
                     .any(|payer| payer.endpoint == endpoint)
+                || self.connector.swap_ledger(endpoint).is_some()
         };
         let mut free = self.next_local;
         for _ in 0..=super::MAX_LOCAL_ENDPOINTS {

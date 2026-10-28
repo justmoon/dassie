@@ -1,8 +1,8 @@
 # Connector
 
-The node's ILP connector: it knows the node's endpoints (BTP clients, local endpoints, peers), routes each Prepare, answers ILDCP, books the packet's transfers in the [ledger](ledger.md), charges transit, limits what may be in flight, and resolves the transfers when the response comes back or the packet expires. This doc also covers the exchange rates it converts at, how the owner's inventory prices them, the BTP server and its tokens.
+The node's ILP connector: it knows the node's endpoints (BTP clients, local endpoints, peers), routes each Prepare, answers ILDCP and swaps with its peers, books the packet's transfers in the [ledger](ledger.md), charges transit, limits what may be in flight, and resolves the transfers when the response comes back or the packet expires. This doc also covers the exchange rates it converts at, how the owner's inventory prices them, the BTP server and its tokens.
 
-**Paths:** `crates/dassie-connector/`, `crates/dassie-node/src/engine/core/packets.rs`, `crates/dassie-node/src/engine/core/tokens.rs`, `crates/dassie-node/src/http/btp.rs`, `crates/dassie-node/src/store/peer_settings.rs`, `crates/dassie-node/src/rates.rs`, `crates/dassie-node/src/node/rates.rs`, `crates/dassie-node/src/store/rates.rs`, `crates/dassie-node/src/rpc/rates.rs`
+**Paths:** `crates/dassie-connector/`, `crates/dassie-node/src/engine/core/packets.rs`, `crates/dassie-node/src/engine/core/swaps.rs`, `crates/dassie-node/src/engine/core/tokens.rs`, `crates/dassie-node/src/http/btp.rs`, `crates/dassie-node/src/store/peer_settings.rs`, `crates/dassie-node/src/rates.rs`, `crates/dassie-node/src/node/rates.rs`, `crates/dassie-node/src/store/rates.rs`, `crates/dassie-node/src/rpc/rates.rs`
 **Read with:** [Ledger](ledger.md), [ILP](ilp.md), [Peer protocol](peer-protocol.md), [Network](network.md), [Payments](payments.md), [Settlement](settlement.md)
 
 The connector is sans-IO and bounded ([engineering](../engineering.md)), and nothing on the packet path panics on input. Its bounds and timing are `Config` in `config.rs`.
@@ -26,6 +26,7 @@ A peering has settlement methods, each on a ledger of its own ([settlement-metho
 
 ## Routing
 
+- **Under `peer.`,** addresses are the link's, never routed: `peer.config` is ILDCP, answered from every endpoint, peers included; `peer.swap.<scheme ID>` is a swap ([below](#swaps)); any other gets F02. Each is handled before routing, so the rules below never see them.
 - **Below the node's own address,** only children and downlinks, by whole-segment prefix; a downlink whose peering is ending takes no new Prepare. The node's own address itself is unroutable.
 - **Beyond it,** the longest whole-segment prefix in the route table, which the peer protocol's routing fills with a few first hops per node ([Network](network.md#routing)). Its usable options are those that are an endpoint, are not the packet's source (so packets do not bounce between peers), are not draining, and have a [method available](#settlement-method-slots). A route whose only options are the packet's source answers T01: the source routes through this node and this node back through it, so one of them has not recomputed its routes yet, which passes ([route-back-is-temporary](../decisions/route-back-is-temporary.md)). Each packet's next hop, and the method it goes on, is drawn among them ([weighted-next-hops](../decisions/weighted-next-hops.md)), with a number the node draws from its RNG for every Prepare, so a simulation stays deterministic; nothing is sticky per destination or per payment.
   - **Among the options with a method available on the packet's incoming ledger,** while there is one: each weighted by the fees we earned on packets fulfilled through it on that ledger that kept it, and a share of the draws (`explore_ppm`) gives each the same chance. While none has earned, every draw is even. The packet goes on that method.
@@ -42,16 +43,25 @@ A periphery node ([Network](network.md#periphery-nodes)) has an address beneath 
 - **It forwards nothing.** A Prepare from a peer that lies beneath none of its addresses gets F02. Its own endpoints' packets go out by the routes, through its uplinks.
 - **It is paid beneath an uplink it is connected to:** its STREAM receiver's credentials name the address beneath an uplink confirmed now, the one the owner names if any ([Payments](payments.md#receiving)), so a payment's packets reach it through that uplink. Credentials handed out earlier keep their address, and reach it while that peering lasts.
 
+## Swaps
+
+A node swaps one asset for another with a peer over two settlement methods of their peering ([peer-swaps](../decisions/peer-swaps.md)): a Prepare to `peer.swap.<scheme ID>`, which the peer converts and sends back on the method that names (`connector/swaps.rs`). A method's scheme ID is its ledger's slug ([Ledger](ledger.md#ledgers-and-amounts)). The swap is never routed, so the routing rules, the bounce rule and keeping the ledger among them, stay as they are; it goes back to the peer it came from because it is under `peer.`, not by a route.
+
+- **At the peer (B).** A peer's Prepare to `peer.swap.<scheme>` on another method of their peering is transit from the slot it came on to the slot of the same endpoint that the scheme names, with the checks of any Prepare, in their order ([below](#handling-a-prepare)): expiry, the largest packet, conversion by the curve with the fee and the spread, F08 with the most that would pass, the money in flight, the books. It goes back with its destination, condition and data unchanged; B never reads the data. Its fee counts toward no hop's weight, as no converting packet's does. B refuses with F02 when it does not offer swaps, or the scheme is not a method of the peering; with T04 when that method is not available. Offering swaps is the owner's setting, on by default (`set_offer_swaps`); a periphery node never offers them, since it forwards nothing.
+- **At the node that swaps (A).** Each ledger the node runs has a swap endpoint, a local endpoint on the owner's `local/swap` sub-account, which no packet reaches by its address. A's swap goes out from the swap endpoint of the ledger it pays on, to the peer it chooses, on that peer's method there (`send_swap`): the owner's own funds, which never convert at A, refused with F02 unless the peering has a method on that ledger and the address names another of its methods. A Prepare from a peer to `peer.swap.<scheme>` that comes on the method its address names is one of A's swaps coming back, whether or not A offers swaps: it goes to the swap endpoint on that ledger, as a packet into the owner's own endpoints, unconverted and uncharged. So a swap that names the method it came on is never forwarded; with no swap endpoint there it gets F02.
+- **Matched by the condition alone.** The swap endpoint's data is the node's own, small, fixed and versioned (`engine/core/swaps.rs`): the least the swap takes back, and a nonce. Its fulfillment is an HMAC-SHA-256, under a secret drawn with the node's first swap and held only in memory, over the ledger it is to come back on and the data, and its condition is that fulfillment's SHA-256. A swap coming back is fulfilled only if the condition its data derives is its own (else F05) and it brings at least its minimum (else F04): a peer that changed the data or sent it back on another method gets nothing. So the node keeps no table of swaps in flight; one in flight at a restart is lost, as any packet in flight is.
+- **What the swap service gets.** Each swap sent has one outcome, fulfilled or the code it was refused with by this node, the peer, or the swap endpoint on the way back, kept in a bounded queue the service reads; T04 and T05 say to back off. With whom, how much and when to swap is not built yet ([roadmap](../roadmap.md#peer-swaps)).
+
 ## Handling a Prepare
 
-The checks run in the order of `connector/prepare.rs`; the first that fails answers the source at once with a Reject from this node. A packet that would convert is refused unless it comes from a peer, has fresh rates, and still carries money after conversion; transit out on a ledger the owner holds too little on gets T04 ([below](#inventory-pricing)). The money checks come last: the cap on money in flight with the peer, then a token's spending cap, then the ledger.
+The checks run in the order of `connector/prepare.rs`; the first that fails answers the source at once with a Reject from this node. A swap runs the same checks in the same order, its next hop the slot its address names rather than a route's ([Swaps](#swaps)). A packet that would convert is refused unless it comes from a peer, has fresh rates, and still carries money after conversion; transit out on a ledger the owner holds too little on gets T04 ([below](#inventory-pricing)). The money checks come last: the cap on money in flight with the peer, then a token's spending cap, then the ledger.
 
 **Expiry.** The outgoing packet expires one message window before the incoming one, and at most the longest hold time from now: the window leaves time for the response to travel back, and the hold bounds how long the next hop holds it. A packet that leaves too little time is refused (R02).
 
 ## Amounts and conversion
 
 - **Same ledger:** what goes on is what came, less our fee.
-- **Across ledgers, from one peer to another:** what came less our fee, at the curve's rate for the packet: spot, moved by the owner's inventory after the packet's own move, less the spread ([below](#inventory-pricing)).
+- **Across ledgers, from one peer to another:** what came less our fee, at the curve's rate for the packet: spot, moved by the owner's inventory after the packet's own move, less the spread ([below](#inventory-pricing)). A peer's swap is such a packet, from the peer to itself ([Swaps](#swaps)).
 - **Across ledgers, from a peer into the owner's own endpoints:** what came, at spot, uncharged; one to one in the same currency, without a rate, but never to or from a ledger that converts nothing now, such as a dollar token's off its peg, or its hub's ([XRPL](xrpl.md#the-peg-guard)). Only a packet from a peer converts.
 
 Conversion is exact integer arithmetic, rounding down, never floating point: at spot on rates relative to the dollar (`fx.rs`), on transit at the curve's rate (`pricing.rs`). It uses only rates learned at most an hour before `now` and not after it, so a clock that went back cannot make a rate young; without them the packet gets T00.
@@ -158,7 +168,7 @@ Only what passes from one peer to another is charged: the owner's fee, and on a 
 
 - **The fee rounds down,** so a packet too small to carry one passes free. Rounded up, it would take a payment's last packets whole, and strand the payment short.
 - **The spread and the curve are not booked per packet:** their gain is the net of the FX accounts, and negative when the node pays above spot for what it lacks.
-- **The fee is what a peer earns us,** and what weighs it as a next hop ([Routing](#routing)). Fees default to 0.
+- **The fee is what a peer earns us,** and what weighs it as a next hop ([Routing](#routing)), on a packet that keeps its ledger; a converting packet's, a swap's among them, counts toward no hop. Fees default to 0.
 - New charges apply from the engine's next step.
 
 ## Spending caps
@@ -186,7 +196,7 @@ ILP clients such as `ilp-plugin-btp` connect with `btp+wss://:<token>@<host>/btp
 
 ## Local endpoints
 
-The STREAM receivers and payers are in-process endpoints that the engine adds when a scheme activates and removes when it goes ([Payments](payments.md)). A packet forwarded to one is delivered in the same step. A payment from the node to its own receiver goes through the connector like any other, through a bounded queue drained at the end of the step, so nothing recurses.
+The STREAM receivers, payers and swap endpoints are in-process endpoints that the engine adds when a scheme activates and removes when it goes ([Payments](payments.md), [Swaps](#swaps)). A packet forwarded to one is delivered in the same step. A payment from the node to its own receiver goes through the connector like any other, through a bounded queue drained at the end of the step, so nothing recurses.
 
 ## The packet trace
 
@@ -210,3 +220,4 @@ ILP-over-HTTP (RFC 35) is not built: the connector has no HTTP endpoint ([roadma
 - [unreachable-peers](../decisions/unreachable-peers.md): no Prepare taken from a peer our messages surely do not reach.
 - [route-back-is-temporary](../decisions/route-back-is-temporary.md): T01, not F02, for a route that leads only back to the packet's source.
 - [lazy-downlink-accounts](../decisions/lazy-downlink-accounts.md): a downlink's accounts open with the first packet that moves money to it.
+- [peer-swaps](../decisions/peer-swaps.md): swaps with peers under `peer.swap`, converted as transit, matched by their condition.

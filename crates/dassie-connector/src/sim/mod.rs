@@ -432,6 +432,52 @@ impl Harness {
         owner
     }
 
+    /// The node's swap endpoint `local:{id}` on `ledger`, on the owner's
+    /// `local/swap` account there, at `own.swap-{ledger}`: what its own
+    /// swaps go out from and come back to.
+    pub fn add_swap(&mut self, id: u16, ledger: LedgerId) -> AccountId {
+        let name = AccountName::EquityOwnerSub(OwnerSub::Local(dassie_ledger::name!("swap")));
+        let account = self.ledger.open(AccountPath::new(ledger, name)).unwrap();
+        while let Some(entry) = self.ledger.poll_journal() {
+            self.journal.push(entry);
+        }
+        let slug = ledger.as_str().split_once('+').unwrap().0;
+        self.connector
+            .add_swap_endpoint(
+                EndpointId::Local(id),
+                &format!("{OWN}.swap-{slug}"),
+                account,
+                ledger,
+            )
+            .unwrap();
+        self.check();
+        account
+    }
+
+    /// Sends one of the node's own swaps from its swap endpoint `from` to
+    /// the peer `to`.
+    pub fn send_swap(
+        &mut self,
+        now: u64,
+        (from, request_id): (EndpointId, u32),
+        to: EndpointId,
+        packet: &[u8],
+    ) -> Outcome {
+        let prices = self.prices(now);
+        let outcome = self.connector.send_swap(
+            now,
+            (from, request_id),
+            to,
+            packet,
+            &mut self.ledger,
+            &prices,
+            &mut OpensNone,
+            &mut self.buffer,
+        );
+        self.check();
+        outcome
+    }
+
     /// The balance of the account at `name` on `ledger`.
     pub fn net_at(&self, ledger: LedgerId, name: AccountName) -> i128 {
         let id = self.ledger.find(&AccountPath::new(ledger, name)).unwrap();

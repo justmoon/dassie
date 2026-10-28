@@ -6734,3 +6734,6 @@ mod unavailable;
 // Our settlements on two methods of a peering, behind each other's
 // messages on its one channel.
 mod held_settlements;
+
+// The node's own swaps with a peer over two methods of their peering.
+mod swaps;

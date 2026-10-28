@@ -36,9 +36,10 @@ pub use self::core::HubPeer;
 pub use self::core::{
     AssetView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, Direction,
     EngineError, EngineEvent, Event, HubHold, HubStatus, IncomingPolicy, LedgerEvent, LedgerView,
-    Lie, Measured, Move, NamesView, NetworkView, NewIncoming, NewOutgoing, NewToken, Outbound,
-    Output, PaymentEvent, PeerEvent, PeerView, Prober, RemovalBlocker, SCHEMES, SettlementEvent,
-    Severity, TokenView, ledger_realm, ledger_slug, offered,
+    Lie, Measured, Move, NamesView, NetworkView, NewIncoming, NewOutgoing, NewSwap, NewToken,
+    Outbound, Output, PaymentEvent, PeerEvent, PeerView, Prober, RemovalBlocker, SCHEMES,
+    SettlementEvent, Severity, SwapOutcome, SwapSent, TokenView, ledger_realm, ledger_slug,
+    offered,
 };
 
 use crate::clock::clock_moved;
