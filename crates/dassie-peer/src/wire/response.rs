@@ -13,7 +13,8 @@ use super::{
 };
 use crate::names::{Name, name_len, read_name, write_name};
 
-/// Why a peering request was refused. Unknown values read as
+/// Why a peering request, a further method or a subscription was refused.
+/// Unknown values read as
 /// [`RefusalReason::Unspecified`]. `dassie/2` numbers its own, from 0
 /// without gaps (spec/areas/peer-protocol.md#versions).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -38,6 +39,10 @@ pub enum RefusalReason {
     /// The responder is ending its peering with the requester, or an owner
     /// recently ended it.
     Terminating,
+    /// The responder offers no swaps, so it publishes no snapshots: its
+    /// owner turned swaps off, or it is a periphery node, which forwards
+    /// nothing (spec/decisions/peer-swaps.md).
+    NoSwaps,
 }
 
 impl RefusalReason {
@@ -54,6 +59,7 @@ impl RefusalReason {
             Self::Unreachable => 6,
             Self::Banned => 7,
             Self::Terminating => 8,
+            Self::NoSwaps => 9,
         }
     }
 
@@ -69,6 +75,7 @@ impl RefusalReason {
             6 => Self::Unreachable,
             7 => Self::Banned,
             8 => Self::Terminating,
+            9 => Self::NoSwaps,
             _ => Self::Unspecified,
         }
     }
@@ -149,6 +156,51 @@ impl Encode for MethodResponse {
 }
 
 impl<'a> Decode<'a> for MethodResponse {
+    type Error = DecodeError;
+
+    fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
+        let offset = reader.offset();
+        match reader.read_context_tag()? {
+            0 => Ok(Self::Accepted),
+            1 => Ok(Self::Refused(RefusalReason::from_code(reader.read_u8()?))),
+            _ => Err(DecodeError::new(offset, DecodeErrorKind::UnexpectedTag)),
+        }
+    }
+}
+
+/// The answer to a `subscription`: shaped as the answer to a peering
+/// request ([`PeeringResponse`]). An unsubscription is always accepted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubscriptionResponse {
+    /// `accepted [0]`, which carries nothing: the snapshots follow as
+    /// `snapshot` messages.
+    Accepted,
+    /// `refused [1]`: [`RefusalReason::NoSwaps`] from a node that offers no
+    /// swaps.
+    Refused(RefusalReason),
+}
+
+impl Encode for SubscriptionResponse {
+    fn encoded_len(&self) -> usize {
+        size::tag(0)
+            + match self {
+                Self::Accepted => 0,
+                Self::Refused(_) => 1,
+            }
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        match self {
+            Self::Accepted => writer.write_context_tag(0),
+            Self::Refused(reason) => {
+                writer.write_context_tag(1);
+                writer.write_u8(reason.code());
+            }
+        }
+    }
+}
+
+impl<'a> Decode<'a> for SubscriptionResponse {
     type Error = DecodeError;
 
     fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {

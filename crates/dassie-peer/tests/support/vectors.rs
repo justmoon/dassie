@@ -12,8 +12,8 @@ use dassie_peer::names::Name;
 use dassie_peer::wire::{
     Content, EXTENSION_FEED, Entry, HubDetails, LinkStateResponse, MethodResponse, NameHolding,
     NameListResponse, NameReceipt, NodeInfo, NodeListResponse, PeeringResponse, RefusalReason,
-    SchemeId, SettlementOffer, SignedNodeInfo, encode_expiry, encode_octets, encode_settling,
-    sign_node_info,
+    SchemeId, SettlementOffer, SignedNodeInfo, SubscriptionResponse, encode_expiry, encode_octets,
+    encode_settling, sign_node_info,
 };
 
 use super::inputs::{KINDS, content};
@@ -153,6 +153,14 @@ pub fn answers() -> BTreeMap<String, Vec<u8>> {
                 window_end_ms: 1_700_000_060_000,
             }
             .to_vec(),
+        ),
+        (
+            "subscriptionAccepted",
+            SubscriptionResponse::Accepted.to_vec(),
+        ),
+        (
+            "subscriptionRefused",
+            SubscriptionResponse::Refused(RefusalReason::NoSwaps).to_vec(),
         ),
         ("registered", encode_expiry(1_700_086_400_000)),
         ("peeringInfo", encode_octets(&[0xab; 20])),

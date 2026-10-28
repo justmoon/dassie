@@ -11,6 +11,7 @@ mod methods;
 mod names;
 mod peering;
 mod settle;
+mod snapshots;
 mod state;
 
 use alloc::boxed::Box;
@@ -35,6 +36,9 @@ use crate::wire::{
 
 pub use lifecycle::BanError;
 pub use membership::{RegisterError, RegistrationStatus};
+pub use snapshots::{
+    SUBSCRIPTION_CHECK_MS, SUBSCRIPTION_REFUSED_MS, SUBSCRIPTION_RETRY_MS, SUBSCRIPTION_SILENCE_MS,
+};
 pub use state::{NodeView, PeerStatus};
 
 use membership::Lists;
@@ -268,6 +272,10 @@ pub(crate) enum Purpose {
     WindRequest(SchemeId),
     /// Telling a peer we end the peering.
     Termination,
+    /// Subscribing to a peer's snapshots (spec/decisions/peer-swaps.md).
+    Subscription,
+    /// Pushing our snapshot to a subscriber.
+    Snapshot,
 }
 
 /// An ILP Reject for a peer: sent again until it arrives or `until_ms`, so
@@ -383,6 +391,9 @@ pub struct PeerNode {
     /// Our registrations of names, and the renewals of those we hold
     /// (spec/areas/network.md#the-registrant).
     pub(crate) registrant: Registrant,
+    /// Snapshot subscriptions, both ways
+    /// (spec/areas/network.md#snapshot-subscriptions).
+    pub(crate) snapshots: snapshots::Snapshots,
 }
 
 impl PeerNode {
@@ -457,6 +468,7 @@ impl PeerNode {
             pinned: Vec::new(),
             registrar: None,
             name_polling: BTreeSet::new(),
+            snapshots: snapshots::Snapshots::default(),
             config,
         };
         node.restore(stored);
@@ -830,6 +842,8 @@ impl PeerNode {
             Purpose::FinalRequest => self.on_final_request(to, &result),
             Purpose::WindRequest(scheme) => self.on_wind_request(to, scheme, &result),
             Purpose::Termination => self.on_termination(to, &result),
+            Purpose::Subscription => self.on_subscription(to, &result),
+            Purpose::Snapshot => self.on_snapshot_pushed(to, &result),
             Purpose::Response(answer) => self.on_answer(*answer, result),
         }
     }
@@ -901,6 +915,7 @@ impl PeerNode {
         self.send_names();
         self.seek_peers(hooks);
         self.seek_methods(hooks);
+        self.tend_snapshots(hooks);
         self.update_routes();
     }
 
@@ -919,6 +934,7 @@ impl PeerNode {
             self.next_settlement_retry(),
             self.registrar.as_ref().and_then(Registrar::next_due),
             self.registrant.next_due(&self.holders, self.now_ms),
+            self.next_snapshot_check(),
         ];
         candidates.into_iter().flatten().min()
     }

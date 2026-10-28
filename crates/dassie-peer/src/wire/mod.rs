@@ -20,8 +20,9 @@ pub use node_info::{
 };
 pub use response::{
     LinkStateResponse, MethodResponse, NameHolding, NameListResponse, NameReceipt,
-    NodeListResponse, PeeringResponse, RefusalReason, decode_expiry, decode_hash, decode_octets,
-    decode_settling, encode_expiry, encode_link_states, encode_octets, encode_settling,
+    NodeListResponse, PeeringResponse, RefusalReason, SubscriptionResponse, decode_expiry,
+    decode_hash, decode_octets, decode_settling, encode_expiry, encode_link_states, encode_octets,
+    encode_settling,
 };
 pub use scheme::{MAX_SCHEME_ID, SchemeId};
 pub use url::{Endpoint, is_valid_url};
@@ -91,6 +92,13 @@ pub const MAX_COMMITMENT_BYTES: usize = 256;
 /// over a hub: the payer's claim. More is ignored.
 pub const MAX_CLAIM_BYTES: usize = 256;
 
+/// Most bytes of the snapshot a `snapshot` message carries: one datagram
+/// of the rate feed's, which a snapshot fits whatever methods it quotes
+/// (spec/decisions/peer-swaps.md). The node checks that it is
+/// `dassie-feed`'s bound on a datagram; this crate reads the snapshot as
+/// opaque bytes.
+pub const MAX_SNAPSHOT_BYTES: usize = 1200;
+
 /// Most node IDs in one link-state request.
 pub const MAX_LINK_STATE_REQUEST_IDS: usize = 16;
 
@@ -149,6 +157,10 @@ pub enum Kind {
     MethodAdd,
     /// `methodDrop [18]`.
     MethodDrop,
+    /// `subscription [19]`.
+    Subscription,
+    /// `snapshot [20]`.
+    Snapshot,
 }
 
 impl Kind {
@@ -175,6 +187,8 @@ impl Kind {
             16 => Self::MethodPacket,
             17 => Self::MethodAdd,
             18 => Self::MethodDrop,
+            19 => Self::Subscription,
+            20 => Self::Snapshot,
             _ => return None,
         })
     }
@@ -202,6 +216,8 @@ impl Kind {
             Self::MethodPacket => 16,
             Self::MethodAdd => 17,
             Self::MethodDrop => 18,
+            Self::Subscription => 19,
+            Self::Snapshot => 20,
         }
     }
 

@@ -89,8 +89,8 @@ pub fn mutate(bytes: &[u8], mutations: &[Mutation]) -> Vec<u8> {
     bytes
 }
 
-/// How many tags of content there are: 0 to 18, without gaps.
-pub const KINDS: usize = 19;
+/// How many tags of content there are: 0 to 20, without gaps.
+pub const KINDS: usize = 21;
 
 /// A valid encoding of the content with CHOICE tag `tag`, carrying the
 /// link state `info` where it has one.
@@ -147,6 +147,9 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
             data: &[1, 2, 3],
         },
         18 => Content::MethodDrop { scheme: stub },
+        19 => Content::Subscription { subscribe: true },
+        // A snapshot is opaque to the peer protocol: bytes of its size.
+        20 => Content::Snapshot(&[0x5a; 64]),
         _ => panic!("no content has tag {tag}"),
     };
     assert_eq!(content.kind().tag(), u64::try_from(tag).unwrap());

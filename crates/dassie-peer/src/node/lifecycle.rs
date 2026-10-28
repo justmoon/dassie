@@ -216,6 +216,9 @@ impl PeerNode {
         entry.peer = PeerState::Terminating(peering, termination);
         entry.advertise.on = false;
         self.dirty.insert(peer);
+        // A subscription needs an active peering
+        // (spec/areas/network.md#snapshot-subscriptions).
+        self.end_snapshots(&peer);
         self.advertised_changed();
         self.event(Event::Terminating {
             peer,

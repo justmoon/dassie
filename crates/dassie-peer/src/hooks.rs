@@ -5,9 +5,10 @@
 
 use alloc::vec::Vec;
 
-use dassie_identity::NodeId;
+use dassie_identity::{NodeId, PublicKey};
 
 use crate::channel::Closed;
+use crate::table::Peering;
 use crate::wire::{RefusalReason, SchemeId};
 
 /// The scheme would not go on.
@@ -166,4 +167,38 @@ pub trait PeeringHooks {
     /// every scheme it has accounts with runs and sees its ledger, so a
     /// settlement it made before the close is booked as its own.
     fn closable(&self, node: NodeId) -> bool;
+
+    /// Whether the node offers swaps to its peers, as its owner's setting
+    /// says (spec/decisions/peer-swaps.md): only then does it take a
+    /// subscription to its snapshots. A periphery node offers none,
+    /// whatever this says. None by default.
+    fn offers_swaps(&self) -> bool {
+        false
+    }
+
+    /// Whether the node subscribes to the snapshots of `peer`, an active
+    /// peer that is not our downlink, over `peering`: while its owner lets
+    /// it swap, and the peering has methods on two ledgers or more to swap
+    /// between (spec/decisions/peer-swaps.md). None by default.
+    fn wants_snapshots(&self, peer: NodeId, peering: &Peering) -> bool {
+        let _ = (peer, peering);
+        false
+    }
+
+    /// Whether the node keeps `snapshot`, pushed by `peer`, whose
+    /// connection proved `key`, in place of `held`, the one it kept last:
+    /// where it checks the snapshot's signature, and that it is newer than
+    /// the one held, since pushes may arrive out of order and the newest
+    /// wins. The peer protocol reads a snapshot as opaque bytes. Every one
+    /// by default.
+    fn takes_snapshot(
+        &self,
+        peer: NodeId,
+        key: &PublicKey,
+        snapshot: &[u8],
+        held: Option<&[u8]>,
+    ) -> bool {
+        let _ = (peer, key, snapshot, held);
+        true
+    }
 }
