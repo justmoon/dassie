@@ -88,6 +88,16 @@
           whether enough bootstrap nodes list your node.
         </li>
         <li>
+          <strong>In the core</strong> or <strong>Not in the core</strong>,
+          once your node is registered: whether the network's signed data
+          puts it in the core, the nodes that two core nodes peer with,
+          grown from the bootstrap nodes
+          (<a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/promotion-to-core.md">why</a>).
+          Every node starts outside it. <em>Not in the core</em> is no
+          fault: a node with a domain name still works as a core node, and
+          nothing depends on the core yet.
+        </li>
+        <li>
           <em>Listed by 3 of 4 bootstrap nodes</em>: how many list it.
         </li>
       </ul>

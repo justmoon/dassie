@@ -139,8 +139,8 @@ function Listing(
 }
 
 /**
- * This node's standing: registered with the bootstrap nodes or not, and its
- * rate feed.
+ * This node's standing: registered with the bootstrap nodes or not, in the
+ * core or not, and its rate feed.
  */
 function OwnNode(
   props: { status: GetStatusResponse | undefined },
@@ -168,6 +168,12 @@ function OwnNode(
               >
                 <Badge tone="good" testid="registration-badge">
                   Registered
+                </Badge>{" "}
+                <Badge
+                  tone={status().core ? "good" : "plain"}
+                  testid="core-badge"
+                >
+                  {status().core ? "In the core" : "Not in the core"}
                 </Badge>
               </Show>
             </p>
