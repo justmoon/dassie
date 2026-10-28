@@ -98,6 +98,7 @@ fn core_with(
         },
         bootstrap: Vec::new(),
         uplinks: Vec::new(),
+        dev_core: Vec::new(),
     };
     Core::start(parts, NOW)
 }
@@ -3619,6 +3620,7 @@ fn periphery_core(store: Arc<Store>) -> Core {
             },
             bootstrap: Vec::new(),
             uplinks: Vec::new(),
+            dev_core: Vec::new(),
         },
         NOW,
     )
@@ -3649,6 +3651,7 @@ fn core_taking_downlinks(
             },
             bootstrap: Vec::new(),
             uplinks: Vec::new(),
+            dev_core: Vec::new(),
         },
         now,
     )
@@ -3755,6 +3758,7 @@ fn a_periphery_node_refuses_an_uplink_it_has_not() {
             },
             bootstrap: Vec::new(),
             uplinks: Vec::new(),
+            dev_core: Vec::new(),
         },
         NOW,
     )
@@ -4660,6 +4664,7 @@ fn hub_core_with_downlink(seed: u64) -> (Core, dassie_identity::NodeId) {
             },
             bootstrap: Vec::new(),
             uplinks: Vec::new(),
+            dev_core: Vec::new(),
         },
         NOW,
     )
@@ -6173,6 +6178,7 @@ fn asks_a_core_node_to_peer_on(
                 key: other.public_key(),
             }],
             uplinks: Vec::new(),
+            dev_core: Vec::new(),
         },
         NOW,
     )
@@ -6429,6 +6435,7 @@ fn a_registration_is_on_disk_before_its_commitment_leaves() {
         },
         bootstrap,
         uplinks: Vec::new(),
+        dev_core: Vec::new(),
     };
     let mut alone = Core::start(parts(Vec::new()), NOW).unwrap();
     assert!(matches!(
@@ -6503,6 +6510,7 @@ fn a_live_realm_node_takes_no_part_in_names() {
             },
             bootstrap,
             uplinks: Vec::new(),
+            dev_core: Vec::new(),
         },
         NOW,
     )

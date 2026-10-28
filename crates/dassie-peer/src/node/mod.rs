@@ -322,6 +322,14 @@ pub struct PeerNode {
     pub(crate) gossip: gossip::Gossip,
     pub(crate) peering: peering::Peering,
     pub(crate) routes: Routes,
+    /// The core, as the signed data defines it, computed with the routes
+    /// (spec/decisions/promotion-to-core.md).
+    pub(crate) core: BTreeSet<NodeId>,
+    /// Since when we are in it ourselves, in this run.
+    pub(crate) own_core_since_ms: Option<u64>,
+    /// The nodes a dev network makes core outright, sorted; empty outside
+    /// one (`DASSIE_DEV_CORE_NODES`).
+    pub(crate) dev_core: BTreeSet<NodeId>,
     /// What ranks first hops for the cut (spec/areas/network.md#routing).
     pub(crate) route_key: RouteKey,
     pub(crate) requests: BTreeMap<RequestId, Outstanding>,
@@ -439,6 +447,9 @@ impl PeerNode {
             gossip: gossip::Gossip::new(now_ms, stored.own_sequence),
             peering: peering::Peering::new(now_ms),
             routes: Routes::new(),
+            core: BTreeSet::new(),
+            own_core_since_ms: None,
+            dev_core: BTreeSet::new(),
             route_key: RouteKey::of(&key),
             requests: BTreeMap::new(),
             deadlines: BTreeSet::new(),
@@ -578,6 +589,36 @@ impl PeerNode {
         uplinks.sort_unstable();
         uplinks.dedup();
         self.pinned = uplinks;
+    }
+
+    /// Sets the dev core: nodes a dev network makes core outright, for
+    /// dev and test networks without the time promotion takes. Empty
+    /// outside one.
+    ///
+    /// # Panics
+    ///
+    /// With more than [`MAX_DEV_CORE`](crate::core_nodes::MAX_DEV_CORE)
+    /// (configuration, not input).
+    pub fn set_dev_core(&mut self, nodes: Vec<NodeId>) {
+        assert!(
+            nodes.len() <= crate::core_nodes::MAX_DEV_CORE,
+            "too many dev core nodes"
+        );
+        self.dev_core = nodes.into_iter().collect();
+        self.gossip.routes_dirty = true;
+    }
+
+    /// The core, as the signed data defines it
+    /// (spec/decisions/promotion-to-core.md), as last computed.
+    #[must_use]
+    pub const fn core(&self) -> &BTreeSet<NodeId> {
+        &self.core
+    }
+
+    /// Since when this node is in the core in its own view, if it is.
+    #[must_use]
+    pub const fn own_core_since_ms(&self) -> Option<u64> {
+        self.own_core_since_ms
     }
 
     /// The uplinks the node is pinned to, if it runs as a periphery node

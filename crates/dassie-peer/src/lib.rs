@@ -21,6 +21,7 @@ extern crate std;
 
 mod channel;
 mod config;
+pub mod core_nodes;
 mod hooks;
 mod io;
 pub mod names;
