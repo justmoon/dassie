@@ -128,6 +128,45 @@ fn skewed_nodes_swap_toward_their_targets() {
     }
 }
 
+// spec/areas/rate-feed.md#market-maker: the owner reads the snapshots the
+// service reads (`ListPeerSnapshots`), decoded, each method named by the
+// scheme the node runs whose tag it is, as a reader that swaps through
+// the node prices them.
+#[test]
+fn the_owner_reads_the_peers_snapshots_by_scheme() {
+    let mut sim = skewed(SEEDS[0]);
+    let both = |sim: &Sim| {
+        (0..2).all(|index| {
+            let other = key(1 - index).node_id();
+            sim.core(index).peer_snapshot(&other).is_some()
+        })
+    };
+    assert!(sim.run_until_or(sim.now + 60_000, both));
+    let views = sim.core(0).peer_snapshot_views();
+    assert_eq!(views.len(), 1);
+    let view = &views[0];
+    assert_eq!(view.peer, key(1).node_id());
+    let read = sim.core(0).peer_snapshot(&view.peer);
+    assert_eq!(Some(&view.snapshot), read.as_ref());
+    assert_eq!(view.schemes.len(), view.snapshot.methods.len());
+    for (method, scheme) in view.snapshot.methods.iter().zip(&view.schemes) {
+        let scheme = scheme.as_deref().expect("a scheme the node runs");
+        assert_eq!(dassie_feed::method_tag(scheme), method.tag);
+    }
+    let schemes: BTreeSet<&str> = view.schemes.iter().flatten().map(String::as_str).collect();
+    assert_eq!(schemes, BTreeSet::from(["stub", STUB_TWO]));
+    // A node that does not swap reads none, and lists none.
+    sim.step(0, |core| {
+        let settings = PeerSettings {
+            swapping: false,
+            ..core.peer_settings()
+        };
+        core.set_peer_settings(settings).unwrap();
+    });
+    sim.run_until(sim.now + 10_000);
+    assert!(sim.core(0).peer_snapshot_views().is_empty());
+}
+
 // A node whose owner turned swapping off swaps nothing by itself and reads
 // no snapshot, while its peer, skewed the other way, still swaps with it.
 #[test]

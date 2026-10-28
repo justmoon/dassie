@@ -165,6 +165,7 @@ message Request {
     SubscribeRoutesRequest subscribe_routes = 101;
     // Streaming.
     SubscribeRegistrationRequest subscribe_registration = 102;
+    ListPeerSnapshotsRequest list_peer_snapshots = 103;
 
     // Streaming; works before setup too.
     SubscribeLogsRequest subscribe_logs = 110;
@@ -285,6 +286,7 @@ message Response {
     ListBansResponse list_bans = 97;
     ListSettlementChannelsResponse list_settlement_channels = 98;
     RegisterWithBootstrapResponse register_with_bootstrap = 99;
+    ListPeerSnapshotsResponse list_peer_snapshots = 103;
 
     ListDatabaseTablesResponse list_database_tables = 111;
     ListDatabaseRowsResponse list_database_rows = 112;

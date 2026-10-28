@@ -15,7 +15,7 @@ use std::sync::Arc;
 use dassie_connector::PriceTable;
 use dassie_feed::{
     FEED_HEARTBEAT_MS, MAX_DATAGRAM_BYTES, Poll, Schedule, Snapshot, SnapshotMessage,
-    decode_snapshot_datagram,
+    decode_snapshot_datagram, method_tag,
 };
 use dassie_identity::{NodeId, PublicKey};
 use dassie_ledger::{LedgerId, Name};
@@ -23,6 +23,7 @@ use dassie_peer::wire::{MAX_SNAPSHOT_BYTES, SchemeId};
 
 use super::Core;
 use super::ledgers::ActiveScheme;
+use super::swapping::MAX_SWAP_PEERS;
 
 // A snapshot fits one of the feed's datagrams, as the peer protocol bounds
 // it: the two bounds are one, and the feed's snapshot fits either.
@@ -31,6 +32,18 @@ const _: () = assert!(dassie_feed::MAX_SNAPSHOT_BYTES <= MAX_SNAPSHOT_BYTES);
 // A subscriber waits three of a publisher's heartbeats before it subscribes
 // again, so that one or two lost do not count.
 const _: () = assert!(dassie_peer::SUBSCRIPTION_SILENCE_MS >= 3 * FEED_HEARTBEAT_MS);
+
+/// A peer's snapshot as the owner sees it ([`Core::peer_snapshot_views`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PeerSnapshotView {
+    /// The peer that pushed it.
+    pub peer: NodeId,
+    /// The snapshot, verified under the peer's key when the node took it.
+    pub snapshot: Snapshot,
+    /// For each of its methods, in its order, the scheme the node runs
+    /// whose tag it is, if any.
+    pub schemes: Vec<Option<String>>,
+}
 
 /// What the node's snapshot is made from, as of the core's step: the price
 /// table the connector converts at, and the methods the node offers.
@@ -128,6 +141,39 @@ impl Core {
         self.peer
             .snapshots()
             .filter_map(|(peer, bytes)| Some((peer, self.unexpired(bytes)?)))
+    }
+
+    /// The snapshots the swap service reads, as the owner sees them
+    /// (`ListPeerSnapshots`): each peer's latest while it counts, the first
+    /// [`MAX_SWAP_PEERS`] by node ID, with the scheme of each method whose
+    /// tag is that of a scheme the node runs. A reader such as
+    /// `dassie market-maker` prices its swaps by them
+    /// (spec/areas/rate-feed.md#market-maker).
+    #[must_use]
+    pub fn peer_snapshot_views(&self) -> Vec<PeerSnapshotView> {
+        let views: Vec<PeerSnapshotView> = self
+            .peer_snapshots()
+            .take(MAX_SWAP_PEERS)
+            .map(|(peer, snapshot)| {
+                let schemes = snapshot
+                    .methods
+                    .iter()
+                    .map(|method| {
+                        self.schemes
+                            .keys()
+                            .find(|name| method_tag(name.as_str()) == method.tag)
+                            .map(|name| name.as_str().to_owned())
+                    })
+                    .collect();
+                PeerSnapshotView {
+                    peer: *peer,
+                    snapshot,
+                    schemes,
+                }
+            })
+            .collect();
+        assert!(views.len() <= MAX_SWAP_PEERS);
+        views
     }
 
     /// The snapshot of `bytes`, one the node took, if it still counts.

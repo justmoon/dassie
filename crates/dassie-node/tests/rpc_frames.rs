@@ -598,6 +598,7 @@ fn bare() -> BoxedStrategy<Method> {
         Method::SubscribeNames(proto::SubscribeNamesRequest {}),
         Method::GetPeerSettings(proto::GetPeerSettingsRequest {}),
         Method::GetSwapStatus(proto::GetSwapStatusRequest {}),
+        Method::ListPeerSnapshots(proto::ListPeerSnapshotsRequest {}),
         Method::GetRateSources(proto::GetRateSourcesRequest {}),
     ])
     .boxed()
