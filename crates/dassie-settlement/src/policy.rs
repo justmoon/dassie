@@ -81,37 +81,39 @@ pub const fn redeem_threshold(max_packet: u64) -> u64 {
     max_packet.saturating_mul(2)
 }
 
-/// The least a node keeps spendable in its settlement hub: for each of its
-/// peerings over the hub, and for one while it has none, the most one
-/// request to settle has it fund the hold toward the peer. A payer over a
-/// hub settles as if it extended the default `credit`, with its hold
-/// counted as paid in advance, so a request takes at most what
-/// [`requested_amount`] gives at that credit, and never less than the
-/// least settlement: kept for every peering, no settlement asked of us
-/// waits for a deposit. At most half the [`hub_ceiling`], which bounds how
-/// many peerings it funds fully, so that the floor and the ceiling stay far
-/// enough apart that each move between the hub and the node's own account
-/// carries many packets' worth (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+/// What a node keeps in its settlement hub: a thousand of the largest
+/// packets, more than its holds toward its peers are likely ever to need,
+/// so that the owner's funds stay on the owner's own account only when they
+/// are truly in excess. What counts toward it is what the node put in: the
+/// balance, its reserves and its holds toward peers, never its peers'
+/// holds toward it, which are theirs until it takes them
+/// (spec/decisions/generous-hub-target.md).
 #[must_use]
-pub fn hub_floor(max_packet: u64, credit: u64, peerings: u64) -> u64 {
-    let asked = requested_amount(u128::from(credit), trigger(max_packet), minimum(max_packet));
-    let each = asked.max(minimum(max_packet));
-    let peerings = if peerings == 0 { 1 } else { peerings };
-    let floor = each.saturating_mul(peerings);
-    let most = hub_ceiling(max_packet) / 2;
-    if floor < most { floor } else { most }
+pub const fn hub_target(max_packet: u64) -> u64 {
+    max_packet.saturating_mul(1_000)
 }
 
-/// The most a node keeps in its settlement hub, its holds toward peers and
-/// theirs toward it included: a hundred of the largest packets, all that a
-/// hub that fails can cost the node. Its own holds count, since each is
-/// the credit it extends over the hub, paid in advance. Far enough above
-/// the [`hub_floor`] that each move between the hub and the node's own
-/// account carries many packets' worth
-/// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+/// How far what the node keeps in its hub moves from the [`hub_target`]
+/// before the node moves funds: a tenth of it, so that each move between
+/// the hub and the node's own account carries many packets' worth.
+#[must_use]
+pub const fn hub_step(max_packet: u64) -> u64 {
+    hub_target(max_packet) / 10
+}
+
+/// Below this, the node deposits from its own account back up to the
+/// [`hub_target`]: the target less a [`hub_step`].
+#[must_use]
+pub const fn hub_floor(max_packet: u64) -> u64 {
+    hub_target(max_packet).saturating_sub(hub_step(max_packet))
+}
+
+/// Above this, the node withdraws to its own account back down to the
+/// [`hub_target`]: the target and a [`hub_step`]. Only what the node takes
+/// from its peers' holds toward it takes it there.
 #[must_use]
 pub const fn hub_ceiling(max_packet: u64) -> u64 {
-    max_packet.saturating_mul(100)
+    hub_target(max_packet).saturating_add(hub_step(max_packet))
 }
 
 /// The credit a node extends to every peer on a scheme with unlimited trust
@@ -163,11 +165,11 @@ mod tests {
     const T: u64 = trigger(P);
     const M: u64 = minimum(P);
 
-    // Unlimited trust is a hundred million times the most a node keeps in
-    // its hub at the default largest packet: no test runs out of room.
+    // Unlimited trust is ten million times what a node keeps in its hub
+    // at the default largest packet: no test runs out of room.
     #[test]
     fn unlimited_credit_dwarfs_any_hold() {
-        assert_eq!(UNLIMITED_CREDIT / hub_ceiling(P), 100_000_000);
+        assert_eq!(UNLIMITED_CREDIT / hub_target(P), 10_000_000);
     }
 
     #[test]
@@ -247,20 +249,15 @@ mod tests {
         assert_eq!(requested_amount(least, T, M), M);
     }
 
-    // spec/designs/settlement-hubs.md#11-choosing-a-hub: a hub's floor is,
-    // per peering over it, what one request to settle has a payer fund at
-    // the default credit of eleven packets: half the way down to the
-    // trigger, 4.75 packets; one peering's worth with none, never less than
-    // the least settlement, and at most half the ceiling of a hundred
-    // packets: ten peerings are funded fully.
+    // spec/decisions/generous-hub-target.md: a node keeps a thousand of
+    // the largest packets in its hub, and moves funds once that is a tenth
+    // off, whatever its peerings: its holds share it out.
     #[test]
-    fn the_hub_keeps_between_its_floor_and_its_ceiling() {
-        assert_eq!(hub_floor(P, C, 0), 475 * P / 100);
-        assert_eq!(hub_floor(P, C, 1), 475 * P / 100);
-        assert_eq!(hub_floor(P, C, 10), 475 * P / 10);
-        assert_eq!(hub_floor(P, C, 11), 50 * P);
-        assert_eq!(hub_floor(P, 0, 2), 2 * P, "at least the least settlement");
-        assert_eq!(hub_ceiling(P), 100 * P);
+    fn the_hub_keeps_near_its_target() {
+        assert_eq!(hub_target(P), 1_000 * P);
+        assert_eq!(hub_step(P), 100 * P);
+        assert_eq!((hub_floor(P), hub_ceiling(P)), (900 * P, 1_100 * P));
+        assert_eq!(hub_floor(P).midpoint(hub_ceiling(P)), hub_target(P));
     }
 
     #[test]

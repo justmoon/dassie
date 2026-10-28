@@ -10,8 +10,8 @@
  * What `hub_test.ts` does not check: the faucet funds the members' owner
  * books of XRP, which follow the ledger and show an address that starts
  * with `r`; a client of one member pays the other's receiver more than
- * the payer's account in the hub can spend above its floor, so the payer
- * moves XRP into the hub as it pays, which its owner book pays; and once
+ * the payer keeps in the hub above its floor, so the payer moves XRP
+ * into the hub as it pays, which its owner book pays; and once
  * both members restart, their owner books and hub books, their accounts'
  * counters in the hub and their peer accounts are as they were, each book
  * holding what its account on the ledger holds, so nothing was booked
@@ -45,11 +45,11 @@ import { HUB_LEDGER, Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 /** The largest packet, in internal units: 0.1 XRP. */
 const MAX_PACKET = 100_000_000n;
 /**
- * What the payment takes beyond what the payer's account in the hub can
- * spend above its floor: ten of the largest packets, more than the
- * trigger and the payee's redeem threshold together, so that what the
- * payer funds of its hold takes the account below its floor even with
- * what it still owes unfunded.
+ * What the payment takes beyond what the payer keeps in the hub above its
+ * floor: ten of the largest packets, more than the trigger, the payee's
+ * redeem threshold and the hold's reserve together, so that what the
+ * payee takes of the payer's hold takes what it keeps below its floor
+ * even with what it still owes unfunded.
  */
 const BEYOND_FLOOR = 10n * MAX_PACKET;
 const PORT_OFFSET = PORT_OFFSETS["xrpl_test.ts"];
@@ -145,15 +145,15 @@ test(
       }
       await joinedHub(scenario);
 
-      // More than the payer's account can spend above its floor, so it
-      // moves XRP in from its owner book as it pays
-      // (spec/areas/hubs.md#in-the-node).
+      // More than the payer keeps in the hub above its floor, its balance,
+      // reserve and holds toward peers, so it moves XRP in from its owner
+      // book as it pays (spec/areas/hubs.md#in-the-node).
       const status = await hubStatus(payer);
       assert(status.automatic, "the payer moves funds by itself");
-      const spendable = status.balance > status.floor
-        ? status.balance - status.floor
-        : 0n;
-      const payment = spendable + BEYOND_FLOOR;
+      const inHub = status.balance + status.reserve +
+        status.paying.reduce((sum, hold) => sum + hold.amount, 0n);
+      const aboveFloor = inHub > status.floor ? inHub - status.floor : 0n;
+      const payment = aboveFloor + BEYOND_FLOOR;
       const before = await kept(payer);
       const hubBefore = await ledger(payer, HUB_LEDGER);
       const ownerBefore = await ledger(payer, HUB_OWNER_LEDGER);

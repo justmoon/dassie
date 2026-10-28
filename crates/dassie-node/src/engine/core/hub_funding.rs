@@ -6,29 +6,28 @@
 //! Amounts are in the hub asset's smallest unit, as the hub counts it:
 //! drops of XRP, or millionths of a token such as DSUSD.
 //!
-//! - **Between a floor and a ceiling.** What the hub account can spend
-//!   stays above a floor of what its peerings over the hub need to fund
-//!   their holds when asked, and what the node keeps in the hub (the
-//!   balance, its reserves, its holds toward peers and theirs toward it)
-//!   below a ceiling, both counted in largest packets
-//!   (`policy::hub_floor`, `policy::hub_ceiling`). Below the floor, the node
-//!   deposits from its XRPL account up to the midpoint, never past the
-//!   ceiling; above the ceiling, it withdraws to the owner's own account
-//!   down to the midpoint, never below the floor: the hub keeps a float, and
-//!   the owner's funds are kept on the own account
-//!   (spec/decisions/one-balance-per-asset.md). A withdrawal is sized from
-//!   what the account can still spend once the operations ahead of it
-//!   executed, as the hub scheme pays it ([`Standing::spendable`]), never
-//!   from an agreed state older than they are
-//!   (spec/decisions/hub-move-races.md). Holds toward us count only
-//!   from our peers, never a stranger's, which anyone may open, and they
-//!   grow by our peers' settlements alone, so only those can take the hub
-//!   past the ceiling, until they are taken and withdrawn.
+//! - **Near a generous target.** What the node keeps in the hub, what it
+//!   put in (the balance, its reserves and its holds toward peers), stays
+//!   near a target of a thousand largest packets, more than its holds are
+//!   likely ever to need (`policy::hub_target`): below a floor a step under
+//!   it, the node deposits from its XRPL account back up to it, as much as
+//!   that account holds; above a ceiling a step over it, it withdraws to
+//!   the owner's own account back down to it
+//!   (spec/decisions/generous-hub-target.md). So most nodes keep all their
+//!   funds in the hub, and only funds truly in excess stay on the owner's
+//!   own account (spec/decisions/one-balance-per-asset.md). Our peers'
+//!   holds toward us count nowhere: they are theirs until the node takes
+//!   them, and what it takes joins the balance, which alone takes the hub
+//!   past the ceiling. The XRP book keeps back the gas the account's other
+//!   payments spend. A withdrawal is sized from what the account can still
+//!   spend once the operations ahead of it executed, as the hub scheme
+//!   pays it ([`Standing::spendable`]), never from an agreed state older
+//!   than they are (spec/decisions/hub-move-races.md).
 //! - **Joining by deposit.** While the hub has no account for the node's
 //!   key, the first deposit opens it: tag 0, the account key as the memo,
 //!   of the hub's type for it (`dassie_hub::escrow::OPEN_MEMO_TYPE`),
-//!   sized to the account reserve, the floor and the fees of its first
-//!   operations.
+//!   sized to the account reserve, the fees of its first operations and the
+//!   target, as much of it as the XRPL account holds.
 //! - **One move at a time, done by the counters.** A move names the counter
 //!   of the hub account it shows in, and the value it takes it to: a
 //!   deposit, what deposits credited the account as agreed when it was made
@@ -94,6 +93,15 @@ pub enum Direction {
     Deposit,
     /// From the hub to the XRPL account.
     Withdraw,
+}
+
+impl Standing {
+    /// The least deposit that opens the account: what opening it takes,
+    /// and a deposit worth its fees.
+    #[must_use]
+    pub const fn least_opening(&self) -> u64 {
+        self.opening.saturating_add(self.least_deposit)
+    }
 }
 
 /// What a failure holds back: nothing is tried before `not_before_ms`, and
@@ -225,9 +233,9 @@ pub struct Move {
 pub struct Held {
     /// What it can spend.
     pub balance: u64,
-    /// What the node keeps in the hub: the balance, the reserves and the
-    /// holds toward it.
-    pub exposure: u64,
+    /// What the node keeps in the hub, what it put in: the balance, the
+    /// reserves and its holds toward peers.
+    pub kept: u64,
     /// What deposits credited it.
     pub deposited: u64,
     /// What withdrawals took from it, ledger fees included.
@@ -251,12 +259,13 @@ pub struct Standing {
     /// Whether the hub is unavailable, as a frozen token hub is: nothing
     /// moves into or out of it.
     pub unavailable: bool,
-    /// The floor and the ceiling.
+    /// Below this, the node deposits back up to the target, the midpoint
+    /// of the floor and the ceiling.
     pub floor: u64,
-    /// The ceiling.
+    /// Above this, the node withdraws back down to the target.
     pub ceiling: u64,
-    /// What a deposit that opens the account pays: its reserve, the floor
-    /// and the fees of its first operations.
+    /// What opening the account takes before anything is kept in it: its
+    /// reserve and the fees of its first operations.
     pub opening: u64,
     /// The least the hub pays out.
     pub least_payout: u64,
@@ -270,6 +279,9 @@ pub struct Standing {
     /// The owner's funds in the owner book of the hub's asset a deposit
     /// may take, after its fee; `None` while the book does not run synced.
     pub xrpl: Option<u64>,
+    /// What the node's own deposits leave of them: the gas the XRPL
+    /// account's other payments spend, kept in the XRP book.
+    pub gas_kept: u64,
     /// The owner's funds on the hub's ledger: what a withdrawal may take,
     /// with its fees. What the hub account holds beyond them is owed to
     /// peers.
@@ -518,15 +530,16 @@ impl Funding {
     /// acted since, or a failure of the last move the same way holds it
     /// back. What the owner's unfinished payments are still to pay out of
     /// the hub counts as gone from it already: a deposit brings the rest
-    /// back to the midpoint, past the ceiling by what they need, and a
+    /// back to the target, past the ceiling by what they need, and a
     /// withdrawal takes nothing they need
     /// (spec/decisions/one-balance-per-asset.md). Payments the owner's
     /// funds in the hub cannot cover are not held back by the owner's
     /// pause, but then the deposit fills no more than the floor and what
-    /// they need, so it undoes nothing the owner moved. A withdrawal takes
-    /// no more than the account can still spend once the operations ahead
-    /// of it executed ([`Standing::spendable`]), less the floor and what
-    /// the payments need.
+    /// they need, so it undoes nothing the owner moved. A deposit takes
+    /// no more than the XRPL account holds, less the gas it keeps; a
+    /// withdrawal no more than the account can still spend once the
+    /// operations ahead of it executed ([`Standing::spendable`]), less what
+    /// the payments need (spec/decisions/generous-hub-target.md).
     pub fn due(&self, now_ms: u64, standing: &Standing) -> Option<Planned> {
         let promised = standing.promised;
         // What the payments need beyond the owner's funds in the hub.
@@ -545,7 +558,7 @@ impl Funding {
             return opening(standing).filter(|_| !backing_off(Direction::Deposit));
         };
         let middle = standing.floor.midpoint(standing.ceiling);
-        if held.balance < standing.floor.saturating_add(promised) || deficit > 0 {
+        if held.kept < standing.floor.saturating_add(promised) || deficit > 0 {
             if backing_off(Direction::Deposit) {
                 return None;
             }
@@ -553,14 +566,14 @@ impl Funding {
             let room = standing
                 .ceiling
                 .saturating_add(promised)
-                .saturating_sub(held.exposure)
+                .saturating_sub(held.kept)
                 .max(deficit);
             let drops = target
                 .saturating_add(promised)
-                .saturating_sub(held.balance)
+                .saturating_sub(held.kept)
                 .max(deficit)
                 .min(room)
-                .min(standing.xrpl?);
+                .min(standing.xrpl?.saturating_sub(standing.gas_kept));
             // A deposit is worth its fees from a largest packet on, but
             // one a payment waits for goes however small.
             let least = if deficit > 0 {
@@ -571,7 +584,7 @@ impl Funding {
             return (drops > 0 && drops >= least)
                 .then(|| Planned::deposit(drops, held.deposited, false));
         }
-        if held.exposure > standing.ceiling.saturating_add(promised) {
+        if held.kept > standing.ceiling.saturating_add(promised) {
             if backing_off(Direction::Withdraw) {
                 return None;
             }
@@ -750,25 +763,21 @@ impl Funding {
 /// down to `middle`, if it is at least what the hub pays out: never more
 /// than the account can spend when it executes, as the hub scheme pays it
 /// ([`Standing::spendable`], which the agreed state may not show yet, and
-/// never more than that state's balance), less the floor, what the
-/// owner's payments need and its fees; nor than the owner's funds in the
-/// hub, less what the payments need and its fees.
+/// never more than that state's balance), less what the owner's payments
+/// need and its fees; nor than the owner's funds in the hub, less what the
+/// payments need and its fees.
 fn withdrawal(held: &Held, standing: &Standing, middle: u64) -> Option<Planned> {
     let promised = standing.promised;
     let fees = standing.withdrawal_fees;
     let spendable = standing.spendable.min(held.balance);
-    let spare = spendable
-        .saturating_sub(promised)
-        .saturating_sub(standing.floor)
-        .saturating_sub(fees)
-        .min(
-            standing
-                .hub_owner
-                .saturating_sub(promised)
-                .saturating_sub(fees),
-        );
+    let spare = spendable.saturating_sub(promised).saturating_sub(fees).min(
+        standing
+            .hub_owner
+            .saturating_sub(promised)
+            .saturating_sub(fees),
+    );
     let drops = held
-        .exposure
+        .kept
         .saturating_sub(promised)
         .saturating_sub(middle)
         .min(spare);
@@ -776,12 +785,12 @@ fn withdrawal(held: &Held, standing: &Standing, middle: u64) -> Option<Planned> 
         return None;
     }
     assert!(
-        drops
-            .saturating_add(fees)
-            .saturating_add(standing.floor)
-            .saturating_add(promised)
-            <= spendable,
-        "a withdrawal leaves the floor and what the payments need"
+        drops.saturating_add(fees).saturating_add(promised) <= spendable,
+        "a withdrawal leaves what the payments need"
+    );
+    assert!(
+        held.kept.saturating_sub(drops) >= middle.saturating_add(promised),
+        "a withdrawal leaves the target and what the payments need"
     );
     Some(Planned::withdraw(
         drops,
@@ -792,10 +801,15 @@ fn withdrawal(held: &Held, standing: &Standing, middle: u64) -> Option<Planned> 
 }
 
 /// The deposit that opens the account, once the hub says it has none for
-/// us, if the XRPL account has it.
+/// us, if the XRPL account has at least the least that opens it: what
+/// opening it takes and the target, as much of it as the account holds
+/// beyond the gas it keeps.
 fn opening(standing: &Standing) -> Option<Planned> {
-    let enough = standing.unfunded && standing.xrpl? >= standing.opening;
-    enough.then(|| Planned::deposit(standing.opening, 0, false))
+    let funds = standing.xrpl?.saturating_sub(standing.gas_kept);
+    let enough = standing.unfunded && funds >= standing.least_opening();
+    let target = standing.floor.midpoint(standing.ceiling);
+    let drops = standing.opening.saturating_add(target).min(funds);
+    enough.then(|| Planned::deposit(drops, 0, false))
 }
 
 #[cfg(test)]
@@ -804,12 +818,12 @@ mod tests {
 
     /// A hub account with a floor of 400 000 drops and a ceiling of
     /// 10 000 000, and plenty on the XRPL account, with no operation of its
-    /// own waiting or on its way.
-    fn standing(balance: u64, exposure: u64) -> Standing {
+    /// own waiting or on its way, that keeps `kept` with its holds.
+    fn standing(balance: u64, kept: u64) -> Standing {
         Standing {
             held: Some(Held {
                 balance,
-                exposure,
+                kept,
                 deposited: 7,
                 withdrawn: 3,
             }),
@@ -818,12 +832,13 @@ mod tests {
             unavailable: false,
             floor: 400_000,
             ceiling: 10_000_000,
-            opening: 2_401_000,
+            opening: 2_001_000,
             least_payout: 1_000_000,
             ledger_fee: 100,
             withdrawal_fees: 110,
             least_deposit: 100_000,
             xrpl: Some(100_000_000),
+            gas_kept: 0,
             hub_owner: 100_000_000,
             hub_posted: 100_000_000,
             promised: 0,
@@ -841,17 +856,17 @@ mod tests {
     fn payments_draw_a_deposit_and_hold_back_a_withdrawal() {
         let mut funding = Funding::new(0, 4_000);
         let middle = 5_200_000;
-        let paying = |(balance, exposure), promised, hub_owner| Standing {
+        let paying = |(balance, kept), promised, hub_owner| Standing {
             promised,
             hub_owner,
             hub_posted: hub_owner,
-            ..standing(balance, exposure)
+            ..standing(balance, kept)
         };
         let deposit = funding
             .due(1, &paying((3_000_000, 5_000_000), 20_000_000, 3_000_000))
             .unwrap();
         assert_eq!(deposit.direction, Direction::Deposit);
-        assert_eq!(deposit.drops, middle + 20_000_000 - 3_000_000);
+        assert_eq!(deposit.drops, middle + 20_000_000 - 5_000_000);
         assert_eq!(
             funding.due(1, &paying((3_000_000, 5_000_000), 2_000_000, 3_000_000)),
             None,
@@ -882,8 +897,8 @@ mod tests {
             .unwrap();
         assert_eq!(
             paused.drops,
-            400_000 + 4_000_000 - 3_000_000,
-            "to the floor"
+            4_000_000 - 3_000_000,
+            "what the payments lack"
         );
     }
 
@@ -900,17 +915,17 @@ mod tests {
         standing
     }
 
-    // Below the floor, a deposit up to the midpoint; above the ceiling, a
-    // withdrawal down to it; in between, nothing. Each names the counter
-    // value that shows it done.
+    // Below the floor, a deposit up to the target, the midpoint; above the
+    // ceiling, a withdrawal down to it; in between, nothing. Each names the
+    // counter value that shows it done.
     #[test]
     fn moves_go_back_to_the_midpoint() {
         let funding = Funding::new(0, 4_000);
         let middle = 5_200_000;
-        let low = funding.due(1, &standing(100_000, 2_100_000)).unwrap();
+        let low = funding.due(1, &standing(100_000, 300_000)).unwrap();
         assert_eq!(low.direction, Direction::Deposit);
-        assert_eq!(low.drops, middle - 100_000);
-        assert_eq!(low.target, 7 + middle - 100_000);
+        assert_eq!(low.drops, middle - 300_000);
+        assert_eq!(low.target, 7 + middle - 300_000);
         let high = funding.due(1, &standing(12_000_000, 14_000_000)).unwrap();
         assert_eq!(high.direction, Direction::Withdraw);
         assert_eq!(high.drops, 14_000_000 - middle);
@@ -918,18 +933,29 @@ mod tests {
         assert_eq!(funding.due(1, &standing(3_000_000, 5_000_000)), None);
     }
 
-    // A deposit never takes the hub past its ceiling, and a withdrawal never
-    // the balance below the floor: holds toward us count toward the
-    // ceiling, and only peers' settlements grow them.
+    // spec/decisions/generous-hub-target.md: what the node keeps, with its
+    // holds toward peers, decides. Kept low, a deposit fills as much of the
+    // target as the XRPL account holds, less the gas it keeps, however
+    // little the balance; kept high, a withdrawal takes no more than the
+    // account can spend.
     #[test]
-    fn the_ceiling_and_the_floor_bound_each_move() {
+    fn what_the_node_keeps_decides_each_move() {
         let funding = Funding::new(0, 4_000);
-        let low = funding.due(1, &standing(100_000, 9_000_000)).unwrap();
-        assert_eq!(low.drops, 1_000_000);
-        assert_eq!(funding.due(1, &standing(100_000, 9_950_000)), None);
+        let short = Standing {
+            xrpl: Some(2_000_000),
+            gas_kept: 1_000,
+            ..standing(0, 300_000)
+        };
+        let low = funding.due(1, &short).unwrap();
+        assert_eq!(low.drops, 2_000_000 - 1_000, "all the account holds");
+        assert_eq!(
+            funding.due(1, &standing(0, 400_000)),
+            None,
+            "at the floor, though nothing is spendable"
+        );
         let held = standing(1_500_000, 30_000_000);
         let high = funding.due(1, &held).unwrap();
-        assert_eq!(high.drops, 1_500_000 - 400_000 - 110);
+        assert_eq!(high.drops, 1_500_000 - 110);
         assert_eq!(
             funding.due(1, &standing(600_000, 30_000_000)),
             None,
@@ -938,7 +964,8 @@ mod tests {
     }
 
     // The first deposit opens the account once the hub says it has none,
-    // and is done once the account it opened counts it.
+    // with the target, as much of it as the XRPL account holds, and is
+    // done once the account it opened counts it.
     #[test]
     fn the_first_deposit_opens_the_account() {
         let funding = Funding::new(0, 4_000);
@@ -949,10 +976,12 @@ mod tests {
         let open = funding.due(1, &none).unwrap();
         assert_eq!(
             (open.direction, open.drops),
-            (Direction::Deposit, 2_401_000)
+            (Direction::Deposit, 2_001_000 + 5_200_000)
         );
-        assert_eq!(open.target, 2_401_000);
-        none.xrpl = Some(2_000_000);
+        assert_eq!(open.target, 2_001_000 + 5_200_000);
+        none.xrpl = Some(3_000_000);
+        assert_eq!(funding.due(1, &none).unwrap().drops, 3_000_000, "all of it");
+        none.xrpl = Some(2_100_999);
         assert_eq!(funding.due(1, &none), None, "too little to open it");
     }
 
@@ -963,7 +992,7 @@ mod tests {
     #[test]
     fn a_move_is_done_by_its_counter_and_never_paid_twice() {
         let mut funding = Funding::new(0, 4_000);
-        let low = standing(100_000, 2_000_000);
+        let low = standing(100_000, 300_000);
         let planned = funding.due(1, &low).unwrap();
         funding.start(1, planned, payment());
         assert_eq!(funding.due(2, &low), None, "one on its way");
@@ -1022,7 +1051,7 @@ mod tests {
     // until the owner acts, and the move is forgotten, whatever shows later.
     #[test]
     fn a_late_move_given_up_waits_for_the_owner() {
-        let low = standing(100_000, 2_000_000);
+        let low = standing(100_000, 300_000);
         let mut funding = Funding::new(0, 4_000);
         let planned = funding.due(1, &low).unwrap();
         funding.start(1, planned, payment());
@@ -1055,7 +1084,7 @@ mod tests {
     // spec/decisions/hub-move-races.md: a withdrawal takes no more than the
     // account can spend once its own operations ahead of it executed, as
     // the hub scheme pays it, though the agreed state shows more; none if
-    // that leaves less than the hub pays out above the floor.
+    // that leaves less than the hub pays out.
     #[test]
     fn a_withdrawal_is_sized_from_what_the_account_can_still_spend() {
         let funding = Funding::new(0, 4_000);
@@ -1068,13 +1097,9 @@ mod tests {
         };
         let planned = funding.due(1, &funded).unwrap();
         assert_eq!(planned.direction, Direction::Withdraw);
-        assert_eq!(
-            planned.drops,
-            3_000_000 - 400_000 - 110,
-            "down to the floor"
-        );
+        assert_eq!(planned.drops, 3_000_000 - 110, "all it can spend");
         let short = Standing {
-            spendable: 1_400_000,
+            spendable: 1_000_000,
             ..high
         };
         assert_eq!(funding.due(1, &short), None, "less than the hub pays out");
@@ -1096,7 +1121,7 @@ mod tests {
     #[test]
     fn a_failed_move_holds_back_only_its_own_way() {
         let mut funding = Funding::new(0, 4_000);
-        let low = standing(100_000, 2_000_000);
+        let low = standing(100_000, 300_000);
         let high = standing(12_000_000, 14_000_000);
         funding.failed(10, Direction::Withdraw);
         assert_eq!(funding.due(11, &high), None, "withdrawals wait");
@@ -1145,7 +1170,7 @@ mod tests {
     // An owner's move pauses the automatic ones; turned off, none is made.
     #[test]
     fn the_owner_decides_first() {
-        let low = standing(100_000, 2_000_000);
+        let low = standing(100_000, 300_000);
         let mut funding = Funding::new(0, 4_000);
         funding.start(5, Planned::withdraw(1_000_000, 100, 3, true), payment());
         funding.follow(6, &counted(low, 7, 1_000_103));
@@ -1360,10 +1385,7 @@ mod tests {
     #[test]
     fn nothing_moves_while_the_hub_is_unavailable() {
         let funding = Funding::new(0, 4_000);
-        for mut standing in [
-            standing(100_000, 2_000_000),
-            standing(12_000_000, 14_000_000),
-        ] {
+        for mut standing in [standing(100_000, 300_000), standing(12_000_000, 14_000_000)] {
             assert!(funding.due(1, &standing).is_some());
             standing.unavailable = true;
             assert_eq!(funding.due(1, &standing), None);

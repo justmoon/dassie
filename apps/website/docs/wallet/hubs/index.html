@@ -160,21 +160,26 @@
         nothing, and grow when a peer asks to be settled with.
       </p>
       <p>
-        <strong>The floor</strong> is what your node keeps spendable in the
-        hub, so that it can fund a hold at once when a peer asks. Below it,
-        the node deposits from your own account on the XRP Ledger.
+        Your node keeps a generous amount in the hub, a thousand of the
+        largest packets, so that it can fund a hold at once when a peer asks.
+        What counts is what it put in: the balance, the reserves and its holds
+        for your peers. What peers hold for you counts once your node takes
+        it.
       </p>
       <p>
-        <strong>The ceiling</strong> bounds what your node puts into the
-        hub: its own deposits never take the account past it. When what
-        you receive takes the account past it, the node withdraws what goes
-        beyond to your own account. Between the floor and the ceiling is a
-        float: enough to settle with your peers, and no more at stake in the
-        hub than that.
+        <strong>The floor</strong> is a tenth below that amount. Below it,
+        the node deposits from your own account on the XRP Ledger, as much as
+        it holds, keeping a little XRP back for the ledger's fees.
+      </p>
+      <p>
+        <strong>The ceiling</strong> is a tenth above it. When what you
+        receive takes the account past it, the node withdraws what goes
+        beyond to your own account. So if you hold less than that amount,
+        nearly all of it is in the hub, where it settles with your peers.
       </p>
       <p class="not-yet">
-        Setting the floor and the ceiling yourself is not there yet: the node
-        works them out.
+        Setting the amount yourself is not there yet: the node works it
+        out.
         <a href="/docs/project/roadmap/#hubs">What's next</a>
       </p>
 

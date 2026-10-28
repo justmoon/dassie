@@ -1,18 +1,15 @@
 //! The moves between the XRP hub and its owner book while the hub
 //! account's own operations race them (spec/areas/hubs.md#in-the-node): a
-//! withdrawal is sized from what the account can still spend once the
-//! operations before it executed, never from an agreed state older than
-//! they are; and a move that failed one way holds back only the next move
-//! that way, never the deposit the floor calls for. On one engine core in
+//! move that failed one way holds back only the next move that way, never
+//! the deposit the floor calls for. On one engine core in
 //! the XRP hub, with a downlink peered over it.
 
 use std::sync::Arc;
 
 use dassie_hub::client::Statement;
-use dassie_hub::ledger::{Detail, Failure, Outcome};
+use dassie_hub::ledger::{Failure, Outcome};
 use dassie_hub::member::SCHEME_ID;
-use dassie_hub::operation::{AccountNumber, MemberOperation, Operation, SignedMemberOperation};
-use dassie_hub::promise::HoldNumber;
+use dassie_hub::operation::{MemberOperation, Operation, SignedMemberOperation};
 use dassie_identity::NodeId;
 use dassie_settlement::policy;
 use dassie_xrpl::UNITS_PER_DROP;
@@ -22,7 +19,7 @@ use super::super::hub_funding::{Direction, FIRST_BACKOFF_MS};
 use super::super::{Core, Output};
 use super::{
     NOW, Policies, SHARED_CONFIG, Validators, add_xrpl, deposits, downlink_request_on, follow_xrpl,
-    funded_ledger, hub_config, scheme_id, wait_and_close, withdrawals,
+    funded_ledger, hub_config, wait_and_close, withdrawals,
 };
 
 /// The downlink's account in the hub.
@@ -31,11 +28,11 @@ const PEER_ACCOUNT: u32 = 9;
 /// The seed of the downlink's key in the hub.
 const PEER_SEED: u8 = 12;
 
-/// The floor and the ceiling of a hub with one peering over it, in drops,
-/// and their midpoint.
+/// The floor and the ceiling of a hub, in drops, and their midpoint, the
+/// target.
 fn limits() -> (u64, u64, u64) {
     let p = Policies::DEFAULT.connector.max_packet_amount;
-    let floor = policy::hub_floor(p, Policies::DEFAULT.peer_credit, 1) / UNITS_PER_DROP;
+    let floor = policy::hub_floor(p) / UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
     (floor, ceiling, floor.midpoint(ceiling))
 }
@@ -109,72 +106,30 @@ fn submitted(outputs: &[Output]) -> Vec<SignedMemberOperation> {
     seen
 }
 
-/// The downlink asks the core to settle at `at`: the core funds its hold
-/// toward it, and the account sends the operation. The operation, and the
-/// drops it funds.
-fn asked_to_settle(core: &mut Core, peer: NodeId, at: u64) -> (SignedMemberOperation, u64) {
-    core.begin_step(at);
-    let settling = core.settlement_requested(peer, scheme_id(SCHEME_ID));
-    assert!(settling > 0, "the request is funded");
-    let mut outputs = Vec::new();
-    core.finish_step(&mut outputs);
-    let sent = submitted(&outputs);
-    assert_eq!(sent.len(), 1, "{sent:?}");
-    (sent[0].clone(), settling / UNITS_PER_DROP)
-}
-
-/// The hub executes, in a new final block, `ours` with `outcome`, and
-/// opens the downlink's hold of `toward_us` drops toward the node's
-/// account, if any; the validators say no new state of the account in it,
-/// as they say one only every few seconds.
+/// The hub executes, in a new final block, `ours` with `outcome`; the
+/// validators say no new state of the account in it, as they say one only
+/// every few seconds.
 fn executed_without_a_state(
     core: &mut Core,
     hub: &mut Validators,
     ours: &SignedMemberOperation,
     outcome: Outcome,
-    toward_us: Option<u64>,
 ) {
     hub.height += 1;
-    let fees = hub.rules.terms.fees;
     let timestamp = NOW + hub.height;
-    let mut statements = vec![Statement::Executed {
-        height: hub.height,
-        timestamp,
-        index: 0,
-        operation: Operation::Member(ours.clone()),
-        outcome,
-    }];
-    if let Some(amount) = toward_us {
-        let key = dassie_hub::member::member_key(
-            &dassie_identity::TableKeygen::identity_key(&[PEER_SEED; 32]),
-            &hub.rules.id(),
-        );
-        let theirs = SignedMemberOperation::sign(
-            &hub.rules.id(),
-            AccountNumber(PEER_ACCOUNT),
-            1,
-            fees.operation,
-            MemberOperation::HoldOpen {
-                payee: AccountNumber(5),
-                amount,
-            },
-            &key,
-        );
-        statements.push(Statement::Executed {
+    let statements = [
+        Statement::Executed {
             height: hub.height,
             timestamp,
-            index: 1,
-            operation: Operation::Member(theirs),
-            outcome: Outcome::Applied {
-                fee: fees.operation,
-                detail: Detail::Hold(HoldNumber(2)),
-            },
-        });
-    }
-    statements.push(Statement::Final {
-        height: hub.height,
-        timestamp,
-    });
+            index: 0,
+            operation: Operation::Member(ours.clone()),
+            outcome,
+        },
+        Statement::Final {
+            height: hub.height,
+            timestamp,
+        },
+    ];
     hub.say(core, &statements);
 }
 
@@ -184,67 +139,6 @@ fn withdrawals_back_off(core: &Core, now: u64) -> bool {
     core.funding[&hub]
         .backing_off(Direction::Withdraw, now)
         .is_some()
-}
-
-// The race the e2e flow ran into: the node's hold funding to its peer
-// executes, and the agreed state of its account, which the validators say
-// only every few seconds, still shows the balance from before. The peer's
-// hold toward the node takes the hub past the ceiling, so a withdrawal is
-// due. It is sized from what the account can spend once its operations
-// executed, which leaves only the floor, so none is made: one sized from
-// the older state the hub scheme would refuse, which held every move back
-// for the backoff. Then the account's state shows the balance below the
-// floor, as further fundings take it there, and the deposit goes at once.
-#[test]
-fn a_withdrawal_sized_before_a_funding_landed_holds_back_no_deposit() {
-    withdrawal_sized_before_a_funding_landed(SEED);
-}
-
-/// [`a_withdrawal_sized_before_a_funding_landed_holds_back_no_deposit`]
-/// on a core of `seed`.
-fn withdrawal_sized_before_a_funding_landed(seed: u64) {
-    let (floor, ceiling, middle) = limits();
-    let (mut ledger, _) = funded_ledger();
-    let balance = 1_600_000;
-    let (mut core, mut hub, peer, opening) = hub_with_peer(&mut ledger, balance, seed);
-    let fees = hub.rules.terms.fees;
-    let at = core.now_ms() + 1_000;
-    let (funding, drops) = asked_to_settle(&mut core, peer, at);
-    let applied = Outcome::Applied {
-        fee: fees.operation,
-        detail: Detail::Hold(HoldNumber(1)),
-    };
-    // The peer's hold toward the node takes the hub just past the ceiling.
-    let ours = balance + fees.account_reserve + fees.hold_reserve + drops;
-    let toward_us = ceiling + 100_000 - ours;
-    executed_without_a_state(&mut core, &mut hub, &funding, applied, Some(toward_us));
-    let spendable = balance - drops - fees.hold_reserve - fees.operation;
-    assert!(
-        balance - floor - fees.operation - fees.ledger >= fees.least_payout,
-        "the agreed state alone would call for a withdrawal"
-    );
-    assert!(
-        spendable < floor + fees.operation + fees.ledger + fees.least_payout,
-        "what the account can spend leaves none above the floor"
-    );
-
-    let outputs = wait_and_close(&mut core, &mut ledger, 4_000);
-    assert_eq!(withdrawals(&outputs), [], "none beyond what it can spend");
-    let now = core.now_ms();
-    assert!(!withdrawals_back_off(&core, now), "nothing failed");
-    assert_eq!(core.hub_status().unwrap().moving, None);
-
-    // Further fundings take the balance below the floor: the deposit the
-    // floor calls for goes at the next check, up to the midpoint.
-    let low = 300_000;
-    hub.account(&mut core, low, opening);
-    wait_and_close(&mut core, &mut ledger, 1_000);
-    let made = deposits(&mut ledger, hub.escrow());
-    assert_eq!(made.len(), 2, "the floor's deposit went: {made:?}");
-    let exposure = low + fees.account_reserve + fees.hold_reserve + drops + toward_us;
-    assert_eq!(made[1].amount, (middle - low).min(ceiling - exposure));
-    assert!(core.now_ms() - at < FIRST_BACKOFF_MS, "within the backoff");
-    core.check_invariants();
 }
 
 // A withdrawal the hub failed backs off the next withdrawal, doubling, as
@@ -257,13 +151,13 @@ fn a_failed_withdrawal_holds_back_only_withdrawals() {
 
 /// [`a_failed_withdrawal_holds_back_only_withdrawals`] on a core of `seed`.
 fn failed_withdrawal(seed: u64) {
-    let (floor, _, middle) = limits();
+    let (floor, ceiling, middle) = limits();
     let (mut ledger, _) = funded_ledger();
     let (mut core, mut hub, _, opening) = hub_with_peer(&mut ledger, floor + 2_000_000, seed);
     let fees = hub.rules.terms.fees;
 
-    // Past the ceiling: a withdrawal down to the midpoint.
-    let high = 12_000_000;
+    // Past the ceiling: a withdrawal down to the target, the midpoint.
+    let high = ceiling + 10_000_000;
     hub.account(&mut core, high, opening);
     let outputs = wait_and_close(&mut core, &mut ledger, 4_000);
     let sent = submitted(&outputs);
@@ -272,16 +166,16 @@ fn failed_withdrawal(seed: u64) {
         .find(|signed| matches!(signed.operation, MemberOperation::Withdraw { .. }))
         .unwrap()
         .clone();
-    let exposure = high + fees.account_reserve;
+    let kept = high + fees.account_reserve;
     assert_eq!(withdrawals(&outputs).len(), 1);
-    assert_eq!(withdrawals(&outputs)[0].0, exposure - middle);
+    assert_eq!(withdrawals(&outputs)[0].0, kept - middle);
 
     // The hub fails it.
     let failed = Outcome::Failed {
         fee: fees.operation,
         reason: Failure::Funds,
     };
-    executed_without_a_state(&mut core, &mut hub, &withdrawal, failed, None);
+    executed_without_a_state(&mut core, &mut hub, &withdrawal, failed);
     hub.account(&mut core, 200_000, opening);
     let failed_at = core.now_ms();
     let outputs = wait_and_close(&mut core, &mut ledger, 1_000);
@@ -293,7 +187,7 @@ fn failed_withdrawal(seed: u64) {
     let made = deposits(&mut ledger, hub.escrow());
     assert_eq!(made.len(), 2, "the floor's deposit went at once: {made:?}");
     assert!(core.now_ms() - failed_at < FIRST_BACKOFF_MS);
-    assert_eq!(made[1].amount, middle - 200_000);
+    assert_eq!(made[1].amount, middle - 200_000 - fees.account_reserve);
 
     // Credited, and past the ceiling again: the next withdrawal waits out
     // the backoff, then goes.

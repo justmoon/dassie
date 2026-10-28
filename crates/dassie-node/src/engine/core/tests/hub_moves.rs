@@ -445,15 +445,14 @@ fn a_live_hub_is_funded_from_the_live_book() {
         "from the live book: {spent}"
     );
 
-    // Credited, then taken past the ceiling: withdrawn to the midpoint, to
+    // Credited, then taken past the ceiling: withdrawn to the target, to
     // the node's mainnet account, and the hub's ledger names no deposit
     // address (spec/decisions/one-balance-per-asset.md).
     let p = Policies::DEFAULT.connector.max_packet_amount;
-    let credit = Policies::DEFAULT.peer_credit;
-    let floor = policy::hub_floor(p, credit, 0) / UNITS_PER_DROP;
+    let floor = policy::hub_floor(p) / UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
     hub.account(&mut core, floor + 1_000, opening);
-    let balance = 12_000_000;
+    let balance = ceiling + 10_000_000;
     hub.account(&mut core, balance, opening);
     let hub_view = core
         .ledger_views()
@@ -462,7 +461,7 @@ fn a_live_hub_is_funded_from_the_live_book() {
         .unwrap();
     assert_eq!(hub_view.deposit_address, None);
     let outputs = super::wait_and_close(&mut core, &mut ledger, 4_000);
-    let exposure = balance + hub.rules.terms.fees.account_reserve;
+    let kept = balance + hub.rules.terms.fees.account_reserve;
     let to = dassie_hub::operation::Destination {
         account: own.0,
         tag: None,
@@ -470,7 +469,7 @@ fn a_live_hub_is_funded_from_the_live_book() {
     assert_ne!(own, own_account(&TESTNET));
     assert_eq!(
         super::withdrawals(&outputs),
-        [(exposure - floor.midpoint(ceiling), to)]
+        [(kept - floor.midpoint(ceiling), to)]
     );
 }
 

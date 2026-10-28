@@ -62,9 +62,9 @@ const _: () = assert!(
 );
 
 /// The most an owner moves into the hub at once in [`run_lies`], in XRP:
-/// as much as a node keeps there at its ceiling.
+/// as much as a node keeps there at its target.
 const MOST_MOVED_XRP: u64 =
-    dassie_settlement::policy::hub_ceiling(Policies::DEFAULT.connector.max_packet_amount)
+    dassie_settlement::policy::hub_target(Policies::DEFAULT.connector.max_packet_amount)
         / (DROPS_PER_XRP * UNITS_PER_DROP);
 
 /// What a seed of a run over a hub draws first: its generator, how many
