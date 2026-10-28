@@ -42,7 +42,6 @@ import {
   holdings,
   marketMakerNodes,
   pool,
-  TRADE,
   UNIT,
   value,
   writeConfig,
@@ -124,17 +123,20 @@ test(
       let exited = false;
       maker.exited.then(() => exited = true);
       try {
-        // A trade's DSUSD reached d1, and the XRP node's went back through
-        // the pool: the only swaps on it are the market maker's. While one
-        // of d1's own moves between its hub and its book is on its way, the
-        // sum reads short of what it holds, never above.
+        // A trade's DSUSD reached d1, and the XRP node's went back through the
+        // pool: the only swaps on it are the market maker's. Only the market
+        // maker pays d1 DSUSD, and d1 pays its own costs in it, such as the
+        // DSUSD hub's fee on each claim it redeems, so what a trade brings
+        // shows as a rise that may fall short of a whole trade. While one of
+        // d1's own moves between its hub and its book is on its way, the sum
+        // reads short of what it holds, never above.
         await scenario.until(
           "the market maker trades through d1 and swaps back through the pool",
           async () => {
             if (exited) throw new Error("the market maker exited");
             const dsusd = await held(d1, DSUSD);
             const now = await pool(scenario);
-            return now.xrp > seeded.xrp && dsusd >= d1Dsusd + TRADE;
+            return now.xrp > seeded.xrp && dsusd > d1Dsusd;
           },
           RUN_MS,
         );

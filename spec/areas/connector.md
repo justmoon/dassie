@@ -144,11 +144,13 @@ The connector caps, for each peer's method and each way, what the packets in fli
 - **Per method,** since each method's books are on a ledger of their own, and a crash drifts each by what was in flight on it: what a peer can cost is the sum over its methods ([settlement-methods](../decisions/settlement-methods.md)).
 - **Amounts, not packets,** so packets from parts of the network with a smaller largest packet just fit more of them.
 - **Each way, with our own number.** A crash of either side raises what our books say the peer owes us, so each node bounds both directions with its own cap, knowing nothing of the peer's.
-- Packets without money always pass, and a packet passes alone, with nothing else in flight that way, even if a conversion made it larger than the cap.
+- Packets without money always pass, and a packet passes alone, with nothing else in flight that way.
 
 ## The largest packet
 
 A Prepare above the largest packet `P` gets F08, with the amounts. `P` is how much the owner is prepared to lose on a link, so every threshold of a link is counted in it: the cap above, and the settlement trigger, the least settlement and the least default credit ([Settlement](settlement.md#positions-and-thresholds)). It is one value for the node, as is the default credit; per-ledger values are not built ([roadmap](../roadmap.md#not-built-yet)).
+
+A Prepare that a conversion would forward above `P` gets F08 too, naming the most that would pass in its own units at the rate it got; with one `P` for every ledger, a packet of `P` in a dear asset converts to more than `P` of a cheap one. Forwarded, it could find too little room toward the next hop while the hop, its trigger counted in `P`, sees too much to ask for a settlement; refused for liquidity (T04), its sender would send it again as it is, for good.
 
 ## Fees and spread
 
