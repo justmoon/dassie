@@ -388,8 +388,9 @@ mod tests {
 
     impl dassie_node::clock::Clock for PausedClock {
         fn now_ms(&self) -> u64 {
-            // Past any close time the ledger started at on the system
-            // clock, so that a ledger never closes before its parent.
+            // Any start will do: `close_on` keeps the closes monotonic,
+            // each a second after the last at least, wherever this
+            // clock starts against the system clock the ledger started on.
             1_800_000_000_000 + u64::try_from(self.0.elapsed().as_millis()).unwrap()
         }
     }

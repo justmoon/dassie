@@ -98,9 +98,15 @@ type Way = (&'static str, Option<i128>);
 /// price every way, so that they decided on open quotes.
 async fn stopped(net: &HubNet, d1: &Member, d2: &Member) -> [Way; 4] {
     for _ in 0..CALM_ROUNDS {
-        until("both idle, a swap made", async || {
+        // Each tried by itself, and swaps went through: from either end,
+        // as the other's may all be refused.
+        until("both idle, each tried, a swap made", async || {
             let (one, two) = (swap_status(&d1.node).await, swap_status(&d2.node).await);
-            idle(&one) && idle(&two) && one.fulfilled + two.fulfilled > 0
+            idle(&one)
+                && idle(&two)
+                && one.sent > 0
+                && two.sent > 0
+                && one.fulfilled + two.fulfilled > 0
         })
         .await;
         let calm_at = net.clock.now_ms();
@@ -130,8 +136,8 @@ async fn stopped(net: &HubNet, d1: &Member, d2: &Member) -> [Way; 4] {
 // of dollars and d2 short of XRP. Each reads the other's snapshot and swaps
 // with it by itself while the other's quotes, valued at its own curve,
 // clear its costs: d1 pays XRP and is paid back dollars, d2 the other way.
-// Which of them makes a swap is a race, since either one's closes the
-// gap: one may make them all. They swap until neither's quotes clear the
+// Each tries by itself, but which of them makes a swap is a race, since
+// either one's closes the gap: one may make them all. They swap until neither's quotes clear the
 // other's costs, and both end closer to their targets.
 #[tokio::test(start_paused = true)]
 async fn two_core_nodes_skewed_opposite_ways_swap_until_neither_gains() {

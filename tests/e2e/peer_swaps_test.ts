@@ -67,18 +67,20 @@ test(
       }
       await scenario.mintToken(d1, "DSUSD", MINT.d1);
       await scenario.mintToken(d2, "DSUSD", MINT.d2);
-      // Which of them swaps is a race: either one's swap closes the gap
-      // between them, and one may make every swap.
-      const fulfilled = async (node: ScenarioNode) =>
-        (await node.rpc.call("getSwapStatus", {})).fulfilled;
+      // Each tries by itself, but which of them swaps is a race: either
+      // one's swap closes the gap between them, and one may make every swap.
+      const status = (node: ScenarioNode) => node.rpc.call("getSwapStatus", {});
       await scenario.until(
-        "a swap between them goes through",
-        async () => (await fulfilled(d1)) + (await fulfilled(d2)) > 0n,
+        "each tries a swap, and one goes through",
+        async () => {
+          const [one, two] = [await status(d1), await status(d2)];
+          return one.sent > 0n && two.sent > 0n &&
+            one.fulfilled + two.fulfilled > 0n;
+        },
         SWAP_WITHIN_MS,
       );
       for (const node of [d1, d2]) {
-        const status = await node.rpc.call("getSwapStatus", {});
-        assert(status.byItself, `${node.name} swaps by itself`);
+        assert((await status(node)).byItself, `${node.name} swaps by itself`);
       }
     } finally {
       const failures = await scenario.stop();
