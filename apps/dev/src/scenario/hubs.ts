@@ -212,7 +212,7 @@ export function sponsors(def: ScenarioDef): number[] {
  * it peers over hubs alone; no other node runs a hub's scheme, whose
  * config is the founded hub's rules, never the scenario's; and nodes
  * added later run what a member does. Every owner book a member runs peers
- * with nobody, whatever its config (spec/areas/xrpl.md#owner-books).
+ * with nobody (spec/areas/xrpl.md#owner-books).
  */
 export function invalidHubs(def: ScenarioDef): string | undefined {
   if (def.hubs === undefined) return undefined;

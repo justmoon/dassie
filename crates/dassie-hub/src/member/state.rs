@@ -2,13 +2,15 @@
 //! with fixed-width integers, as the hub's own messages are. Each starts
 //! with a version byte.
 //!
-//! - **The account** keeps its number, its cursor, the holds it mirrors,
-//!   the operations waiting or on their way, and the issuer's hold on a
-//!   token hub's escrow as last agreed: one on its way is signed again
-//!   alike (Ed25519 signs deterministically), so its outcome is still known
-//!   as ours. Its version 1 had no issuer's hold nor when a reduction was
-//!   made, and is read as knowing none, each reduction as made before any
-//!   freeze it learns of.
+//! - **The account** keeps the ID of its hub, its number, its cursor, the
+//!   holds it mirrors, the operations waiting or on their way, and the
+//!   issuer's hold on a token hub's escrow as last agreed: one on its way
+//!   is signed again alike (Ed25519 signs deterministically), so its
+//!   outcome is still known as ours. A state of another hub than the
+//!   account's rules name is refused: its number, holds and operations
+//!   are another hub's (spec/decisions/hub-named-when-added.md). So is one
+//!   of a version before 3, which named no hub; no database kept one
+//!   (spec/decisions/database-continuity.md).
 //! - **The scheme** keeps its peers and the records of their holds: the next
 //!   sequence, W and T of our claims and the packets the hub may still pay,
 //!   and what we fulfilled that no claim of the payer's covers, and its
@@ -35,10 +37,10 @@ use crate::codec::{read_key, write_key};
 use crate::digest::Digest;
 use crate::operation::{AccountNumber, MemberOperation, SignedMemberOperation};
 use crate::promise::{Claim, Commitment, HoldNumber, Signed};
+use crate::rules::HubId;
 
-/// The account's state's version: 2 keeps the issuer's hold, and when
-/// each hold's reduction was made.
-const VERSION: u8 = 2;
+/// The account's state's version: 3 names the account's hub.
+const VERSION: u8 = 3;
 /// The scheme's state's version: 2 keeps its unread `pay`s, 3 whether the
 /// hub is shutting down.
 const SCHEME_VERSION: u8 = 3;
@@ -157,6 +159,7 @@ pub(super) fn hex_bytes(text: &str) -> Option<Vec<u8>> {
 pub(super) fn account_state(account: &HubAccount) -> Vec<u8> {
     let mut out = Out(Vec::new());
     out.u8(VERSION);
+    out.bytes(&account.hub.0.0);
     out.option(account.number.as_ref(), |out, number| out.u32(number.0));
     out.u64(account.cursor);
     out.u64(account.last_touch);
@@ -202,9 +205,8 @@ fn write_hold(out: &mut Out, hold: &HoldMirror) {
     }
 }
 
-/// A hold as `write_hold` wrote it; of version 1, whose reductions have no
-/// stamp, each as made before any freeze the account learns of.
-fn read_hold(reader: &mut Reader<'_>, version: u8) -> Option<HoldMirror> {
+/// A hold as `write_hold` wrote it.
+fn read_hold(reader: &mut Reader<'_>) -> Option<HoldMirror> {
     let mut hold = HoldMirror::opened(
         AccountNumber(reader.read_u32().ok()?),
         AccountNumber(reader.read_u32().ok()?),
@@ -212,8 +214,7 @@ fn read_hold(reader: &mut Reader<'_>, version: u8) -> Option<HoldMirror> {
     );
     let reduction = read_option(reader, |r| {
         let reduction = (r.read_u64().ok()?, r.read_u64().ok()?);
-        let made = if version >= 2 { r.read_u64().ok()? } else { 0 };
-        Some((reduction, made))
+        Some((reduction, r.read_u64().ok()?))
     })?;
     if let Some((reduction, made)) = reduction {
         hold.reduction = Some(reduction);
@@ -259,11 +260,25 @@ fn read_purpose(reader: &mut Reader<'_>) -> Option<Purpose> {
     })
 }
 
-/// Restores the account's state, refusing one it did not write.
+/// The hub the account's state `state` is of, if it is a state of this
+/// version.
+#[must_use]
+pub fn hub_of_state(state: &[u8]) -> Option<HubId> {
+    let mut reader = Reader::new(state);
+    if reader.read_u8().ok()? != VERSION {
+        return None;
+    }
+    Some(HubId(Digest(*reader.read_array::<32>().ok()?)))
+}
+
+/// Restores the account's state, refusing one it did not write: of
+/// another version, or of another hub than the account's.
 pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<()> {
     let mut reader = Reader::new(state);
-    let version = reader.read_u8().ok()?;
-    if version != 1 && version != VERSION {
+    if reader.read_u8().ok()? != VERSION {
+        return None;
+    }
+    if HubId(Digest(*reader.read_array::<32>().ok()?)) != account.hub {
         return None;
     }
     account.number = read_option(&mut reader, |r| Some(AccountNumber(r.read_u32().ok()?)))?;
@@ -273,9 +288,7 @@ pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<
     let holds = read_count(&mut reader, 8, most)?;
     for _ in 0..holds {
         let number = HoldNumber(reader.read_u64().ok()?);
-        account
-            .holds
-            .insert(number, read_hold(&mut reader, version)?);
+        account.holds.insert(number, read_hold(&mut reader)?);
         if reader.read_bool().ok()? {
             account.strangers.insert(number);
         }
@@ -288,16 +301,14 @@ pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<
         }
         account.queue.push_back(entry);
     }
-    if version >= 2 {
-        account.issuer = read_option(&mut reader, |r| {
-            Some(IssuerState {
-                height: r.read_u64().ok()?,
-                timestamp: r.read_u64().ok()?,
-                frozen: read_option(r, |r| r.read_u64().ok())?,
-                held: r.read_bool().ok()?,
-            })
-        })?;
-    }
+    account.issuer = read_option(&mut reader, |r| {
+        Some(IssuerState {
+            height: r.read_u64().ok()?,
+            timestamp: r.read_u64().ok()?,
+            frozen: read_option(r, |r| r.read_u64().ok())?,
+            held: r.read_bool().ok()?,
+        })
+    })?;
     reader.finish().ok()?;
     let bounded = account.strangers.len() <= super::account::MAX_STRANGER_HOLDS
         && account.holds.len().saturating_sub(account.strangers.len()) <= super::account::MAX_HOLDS;

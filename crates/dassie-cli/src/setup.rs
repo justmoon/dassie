@@ -386,7 +386,7 @@ enum HubPlan {
     Joined,
     /// Add these schemes, in order: the owner book the hub funds from, if
     /// it is not active, then the hub's scheme, with no config, for the
-    /// default hub.
+    /// default hub, whose rules the node stores as the scheme's config.
     Join(Vec<Scheme>),
 }
 

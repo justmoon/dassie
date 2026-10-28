@@ -201,9 +201,9 @@ test("several hubs are checked before the scenario starts", () => {
     }),
     "hub-xrpl-testnet-dsusd's config is the founded hub's rules",
   );
-  // An owner book peers with nobody, whatever its config.
+  // An owner book peers with nobody, and its config says nothing.
   assertEquals(
-    invalidHubs({ ...base, configs: { [DSUSD_BOOK]: `{"peers": true}` } }),
+    invalidHubs({ ...base, configs: { [DSUSD_BOOK]: "{}" } }),
     undefined,
   );
 });

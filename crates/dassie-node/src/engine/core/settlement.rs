@@ -89,6 +89,9 @@ pub(super) struct Settlements {
     pub max_packet: u64,
     /// The timings of a dollar token's peg guard.
     pub peg: dassie_xrpl::peg::Timings,
+    /// The default hubs a hub's scheme added without rules joins: the
+    /// build's, or a test's.
+    pub default_hubs: super::schemes::DefaultHubs,
 }
 
 impl Settlements {
@@ -101,6 +104,7 @@ impl Settlements {
             minimum: policy::minimum(policies.connector.max_packet_amount),
             max_packet: policies.connector.max_packet_amount,
             peg: policies.peg,
+            default_hubs: super::schemes::DEFAULT_HUBS,
             asked: BTreeMap::new(),
             settling: BTreeMap::new(),
             to_execute: Vec::new(),

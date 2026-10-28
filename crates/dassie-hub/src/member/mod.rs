@@ -37,6 +37,7 @@ pub use payout::{Payouts, Taken};
 pub use scheme::{
     DSUSD_SCHEME_ID, HubScheme, MAINNET_SCHEME_ID, RLUSD_SCHEME_ID, SCHEME_ID, scheme_of,
 };
+pub use state::hub_of_state;
 
 pub use crate::rules::LEAST_ESCROW_GAS_DROPS;
 

@@ -835,9 +835,13 @@ export type AddSettlementSchemeRequest = Message<"dassie.owner.v1.AddSettlementS
 
   /**
    * The scheme's config, JSON. The stub takes none: empty or "{}". An XRP
-   * Ledger scheme takes none either (a stored "peers" key still loads and
-   * changes nothing); its account's server, faucet and publishers are the
-   * account's config (SetAssetConfig).
+   * Ledger scheme takes none either: empty or "{}"; its account's server,
+   * faucet and publishers are the account's config (SetAssetConfig). A
+   * settlement hub's scheme takes the hub's rules, {"rules": "<hex>"}, or
+   * none for the default hub of its asset, whose rules the node stores as
+   * the scheme's config, so that the scheme stays in that hub whatever
+   * default a later release carries; with none and no default hub built
+   * in, INVALID_ARGUMENT.
    *
    * @generated from field: string config = 2;
    */

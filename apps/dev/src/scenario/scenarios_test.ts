@@ -447,9 +447,9 @@ test("a hub's nodes are checked before the scenario starts", () => {
   );
   const configs = (these: Record<string, string> | undefined) =>
     invalid({ ...base, configs: these });
-  // The owner book peers with nobody, whatever its config.
+  // The owner book peers with nobody, and its config says nothing.
   assertEquals(configs({ [HUB_OWNER_BOOK]: "" }), undefined);
-  assertEquals(configs({ [HUB_OWNER_BOOK]: `{"peers": true}` }), undefined);
+  assertEquals(configs({ [HUB_OWNER_BOOK]: "{}" }), undefined);
   assertEquals(
     configs({ [HUB_SCHEME]: hubConfig("00") }),
     "hub-xrpl-testnet-xrp's config is the founded hub's rules",
