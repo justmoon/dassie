@@ -353,6 +353,7 @@ impl Connector {
         };
         let onto = (to, out_ledger);
         let (fee, amount_out) = self.amounts(now_ms, from, onto, prepare.amount, prices, ledger)?;
+        too_large_out(prepare.amount, amount_out, config.max_packet_amount)?;
         self.admits_in_flight(from, onto, prepare.amount, amount_out)?;
         Ok(Route {
             to,
@@ -415,8 +416,7 @@ impl Connector {
     /// (spec/decisions/packets-in-flight.md). A crash loses the Fulfills of
     /// what was in flight, so this bounds how far a crash makes two peers'
     /// books drift apart. Half a packet of it stays free for smaller packets
-    /// while a payment fills the link. A packet always passes alone, even one
-    /// a conversion made larger than the limit.
+    /// while a payment fills the link. A packet always passes alone.
     fn admits_in_flight(
         &self,
         (source, in_ledger): (EndpointId, LedgerId),
@@ -790,6 +790,30 @@ impl Connector {
 fn same_group(ledger: &Ledger, a: AccountId, b: AccountId) -> bool {
     let group = |id| ledger.account(id).and_then(|account| account.group());
     group(a).is_some_and(|root| group(b) == Some(root))
+}
+
+/// F08 for a packet a conversion makes larger than the largest packet `max`
+/// on the way out, with the most that would pass in the packet's own units
+/// (spec/areas/connector.md#the-largest-packet). Every threshold of the
+/// next link is counted in `max`: a larger packet can find too little room
+/// toward the hop while the room is too much for the hop to ask for a
+/// settlement, and refused for liquidity (T04), it would be sent again as
+/// it is, for good.
+fn too_large_out(amount_in: u64, amount_out: u64, max: u64) -> Result<(), Refusal> {
+    if amount_out <= max {
+        return Ok(());
+    }
+    // Less than `amount_in`, since `max < amount_out`: it fits.
+    let most = u128::from(amount_in) * u128::from(max) / u128::from(amount_out);
+    let most = u64::try_from(most).unwrap_or(amount_in);
+    Err(Refusal {
+        code: ErrorCode::F08_AMOUNT_TOO_LARGE,
+        message: "packet amount exceeds maximum allowed amount",
+        too_large: Some(AmountTooLarge {
+            received_amount: amount_in,
+            maximum_amount: most,
+        }),
+    })
 }
 
 /// What a spending cap's refusal means to the sender: a packet larger than
