@@ -139,11 +139,7 @@ let
 
   # The build scripts' and the tests' environment, as .cargo/config.toml
   # sets it for Cargo: the bundled SQLite's flags, which the release builds
-  # with too, and the property tests' fixed seed. A test's scratch space,
-  # which `env!("CARGO_TARGET_TMPDIR")` names when it compiles, is made
-  # where its tests run (runTests).
-  targetTmpDir = "/build/target-tmp";
-
+  # with too, and the property tests' fixed seed (runTests).
   crateOverrides =
     pkgs.defaultCrateOverrides
     // {
@@ -160,7 +156,6 @@ let
         # Cargo sets these and buildRustCrate doesn't.
         CARGO_CRATE_NAME = lib.replaceStrings [ "-" ] [ "_" ] name;
         CARGO = "${toolchain}/bin/cargo";
-        CARGO_TARGET_TMPDIR = targetTmpDir;
         lints = workspace.lints;
       }
       // memberFlags name crate
@@ -530,15 +525,8 @@ let
               ]
             );
             sourceRoot = "source/crates/${name}";
-            preBuild = ''
-              if [ -d ${library}/bin ]; then
-                mkdir -p target/cargo-bin-exe
-                cp ${library}/bin/* target/cargo-bin-exe/
-              fi
-            '';
             CARGO_CRATE_NAME = file;
             CARGO = "${toolchain}/bin/cargo";
-            CARGO_TARGET_TMPDIR = targetTmpDir;
             lints = workspace.lints;
           }
           // memberFlags name testArgs
@@ -589,6 +577,7 @@ let
     name:
     let
       binaries = tests.${name};
+      inherit (tests.${name}) library;
       underscored = lib.replaceStrings [ "-" ] [ "_" ] name;
       triple = pkgs.stdenv.hostPlatform.rust.rustcTarget;
     in
@@ -606,7 +595,6 @@ let
         cd "$NIX_BUILD_TOP"
         cp -r --no-preserve=mode ${memberSrc name true} source
         cp ${root + "/Cargo.toml"} source/Cargo.toml
-        mkdir -p ${targetTmpDir}
         package=$(jq -r '.packages[] | select(.name == "${name}") | .id' ${cargoMetadata})
         # The binaries as nextest lists those it built: the library's unit
         # tests, and each file in tests/. Examples are built, not run.
@@ -619,17 +607,29 @@ let
             *) jq -n --arg path "$binary" --arg pkg "$package" --arg base "$base" \
                 '{("${name}::" + $base): {"binary-id": ("${name}::" + $base), "binary-name": $base, "package-id": $pkg, "kind": "test", "binary-path": $path, "build-platform": "target"}}' ;;
           esac
-        done | jq -s --arg target "$NIX_BUILD_TOP/target" --arg triple "${triple}" '{
+        done > rust-binaries.json
+        # The crate's binaries, which nextest names to its integration tests
+        # as CARGO_BIN_EXE_<name> when they run: copied where a test may put
+        # an install beside them and link one in (dassie-cli's update tests).
+        mkdir -p target/ci
+        for bin in ${library}/bin/*; do
+          [ -e "$bin" ] || continue
+          install -m755 "$bin" target/ci/
+          jq -n --arg name "$(basename "$bin")" \
+            '{"name": $name, "kind": "bin-exe", "path": ("ci/" + $name), "build-platform": "target"}'
+        done | jq -s --arg pkg "$package" '{($pkg): .} | with_entries(select(.value != []))' > non-test-binaries.json
+        jq -s --arg target "$NIX_BUILD_TOP/target" --arg triple "${triple}" \
+          --slurpfile bins non-test-binaries.json '{
           "rust-build-meta": {
             "target-directory": $target, "build-directory": $target,
-            "base-output-directories": ["ci"], "non-test-binaries": {},
+            "base-output-directories": ["ci"], "non-test-binaries": $bins[0],
             "build-script-out-dirs": {}, "build-script-info": {}, "linked-paths": [],
             "platforms": {"host": {"platform": {"triple": $triple, "target-features": "unknown"}, "libdir": {"status": "unavailable", "reason": "not-in-archive"}}, "targets": []},
             "target-platforms": [{"triple": $triple, "target-features": "unknown"}],
             "target-platform": null
           },
           "rust-binaries": (add // {})
-        }' > binaries.json
+        }' rust-binaries.json > binaries.json
         export HOME=$TMPDIR RUST_BACKTRACE=1
         cargo-nextest nextest run --profile ci --config-file ${root + "/.config/nextest.toml"} \
           --no-tests=${if lib.elem name withoutTests then "pass" else "fail"} \
@@ -720,6 +720,19 @@ let
     cp ${tests.dassie-node.examples.fake_ledger}/bin/fake_ledger $out/examples/
     cp ${tests.dassie-stream.examples.interop_peer}/bin/interop_peer $out/examples/
   '';
+  # A test finds the files it reads and the binaries it runs from what
+  # cargo and nextest name when it runs, never from `env!`'s paths from
+  # when it compiled: a build is reused in other checkouts of the
+  # repository, as Vorstand Work's sessions start from one already built,
+  # and an old checkout's files would be read in their place.
+  compileTimePaths = pkgs.runCommand "compile-time-paths" { } ''
+    cd ${rustSources}
+    if grep -rnE 'env!\("CARGO_(MANIFEST_DIR|TARGET_TMPDIR|BIN_EXE_)' crates; then
+      echo "a test compiles in a path; read it when the test runs: std::env::var(\"CARGO_MANIFEST_DIR\") (or CARGO_BIN_EXE_<name>), or tempfile for scratch space" >&2
+      exit 1
+    fi
+    touch $out
+  '';
 in
 {
   inherit runTests e2eBinaries;
@@ -743,5 +756,6 @@ in
     // {
       cargo-nix-current = cargoNixCurrent;
       doc-examples = docExamples;
+      compile-time-paths = compileTimePaths;
     };
 }

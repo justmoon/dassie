@@ -31,7 +31,9 @@ use dassie_node_core::certificate::CertificateSource;
 use dassie_xrpl::fake::Lie;
 use dassie_xrpl::network::TESTNET;
 use dassie_xrpl::{AccountId, Wallet};
-use support::pair::{CA, CERT, KEY, bootstrap, key, prepare_on_xrpl, settle, until, until_by};
+use support::pair::{
+    bootstrap, ca_file, cert_file, key, key_file, prepare_on_xrpl, settle, until, until_by,
+};
 use support::{Bound, START_MS, TestNode};
 
 const LEDGER: &str = "xrpl-testnet-xrp+xrp";
@@ -57,8 +59,8 @@ async fn fake_ledger_on(
             ([127, 0, 0, 1], faucet_port).into(),
             StoredCertificate {
                 source: CertificateSource::Manual,
-                chain_pem: std::fs::read_to_string(CERT).unwrap(),
-                key_pem: std::fs::read_to_string(KEY).unwrap(),
+                chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+                key_pem: std::fs::read_to_string(key_file()).unwrap(),
             },
         )),
         close_every: Duration::from_millis(100),
@@ -178,7 +180,7 @@ async fn the_xrp_book_holds_across_a_restart() {
     let nodes = bootstrap(&key_a, bound.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
@@ -248,7 +250,7 @@ async fn a_lying_server_gets_nothing_booked() {
     let nodes = bootstrap(&key_a, bound.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
@@ -322,7 +324,7 @@ async fn a_new_fake_ledger_is_a_testnet_reset() {
     let nodes = bootstrap(&key_a, bound.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
@@ -380,7 +382,7 @@ async fn the_owner_asks_the_faucet_for_more() {
     let nodes = bootstrap(&key_a, bound.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
@@ -592,7 +594,7 @@ async fn the_dsusd_book_holds_across_a_restart() {
     let nodes = bootstrap(&key_a, bound.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     // The daemon has no rate source and the ledger no DSUSD pool, so

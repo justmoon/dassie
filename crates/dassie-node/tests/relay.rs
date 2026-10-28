@@ -680,7 +680,7 @@ async fn a_relayed_payments_stream_serves_only_open_payments() {
         .trim_end_matches(']')
         .replace("https://localhost:0", &relay.url);
     let env = [
-        ("DASSIE_EXTRA_CA_FILE", support::op::CA),
+        ("DASSIE_EXTRA_CA_FILE", support::op::ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ("DASSIE_RELAY", entry.as_str()),
     ];

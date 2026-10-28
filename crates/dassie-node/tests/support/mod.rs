@@ -875,3 +875,19 @@ impl<T: Transport> RpcClient<T> {
         }
     }
 }
+
+/// The package's directory, as cargo and nextest name it to a test they
+/// run, never `env!`'s from when the test compiled: a build is reused in
+/// other checkouts of the repository, whose files are their own.
+#[allow(clippy::disallowed_methods, clippy::expect_used)] // What the test runner says, not configuration.
+pub fn manifest_dir() -> PathBuf {
+    PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .expect("cargo and nextest name the package's directory"),
+    )
+}
+
+/// `path` under the repository's testdata/.
+pub fn testdata(path: &str) -> String {
+    format!("{}/../../testdata/{path}", manifest_dir().display())
+}

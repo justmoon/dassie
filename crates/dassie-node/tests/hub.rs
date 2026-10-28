@@ -548,7 +548,7 @@ async fn a_member_node_hears_its_validators_through_its_engine() {
             // a test machine may have no roots of its own.
             &[
                 ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-                ("DASSIE_EXTRA_CA_FILE", support::pair::CA),
+                ("DASSIE_EXTRA_CA_FILE", support::pair::ca_file()),
             ],
         )
         .await;
@@ -844,8 +844,8 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
             "127.0.0.1:0".parse().unwrap(),
             dassie_node::store::StoredCertificate {
                 source: dassie_node_core::certificate::CertificateSource::Manual,
-                chain_pem: std::fs::read_to_string(support::pair::CERT).unwrap(),
-                key_pem: std::fs::read_to_string(support::pair::KEY).unwrap(),
+                chain_pem: std::fs::read_to_string(support::pair::cert_file()).unwrap(),
+                key_pem: std::fs::read_to_string(support::pair::key_file()).unwrap(),
             },
         )),
         close_every: Duration::from_millis(100),
@@ -862,7 +862,7 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
             dassie_node::node::Policies::DEFAULT,
             &[
                 ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-                ("DASSIE_EXTRA_CA_FILE", support::pair::CA),
+                ("DASSIE_EXTRA_CA_FILE", support::pair::ca_file()),
             ],
         )
         .await;

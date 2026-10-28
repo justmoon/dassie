@@ -23,10 +23,7 @@ fn seed(entry: &serde_json::Value, field: &str) -> [u8; SLH_DSA_SEED_BYTES] {
 
 #[test]
 fn key_generation_from_seeds() {
-    let path = format!(
-        "{}/tests/data/slh_dsa_keygen.json",
-        env!("CARGO_MANIFEST_DIR")
-    );
+    let path = format!("{}/tests/data/slh_dsa_keygen.json", manifest_dir());
     let vectors: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     assert_eq!(vectors["parameterSet"], "SLH-DSA-SHA2-128s");
@@ -40,4 +37,12 @@ fn key_generation_from_seeds() {
         );
         assert_eq!(to_hex(key.as_bytes()), str_field(entry, "pk"), "{entry}");
     }
+}
+
+/// The package's directory, as cargo and nextest name it to a test they
+/// run, never `env!`'s from when the test compiled: a build is reused in
+/// other checkouts of the repository, whose files are their own.
+#[allow(clippy::disallowed_methods, clippy::expect_used)] // What the test runner says, not configuration.
+fn manifest_dir() -> String {
+    std::env::var("CARGO_MANIFEST_DIR").expect("cargo and nextest name the package's directory")
 }

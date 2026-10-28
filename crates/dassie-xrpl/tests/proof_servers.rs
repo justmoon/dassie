@@ -429,7 +429,7 @@ fn the_proof_servers_keep_more_than_the_history_bound() {
     for network in NETWORKS {
         let path = format!(
             "{}/../../resources/proof-server/xrpld-{network}.cfg",
-            env!("CARGO_MANIFEST_DIR")
+            manifest_dir()
         );
         let cfg = std::fs::read_to_string(&path).unwrap();
         for key in ["online_delete", "ledger_history"] {
@@ -555,4 +555,12 @@ fn an_answer_of_the_servers_validators_short_of_a_quorum_is_asked_again() {
             assert_eq!(account.doubts(doubt), 0, "{network}: {doubt:?}");
         }
     }
+}
+
+/// The package's directory, as cargo and nextest name it to a test they
+/// run, never `env!`'s from when the test compiled: a build is reused in
+/// other checkouts of the repository, whose files are their own.
+#[allow(clippy::disallowed_methods, clippy::expect_used)] // What the test runner says, not configuration.
+fn manifest_dir() -> String {
+    std::env::var("CARGO_MANIFEST_DIR").expect("cargo and nextest name the package's directory")
 }

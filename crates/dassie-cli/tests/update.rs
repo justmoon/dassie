@@ -30,8 +30,16 @@ use sha2::{Digest as _, Sha256};
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
-const DASSIE: &str = env!("CARGO_BIN_EXE_dassie");
-const TLS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls");
+/// The binary, as cargo and nextest name it to a test they run, never
+/// `env!`'s from when the test compiled: a build is reused in other
+/// checkouts of the repository.
+#[allow(clippy::disallowed_methods, clippy::expect_used)] // What the test runner says, not configuration.
+fn binary() -> String {
+    std::env::var("CARGO_BIN_EXE_dassie").expect("cargo and nextest name the binary")
+}
+fn tls_dir() -> String {
+    format!("{}/../../testdata/tls", manifest_dir())
+}
 
 type Files = Arc<Mutex<HashMap<String, Vec<u8>>>>;
 
@@ -74,11 +82,11 @@ impl MirrorServer {
 }
 
 async fn serve(files: Files, port: std::sync::mpsc::Sender<u16>) {
-    let certs = CertificateDer::pem_file_iter(format!("{TLS_DIR}/cert.pem"))
+    let certs = CertificateDer::pem_file_iter(format!("{}/cert.pem", tls_dir()))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
-    let key = PrivateKeyDer::from_pem_file(format!("{TLS_DIR}/key.pem")).unwrap();
+    let key = PrivateKeyDer::from_pem_file(format!("{}/key.pem", tls_dir())).unwrap();
     let config = rustls::ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))
@@ -138,8 +146,9 @@ struct Install {
 impl Install {
     fn new() -> Self {
         // Beside the binary, which is linked rather than copied.
-        let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
-        let output = Command::new(DASSIE).arg("--version").output().unwrap();
+        let dassie = binary();
+        let dir = tempfile::tempdir_in(Path::new(&dassie).parent().unwrap()).unwrap();
+        let output = Command::new(&dassie).arg("--version").output().unwrap();
         let version = String::from_utf8(output.stdout)
             .unwrap()
             .trim()
@@ -148,8 +157,8 @@ impl Install {
             .to_owned();
         let bin = dir.path().join("opt").join(&version).join("bin");
         fs::create_dir_all(&bin).unwrap();
-        if fs::hard_link(DASSIE, bin.join("dassie")).is_err() {
-            fs::copy(DASSIE, bin.join("dassie")).unwrap();
+        if fs::hard_link(&dassie, bin.join("dassie")).is_err() {
+            fs::copy(&dassie, bin.join("dassie")).unwrap();
         }
         symlink(&version, dir.path().join("opt/current")).unwrap();
         fs::create_dir(dir.path().join("units")).unwrap();
@@ -172,7 +181,7 @@ impl Install {
             .arg("update")
             .args(["--mirror", &mirror.url, "--no-restart"])
             .args(args)
-            .env("DASSIE_MIRROR_CA_FILE", format!("{TLS_DIR}/root.pem"))
+            .env("DASSIE_MIRROR_CA_FILE", format!("{}/root.pem", tls_dir()))
             .env("DASSIE_SYSTEMD_UNIT_DIR", self.dir.path().join("units"))
             .env_remove("DASSIE_MIRROR_URL")
             .output()
@@ -185,7 +194,7 @@ impl Install {
         command
             .arg("update")
             .args(["--mirror", &mirror.url])
-            .env("DASSIE_MIRROR_CA_FILE", format!("{TLS_DIR}/root.pem"))
+            .env("DASSIE_MIRROR_CA_FILE", format!("{}/root.pem", tls_dir()))
             .env("DASSIE_SYSTEMD_UNIT_DIR", self.dir.path().join("units"))
             .env_remove("DASSIE_MIRROR_URL");
         command
@@ -1112,4 +1121,12 @@ fn stand_in_runs() {
         String::from_utf8_lossy(&output.stdout).trim(),
         "dassie 1.2.3"
     );
+}
+
+/// The package's directory, as cargo and nextest name it to a test they
+/// run, never `env!`'s from when the test compiled: a build is reused in
+/// other checkouts of the repository, whose files are their own.
+#[allow(clippy::disallowed_methods, clippy::expect_used)] // What the test runner says, not configuration.
+fn manifest_dir() -> String {
+    std::env::var("CARGO_MANIFEST_DIR").expect("cargo and nextest name the package's directory")
 }

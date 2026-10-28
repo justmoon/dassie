@@ -29,7 +29,7 @@ use hyper_util::rt::TokioIo;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use support::TestNode;
-use support::op::{CERT, KEY, start};
+use support::op::{cert_file, key_file, start};
 use support::pair::{Pair, until};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
@@ -400,11 +400,11 @@ async fn sends_that_cannot_be_made_are_refused_and_say_why() {
 async fn fake_wallet(
     answer: impl Fn(&str, &str, u16, bool) -> (u16, String) + Send + Sync + 'static,
 ) -> u16 {
-    let certs = CertificateDer::pem_file_iter(CERT)
+    let certs = CertificateDer::pem_file_iter(cert_file())
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
-    let key = PrivateKeyDer::from_pem_file(KEY).unwrap();
+    let key = PrivateKeyDer::from_pem_file(key_file()).unwrap();
     let config = rustls::ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))

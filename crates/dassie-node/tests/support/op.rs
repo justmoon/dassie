@@ -3,6 +3,8 @@
 
 #![allow(clippy::panic)]
 
+use std::sync::LazyLock;
+
 use bytes::Bytes;
 use dassie_identity::IdentityKey;
 use dassie_node::clock::{Clock, ManualClock};
@@ -18,9 +20,20 @@ use serde_json::{Value, json};
 use super::btp_client::{BtpClient, send_stream, send_stream_reported};
 use super::{Bound, Reply, START_MS, STUB_UNLIMITED, TestNode, send, set_up};
 
-pub const CA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/root.pem");
-pub const CERT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/cert.pem");
-pub const KEY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/key.pem");
+use super::testdata;
+
+pub fn ca_file() -> &'static str {
+    static PATH: LazyLock<String> = LazyLock::new(|| testdata("tls/root.pem"));
+    &PATH
+}
+pub fn cert_file() -> &'static str {
+    static PATH: LazyLock<String> = LazyLock::new(|| testdata("tls/cert.pem"));
+    &PATH
+}
+pub fn key_file() -> &'static str {
+    static PATH: LazyLock<String> = LazyLock::new(|| testdata("tls/key.pem"));
+    &PATH
+}
 
 /// A client of the node's Open Payments: its key and how it names itself.
 pub struct Client {
@@ -57,7 +70,7 @@ pub async fn start_with(policies: Policies) -> (TestNode, IdentityKey) {
 pub async fn start_keyed(policies: Policies, seed: u8) -> (TestNode, IdentityKey) {
     let key = IdentityKey::from_bytes(&[seed; 32]);
     let env = [
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let node = Bound::new()
@@ -70,8 +83,8 @@ pub async fn start_keyed(policies: Policies, seed: u8) -> (TestNode, IdentityKey
             hostname: "localhost".into(),
         }),
         Method::SetCertificate(proto::SetCertificateRequest {
-            certificate_chain_pem: std::fs::read_to_string(CERT).unwrap(),
-            private_key_pem: std::fs::read_to_string(KEY).unwrap(),
+            certificate_chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+            private_key_pem: std::fs::read_to_string(key_file()).unwrap(),
         }),
     ] {
         owner.call(method).await.unwrap();
@@ -86,7 +99,7 @@ pub async fn start_keyed(policies: Policies, seed: u8) -> (TestNode, IdentityKey
 pub async fn start_unnamed(seed: u8, names: &str) -> (TestNode, IdentityKey) {
     let key = IdentityKey::from_bytes(&[seed; 32]);
     let env = [
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ("DASSIE_PUBLIC_NAMES", names),
     ];

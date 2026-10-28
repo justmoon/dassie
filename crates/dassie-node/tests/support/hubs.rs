@@ -38,7 +38,7 @@ use dassie_xrpl::codec::TokenValue;
 use dassie_xrpl::network::{MAINNET, Network};
 
 use super::btp_client::{BtpClient, pay_stream};
-use super::pair::{CA, CERT, KEY, bootstrap_all, set_asset_config};
+use super::pair::{bootstrap_all, ca_file, cert_file, key_file, set_asset_config};
 use super::{
     Bound, PausedClock, START_MS, STUB_UNLIMITED, TestNode, post_json, send, set_up, setup_body_in,
 };
@@ -191,7 +191,7 @@ const MAINNET_DEPOSIT_DROPS: u64 = 1_000_000_000;
 pub fn env_on(network: &Network) -> Vec<(&'static str, String)> {
     let mut env = vec![
         ("DASSIE_PEER_ALLOW_PRIVATE", "1".to_string()),
-        ("DASSIE_EXTRA_CA_FILE", CA.to_string()),
+        ("DASSIE_EXTRA_CA_FILE", ca_file().to_string()),
     ];
     if network.realm == dassie_ledger::Realm::Live {
         env.push(("DASSIE_DEV_LIVE_REALM", "1".to_string()));
@@ -228,8 +228,8 @@ async fn fake_ledger(network: &'static Network, clock: PausedClock) -> Server {
             "127.0.0.1:0".parse().unwrap(),
             dassie_node::store::StoredCertificate {
                 source: dassie_node_core::certificate::CertificateSource::Manual,
-                chain_pem: std::fs::read_to_string(CERT).unwrap(),
-                key_pem: std::fs::read_to_string(KEY).unwrap(),
+                chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+                key_pem: std::fs::read_to_string(key_file()).unwrap(),
             },
         )),
         close_every: Duration::from_secs(1),
@@ -559,8 +559,8 @@ impl HubNet {
         assert!(hostname.is_ok(), "{hostname:?}");
         let certificate = owner
             .call(Method::SetCertificate(proto::SetCertificateRequest {
-                certificate_chain_pem: std::fs::read_to_string(CERT).unwrap(),
-                private_key_pem: std::fs::read_to_string(KEY).unwrap(),
+                certificate_chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+                private_key_pem: std::fs::read_to_string(key_file()).unwrap(),
             }))
             .await;
         assert!(certificate.is_ok(), "{certificate:?}");

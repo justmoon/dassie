@@ -570,6 +570,14 @@ mod tests {
 
     use super::*;
 
+    /// The package's directory, as cargo and nextest name it to a test they
+    /// run, never `env!`'s from when the test compiled: a build is reused in
+    /// other checkouts of the repository, whose files are their own.
+    #[allow(clippy::disallowed_methods, clippy::expect_used)] // What the test runner says, not configuration.
+    fn manifest_dir() -> String {
+        std::env::var("CARGO_MANIFEST_DIR").expect("cargo and nextest name the package's directory")
+    }
+
     #[test]
     fn private_literals_are_refused_before_sending() {
         assert!(literal_is_private("127.0.0.1:8443"));
@@ -654,8 +662,8 @@ mod tests {
     #[tokio::test]
     async fn a_url_past_an_ipv6_literal_is_refused() {
         // Roots of its own: the build sandbox has none of the system's.
-        let roots = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/root.pem");
-        let client = OutboundClient::new(Some(Path::new(roots)), false).unwrap();
+        let roots = format!("{}/../../testdata/tls/root.pem", manifest_dir());
+        let client = OutboundClient::new(Some(Path::new(&roots)), false).unwrap();
         let result = client
             .web(WebRequest {
                 method: http::Method::GET,
