@@ -1094,6 +1094,20 @@ impl Core {
         }
     }
 
+    /// The messages of our settlements that wait for an earlier one to
+    /// their peer to arrive: the peer, the method and the amount, for a
+    /// simulation to count as on their way. Built only with the `testing`
+    /// feature.
+    #[cfg(feature = "testing")]
+    #[must_use]
+    pub fn waiting_notices(&self) -> Vec<(NodeId, SchemeId, u64)> {
+        self.settle
+            .notices
+            .iter()
+            .map(|notice| (notice.peer, notice.scheme, notice.amount))
+            .collect()
+    }
+
     /// Whether a notice to `peer` waits to go.
     fn waiting_notices_to(&self, peer: &NodeId) -> bool {
         self.settle

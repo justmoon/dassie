@@ -129,6 +129,13 @@ fn paying(sim: &mut Sim, from: usize, to: usize) {
     assert!(sim.run_until_or(sim.now + 30_000, rate), "no rate");
 }
 
+/// Runs a minute more, as the scripted runs do before their checks, which
+/// judge a calm network: a settlement asked for as the last payment ended
+/// is then made and delivered.
+fn calm(sim: &mut Sim) {
+    sim.run_until(sim.now + 60_000);
+}
+
 /// Runs until every payment is done, at most `ms`.
 fn paid(sim: &mut Sim, ms: u64) {
     let done = |sim: &Sim| sim.payments.iter().all(|payment| payment.done);
@@ -372,6 +379,7 @@ fn a_payment_over_hubs_is_paid_in_full_across_hops() {
             "node {index} holds nothing toward {peer}"
         );
     }
+    calm(&mut sim);
     check_hub_credit(&sim).unwrap();
     check(&sim).unwrap();
 }
@@ -402,6 +410,7 @@ fn payments_both_ways_through_a_hop_over_a_hub_complete() {
     for payment in &sim.payments {
         assert_eq!(received(&sim, payment), 3_000_000_000);
     }
+    calm(&mut sim);
     check_hub_credit(&sim).unwrap();
     check(&sim).unwrap();
 }
