@@ -27,7 +27,7 @@ The wallet is served by the node, at `https://localhost:<port>`, and the window 
 
 - **The certificate the window trusts there is exactly the node's.** The node's certificate is self-signed ([Certificates](http.md#certificates)); the window trusts the one the node in this process serves, for `localhost` alone, before its first load. Should the node have made a new one since, the window trusts what it is shown only if it is byte for byte the certificate the node serves now, on the node's own origin. No other certificate error is ever passed over.
 - **The page gets no native API.** No Tauri capability names the node's origin or the app's own page, so nothing the wallet runs can call into the app.
-- **The window loads only the node's origin and the app's own page,** which says that the node starts, or why it could not. A link to a public `https` page opens in the owner's browser; anything else, other local origins and private addresses among them, loads nowhere, so a page in the window cannot reach another service on the machine or its network.
+- **The window loads only the node's origin and the app's own page,** which says that the node starts, or why it could not. That page draws in Kopje ([visual-identity](../decisions/visual-identity.md)), light or at dusk as the system has it, with copies of the mark's and the fonts' files, which a test holds identical to theirs (`packages/ui/kopje_test.ts`): it has no build step to take them from where they live. A link to a public `https` page opens in the owner's browser; anything else, other local origins and private addresses among them, loads nowhere, so a page in the window cannot reach another service on the machine or its network.
 
 ## Lifecycle
 
@@ -47,7 +47,7 @@ A second launch shows the first one's window and starts nothing. Beneath that, [
 
 ## The package
 
-`nix/desktop.nix` builds the app in Cargo's release profile, as owners build it with `nix run .#desktop`, and wraps it with its GIO modules, schemas, desktop file and icons. Every PR's check wraps the app the checks build crate by crate ([crate-by-crate-builds](../decisions/crate-by-crate-builds.md)), with the wallet built in, and so checks that it links and is wrapped: Tauri's crates compile with debug assertions off, as the package does, since Tauri compiles other code with them, and without release's optimizations, which are not what it checks. The release workflow builds the package itself, so that each tag's app is known to build as owners get it.
+`nix/desktop.nix` builds the app in Cargo's release profile, as owners build it with `nix run .#desktop`, and wraps it with its GIO modules, schemas, desktop file and icons. The icons, the window's and the tray's too, are Kopje's app icon, the Silhouette on Daylight, rendered from `crates/dassie-desktop/icons/icon.svg`, which takes the mark from its file. Every PR's check wraps the app the checks build crate by crate ([crate-by-crate-builds](../decisions/crate-by-crate-builds.md)), with the wallet built in, and so checks that it links and is wrapped: Tauri's crates compile with debug assertions off, as the package does, since Tauri compiles other code with them, and without release's optimizations, which are not what it checks. The release workflow builds the package itself, so that each tag's app is known to build as owners get it.
 
 ## Decisions
 

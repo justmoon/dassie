@@ -160,13 +160,6 @@ A node's default rate sources are exchanges whose terms license their market dat
 - **Done when:** a new node's sources are only these; XRP's rate follows mainnet's XRP/RLUSD pool, and a pool pushed for less than half the window leaves it unmoved; a test node signs nothing on mainnet; no dollar token's scheme or hub pauses for its price; the fiat currencies' rates come from the four banks, each dropped once older than its calendar allows; the wallet names the sources; and the keeper holds DSUSD's pool at mainnet's XRP/RLUSD price.
 - **Later:** a source of XRP's price in dollars outside every dollar token's pool, close to real time and with terms that allow a node's use, and the peg guard on it again.
 
-### Kopje across Dassie
-
-The brand page holds Dassie's visual identity, Kopje ([visual-identity](decisions/visual-identity.md)), and dassie.land and the wallet draw in it; the desktop app's own parts do not yet.
-
-- **Left to build:** the desktop app's icons and tray, and the page its window shows while the node starts.
-- **Done when:** every part of the desktop app draws in Kopje's palette, type and mark, light and dark.
-
 ## Not built yet
 
 Gaps between what the spec's contract or decisions ask for and what `main` does. Each can be picked up on its own.

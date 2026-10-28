@@ -1,0 +1,12 @@
+<!--
+  The desktop app's icon, as the brand page draws an app icon
+  (apps/website/brand/index.html, "App icon"): the Silhouette, from the
+  mark's own file and never redrawn, at 76% of a Daylight square with
+  rounded corners and a Warm Stone edge. The PNGs beside it are rendered
+  from it, by resvg:
+    for s in 32 128 512; do resvg -w $s -h $s icon.svg $s.png; done
+-->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100">
+  <rect x="0.5" y="0.5" width="99" height="99" rx="23.5" fill="#FBF6EE" stroke="#CDB89A" stroke-width="1" />
+  <image x="12" y="12" width="76" height="76" xlink:href="../../../apps/website/public/brand/dassie-mark-small.svg" />
+</svg>
