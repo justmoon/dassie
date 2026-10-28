@@ -13,7 +13,7 @@ import { relativeTime } from "@dassie/ui/format";
 import { createLiveTable } from "@dassie/ui/live";
 import { Link } from "@dassie/ui/router";
 import { LiveNote, ValueCube } from "@dassie/ui/ui";
-import { description, incomingState } from "./incoming.ts";
+import { description, incomingState, shownReceived } from "./incoming.ts";
 import { recent, type RecentPayment } from "./recent.ts";
 import { destinationLabel, stateText } from "./send.ts";
 import { SendIcon } from "./icons.tsx";
@@ -109,7 +109,7 @@ function IncomingRow(
       </div>
       <p class="tx-amount tx-in">
         +<Amount
-          value={props.payment.receivedAmount}
+          value={shownReceived(props.payment)}
           currency={ledgerCurrency(props.payment)}
         />
       </p>

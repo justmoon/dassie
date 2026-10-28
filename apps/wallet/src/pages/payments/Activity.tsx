@@ -27,6 +27,7 @@ import {
   description,
   incomingState,
   newestFirst,
+  shownReceived,
 } from "./incoming.ts";
 import { destinationLabel } from "./send.ts";
 import { TxAvatar } from "./Recent.tsx";
@@ -143,13 +144,30 @@ function OutgoingRow(props: { payment: OutgoingPayment }): JSX.Element {
         </p>
       </div>
       <p class="tx-amount">
-        <Amount
-          value={props.payment.sentAmount}
-          currency={currency()}
-          testid="outgoing-sent"
-        />
-        {" of "}
-        <Amount value={props.payment.debitAmount} currency={currency()} />
+        <Show
+          when={props.payment.fixedDebit}
+          fallback={
+            <Show when={props.payment.receiveAmount}>
+              {(amount) => (
+                <Amount
+                  value={amount().value}
+                  currency={ledgerCurrency(amount())}
+                  testid="outgoing-receive"
+                />
+              )}
+            </Show>
+          }
+        >
+          <Amount
+            value={props.payment.sentAmount}
+            currency={currency()}
+            testid="outgoing-sent"
+          />
+          <Show when={props.payment.state !== "completed"}>
+            {" of "}
+            <Amount value={props.payment.debitAmount} currency={currency()} />
+          </Show>
+        </Show>
       </p>
       <Show when={props.payment.failure !== ""}>
         <p class="tx-more muted" data-testid="outgoing-failure">
@@ -201,11 +219,14 @@ function Row(props: { payment: IncomingPayment; now: number }): JSX.Element {
       </div>
       <p class="tx-amount tx-in">
         <Amount
-          value={props.payment.receivedAmount}
+          value={shownReceived(props.payment)}
           currency={currency()}
           testid="incoming-received"
         />
-        <Show when={props.payment.incomingAmount !== undefined}>
+        <Show
+          when={!props.payment.paidInFull &&
+            props.payment.incomingAmount !== undefined}
+        >
           {" of "}
           <Amount
             value={props.payment.incomingAmount ?? 0n}

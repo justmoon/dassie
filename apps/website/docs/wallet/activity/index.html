@@ -95,7 +95,11 @@
         </li>
         <li>
           what has arrived, and of how much, if it asked for a set amount,
-          such as <em>$ 4.20 of $ 10.00</em>;
+          such as <em>$ 4.20 of $ 10.00</em>. Once it is paid in full it
+          shows the amount alone, <em>$ 10.00</em>, even if what arrived is
+          a ten-thousandth of a unit under or over: no payer can hit an
+          amount to the last digit (see
+          <a href="/docs/wallet/send/#follow-the-payment">Follow the payment</a>);
         </li>
         <li>
           who requested it: <em>You</em>, an app by its address, or
@@ -138,8 +142,11 @@
         Outgoing payments are the ones you sent with
         <a href="/docs/wallet/send/">Send</a>, and the ones apps you approved
         sent for you (see <a href="/docs/wallet/grants/">Connect apps</a>).
-        Each row shows who it went to, what it has sent of the most it may
-        take from you, such as <em>$ 9.80 of $ 10.00</em>, and who sent it.
+        Each row shows who it went to, who sent it, and the amount the
+        payment fixed. For a payment of what they receive, that is what they
+        receive, in their currency. For a payment of what you send, it is
+        what it has sent of the most it may take from you, such as
+        <em>$ 9.80 of $ 10.00</em>, and once it is sent, what it sent.
       </p>
       <div class="table-wrap">
         <table>
@@ -168,7 +175,7 @@
       <p>
         Select the recipient to open the payment's own page. It follows the
         payment live until it completes or fails, and shows what the receiver
-        gets, when it started and when it finished.
+        gets, what it cost you, when it started and when it finished.
       </p>
       <p>
         If a list says <em>Reconnecting</em> or <em>Not available</em>, the

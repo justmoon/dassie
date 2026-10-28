@@ -4,6 +4,7 @@ import {
   destinationLabel,
   lapseText,
   looksLikeRecipient,
+  paymentProgress,
   progress,
   quoteAmount,
   recipientName,
@@ -90,6 +91,13 @@ test("progress is in thousandths, and never past the end", () => {
   assertEquals(progress(1n, 3n), 333);
   assertEquals(progress(200n, 100n), 1000);
   assertEquals(progress(5n, 0n), 0);
+});
+
+test("a completed payment got all the way, short of its debit or not", () => {
+  const payment = { sentAmount: 989n, debitAmount: 1_000n };
+  assertEquals(paymentProgress({ ...payment, state: "sending" }), 989);
+  assertEquals(paymentProgress({ ...payment, state: "failed" }), 989);
+  assertEquals(paymentProgress({ ...payment, state: "completed" }), 1000);
 });
 
 test("a quote says how long it is good for", () => {

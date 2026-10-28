@@ -412,9 +412,9 @@
   text-align: right;
 }
 
-/* A payment's page: what it sent, and a bar of Sunrise that fills as it
-   goes. */
-.payment-sent {
+/* A payment's page: the amount it fixed, and a bar of Sunrise that fills
+   as it goes. */
+.payment-lead {
   margin: 0;
 }
 

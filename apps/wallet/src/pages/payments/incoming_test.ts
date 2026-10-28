@@ -5,6 +5,7 @@ import {
   description,
   incomingState,
   newestFirst,
+  shownReceived,
 } from "./incoming.ts";
 
 const payment = (id: string, createdAtUnixMs: bigint) => ({
@@ -24,6 +25,38 @@ test("an incoming payment is open until completed or expired", () => {
       3_000,
     ),
     "completed",
+  );
+});
+
+test("a payment paid in full shows its amount, else what arrived", () => {
+  const asked = { incomingAmount: 25_000_000_000n };
+  assertEquals(
+    shownReceived({
+      ...asked,
+      receivedAmount: 24_999_900_000n,
+      paidInFull: true,
+    }),
+    25_000_000_000n,
+  );
+  assertEquals(
+    shownReceived({
+      ...asked,
+      receivedAmount: 25_000_100_000n,
+      paidInFull: true,
+    }),
+    25_000_000_000n,
+  );
+  assertEquals(
+    shownReceived({
+      ...asked,
+      receivedAmount: 12_000_000_000n,
+      paidInFull: false,
+    }),
+    12_000_000_000n,
+  );
+  assertEquals(
+    shownReceived({ receivedAmount: 7n, paidInFull: false }),
+    7n,
   );
 });
 
