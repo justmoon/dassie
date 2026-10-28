@@ -835,8 +835,9 @@ export type AddSettlementSchemeRequest = Message<"dassie.owner.v1.AddSettlementS
 
   /**
    * The scheme's config, JSON. The stub takes none: empty or "{}". An XRP
-   * Ledger scheme takes at most {"peers": false}; its account's server,
-   * faucet and publishers are the account's config (SetAssetConfig).
+   * Ledger scheme takes none either (a stored "peers" key still loads and
+   * changes nothing); its account's server, faucet and publishers are the
+   * account's config (SetAssetConfig).
    *
    * @generated from field: string config = 2;
    */

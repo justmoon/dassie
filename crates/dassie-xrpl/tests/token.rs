@@ -1039,8 +1039,9 @@ fn freezes_stop_paying() {
     world.close();
     assert_eq!(shown(&world), Freeze::default());
 
-    // A global freeze changes only the issuer's account: the scheme sees it
-    // at the next settlement check, proven at the anchor.
+    // A global freeze changes only the issuer's account: after a settlement
+    // check, which proves it at the anchor, it is shown and the owner is not
+    // paid.
     world.ledger.global_freeze(dsusd::ISSUER, true).unwrap();
     world.close();
     world.settlement_check(0);
