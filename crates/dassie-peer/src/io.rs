@@ -35,6 +35,11 @@ pub struct Request {
     pub body: Vec<u8>,
     /// How long it may take.
     pub timeout_ms: u64,
+    /// Whether it goes on a connection of its own, dialled at `endpoint`,
+    /// never the one kept for the node, nor kept after: what shows that the
+    /// node answers at that endpoint, rather than over a connection it
+    /// opened to us (spec/decisions/promotion-to-core.md).
+    pub fresh: bool,
 }
 
 /// Why a request got no response.

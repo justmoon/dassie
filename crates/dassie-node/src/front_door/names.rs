@@ -257,6 +257,7 @@ impl Poller {
             kind: content.kind(),
             body: content.to_vec(),
             timeout_ms,
+            fresh: false,
         }
     }
 }

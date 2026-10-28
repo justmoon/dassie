@@ -346,6 +346,9 @@ pub async fn send_peer(
         return Err(Failure::NotDelivered);
     };
     let _slot = quic.bounds.hold(&request, quic.allow_private)?;
+    if request.fresh {
+        return quic.send_fresh(&request, resolver).await;
+    }
     // A periphery node has no endpoint: it is reached only over the
     // connection it opened to us, never dialled.
     if request.endpoint.is_none() {
@@ -743,6 +746,47 @@ impl Quic {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(node);
+    }
+
+    /// Sends `request` on a connection of its own, dialled at its
+    /// endpoint, never the one kept for the node, and closed once
+    /// answered: what shows that the node answers at that endpoint, where
+    /// the connection it opened to us would answer as well
+    /// (spec/decisions/promotion-to-core.md). It ends no backoff and starts
+    /// none: it says nothing of the connection we keep with the node.
+    ///
+    /// # Errors
+    ///
+    /// [`Failure::NotDelivered`] without our key, an endpoint or a
+    /// connection; [`Failure::Unknown`] past the request's time.
+    pub async fn send_fresh(
+        self: &Arc<Self>,
+        request: &Request,
+        resolver: &Resolver,
+    ) -> Result<Response, Failure> {
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_millis(request.timeout_ms.max(1));
+        let (Some(_), Some(endpoint)) = (self.keys.current(), request.endpoint.as_ref()) else {
+            return Err(Failure::NotDelivered);
+        };
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let periphery = self.periphery.load(Ordering::Relaxed);
+        let Some(connection) = self
+            .dial(
+                (request.to, endpoint),
+                resolver,
+                CONNECT_TIMEOUT.min(left),
+                periphery,
+            )
+            .await
+        else {
+            return Err(Failure::NotDelivered);
+        };
+        let result = tokio::time::timeout_at(deadline, exchange(&connection, &request.body))
+            .await
+            .unwrap_or(Err(Failure::Unknown));
+        connection.close(0u32.into(), b"");
+        result
     }
 
     /// Sends `request` and reads its response within the request's time,

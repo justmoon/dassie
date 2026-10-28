@@ -730,6 +730,9 @@ impl PeerNode {
             self.stats.requests_dropped += 1;
             return None;
         }
+        // A URL check dials the URL itself: the connection the node opened
+        // to us would answer as well, and prove nothing of the URL.
+        let fresh = matches!(purpose, Purpose::UrlCheck(_));
         let body = content.to_vec();
         let id = RequestId(self.next_request);
         self.next_request += 1;
@@ -752,6 +755,7 @@ impl PeerNode {
             kind: content.kind(),
             body,
             timeout_ms,
+            fresh,
         }));
         self.stats.requests_sent += 1;
         Some(id)
