@@ -31,3 +31,15 @@ export function Spinner(props: { label: string }): JSX.Element {
     </p>
   );
 }
+
+/** A screen of the skeleton while it waits: the lockup above a spinner. */
+export function Waiting(props: { label: string }): JSX.Element {
+  return (
+    <main class="page">
+      <p class="brand">
+        <Lockup suffix="Wallet" />
+      </p>
+      <Spinner label={props.label} />
+    </main>
+  );
+}
