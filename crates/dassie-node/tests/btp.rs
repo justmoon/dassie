@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use dassie_identity::IdentityKey;
 use dassie_ilp::btp::{self, Body, ProtocolData};
 use dassie_ilp::{Address, Prepare, Response, Timestamp};
-use dassie_node::clock::Clock;
+use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_oer::{Decode, Encode};
@@ -278,6 +278,78 @@ async fn a_stream_client_pays_the_receiver_and_the_journal_matches() {
     assert_eq!(journal(&mut owner).await, transfers);
     // The token still works.
     BtpClient::connect(&node, &secret).await.unwrap();
+    node.stop().await;
+}
+
+// spec/areas/node.md#the-event-log: a node told to keep an event log writes
+// a line for each record the trace streams, as the RPC has it.
+#[tokio::test]
+async fn the_event_log_has_a_line_for_each_packet_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let node = Bound::bind_in(dir)
+        .start(
+            ManualClock::new(START_MS),
+            1,
+            Policies::DEFAULT,
+            &[("DASSIE_EVENT_LOG", "events.jsonl")],
+        )
+        .await;
+    let mut owner = ready(&node).await;
+    let (_, secret) = token(&mut owner).await;
+    let mut client = BtpClient::connect(&node, &secret).await.unwrap();
+    pay(&node, &mut client, &mut owner, PAYMENT).await;
+    let fulfilled: Vec<proto::Packet> = packets(&mut owner)
+        .await
+        .into_iter()
+        .filter(|p| p.state() == proto::PacketState::Fulfilled)
+        .collect();
+    assert!(!fulfilled.is_empty());
+    let path = node.dir.path().join("state").join("events.jsonl");
+    // The writer flushes once its queue is empty: wait for the last record.
+    let lines = tokio::time::timeout(HANG, async {
+        loop {
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            let lines: Vec<serde_json::Value> = text
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            let logged = |packet: &proto::Packet| {
+                let trace = packet.trace.unwrap();
+                let trace = format!("{}:{}", trace.epoch, trace.sequence);
+                lines
+                    .iter()
+                    .any(|line| line["trace"] == trace.as_str() && line["state"] == "fulfilled")
+            };
+            if fulfilled.iter().all(logged) {
+                return lines;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let start = &lines[0];
+    assert_eq!(start["type"], "start");
+    assert_eq!(start["version"], dassie_node::VERSION);
+    let node_id = start["node"].as_str().unwrap().to_owned();
+    for packet in &fulfilled {
+        let trace = packet.trace.unwrap();
+        let trace = format!("{}:{}", trace.epoch, trace.sequence);
+        let line = lines
+            .iter()
+            .find(|line| line["trace"] == trace.as_str() && line["state"] == "fulfilled")
+            .unwrap();
+        assert_eq!(line["type"], "packet");
+        assert_eq!(line["node"], node_id.as_str());
+        assert_eq!(line["amountIn"], packet.amount_in.to_string().as_str());
+        let condition: String = packet
+            .condition
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(line["condition"], condition.as_str());
+        assert_eq!(line["ledgerIn"], packet.ledger_in.as_str());
+    }
     node.stop().await;
 }
 

@@ -578,3 +578,6 @@ fn move_fields(line: &mut Line, moved: &proto::HubMoveEvent) {
     line.string("payment", &moved.payment);
     line.boolean("byOwner", moved.by_owner);
 }
+
+#[cfg(test)]
+mod tests;
