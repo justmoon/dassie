@@ -661,7 +661,7 @@ impl Core {
     /// not less what is pending, since the packets in flight are part of
     /// what the payments sending are still to send.
     fn covered(&self, ledger: LedgerId, needed: u128) -> bool {
-        if super::owner_book_ledger(ledger).is_none() {
+        if super::hub_moves::owner_book_ledger(ledger).is_none() {
             return true;
         }
         let Some(balance) = self
