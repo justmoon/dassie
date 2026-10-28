@@ -69,6 +69,16 @@ pub trait PeeringHooks {
         data: &[u8],
     ) -> Result<Agreed, RefusalReason>;
 
+    /// Readies the accounts of `peer`, our downlink that turns core in
+    /// place, on `schemes`, the methods of its peering: a core peer's are
+    /// open on each, in the core peers' share, where a downlink's open
+    /// only once value moves with it
+    /// (spec/decisions/lazy-downlink-accounts.md). Returns whether they
+    /// are; if not, the peering ends instead.
+    fn open_core_accounts(&mut self, _now_ms: u64, _peer: NodeId, _schemes: &[SchemeId]) -> bool {
+        true
+    }
+
     /// Completes our request to `peer`, which accepted: opens its
     /// accounts.
     ///

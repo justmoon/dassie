@@ -66,6 +66,7 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
             peer_method(severity, event);
         }
         Event::RoutesChanged => emit!(severity, target: target::ROUTING, "routes changed"),
+        Event::CoreChanged => emit!(severity, target: target::ROUTING, "the core changed"),
         Event::NodeAdded(node) => emit!(severity, target: target::PEER, %node, "node added"),
         Event::NodeRemoved(node) => emit!(severity, target: target::PEER, %node, "node removed"),
         Event::Registered(node) => emit!(severity, target: target::PEER, %node, "registration"),
@@ -75,6 +76,9 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         Event::PacketFailed { .. } | Event::FulfillReply { .. } => peer_packet(severity, event),
         Event::PeeringFailed { node, reason } => {
             emit!(severity, target: target::PEER, %node, reason, "peering failed");
+        }
+        Event::KindChanged { peer, downlink } => {
+            emit!(severity, target: target::PEER, %peer, downlink, "a peer's kind changed in place");
         }
         Event::Depeering { peer, reason } => {
             emit!(severity, target: target::PEER, %peer, ?reason, "ending a peering: collecting first, before the peer is told");

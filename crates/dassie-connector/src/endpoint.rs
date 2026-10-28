@@ -61,6 +61,8 @@ pub enum EndpointError {
     /// The address is not a valid ILP address below the node's own, or is
     /// taken.
     InvalidAddress,
+    /// No endpoint with that ID.
+    Unknown,
 }
 
 impl fmt::Display for EndpointError {
@@ -69,6 +71,7 @@ impl fmt::Display for EndpointError {
             Self::Full => "too many endpoints",
             Self::Duplicate => "the endpoint exists",
             Self::InvalidAddress => "the address is invalid or taken",
+            Self::Unknown => "no such endpoint",
         })
     }
 }
@@ -223,6 +226,12 @@ pub(crate) struct Endpoint {
     /// of the node, or a peer that is our downlink
     /// (spec/areas/connector.md#addresses-and-endpoints). Set when added.
     pub child: bool,
+    /// It may carry other nodes' traffic, so it gets a peer's share of the
+    /// packets in flight: a peer that is not our downlink. A downlink
+    /// promoted to a core peer keeps its child address while its peering
+    /// lasts, and carries traffic (spec/decisions/promotion-to-core.md).
+    /// Set when added, and when its kind changes.
+    pub transit: bool,
     /// Packets reach it by its address. A swap endpoint's are not: only
     /// the node's own swaps coming back reach it
     /// (spec/areas/connector.md#swaps).
@@ -241,6 +250,7 @@ impl Endpoint {
             refusing: false,
             unreached: false,
             child: false,
+            transit: false,
             routed: true,
         }
     }
@@ -319,6 +329,7 @@ impl Endpoints {
         let address =
             Address::parse(&endpoint.address).map_err(|_| EndpointError::InvalidAddress)?;
         endpoint.child = address.strip_prefix(own).is_some();
+        endpoint.transit = id.is_peer() && !endpoint.child;
         let child_clash = (!id.is_peer() && !endpoint.child)
             || (endpoint.child
                 && self
@@ -334,6 +345,29 @@ impl Endpoints {
 
     pub fn remove(&mut self, id: EndpointId) -> Option<Endpoint> {
         self.by_id.remove(&id)
+    }
+
+    /// Moves peer `id` to `address`, a child address below `own` that
+    /// overlaps no other child's.
+    pub fn readdress(
+        &mut self,
+        id: EndpointId,
+        address: &str,
+        own: Address<'_>,
+    ) -> Result<(), EndpointError> {
+        let parsed = Address::parse(address).map_err(|_| EndpointError::InvalidAddress)?;
+        let clash = parsed.strip_prefix(own).is_none()
+            || self
+                .by_id
+                .iter()
+                .any(|(other, e)| *other != id && e.child && overlaps(&e.address, address));
+        if clash {
+            return Err(EndpointError::InvalidAddress);
+        }
+        let endpoint = self.by_id.get_mut(&id).ok_or(EndpointError::Unknown)?;
+        endpoint.address = String::from(address);
+        endpoint.child = true;
+        Ok(())
     }
 
     /// The child whose address is a whole-segment prefix of `destination`.

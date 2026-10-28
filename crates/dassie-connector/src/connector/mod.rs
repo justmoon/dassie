@@ -679,6 +679,49 @@ impl Connector {
             .is_some()
     }
 
+    /// Changes peer `id`'s kind in place, as its status changed
+    /// (spec/decisions/promotion-to-core.md). A downlink sends only its own
+    /// packets, so it gets a child's share of those in flight, which its
+    /// new Prepares meet while those it sent before drain, and it is
+    /// reached at `child_address`, its address below ours. A core peer may
+    /// carry other nodes' traffic; one that was a downlink keeps its child
+    /// address while its peering lasts, so that payment requests handed
+    /// out under it keep working, and routes reach it at its own address as
+    /// any core node's.
+    ///
+    /// # Errors
+    ///
+    /// No such peer, or, for a downlink, a child address that is not below
+    /// ours or overlaps another child's.
+    pub fn set_peer_kind(
+        &mut self,
+        id: EndpointId,
+        downlink: bool,
+        child_address: &str,
+    ) -> Result<(), EndpointError> {
+        if !id.is_peer() || self.endpoints.get(id).is_none() {
+            return Err(EndpointError::Unknown);
+        }
+        if downlink {
+            let own =
+                Address::parse(&self.own_address).map_err(|_| EndpointError::InvalidAddress)?;
+            self.endpoints.readdress(id, child_address, own)?;
+        }
+        if let Some(endpoint) = self.endpoints.get_mut(id) {
+            endpoint.transit = !downlink;
+        }
+        Ok(())
+    }
+
+    /// Whether peer `id` may carry other nodes' traffic, and so gets a
+    /// peer's share of the packets in flight: a core peer, not a downlink.
+    #[must_use]
+    pub fn is_transit(&self, id: EndpointId) -> bool {
+        self.endpoints
+            .get(id)
+            .is_some_and(|endpoint| endpoint.transit)
+    }
+
     /// Packets in flight to or from an endpoint: once none are left, a
     /// draining endpoint can go with no packet's outcome left unknown.
     #[must_use]
@@ -695,7 +738,7 @@ impl Connector {
     /// nodes' traffic gets a peer's share; a child, or a downlink, which
     /// sends only its own, a child's.
     pub(crate) fn max_pending_from(&self, id: EndpointId) -> usize {
-        let transit = id.is_peer() && self.endpoints.get(id).is_none_or(|e| !e.child);
+        let transit = id.is_peer() && self.endpoints.get(id).is_none_or(|e| e.transit);
         if transit {
             self.config.max_pending_per_peer
         } else {

@@ -669,7 +669,12 @@ impl PeerNode {
         if let Some(entry) = self.table.get(node)
             && let (Some(key), Some(link)) = (entry.key, entry.link.as_ref())
         {
-            return Some((key, link.endpoint.clone()));
+            // A periphery node is reached only over the connection it
+            // opened, whether or not its link state has a URL, and so is our
+            // downlink until its peering turns core
+            // ([`follow_kinds`](Self::follow_kinds)).
+            let core = !entry.is_downlink() && self.is_core_node(node, link.endpoint.is_some());
+            return Some((key, link.endpoint.clone().filter(|_| core)));
         }
         self.bootstrap
             .iter()
@@ -948,6 +953,8 @@ impl PeerNode {
         self.expire_requests(hooks);
         self.retry_answers();
         self.retry_settlements();
+        // Before the review, which judges each peer as its kind.
+        self.follow_kinds(hooks);
         // Before our link state is issued, which says whom we advertise.
         self.review_peers(hooks);
         self.issue_own();
@@ -1222,17 +1229,20 @@ impl PeerNode {
 
     /// Removes the node with the weakest reason to stay, if weaker than
     /// `source`; of those, the one that came last.
-    fn evict_for(&mut self, source: Sources) -> bool {
-        let victim = self
-            .table
-            .iter()
-            .filter(|(_, entry)| !entry.is_downlink() && entry.sources.rank() < source.rank())
-            .min_by_key(|(_, entry)| (entry.sources.rank(), u64::MAX - entry.first_seen_ms))
-            .map(|(id, _)| *id);
-        victim.is_some_and(|id| {
+    pub(crate) fn evict_for(&mut self, source: Sources) -> bool {
+        self.eviction_for(source).is_some_and(|id| {
             self.remove(&id);
             true
         })
+    }
+
+    /// The node [`evict_for`](Self::evict_for) would remove.
+    pub(crate) fn eviction_for(&self, source: Sources) -> Option<NodeId> {
+        self.table
+            .iter()
+            .filter(|(_, entry)| !entry.is_downlink() && entry.sources.rank() < source.rank())
+            .min_by_key(|(_, entry)| (entry.sources.rank(), u64::MAX - entry.first_seen_ms))
+            .map(|(id, _)| *id)
     }
 
     /// Takes `source` away from `node`; with none left, it is removed
@@ -1295,15 +1305,35 @@ impl PeerNode {
 
     /// Whether this node runs as a periphery node: it peers only with core
     /// nodes, as their downlink, and never forwards
-    /// (spec/areas/network.md#periphery-nodes).
+    /// (spec/areas/network.md#periphery-nodes). Every node that is not a
+    /// core node is one (spec/decisions/promotion-to-core.md); for now, a
+    /// node with a URL is a core node.
     #[must_use]
     pub const fn is_periphery(&self) -> bool {
         self.own_info.is_periphery()
     }
 
+    /// Whether this node has a URL, which its link state carries: what
+    /// lets it register and its link state flood, whether or not it is a
+    /// core node (spec/decisions/promotion-to-core.md).
+    #[must_use]
+    pub const fn has_url(&self) -> bool {
+        self.own_info.url.is_some()
+    }
+
+    /// Whether `node`, whose link state has a URL if `has_url`, is a core
+    /// node, which we peer with as a core peer, ask to peer and reach at
+    /// its URL; any other is a periphery node, our downlink if peered,
+    /// reached only over the connection it opened
+    /// (spec/decisions/promotion-to-core.md). For now, a node with a URL is
+    /// a core node.
+    pub(crate) const fn is_core_node(&self, _node: &NodeId, has_url: bool) -> bool {
+        has_url
+    }
+
     /// Whether this node takes downlinks: a core node with room for any.
     pub(crate) const fn takes_downlinks(&self) -> bool {
-        self.own_info.url.is_some() && self.config.max_downlinks > 0
+        !self.is_periphery() && self.config.max_downlinks > 0
     }
 
     /// The downlinks in the table.

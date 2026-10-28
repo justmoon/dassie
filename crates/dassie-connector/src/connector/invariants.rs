@@ -102,7 +102,19 @@ impl Connector {
                 endpoint.pending_from, expected,
                 "packets in flight from {id}"
             );
-            assert!(endpoint.pending_from <= self.max_pending_from(*id));
+            // A peer whose kind changed keeps what it had in flight under
+            // its old share: only its new Prepares meet the new one.
+            let most = if id.is_peer() {
+                self.config
+                    .max_pending_per_peer
+                    .max(self.config.max_pending_per_endpoint)
+            } else {
+                self.max_pending_from(*id)
+            };
+            assert!(
+                endpoint.pending_from <= most,
+                "packets in flight from {id} within bounds"
+            );
             let (in_use, most) = if id.is_peer() {
                 (MAX_SLOTS, MAX_HELD_SLOTS)
             } else {

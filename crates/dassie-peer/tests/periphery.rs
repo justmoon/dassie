@@ -891,3 +891,160 @@ fn downlinks_ended_by_a_node_turning_periphery_leave_a_full_table() {
     assert!(ended(&network, turning, &id(4)), "the downlink ended");
     assert!(core_entries(&network, turning) <= 3);
 }
+
+/// Gives node `index` `url`, or takes its URL away, and makes it reached
+/// as the simulation reaches a core or periphery node.
+fn set_url(network: &mut Network, index: usize, url: Option<String>) {
+    if url.is_some() {
+        network.periphery.remove(&index);
+    } else {
+        network.periphery.insert(index);
+    }
+    network.act(index, |node, now| {
+        node.set_own_info(
+            now,
+            dassie_peer::OwnInfo {
+                url,
+                alias: String::new(),
+                feed_port: None,
+            },
+        );
+    });
+}
+
+/// Whether `at` is peered with `node` as it was `since`, as a downlink if
+/// `downlink`, its channel reaching it as the kind is reached.
+fn peered_as(network: &Network, at: usize, node: &NodeId, since: u64, downlink: bool) -> bool {
+    let peer = network.node(at);
+    peer.peering_of(node).is_some_and(|p| p.since_ms == since)
+        && peer.is_downlink(node) == downlink
+        && peer
+            .channels()
+            .any(|(id, channel)| id == node && channel.endpoint.is_none() == downlink)
+}
+
+// spec/decisions/promotion-to-core.md: a peering's kind follows the peer's
+// status in place. A periphery node that gets a URL, a core node for now,
+// stays peered with its uplinks: they take it as a core peer, with the
+// same peering and channel, once it is registered, whose URL the bootstrap
+// nodes probed, and as a downlink until then. Losing its URL again makes it
+// their downlink again, still the same peering.
+#[test]
+fn a_peers_kind_changes_in_place() {
+    let (core, periphery) = (3, 1);
+    let mut network = Network::with_periphery(23, core, 1, periphery, Config::DEV);
+    settle(&mut network, 90_000);
+    let turning = core;
+    let node = id(turning);
+    let uplinks: Vec<(usize, u64)> = (0..core)
+        .filter(|at| network.node(*at).is_downlink(&node))
+        .map(|at| (at, network.node(at).peering_of(&node).unwrap().since_ms))
+        .collect();
+    assert!(!uplinks.is_empty(), "the periphery node has an uplink");
+    set_url(&mut network, turning, Some(dassie_peer::sim::url(turning)));
+    let start = network.now;
+    while !uplinks
+        .iter()
+        .all(|(at, since)| peered_as(&network, *at, &node, *since, false))
+    {
+        for (at, since) in &uplinks {
+            let as_core = peered_as(&network, *at, &node, *since, false);
+            assert!(as_core || peered_as(&network, *at, &node, *since, true));
+        }
+        settle(&mut network, 5_000);
+        assert!(network.now < start + 10 * 60_000, "it turns core");
+    }
+    // Once the hold a change of kind starts is over, it may change again.
+    settle(&mut network, Config::DEV.advertise_hold_max_ms);
+    set_url(&mut network, turning, None);
+    settle(&mut network, 60_000);
+    for (at, since) in &uplinks {
+        assert!(peered_as(&network, *at, &node, *since, true), "node {at}");
+    }
+    // Changing again while held down ends the peering, as a peer that
+    // flaps: a peer flipping its URL costs no more than one asking anew.
+    set_url(&mut network, turning, Some(dassie_peer::sim::url(turning)));
+    let start = network.now;
+    while uplinks
+        .iter()
+        .any(|(at, since)| peered_as(&network, *at, &node, *since, true))
+    {
+        settle(&mut network, 5_000);
+        assert!(network.now < start + 10 * 60_000, "it turns core");
+    }
+    set_url(&mut network, turning, None);
+    settle(&mut network, 60_000);
+    for (at, since) in &uplinks {
+        let peering = network.node(*at).peering_of(&node);
+        assert!(
+            peering.is_none_or(|p| p.since_ms != *since || p.depeering.is_some()),
+            "node {at} ends the peering that flipped while held down"
+        );
+    }
+}
+
+// Review of #669: a downlink whose peering we are ending keeps its kind
+// while it ends, whatever its link state says: it is never listed.
+#[test]
+fn an_ending_peering_keeps_its_kind() {
+    let (core, periphery) = (3, 1);
+    let mut network = Network::with_periphery(29, core, 1, periphery, Config::DEV);
+    settle(&mut network, 90_000);
+    let turning = core;
+    let uplink = (0..core)
+        .find(|index| network.node(*index).is_downlink(&id(turning)))
+        .expect("an uplink");
+    network.act(uplink, |node, now| {
+        assert!(node.terminate(
+            now,
+            &id(turning),
+            dassie_peer::wire::TerminationReason::Owner
+        ));
+    });
+    set_url(&mut network, turning, Some(dassie_peer::sim::url(turning)));
+    for _ in 0..60 {
+        settle(&mut network, 5_000);
+        let node = network.node(uplink);
+        if node.peering_of(&id(turning)).is_none() {
+            break;
+        }
+        assert!(node.is_downlink(&id(turning)), "it ends as a downlink");
+    }
+    assert!(
+        network.node(uplink).peering_of(&id(turning)).is_none(),
+        "it ended"
+    );
+}
+
+// Review of #669: a downlink whose link state gained a URL, but which is not
+// registered, stays our downlink, across a restart too: the kind restored
+// is the one its peering had, which its channel keeps, never one its link
+// state alone would give it without the checks a core peer passes.
+#[test]
+fn an_unregistered_downlink_with_a_url_stays_one_across_a_restart() {
+    let (core, periphery) = (3, 1);
+    let mut network = Network::with_periphery(31, core, 1, periphery, Config::DEV);
+    settle(&mut network, 90_000);
+    let turning = core;
+    let node = id(turning);
+    let Some(uplink) = (1..core).find(|at| network.node(*at).is_downlink(&node)) else {
+        panic!("an uplink that is not the bootstrap node");
+    };
+    let since = network.node(uplink).peering_of(&node).unwrap().since_ms;
+    // It can never register: nothing it sends reaches the bootstrap node.
+    network.cut_one_way.insert((turning, 0));
+    set_url(&mut network, turning, Some(dassie_peer::sim::url(turning)));
+    settle(&mut network, 120_000);
+    assert!(
+        peered_as(&network, uplink, &node, since, true),
+        "a downlink still"
+    );
+    network.crash(uplink);
+    network.start(uplink);
+    settle(&mut network, 10_000);
+    assert!(
+        peered_as(&network, uplink, &node, since, true),
+        "a downlink after the restart"
+    );
+    assert!(!network.node(uplink).core_peers().any(|(id, _)| *id == node));
+}

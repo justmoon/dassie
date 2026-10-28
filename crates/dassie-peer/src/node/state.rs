@@ -88,7 +88,8 @@ impl PeerNode {
         let mut peered = false;
         let mut downlinks = 0;
         for node in stored.nodes {
-            let mut entry = stored_entry(&node, self.config.link_state_rate);
+            let channel = self.channels.get(&node.id);
+            let mut entry = stored_entry(&node, channel, self.config.link_state_rate);
             // A peering has a method, or it is none.
             let peering = node.peering.filter(|peering| !peering.methods.is_empty());
             if let Some(peering) = peering {
@@ -554,7 +555,11 @@ impl PeerNode {
             self.routes = routes;
             self.event(Event::RoutesChanged);
         }
-        self.core = self.compute_core();
+        let core = self.compute_core();
+        if core != self.core {
+            self.core = core;
+            self.event(Event::CoreChanged);
+        }
         if !self.core.contains(&self.own) {
             self.own_core_since_ms = None;
         } else if self.own_core_since_ms.is_none() {
@@ -840,9 +845,9 @@ impl PeerNode {
     }
 }
 
-/// `sources` as stored: a downlink's as a peer's, which its periphery link
-/// state tells apart again on restore, so the stored bits stay those of a
-/// node in the node list's terms.
+/// `sources` as stored: a downlink's as a peer's, which its channel, or
+/// else its periphery link state, tells apart again on restore, so the
+/// stored bits stay those of a node in the node list's terms.
 fn stored_sources(sources: Sources) -> Sources {
     let mut stored = sources;
     if stored.contains(Sources::DOWNLINK) {
@@ -854,8 +859,15 @@ fn stored_sources(sources: Sources) -> Sources {
 
 /// A node's entry as stored, without its peering. Link states were verified
 /// when received, so they are only decoded. A downlink is stored as a peer;
-/// its link state, a periphery node's, tells it apart.
-fn stored_entry(node: &crate::persist::StoredNode, rate: crate::config::Rate) -> Entry {
+/// its open `channel`, reached over its connection, tells it apart, as the
+/// peering's kind was when the node stopped, whatever its link state says
+/// by now (spec/areas/network.md#periphery-nodes); without one, its link
+/// state, a periphery node's.
+fn stored_entry(
+    node: &crate::persist::StoredNode,
+    channel: Option<&crate::channel::Channel>,
+    rate: crate::config::Rate,
+) -> Entry {
     let mut entry = Entry::new(node.sources, node.first_seen_ms, rate);
     if let Some(bytes) = &node.link_state
         && let Ok(signed) = SignedNodeInfo::decode_exact(bytes)
@@ -864,7 +876,11 @@ fn stored_entry(node: &crate::persist::StoredNode, rate: crate::config::Rate) ->
         entry.link = Some(LinkState::from_signed(&signed));
     }
     entry.registration.clone_from(&node.registration);
-    if entry.sources.contains(Sources::PEER) && entry.link.as_ref().is_some_and(|l| l.periphery) {
+    let downlink = channel.map_or_else(
+        || entry.link.as_ref().is_some_and(|l| l.periphery),
+        |channel| channel.endpoint.is_none(),
+    );
+    if entry.sources.contains(Sources::PEER) && downlink {
         entry.sources.remove(Sources::PEER);
         entry.sources.insert(Sources::DOWNLINK);
     }

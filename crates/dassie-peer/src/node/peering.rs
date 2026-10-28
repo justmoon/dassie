@@ -172,7 +172,7 @@ impl PeerNode {
     /// Most peerings with core nodes the node holds: a pinned node's
     /// slots are its own, bounded by [`crate::MAX_UPLINKS`] rather than
     /// the configured `max_peers` ([`crate::Config::max_core_peers`]).
-    fn max_core_peers(&self) -> usize {
+    pub(super) fn max_core_peers(&self) -> usize {
         if self.pinned_uplinks().is_some() {
             self.config.max_core_peers()
         } else {
@@ -184,7 +184,7 @@ impl PeerNode {
     /// periphery node; and by a periphery node, only one it is pinned to if
     /// it is pinned to any (spec/areas/network.md#pinned-uplinks).
     fn may_ask(&self, node: &NodeId, link: &LinkState) -> bool {
-        !link.periphery
+        self.is_core_node(node, !link.periphery)
             && self
                 .pinned_uplinks()
                 .is_none_or(|pinned| pinned.binary_search(node).is_ok())
@@ -576,7 +576,7 @@ impl PeerNode {
         if request.node_info.info.sequence > self.now_ms.saturating_add(self.config.max_future_ms) {
             return Inbound::Reply(Reply::refuse(400, "the link state is from the future"));
         }
-        let downlink = request.node_info.info.is_periphery();
+        let downlink = !self.is_core_node(&sender, !request.node_info.info.is_periphery());
         if let Err(reason) = self.check_request(hooks, &sender, &request) {
             return Inbound::Reply(refused(reason));
         }
@@ -599,8 +599,8 @@ impl PeerNode {
         {
             return Inbound::Reply(ok(&PeeringResponse::Accepted.to_vec()));
         }
-        // A periphery node has no URL to probe: the connection its request
-        // came on shows it is there, and is how we reach it
+        // A periphery node is reached only over the connection its request
+        // came on, which shows it is there: no URL of its is probed
         // (spec/areas/network.md#asking-and-answering).
         if downlink {
             let reply = self.complete_peering(hooks, &accepted, content, true);
@@ -635,7 +635,7 @@ impl PeerNode {
         }
         // A periphery node peers only as a downlink, and only a core node
         // with room for them takes downlinks.
-        let downlink = request.node_info.info.is_periphery();
+        let downlink = !self.is_core_node(sender, !request.node_info.info.is_periphery());
         if self.is_periphery() || (downlink && !self.takes_downlinks()) {
             return Err(RefusalReason::Unspecified);
         }
@@ -768,8 +768,8 @@ impl PeerNode {
             return refused(reason);
         }
         // Its channel opens as the kind its room was checked for: the link
-        // state we hold for it says, by its URL, which kind that is.
-        let downlink = request.node_info.info.is_periphery();
+        // state we hold for it says which kind that is.
+        let downlink = !self.is_core_node(&sender, !request.node_info.info.is_periphery());
         let kind = self
             .contact(&sender)
             .map(|(_, endpoint)| endpoint.is_none());
