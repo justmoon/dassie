@@ -23,6 +23,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [epoch-handover](epoch-handover.md) | Each validator set runs an epoch of its own, and a repeat finalizes an epoch's last block | hubs, designs/settlement-hubs |
 | [exchange-rates](exchange-rates.md) | Exchange rates, fees and spread | connector |
 | [external-assets](external-assets.md) | External assets apart from settlement schemes | settlement, xrpl, ledger, wallet |
+| [feed-by-method](feed-by-method.md) | A rate feed names the settlement methods a node's peers pay it on | rate-feed, connector |
 | [finality-after-any-outage](finality-after-any-outage.md) | A hub finalizes again after any outage, in bounded memory | hubs |
 | [free-receivers-half](free-receivers-half.md) | Free receivers take at most half of the downlinks' places, and a downlink is free until its first settlement | network, settlement, designs/periphery |
 | [full-or-stopped-short](full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |

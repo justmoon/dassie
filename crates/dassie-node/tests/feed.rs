@@ -1,7 +1,8 @@
 //! The rate feed of a core node, over a real UDP socket
 //! (spec/areas/rate-feed.md#the-node-side): a subscriber is challenged,
-//! proves its address and gets feeds signed with the node key that say the
-//! node's price table; it renews, and lapses when it stops; a renewal from
+//! proves its address and gets feeds signed with the node key that name
+//! the settlement methods the node offers, and not its owner book; it
+//! renews, and lapses when it stops; a renewal from
 //! another address with its cookie is challenged; a full table refuses
 //! newcomers until an entry lapses. The node names the feed's port in its
 //! discovery document and in its link state.
@@ -39,6 +40,9 @@ use tokio::net::UdpSocket;
 
 const USD: &str = "stub+usd";
 const XRP: &str = "xrpl-testnet-xrp+xrp";
+/// The stub's scheme: the one method the test's node offers its peers. Its
+/// XRP is in its owner book, on which no peer pays it.
+const STUB: &str = "stub";
 
 /// How long a datagram that is coming may take: the node sends it as it
 /// reads a datagram or its clock moves, on no clock of its own, so only a
@@ -107,7 +111,7 @@ impl Subscriber {
     }
 
     /// The next datagram from the feed within `wait` that it takes: a
-    /// Challenge, or a feed's rates from `USD` to `XRP` and back, and its
+    /// Challenge, or a feed's methods, how many rates it has, and its
     /// sequence. A feed that expired while it waited in the socket, as the
     /// test moved the clock on, is passed over.
     async fn next(&mut self, wait: Duration, now_ms: u64) -> Option<Taken> {
@@ -121,7 +125,12 @@ impl Subscriber {
                 Ok(Received::Feed(feed)) => {
                     return Some(Taken::Feed {
                         sequence_ms: feed.sequence_ms,
-                        rates: (feed.rate(USD, XRP), feed.rate(XRP, USD)),
+                        methods: feed
+                            .methods
+                            .iter()
+                            .map(|method| (method.id.to_owned(), method.max_packet_amount))
+                            .collect(),
+                        rates: feed.rates.len(),
                     });
                 }
                 Err(Rejected::Expired) => {}
@@ -155,17 +164,20 @@ impl Subscriber {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Taken {
     Challenge,
     Feed {
         sequence_ms: u64,
-        rates: (Option<u64>, Option<u64>),
+        /// Each method's ID and largest packet.
+        methods: Vec<(String, u64)>,
+        rates: usize,
     },
 }
 
-/// A core node with dollars and XRP and a rate between them, whose feed
-/// takes two subscribers: the owner holds both, so both pairs convert.
+/// A core node with dollars on the stub and XRP in its owner book and a
+/// rate between them, whose feed takes two subscribers: the owner holds
+/// both, so both pairs convert, but only the stub is a method.
 async fn core_node(server: &Server, rates: &RatesServer, owner: &IdentityKey) -> TestNode {
     let bound = Bound::new();
     let env = [
@@ -247,32 +259,29 @@ async fn proven_subscribers_get_the_nodes_prices_until_they_lapse() {
     let now = || clock.now_ms();
 
     // A proves its address and gets the latest feed at once, signed with
-    // the node's key; the feeds that follow say the node's prices, within
-    // the least interval of a change.
+    // the node's key; it names the stub, the one method the node offers,
+    // with the connector's largest packet, and not the owner book, though
+    // the table prices it: no peer pays the node on it, so no rate is said
+    // (spec/areas/rate-feed.md#what-it-publishes).
     let mut a = Subscriber::new(node.feed, id).await;
     a.prove(now()).await;
-    a.feed(now()).await;
-    let mut said = None;
+    let max_packet = node_of(&node).policies().connector.max_packet_amount;
+    let expected = vec![(STUB.to_owned(), max_packet)];
+    let mut said = a.feed(now()).await;
     for _ in 0..50 {
-        let table = (
-            table_rate(&node, USD, XRP).await,
-            table_rate(&node, XRP, USD).await,
-        );
-        if said == Some(table) {
+        if matches!(&said, Taken::Feed { methods, .. } if *methods == expected) {
             break;
         }
         clock.advance(FEED_MIN_INTERVAL_MS);
-        if let Some(Taken::Feed { rates, .. }) = a.next(QUIET, now()).await {
-            said = Some(rates);
+        if let Some(feed @ Taken::Feed { .. }) = a.next(QUIET, now()).await {
+            said = feed;
         }
     }
-    let said = said.unwrap();
-    assert!(said.0.is_some() && said.1.is_some(), "{said:?}");
-    let table = (
-        table_rate(&node, USD, XRP).await,
-        table_rate(&node, XRP, USD).await,
-    );
-    assert_eq!(said, table);
+    let Taken::Feed { methods, rates, .. } = said else {
+        panic!("not a feed");
+    };
+    assert_eq!((methods, rates), (expected, 0));
+    assert!(table_rate(&node, USD, XRP).await.is_some());
 
     // B takes the second place; C finds the table full, and gets nothing.
     let mut b = Subscriber::new(node.feed, id).await;

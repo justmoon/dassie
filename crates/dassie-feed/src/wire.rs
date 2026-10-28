@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! Datagram ::= SEQUENCE {
-//!   version  UInt8 (1),
+//!   version  UInt8 (2),
 //!   message  CHOICE {
 //!     subscribe [0] SEQUENCE {
 //!       cookie   CHOICE { absent [0] NULL, present [1] OCTET STRING (SIZE (16)) },
@@ -22,12 +22,12 @@
 //!   sequence         UInt64,                       -- ms, only grows
 //!   validUntil       UInt64,                       -- ms, after sequence
 //!   feePpm           UInt32 (0..1000000),
-//!   ledgers          SEQUENCE (SIZE (0..8)) OF SEQUENCE {  -- ascending by id
-//!     id               IA5String (SIZE (1..32)),
+//!   methods          SEQUENCE (SIZE (0..8)) OF SEQUENCE {  -- ascending by id
+//!     id               IA5String (SIZE (2..32)),    -- a scheme's, [a-z0-9-]
 //!     maxPacketAmount  UInt64
 //!   },
 //!   rates            SEQUENCE (SIZE (0..56)) OF SEQUENCE {  -- ascending
-//!     from UInt8, to UInt8,                         -- indexes into ledgers
+//!     from UInt8, to UInt8,                         -- indexes into methods
 //!     rate UInt64                                   -- out per in, × 10^15
 //!   }
 //! }
@@ -50,14 +50,15 @@ use crate::cookie::Cookie;
 
 /// The version byte every datagram starts with. A datagram of any other
 /// version is refused, so a new version is a new byte, and the feed it
-/// carries a new OID.
-pub const VERSION: u8 = 1;
+/// carries a new OID. Version 1 named a node's ledgers; version 2 names
+/// the settlement methods its peers pay it on.
+pub const VERSION: u8 = 2;
 
 /// The OID a feed's signed bytes start with,
-/// `1.3.6.1.4.1.54392.5.1399.3.1` (spec/areas/identity.md#object-identifiers),
-/// so that a feed's signature never passes for a link state's, or the other
-/// way round.
-pub const FEED_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 3, 1]);
+/// `1.3.6.1.4.1.54392.5.1399.3.2` (spec/areas/identity.md#object-identifiers),
+/// so that a feed's signature never passes for a link state's, nor for a
+/// feed of version 1, signed under `….3.1`, or the other way round.
+pub const FEED_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 3, 2]);
 
 /// Most bytes in a datagram, sent or taken: what fits in one packet on any
 /// path IPv6 runs on.
@@ -74,14 +75,16 @@ pub const SUBSCRIBE_BYTES: usize = 64;
 /// Bytes in a Challenge.
 pub const CHALLENGE_BYTES: usize = 2 + COOKIE_BYTES;
 
-/// Most ledgers in a feed.
-pub const MAX_LEDGERS: usize = 8;
+/// Most settlement methods in a feed: the most that fit in a datagram with
+/// a rate for every pair and every ID at its longest, which a constant
+/// assertion below checks, and more than the methods of any realm.
+pub const MAX_METHODS: usize = 8;
 
-/// Most bytes in a ledger's ID.
-pub const MAX_LEDGER_ID_BYTES: usize = 32;
+/// Most bytes in a method's ID, its settlement scheme's.
+pub const MAX_METHOD_ID_BYTES: usize = 32;
 
-/// Most rates in a feed: one per ordered pair of distinct ledgers.
-pub const MAX_RATES: usize = MAX_LEDGERS * (MAX_LEDGERS - 1);
+/// Most rates in a feed: one per ordered pair of distinct methods.
+pub const MAX_RATES: usize = MAX_METHODS * (MAX_METHODS - 1);
 
 /// The most parts per million there are.
 pub const MAX_PPM: u32 = 1_000_000;
@@ -100,34 +103,52 @@ const TAG_FEED: u64 = 2;
 const COOKIE_ABSENT: u64 = 0;
 const COOKIE_PRESENT: u64 = 1;
 
-const LEDGER_ID_SIZE: Size = Size::range(1, MAX_LEDGER_ID_BYTES);
-/// The characters of a ledger ID, such as `xrpl-testnet-xrp+xrp`.
-const LEDGER_ID_ALPHABET: Alphabet = Alphabet::EMPTY
+/// The size of a method's ID: a scheme's has at least two bytes.
+const METHOD_ID_SIZE: Size = Size::range(2, MAX_METHOD_ID_BYTES);
+/// The characters of a method's ID, a scheme's such as
+/// `hub-xrpl-testnet-xrp`; a ledger's ID, `hub-xrpl-testnet-xrp+xrp`, is
+/// not one.
+const METHOD_ID_ALPHABET: Alphabet = Alphabet::EMPTY
     .with_range(b'a', b'z')
     .with_range(b'0', b'9')
-    .with_chars(b"-+");
+    .with_chars(b"-");
+
+/// Most bytes of the signed part of a feed with `methods` methods, a rate
+/// for every pair and every field at its bound.
+const fn signed_bytes_with(methods: usize) -> usize {
+    let rates = methods * methods.saturating_sub(1);
+    FEED_OID.len()
+        + PUBLIC_KEY_BYTES
+        + 8
+        + 8
+        + 4
+        + size::quantity(methods)
+        + methods * (size::prefixed(MAX_METHOD_ID_BYTES) + 8)
+        + size::quantity(rates)
+        + rates * RATE_BYTES
+}
+
+/// Most bytes of a feed datagram with `methods` methods, every field at
+/// its bound.
+const fn feed_bytes_with(methods: usize) -> usize {
+    2 + size::prefixed(signed_bytes_with(methods)) + SIGNATURE_BYTES
+}
 
 /// Most bytes of a feed's signed part, every field at its bound.
-const MAX_SIGNED_BYTES: usize = FEED_OID.len()
-    + PUBLIC_KEY_BYTES
-    + 8
-    + 8
-    + 4
-    + size::quantity(MAX_LEDGERS)
-    + MAX_LEDGERS * (size::prefixed(MAX_LEDGER_ID_BYTES) + 8)
-    + size::quantity(MAX_RATES)
-    + MAX_RATES * RATE_BYTES;
+const MAX_SIGNED_BYTES: usize = signed_bytes_with(MAX_METHODS);
 
 /// Most bytes of a feed datagram, every field at its bound.
-pub const MAX_FEED_BYTES: usize = 2 + size::prefixed(MAX_SIGNED_BYTES) + SIGNATURE_BYTES;
+pub const MAX_FEED_BYTES: usize = feed_bytes_with(MAX_METHODS);
 
 // Every feed the bounds allow fits in a datagram, so signing never meets
-// one that does not; every reply to an unproven address is no larger than
-// what it answers; and ledger indexes fit their octet.
+// one that does not, and one with a method more would not; every reply to
+// an unproven address is no larger than what it answers; and method
+// indexes fit their octet.
 const _: () = assert!(MAX_FEED_BYTES <= MAX_DATAGRAM_BYTES);
+const _: () = assert!(feed_bytes_with(MAX_METHODS + 1) > MAX_DATAGRAM_BYTES);
 const _: () = assert!(CHALLENGE_BYTES <= SUBSCRIBE_BYTES);
 const _: () = assert!(2 + size::tag(COOKIE_PRESENT) + COOKIE_BYTES <= SUBSCRIBE_BYTES);
-const _: () = assert!(MAX_LEDGERS <= u8::MAX as usize);
+const _: () = assert!(MAX_METHODS <= u8::MAX as usize);
 
 /// A datagram.
 // Decoded once per datagram and taken apart at once, so its size costs
@@ -170,16 +191,16 @@ pub enum InvalidFeed {
     FeePpm,
     /// It is valid only until its own sequence or before.
     ValidUntil,
-    /// More than [`MAX_LEDGERS`] ledgers.
-    TooManyLedgers,
-    /// A ledger ID is empty, too long, or has a character outside
-    /// `[a-z0-9+-]`.
-    LedgerId,
-    /// The ledgers are not in ascending order, or one is there twice.
-    LedgerOrder,
+    /// More than [`MAX_METHODS`] methods.
+    TooManyMethods,
+    /// A method's ID is shorter than two bytes, longer than
+    /// [`MAX_METHOD_ID_BYTES`], or has a character outside `[a-z0-9-]`.
+    MethodId,
+    /// The methods are not in ascending order, or one is there twice.
+    MethodOrder,
     /// More than [`MAX_RATES`] rates.
     TooManyRates,
-    /// A rate names a ledger the feed does not list, or the same ledger on
+    /// A rate names a method the feed does not list, or the same method on
     /// both sides.
     RatePair,
     /// The rates are not in ascending order of their pair, or a pair is
@@ -194,28 +215,30 @@ pub enum InvalidFeed {
     Signature,
 }
 
-/// A ledger a node converts on.
+/// A settlement method: a scheme the node's peers pay it on, which it
+/// converts on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Ledger<'a> {
-    /// Its ID, such as `xrpl-testnet-xrp+xrp`.
+pub struct Method<'a> {
+    /// Its scheme's ID, such as `hub-xrpl-testnet-xrp`.
     pub id: &'a str,
-    /// The most one packet may carry when it comes in on this ledger, in
-    /// its units.
+    /// The most one packet may carry when it comes in on this method, in
+    /// the units of its scheme's ledger.
     pub max_packet_amount: u64,
 }
 
-/// What a node converts at, from one ledger to another.
+/// What a node converts at, from one method to another.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Rate {
-    /// The index of the ledger a packet comes in on.
+    /// The index of the method a packet comes in on.
     pub from: u8,
-    /// The index of the ledger it goes out on.
+    /// The index of the method it goes out on.
     pub to: u8,
-    /// What one unit in gets out, × 10^[`RATE_PRECISION`], in each ledger's
-    /// own units, the node's spread included: a packet that comes in with
-    /// `amount` goes out with at most `floor((amount − fee) × rate_e15 /
-    /// 10^15)`, the fee taken from `amount` at [`Feed::fee_ppm`], and less
-    /// by its own impact on the node's inventory (spec/areas/rate-feed.md).
+    /// What one unit in gets out, × 10^[`RATE_PRECISION`], in the units of
+    /// each method's ledger, the node's spread included: a packet that
+    /// comes in with `amount` goes out with at most `floor((amount − fee) ×
+    /// rate_e15 / 10^15)`, the fee taken from `amount` at
+    /// [`Feed::fee_ppm`], and less by its own impact on the node's
+    /// inventory (spec/areas/rate-feed.md).
     pub rate_e15: u64,
 }
 
@@ -230,8 +253,8 @@ pub struct Feed<'a> {
     pub valid_until_ms: u64,
     /// The fee the node takes from what it passes on, in parts per million.
     pub fee_ppm: u32,
-    /// The ledgers it converts between, in ascending order of their IDs.
-    pub ledgers: Vec<Ledger<'a>>,
+    /// The methods it converts between, in ascending order of their IDs.
+    pub methods: Vec<Method<'a>>,
     /// The rates, in ascending order of `(from, to)`.
     pub rates: Vec<Rate>,
 }
@@ -250,27 +273,27 @@ impl Feed<'_> {
         if self.valid_until_ms <= self.sequence_ms {
             return Err(InvalidFeed::ValidUntil);
         }
-        if self.ledgers.len() > MAX_LEDGERS {
-            return Err(InvalidFeed::TooManyLedgers);
+        if self.methods.len() > MAX_METHODS {
+            return Err(InvalidFeed::TooManyMethods);
         }
-        let valid_id = |ledger: &Ledger<'_>| {
-            LEDGER_ID_SIZE.contains(ledger.id.len())
-                && LEDGER_ID_ALPHABET.contains_all(ledger.id.as_bytes())
+        let valid_id = |method: &Method<'_>| {
+            METHOD_ID_SIZE.contains(method.id.len())
+                && METHOD_ID_ALPHABET.contains_all(method.id.as_bytes())
         };
-        if !self.ledgers.iter().all(valid_id) {
-            return Err(InvalidFeed::LedgerId);
+        if !self.methods.iter().all(valid_id) {
+            return Err(InvalidFeed::MethodId);
         }
-        let ascending = self.ledgers.windows(2).all(|pair| match pair {
+        let ascending = self.methods.windows(2).all(|pair| match pair {
             [a, b] => a.id < b.id,
             _ => true,
         });
         if !ascending {
-            return Err(InvalidFeed::LedgerOrder);
+            return Err(InvalidFeed::MethodOrder);
         }
         if self.rates.len() > MAX_RATES {
             return Err(InvalidFeed::TooManyRates);
         }
-        let count = self.ledgers.len();
+        let count = self.methods.len();
         let valid_pair = |rate: &Rate| {
             rate.from != rate.to && usize::from(rate.from) < count && usize::from(rate.to) < count
         };
@@ -290,12 +313,12 @@ impl Feed<'_> {
         Ok(())
     }
 
-    /// The rate from the ledger `from` to the ledger `to`, if the node
-    /// converts between them.
+    /// The rate from the method `from` to the method `to`, each named by
+    /// its scheme's ID, if the node converts between them.
     #[must_use]
     pub fn rate(&self, from: &str, to: &str) -> Option<u64> {
         let index = |id: &str| {
-            let position = self.ledgers.iter().position(|ledger| ledger.id == id)?;
+            let position = self.methods.iter().position(|method| method.id == id)?;
             u8::try_from(position).ok()
         };
         let (from, to) = (index(from)?, index(to)?);
@@ -336,11 +359,11 @@ impl Feed<'_> {
             + 8
             + 8
             + 4
-            + size::quantity(self.ledgers.len())
+            + size::quantity(self.methods.len())
             + self
-                .ledgers
+                .methods
                 .iter()
-                .map(|ledger| size::prefixed(ledger.id.len()) + 8)
+                .map(|method| size::prefixed(method.id.len()) + 8)
                 .sum::<usize>()
             + size::quantity(self.rates.len())
             + self.rates.len() * RATE_BYTES
@@ -354,10 +377,10 @@ impl Feed<'_> {
         writer.write_u64(self.sequence_ms);
         writer.write_u64(self.valid_until_ms);
         writer.write_u32(self.fee_ppm);
-        writer.write_quantity(self.ledgers.len());
-        for ledger in &self.ledgers {
-            writer.write_ascii(ledger.id, LEDGER_ID_SIZE, LEDGER_ID_ALPHABET);
-            writer.write_u64(ledger.max_packet_amount);
+        writer.write_quantity(self.methods.len());
+        for method in &self.methods {
+            writer.write_ascii(method.id, METHOD_ID_SIZE, METHOD_ID_ALPHABET);
+            writer.write_u64(method.max_packet_amount);
         }
         writer.write_quantity(self.rates.len());
         for rate in &self.rates {
@@ -541,11 +564,11 @@ fn read_feed<'a>(reader: &mut Reader<'a>) -> Result<Feed<'a>, DecodeError> {
     let sequence_ms = reader.read_u64()?;
     let valid_until_ms = reader.read_u64()?;
     let fee_ppm = reader.read_u32()?;
-    let count = reader.read_quantity(MAX_LEDGERS)?;
-    let mut ledgers = Vec::with_capacity(count);
+    let count = reader.read_quantity(MAX_METHODS)?;
+    let mut methods = Vec::with_capacity(count);
     for _ in 0..count {
-        ledgers.push(Ledger {
-            id: reader.read_ascii(LEDGER_ID_SIZE, LEDGER_ID_ALPHABET)?,
+        methods.push(Method {
+            id: reader.read_ascii(METHOD_ID_SIZE, METHOD_ID_ALPHABET)?,
             max_packet_amount: reader.read_u64()?,
         });
     }
@@ -563,7 +586,7 @@ fn read_feed<'a>(reader: &mut Reader<'a>) -> Result<Feed<'a>, DecodeError> {
         sequence_ms,
         valid_until_ms,
         fee_ppm,
-        ledgers,
+        methods,
         rates,
     })
 }

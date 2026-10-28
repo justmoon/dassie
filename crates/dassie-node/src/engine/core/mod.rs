@@ -259,8 +259,9 @@ pub struct Changes {
     pub network: bool,
     /// Open Payments resources.
     pub payments: bool,
-    /// The price table: what the connector converts transit at, which the
-    /// rate feed publishes (spec/areas/rate-feed.md#the-node-side).
+    /// What the rate feed publishes (spec/areas/rate-feed.md#the-node-side):
+    /// the price table, what the connector converts transit at, or the
+    /// settlement methods the node offers its peers.
     pub prices: bool,
 }
 
@@ -932,6 +933,22 @@ impl Core {
     /// commit (spec/decisions/passive-rebalancing.md).
     pub const fn price_table(&self) -> &PriceTable {
         &self.prices.table
+    }
+
+    /// The settlement methods the node offers its peers, each once with its
+    /// scheme's ledger: the schemes of the settlement offers its link state
+    /// names, of which no owner book is one, as the rate feed names them
+    /// (spec/areas/rate-feed.md#what-it-publishes).
+    pub fn feed_methods(&self) -> Vec<(dassie_peer::wire::SchemeId, dassie_ledger::LedgerId)> {
+        self.peer
+            .offers()
+            .iter()
+            .filter_map(|offer| {
+                let name = Name::new(offer.scheme.as_str()).ok()?;
+                let active = self.schemes.get(&name)?;
+                Some((offer.scheme, active.scheme.ledger()))
+            })
+            .collect()
     }
 
     /// One ledger account.

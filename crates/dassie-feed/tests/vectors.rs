@@ -13,7 +13,7 @@
 mod support;
 
 use dassie_feed::{
-    Cookie, Feed, InvalidFeed, Ledger, MAX_FEED_BYTES, Message, Rate, WireError, decode,
+    Cookie, Feed, InvalidFeed, MAX_FEED_BYTES, Message, Method, Rate, WireError, decode,
     encode_challenge, encode_subscribe, sign_feed,
 };
 use serde_json::Value;
@@ -81,13 +81,13 @@ fn feeds() {
             sequence_ms: vector["sequenceMs"].as_u64().unwrap(),
             valid_until_ms: vector["validUntilMs"].as_u64().unwrap(),
             fee_ppm: vector["feePpm"].as_u64().unwrap() as u32,
-            ledgers: vector["ledgers"]
+            methods: vector["methods"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|ledger| Ledger {
-                    id: ledger[0].as_str().unwrap(),
-                    max_packet_amount: ledger[1].as_u64().unwrap(),
+                .map(|method| Method {
+                    id: method[0].as_str().unwrap(),
+                    max_packet_amount: method[1].as_u64().unwrap(),
                 })
                 .collect(),
             rates: vector["rates"]

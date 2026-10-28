@@ -31,9 +31,10 @@
 //! most [`MAX_TARGETS`], each once: a URL, or `{ url, feedPort }` for a
 //! target whose discovery document names no feed port. Each node names
 //! two ledgers, each checked whole: `ledger`, the ledger of the settlement
-//! hub of its asset, which its trades are paid on and pay from, and
-//! `ownerBook`, the owner book of that asset on its XRP Ledger account,
-//! which funds the hub and which its rebalances spend from
+//! hub of its asset, which its trades are paid on and pay from, and whose
+//! scheme, before the `+`, is the settlement method a target's feed names
+//! it by, and `ownerBook`, the owner book of that asset on its XRP Ledger
+//! account, which funds the hub and which its rebalances spend from
 //! (spec/areas/rate-feed.md#market-maker). Amounts are in the nodes'
 //! ledger units (scale 9). `caFile` adds roots to trust the targets
 //! by, and `allowPrivate` lets the targets and the XRPL server be on
@@ -57,8 +58,12 @@ use crate::passphrase::{self, ReadProblem, read_bounded};
 /// Most bytes in a config file.
 pub const MAX_CONFIG_BYTES: u64 = 64 * 1024;
 
-/// Most bytes in a ledger's ID, as a feed names it.
-const MAX_LEDGER_ID_BYTES: usize = dassie_feed::MAX_LEDGER_ID_BYTES;
+/// Most bytes in a ledger's ID: its scheme's, `+` and its asset's.
+const MAX_LEDGER_ID_BYTES: usize = 64;
+
+/// Most bytes in a settlement method's ID, its scheme's, as a feed names
+/// it.
+const MAX_METHOD_ID_BYTES: usize = dassie_feed::MAX_METHOD_ID_BYTES;
 
 /// Most bytes in a URL or a path.
 const MAX_TEXT_BYTES: usize = 1024;
@@ -95,6 +100,9 @@ pub struct NodeConfig {
     /// The ledger of the settlement hub of its asset, which its trades are
     /// paid on and pay from, such as `hub-xrpl-testnet-xrp+xrp`.
     pub ledger: String,
+    /// The settlement method of that hub, as a target's feed names it: the
+    /// ledger's scheme, such as `hub-xrpl-testnet-xrp`.
+    pub method: String,
     /// The ledger of the owner book of its asset on its XRP Ledger
     /// account, which funds the hub and which a rebalance spends from, such
     /// as `xrpl-testnet-xrp+xrp`.
@@ -140,8 +148,8 @@ pub enum ConfigError {
     Missing(String),
     /// A field's value is not what it may be.
     Invalid(String),
-    /// Both nodes trade on the same ledger, or name the same owner book,
-    /// socket or passphrase.
+    /// Both nodes trade on the same ledger or method, or name the same owner
+    /// book, socket or passphrase.
     SameNode(&'static str),
 }
 
@@ -210,6 +218,9 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
     let (token_node, token_params) = node(&root, "token")?;
     if xrp.ledger == token_node.ledger {
         return Err(ConfigError::SameNode("ledger"));
+    }
+    if xrp.method == token_node.method {
+        return Err(ConfigError::SameNode("method"));
     }
     if xrp.owner_book == token_node.owner_book {
         return Err(ConfigError::SameNode("owner book"));
@@ -445,6 +456,7 @@ fn node(root: &Fields<'_>, key: &str) -> Result<(NodeConfig, NodeParams), Config
         ],
     )?;
     let ledger = ledger_id(&fields, "ledger")?;
+    let method = method_of(ledger).ok_or_else(|| fields.invalid("ledger"))?;
     let owner_book = ledger_id(&fields, "ownerBook")?;
     // The hub's ledger and the book that funds it are two.
     if owner_book == ledger {
@@ -465,14 +477,27 @@ fn node(root: &Fields<'_>, key: &str) -> Result<(NodeConfig, NodeParams), Config
     let config = NodeConfig {
         socket: PathBuf::from(fields.text("socket")?),
         ledger: ledger.to_owned(),
+        method: method.to_owned(),
         owner_book: owner_book.to_owned(),
         passphrase_file: PathBuf::from(fields.text("passphraseFile")?),
     };
     Ok((config, NodeParams { trade_size, band }))
 }
 
-/// A ledger's ID, as a feed and `ListLedgers` name it: lowercase letters,
-/// digits, `-` and `+`, at most [`MAX_LEDGER_ID_BYTES`].
+/// The settlement method of the ledger `ledger`, as a feed names it: its
+/// scheme, the ID before its one `+`, of at least two and at most
+/// [`MAX_METHOD_ID_BYTES`] bytes; `None` for an ID that names no scheme
+/// and asset.
+fn method_of(ledger: &str) -> Option<&str> {
+    let (scheme, asset) = ledger.split_once('+')?;
+    let valid = (2..=MAX_METHOD_ID_BYTES).contains(&scheme.len())
+        && !asset.is_empty()
+        && !asset.contains('+');
+    valid.then_some(scheme)
+}
+
+/// A ledger's ID, as `ListLedgers` names it: lowercase letters, digits,
+/// `-` and `+`, at most [`MAX_LEDGER_ID_BYTES`].
 fn ledger_id<'a>(fields: &Fields<'a>, key: &str) -> Result<&'a str, ConfigError> {
     let ledger = fields.text(key)?;
     let valid = ledger.len() <= MAX_LEDGER_ID_BYTES
@@ -557,8 +582,10 @@ mod tests {
         assert_eq!(config.token.currency, dassie_xrpl::dsusd::CURRENCY);
         assert_eq!(config.token.issuer, dassie_xrpl::dsusd::ISSUER);
         assert_eq!(config.xrp.ledger, "hub-xrpl-testnet-xrp+xrp");
+        assert_eq!(config.xrp.method, "hub-xrpl-testnet-xrp");
         assert_eq!(config.xrp.owner_book, "xrpl-testnet-xrp+xrp");
         assert_eq!(config.token_node.ledger, "hub-xrpl-testnet-dsusd+usd");
+        assert_eq!(config.token_node.method, "hub-xrpl-testnet-dsusd");
         assert_eq!(config.token_node.owner_book, "xrpl-testnet-dsusd+usd");
         assert_eq!(config.params.margin_ppm, 5_000);
         assert_eq!(config.params.token.trade_size, 500_000_000);
@@ -693,6 +720,25 @@ mod tests {
             with(|v| v["xrp"]["ledger"] = json!("XRPL Testnet")),
             invalid("xrp.ledger")
         );
+        // A hub's ledger names the method a feed names it by: its scheme,
+        // and an asset.
+        for ledger in [
+            "hub-xrpl-testnet-xrp",
+            "hub-xrpl-testnet-xrp+",
+            "h+xrp",
+            "a+b+c",
+        ] {
+            assert_eq!(
+                with(|v| v["xrp"]["ledger"] = json!(ledger)),
+                invalid("xrp.ledger"),
+                "{ledger}"
+            );
+        }
+        let long = format!("{}+xrp", "a".repeat(MAX_METHOD_ID_BYTES + 1));
+        assert_eq!(
+            with(|v| v["xrp"]["ledger"] = json!(long)),
+            invalid("xrp.ledger")
+        );
         assert_eq!(
             with(|v| v["token"]["ownerBook"] = json!("xrpl-testnet-dsusd usd")),
             invalid("token.ownerBook")
@@ -743,6 +789,10 @@ mod tests {
         assert_eq!(
             with(|v| v["token"]["ledger"] = json!("hub-xrpl-testnet-xrp+xrp")),
             Err(ConfigError::SameNode("ledger"))
+        );
+        assert_eq!(
+            with(|v| v["token"]["ledger"] = json!("hub-xrpl-testnet-xrp+usd")),
+            Err(ConfigError::SameNode("method"))
         );
         assert_eq!(
             with(|v| v["token"]["ownerBook"] = json!("xrpl-testnet-xrp+xrp")),

@@ -211,7 +211,6 @@ The first four are on `main`, and so are each network's proof server, named in t
 - **The testnet's names under `test.dassiepay.net`.** The live realm takes `dassiepay.net` and the testnet moves to `<node ID>.test.dassiepay.net` ([public-domains](decisions/public-domains.md)): it needs the subdomain's DNS, a wildcard certificate and a testnet front door serving it, and then the testnet's default domain in the code.
 - **Pre-releases,** if wanted, are `vX.Y.Z-rc.N` tags that the release workflow builds and signs as it does a release, on a channel of their own that a node joins only when its owner asks; the version parser, the installer and the updater accept none yet ([release-integrity](decisions/release-integrity.md)).
 - **Importing a v0 node's config and BTP tokens** is not planned; it is cheap to add if anyone asks ([database-continuity](decisions/database-continuity.md)).
-- **The rate feed's ledgers.** Every ledger the connector prices must fit a feed: the price table's bound is asserted against the bound on the ledgers a feed names (`MAX_PRICED_LEDGERS <= MAX_LEDGERS`, in `crates/dassie-node/src/feed.rs`). The mainnet ledgers press against that bound, so the table is to be bounded by the ledgers of one realm, since a node runs only its realm's ([mainnet-schemes](decisions/mainnet-schemes.md)).
 
 ## Future work, design only
 

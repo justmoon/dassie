@@ -1,12 +1,13 @@
 //! The node's rate feed (spec/areas/rate-feed.md#the-node-side).
 //!
-//! A core node publishes what its connector converts at: the price table
-//! the engine builds, as a signed datagram it makes once and sends to every
-//! subscriber on a UDP socket of its own, with no retries. The decisions are
+//! A core node publishes what its connector converts at between the
+//! settlement methods its peers pay it on: the price table the engine
+//! builds, as a signed datagram it makes once and sends to every subscriber
+//! on a UDP socket of its own, with no retries. The decisions are
 //! `dassie-feed`'s: who is subscribed, what to answer, when to publish. The
 //! one thing decided here, what a feed says, is a pure function of the
-//! table ([`Content::of`]); [`Publisher`] holds the rest without IO, and
-//! [`run`] carries it out against the socket.
+//! table and the methods ([`Content::of`]); [`Publisher`] holds the rest
+//! without IO, and [`run`] carries it out against the socket.
 //!
 //! The service runs only on a core node: one with a URL, at whose host
 //! subscribers find the feed, and a key to sign with. It answers every
@@ -20,19 +21,20 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dassie_connector::PriceTable;
-use dassie_connector::pricing::MAX_PRICED_LEDGERS;
 use dassie_feed::{
-    CookieSecret, Decision, FEED_MIN_INTERVAL_MS, Feed, Ledger, Limits, MAX_DATAGRAM_BYTES,
-    MAX_LEDGERS, Poll, Rate, Refused, Schedule, SubscriberTable,
+    CookieSecret, Decision, FEED_MIN_INTERVAL_MS, Feed, Limits, MAX_DATAGRAM_BYTES,
+    MAX_METHOD_ID_BYTES, MAX_METHODS, Method, Poll, Rate, Refused, Schedule, SubscriberTable,
 };
 use dassie_identity::{IdentityKey, NodeKey};
-use dassie_ledger::LedgerId;
+use dassie_ledger::{LedgerId, Realm};
+use dassie_peer::wire::SchemeId;
+use dassie_settlement::SchemeInfo;
 use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::clock::clock_moved;
-use crate::engine::{Engine, Versions};
+use crate::engine::{Engine, SCHEMES, Versions};
 use crate::node::{Node, lock};
 
 /// The UDP port a node takes its feed's subscribers on, unless told
@@ -47,11 +49,41 @@ const PUBLISH_TIME: Duration = Duration::from_millis(FEED_MIN_INTERVAL_MS / 2);
 /// The longest the service waits for the engine's price table.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
-// Every ledger the connector prices fits in a feed, so a feed never leaves
-// one out for want of room: every ledger of the node's realm, settlement
-// hubs' included. A realm with more needs a new feed version, since the
-// bound is part of the wire format.
-const _: () = assert!(MAX_PRICED_LEDGERS <= MAX_LEDGERS);
+// Every method the node can offer its peers fits in a feed, so a feed never
+// leaves one out for want of room: a node runs the schemes of its own realm
+// alone, each once, and all of them would fit, owner books' included should
+// they ever peer again; and every scheme's ID is one a feed takes. A realm
+// with more needs a new feed version, since the bound is part of the wire
+// format (spec/areas/rate-feed.md#bounds).
+const _: () = assert!(most_schemes_of_one_realm(SCHEMES) <= MAX_METHODS);
+const _: () = assert!(scheme_ids_fit(SCHEMES));
+
+/// How many schemes the realm with the most of `schemes` has.
+const fn most_schemes_of_one_realm(schemes: &[SchemeInfo]) -> usize {
+    let (mut test, mut live) = (0, 0);
+    let mut rest = schemes;
+    while let [info, tail @ ..] = rest {
+        match info.ledger.realm() {
+            Realm::Test => test += 1,
+            Realm::Live => live += 1,
+        }
+        rest = tail;
+    }
+    if test > live { test } else { live }
+}
+
+/// Whether every scheme ID of `schemes` is at most as long as a feed takes
+/// a method's: their characters, `[a-z0-9-]`, are a method's.
+const fn scheme_ids_fit(schemes: &[SchemeInfo]) -> bool {
+    let mut rest = schemes;
+    while let [info, tail @ ..] = rest {
+        if info.id.len() > MAX_METHOD_ID_BYTES {
+            return false;
+        }
+        rest = tail;
+    }
+    true
+}
 
 /// What the feed has done since the node started, counted rather than
 /// logged, and how many addresses it sends to now. The owner reads them in
@@ -145,14 +177,14 @@ impl FeedEndpoint {
     }
 }
 
-/// What a feed says besides who made it and when: the fee, the ledgers and
+/// What a feed says besides who made it and when: the fee, the methods and
 /// the rates. Feeds that say the same differ only in their sequence.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Says {
     fee_ppm: u32,
     /// Each with its largest packet, in ascending order of their IDs.
-    ledgers: Vec<(LedgerId, u64)>,
-    /// In ascending order of their pair; indexes into `ledgers`.
+    methods: Vec<(SchemeId, u64)>,
+    /// In ascending order of their pair; indexes into `methods`.
     rates: Vec<Rate>,
 }
 
@@ -166,12 +198,26 @@ pub struct Content {
 }
 
 impl Content {
-    /// What `table` says at `now_ms`, every ledger's largest packet
-    /// `max_packet_amount`: its fee, its ledgers in ascending order of
-    /// their IDs, and each price it has as a rate. A pair without a price
-    /// is left out. A table whose rates aged out says no ledgers.
+    /// What `table` says at `now_ms` of `methods`, the settlement methods
+    /// the node offers its peers, each once with its scheme's ledger, and
+    /// every method's largest packet `max_packet_amount`: its fee; each method
+    /// whose ledger the table prices, in ascending order of their IDs; and
+    /// each price it has between two of them as a rate. A method on a
+    /// ledger the table does not price, and a pair without a price, are
+    /// left out, as is every ledger no method is on, such as an owner
+    /// book's. A table whose rates aged out says no methods.
+    ///
+    /// # Panics
+    ///
+    /// With more methods than a feed names: the node offers at most the
+    /// schemes of its realm, which fit (a constant assertion above).
     #[must_use]
-    pub fn of(table: &PriceTable, max_packet_amount: u64, now_ms: u64) -> Self {
+    pub fn of(
+        table: &PriceTable,
+        methods: &[(SchemeId, LedgerId)],
+        max_packet_amount: u64,
+        now_ms: u64,
+    ) -> Self {
         let fee_ppm = table.charges().fee_ppm;
         let valid_until_ms = table.valid_until_ms();
         if valid_until_ms <= now_ms {
@@ -183,32 +229,37 @@ impl Content {
                 valid_until_ms: u64::MAX,
             };
         }
-        let mut ledgers: Vec<(LedgerId, u64)> = table
-            .ledgers()
-            .map(|entry| (entry.ledger, max_packet_amount))
-            .take(MAX_LEDGERS)
+        let mut priced: Vec<(SchemeId, LedgerId)> = methods
+            .iter()
+            .filter(|(_, ledger)| table.ledger(*ledger).is_some())
+            .copied()
             .collect();
-        ledgers.sort_unstable_by_key(|(ledger, _)| ledger.as_str());
-        let index = |ledger: LedgerId| {
-            let position = ledgers.iter().position(|(id, _)| *id == ledger)?;
-            u8::try_from(position).ok()
-        };
-        let mut rates: Vec<Rate> = table
-            .prices()
-            .filter(|price| price.rate_e15 > 0)
-            .filter_map(|price| {
-                Some(Rate {
-                    from: index(price.from)?,
-                    to: index(price.to)?,
-                    rate_e15: price.rate_e15,
-                })
-            })
-            .collect();
-        rates.sort_unstable();
+        priced.sort_unstable_by(|(a, _), (b, _)| a.as_str().cmp(b.as_str()));
+        assert!(
+            priced.len() <= MAX_METHODS,
+            "a feed names every method the node offers"
+        );
+        // In ascending order of their pair, as the methods are.
+        let mut rates = Vec::new();
+        for (from, (_, ledger_in)) in (0u8..).zip(&priced) {
+            for (to, (_, ledger_out)) in (0u8..).zip(&priced) {
+                let price = table.price(*ledger_in, *ledger_out);
+                if let Some(price) = price.filter(|price| from != to && price.rate_e15 > 0) {
+                    rates.push(Rate {
+                        from,
+                        to,
+                        rate_e15: price.rate_e15,
+                    });
+                }
+            }
+        }
         Self {
             says: Says {
                 fee_ppm,
-                ledgers,
+                methods: priced
+                    .into_iter()
+                    .map(|(scheme, _)| (scheme, max_packet_amount))
+                    .collect(),
                 rates,
             },
             valid_until_ms,
@@ -218,27 +269,28 @@ impl Content {
     /// The feed of `key` with `sequence_ms`, valid until `valid_until_ms`
     /// or until the table's rates age out, whichever is first. Rates that
     /// age out by `sequence_ms` are not said.
-    fn feed(&self, key: &NodeKey, sequence_ms: u64, valid_until_ms: u64) -> Feed<'static> {
+    fn feed(&self, key: &NodeKey, sequence_ms: u64, valid_until_ms: u64) -> Feed<'_> {
         let fresh = self.valid_until_ms > sequence_ms;
-        let (says, valid_until_ms) = if fresh {
-            (&self.says, valid_until_ms.min(self.valid_until_ms))
+        let (methods, rates, valid_until_ms) = if fresh {
+            let says = &self.says;
+            let until_ms = valid_until_ms.min(self.valid_until_ms);
+            (says.methods.as_slice(), says.rates.clone(), until_ms)
         } else {
-            (&Says::default(), valid_until_ms)
+            (&[][..], Vec::new(), valid_until_ms)
         };
         Feed {
             public_key: *key.public_key().as_bytes(),
             sequence_ms,
             valid_until_ms,
             fee_ppm: self.says.fee_ppm,
-            ledgers: says
-                .ledgers
+            methods: methods
                 .iter()
-                .map(|(ledger, max_packet_amount)| Ledger {
-                    id: ledger.as_str(),
+                .map(|(scheme, max_packet_amount)| Method {
+                    id: scheme.as_str(),
                     max_packet_amount: *max_packet_amount,
                 })
                 .collect(),
-            rates: says.rates.clone(),
+            rates,
         }
     }
 }
@@ -578,7 +630,8 @@ impl Service {
         }
     }
 
-    /// Takes the engine's price table as the content to publish.
+    /// Takes the engine's price table and methods as the content to
+    /// publish.
     async fn fetch(&mut self, now_ms: u64) {
         self.dirty = false;
         self.fetch_after_ms = now_ms.saturating_add(FEED_MIN_INTERVAL_MS);
@@ -586,10 +639,11 @@ impl Service {
             self.publisher.set_content(None);
             return;
         };
-        match tokio::time::timeout(FETCH_TIMEOUT, engine.price_table()).await {
-            Ok(Ok(table)) => {
+        match tokio::time::timeout(FETCH_TIMEOUT, engine.feed_source()).await {
+            Ok(Ok(source)) => {
                 let max_packet_amount = self.node.policies().connector.max_packet_amount;
-                let content = Content::of(&table, max_packet_amount, now_ms);
+                let content =
+                    Content::of(&source.table, &source.methods, max_packet_amount, now_ms);
                 self.publisher.set_content(Some(content));
             }
             // The engine is stopping or busy: try again after the interval.
@@ -711,11 +765,26 @@ mod tests {
     const NOW: u64 = 1_800_000_000_000;
     const AGE: u64 = 3_600_000;
     const USD: LedgerId = LedgerId::StubUsd;
-    const XRP: LedgerId = LedgerId::XrplTestnetXrp;
+    /// The testnet's XRP hub, a method's ledger.
+    const HUB: LedgerId = LedgerId::HubXrplTestnetXrp;
+    /// The owner book that funds it, which no peer pays the node on.
+    const BOOK: LedgerId = LedgerId::XrplTestnetXrp;
     const MAX_PACKET: u64 = 5_000_000_000;
+    const STUB_ID: &str = "stub";
+    const HUB_ID: &str = "hub-xrpl-testnet-xrp";
 
     fn key() -> NodeKey {
         NodeKey::from_bytes(&[7; 32])
+    }
+
+    fn scheme(id: &str) -> SchemeId {
+        SchemeId::parse(id).unwrap()
+    }
+
+    /// The methods the node offers: the stub and the XRP hub, the stub
+    /// first, so that the feed's order is its own.
+    fn methods() -> [(SchemeId, LedgerId); 2] {
+        [(scheme(STUB_ID), USD), (scheme(HUB_ID), HUB)]
     }
 
     fn held(ledger: LedgerId, posted: u64) -> Inventory {
@@ -729,12 +798,17 @@ mod tests {
         }
     }
 
-    /// Dollars and XRP at 2 XRP a dollar, learned at `as_of_ms`, the owner
-    /// holding `usd` and `xrp`, with a fee of 1000 ppm.
-    fn table(usd: u64, xrp: u64, as_of_ms: u64) -> PriceTable {
+    fn rates_at(as_of_ms: u64) -> Rates {
         let mut rates = Rates::new();
         rates.set_at("USD", 10u128.pow(RATE_PRECISION), as_of_ms);
         rates.set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), as_of_ms);
+        rates
+    }
+
+    /// Dollars and XRP at 2 XRP a dollar, learned at `as_of_ms`, the owner
+    /// holding `usd` on the stub and `xrp` in the XRP hub, with a fee of
+    /// 1000 ppm.
+    fn table(usd: u64, xrp: u64, as_of_ms: u64) -> PriceTable {
         let pricing = Pricing {
             charges: Charges {
                 fee_ppm: 1_000,
@@ -742,12 +816,12 @@ mod tests {
             },
             rebalance_ppm: 50_000,
         };
-        // The table names XRP first, so that the feed's order is its own.
-        PriceTable::build(&rates, &[held(XRP, xrp), held(USD, usd)], pricing, NOW, AGE)
+        let inventories = [held(USD, usd), held(HUB, xrp)];
+        PriceTable::build(&rates_at(as_of_ms), &inventories, pricing, NOW, AGE)
     }
 
     fn content(usd: u64, xrp: u64) -> Content {
-        Content::of(&table(usd, xrp, NOW), MAX_PACKET, NOW)
+        Content::of(&table(usd, xrp, NOW), &methods(), MAX_PACKET, NOW)
     }
 
     fn address(port: u16) -> SocketAddr {
@@ -763,90 +837,114 @@ mod tests {
         signed.feed
     }
 
-    // A feed says the table's prices, by ledger ID, with the fee and each
-    // ledger's largest packet (spec/areas/rate-feed.md#what-a-feed-says).
+    // A feed says the table's prices between the methods the node offers,
+    // by scheme ID, with the fee and each method's largest packet
+    // (spec/areas/rate-feed.md#what-a-feed-says).
     #[test]
-    fn content_says_the_tables_prices_in_the_feeds_order() {
+    fn content_says_the_tables_prices_by_method_in_the_feeds_order() {
         let table = table(10_000_000_000, 20_000_000_000, NOW);
-        let content = Content::of(&table, MAX_PACKET, NOW);
+        let content = Content::of(&table, &methods(), MAX_PACKET, NOW);
         let feed = content.feed(&key(), NOW, NOW + FEED_VALIDITY_MS);
         feed.check().unwrap();
         assert_eq!(feed.fee_ppm, 1_000);
-        let ids: Vec<&str> = feed.ledgers.iter().map(|ledger| ledger.id).collect();
-        assert_eq!(ids, ["stub+usd", "xrpl-testnet-xrp+xrp"]);
+        let ids: Vec<&str> = feed.methods.iter().map(|method| method.id).collect();
+        assert_eq!(ids, [HUB_ID, STUB_ID]);
         assert!(
-            feed.ledgers
+            feed.methods
                 .iter()
-                .all(|ledger| ledger.max_packet_amount == MAX_PACKET)
+                .all(|method| method.max_packet_amount == MAX_PACKET)
         );
         assert_eq!(feed.rates.len(), 2);
-        for (from, to) in [(USD, XRP), (XRP, USD)] {
+        for ((from, from_id), (to, to_id)) in [
+            ((USD, STUB_ID), (HUB, HUB_ID)),
+            ((HUB, HUB_ID), (USD, STUB_ID)),
+        ] {
             let price = table.price(from, to).unwrap().rate_e15;
-            assert_eq!(feed.rate(from.as_str(), to.as_str()), Some(price));
+            assert_eq!(feed.rate(from_id, to_id), Some(price));
         }
+        // A ledger's ID names no method.
+        assert_eq!(feed.rate(USD.as_str(), HUB.as_str()), None);
     }
 
-    // A settlement hub's ledger is named as any other, by its ID, with
-    // the table's prices to and from it (spec/areas/rate-feed.md#what-a-feed-says).
+    // An owner book, which no peer can pay the node on, is not named, nor
+    // is any price to or from it, though the table prices it: what comes
+    // in on a method and leaves on another is what a feed says
+    // (spec/areas/rate-feed.md#what-a-feed-says).
     #[test]
-    fn a_hub_ledger_is_named_as_any_other() {
-        const HUB: LedgerId = LedgerId::HubXrplTestnetXrp;
-        let mut rates = Rates::new();
-        rates.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
-        rates.set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), NOW);
+    fn an_owner_book_is_not_named() {
         let inventories = [
             held(HUB, 20_000_000_000),
-            held(XRP, 30_000_000_000),
+            held(BOOK, 30_000_000_000),
             held(USD, 10_000_000_000),
         ];
-        let table = PriceTable::build(&rates, &inventories, Pricing::NONE, NOW, AGE);
-        let feed = Content::of(&table, MAX_PACKET, NOW).feed(&key(), NOW, NOW + 1);
+        let table = PriceTable::build(&rates_at(NOW), &inventories, Pricing::NONE, NOW, AGE);
+        assert!(table.price(BOOK, USD).is_some() && table.price(HUB, BOOK).is_some());
+        let content = Content::of(&table, &methods(), MAX_PACKET, NOW);
+        let feed = content.feed(&key(), NOW, NOW + 1);
         feed.check().unwrap();
-        let mut expected = [HUB, XRP, USD].map(LedgerId::as_str);
-        expected.sort_unstable();
-        let ids: Vec<&str> = feed.ledgers.iter().map(|ledger| ledger.id).collect();
-        assert_eq!(ids, expected);
-        assert_eq!(feed.rates.len(), 6);
-        for price in table.prices() {
-            let said = feed.rate(price.from.as_str(), price.to.as_str());
-            assert_eq!(said, Some(price.rate_e15));
-        }
-        assert!(feed.rate(HUB.as_str(), USD.as_str()).is_some());
-        assert!(feed.rate(XRP.as_str(), HUB.as_str()).is_some());
+        let ids: Vec<&str> = feed.methods.iter().map(|method| method.id).collect();
+        assert_eq!(ids, [HUB_ID, STUB_ID]);
+        assert_eq!(feed.rates.len(), 2);
+        let price = table.price(HUB, USD).map(|price| price.rate_e15);
+        assert_eq!(feed.rate(HUB_ID, STUB_ID), price);
+        let price = table.price(USD, HUB).map(|price| price.rate_e15);
+        assert_eq!(feed.rate(STUB_ID, HUB_ID), price);
     }
 
-    // A node runs the ledgers of its realm, hubs' included, and a feed
-    // names all of them at once: every ID fits the feed's alphabet and
-    // size, and their number its bound (spec/areas/rate-feed.md#bounds).
+    // A method on a ledger the table does not price, as one without a
+    // fresh rate or a dollar token's hub off its peg, is left out, and so
+    // are its pairs.
     #[test]
-    fn a_feed_names_every_ledger_of_a_realm() {
-        let mut rates = Rates::new();
-        rates.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
-        rates.set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), NOW);
+    fn a_method_the_table_does_not_price_is_left_out() {
+        let table = table(10_000_000_000, 20_000_000_000, NOW);
+        let dsusd = LedgerId::HubXrplTestnetDsusdUsd;
+        assert!(table.ledger(dsusd).is_none());
+        let mut offered = methods().to_vec();
+        offered.push((scheme("hub-xrpl-testnet-dsusd"), dsusd));
+        let content = Content::of(&table, &offered, MAX_PACKET, NOW);
+        let feed = content.feed(&key(), NOW, NOW + 1);
+        let ids: Vec<&str> = feed.methods.iter().map(|method| method.id).collect();
+        assert_eq!(ids, [HUB_ID, STUB_ID]);
+        assert_eq!(feed.rates.len(), 2);
+    }
+
+    // A node runs the schemes of its realm, and a feed names all of them
+    // at once, should every one be a method: every ID fits the feed's
+    // alphabet and size, and their number its bound
+    // (spec/areas/rate-feed.md#bounds).
+    #[test]
+    fn a_feed_names_every_scheme_of_a_realm() {
         for realm in [Realm::Test, Realm::Live] {
-            let inventories: Vec<Inventory> = LedgerId::ALL
-                .into_iter()
-                .filter(|ledger| ledger.realm() == realm)
-                .map(|ledger| held(ledger, 10_000_000_000))
+            let offered: Vec<(SchemeId, LedgerId)> = SCHEMES
+                .iter()
+                .filter(|info| info.ledger.realm() == realm)
+                .map(|info| (scheme(info.id), info.ledger))
                 .collect();
-            let table = PriceTable::build(&rates, &inventories, Pricing::NONE, NOW, AGE);
-            let feed = Content::of(&table, MAX_PACKET, NOW).feed(&key(), NOW, NOW + 1);
+            let inventories: Vec<Inventory> = offered
+                .iter()
+                .map(|(_, ledger)| held(*ledger, 10_000_000_000))
+                .collect();
+            let table = PriceTable::build(&rates_at(NOW), &inventories, Pricing::NONE, NOW, AGE);
+            let content = Content::of(&table, &offered, MAX_PACKET, NOW);
+            let feed = content.feed(&key(), NOW, NOW + 1);
             feed.check().unwrap();
-            assert_eq!(feed.ledgers.len(), inventories.len());
-            let pairs = inventories.len() * (inventories.len() - 1);
+            assert_eq!(feed.methods.len(), offered.len());
+            let pairs = offered.len() * (offered.len() - 1);
             assert_eq!(feed.rates.len(), pairs);
+            dassie_feed::sign_feed(&key(), &feed).unwrap();
         }
     }
 
-    // Out of a ledger the owner holds nothing on, nothing converts: the
+    // Out of a method the owner holds nothing on, nothing converts: the
     // pair is left out, the other kept.
     #[test]
     fn a_pair_without_a_price_is_left_out() {
         let table = table(10_000_000_000, 0, NOW);
-        assert!(table.price(XRP, USD).is_some() && table.price(USD, XRP).is_none());
-        let feed = Content::of(&table, MAX_PACKET, NOW).feed(&key(), NOW, NOW + 1);
-        assert_eq!(feed.rate("stub+usd", "xrpl-testnet-xrp+xrp"), None);
-        assert!(feed.rate("xrpl-testnet-xrp+xrp", "stub+usd").is_some());
+        assert!(table.price(HUB, USD).is_some() && table.price(USD, HUB).is_none());
+        let content = Content::of(&table, &methods(), MAX_PACKET, NOW);
+        let feed = content.feed(&key(), NOW, NOW + 1);
+        assert_eq!(feed.rate(STUB_ID, HUB_ID), None);
+        assert!(feed.rate(HUB_ID, STUB_ID).is_some());
     }
 
     // A feed never outlives the rates it says: it ends when they age out,
@@ -857,16 +955,16 @@ mod tests {
         let table = table(10_000_000_000, 20_000_000_000, as_of_ms);
         let ends_ms = table.valid_until_ms();
         assert!(ends_ms < NOW + FEED_VALIDITY_MS);
-        let content = Content::of(&table, MAX_PACKET, NOW);
+        let content = Content::of(&table, &methods(), MAX_PACKET, NOW);
         let feed = content.feed(&key(), NOW, NOW + FEED_VALIDITY_MS);
         assert_eq!(feed.valid_until_ms, ends_ms);
         assert_eq!(feed.rates.len(), 2);
         let later = content.feed(&key(), ends_ms, ends_ms + FEED_VALIDITY_MS);
-        assert!(later.ledgers.is_empty() && later.rates.is_empty());
+        assert!(later.methods.is_empty() && later.rates.is_empty());
         assert_eq!(later.valid_until_ms, ends_ms + FEED_VALIDITY_MS);
-        // A table whose rates aged out says no ledgers either.
-        let stale = Content::of(&table, MAX_PACKET, ends_ms);
-        assert!(stale.feed(&key(), ends_ms, ends_ms + 1).ledgers.is_empty());
+        // A table whose rates aged out says no methods either.
+        let stale = Content::of(&table, &methods(), MAX_PACKET, ends_ms);
+        assert!(stale.feed(&key(), ends_ms, ends_ms + 1).methods.is_empty());
     }
 
     fn publisher() -> Publisher {

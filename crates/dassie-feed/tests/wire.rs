@@ -13,12 +13,12 @@
 mod support;
 
 use dassie_feed::{
-    CHALLENGE_BYTES, Cookie, Feed, InvalidFeed, MAX_DATAGRAM_BYTES, MAX_LEDGER_ID_BYTES,
-    MAX_LEDGERS, MAX_PPM, Message, Rate, SUBSCRIBE_BYTES, VERSION, WireError, assemble_feed,
+    CHALLENGE_BYTES, Cookie, FEED_OID, Feed, InvalidFeed, MAX_DATAGRAM_BYTES, MAX_METHOD_ID_BYTES,
+    MAX_METHODS, MAX_PPM, Message, Rate, SUBSCRIBE_BYTES, VERSION, WireError, assemble_feed,
     decode, encode_challenge, encode_subscribe, sign_feed,
 };
 use dassie_oer::DecodeErrorKind;
-use support::{empty_feed, key, largest_feed, longest_ids, other_key, two_ledger_feed};
+use support::{empty_feed, key, largest_feed, longest_ids, other_key, two_method_feed};
 
 fn rate(from: u8, to: u8, rate_e15: u64) -> Rate {
     Rate { from, to, rate_e15 }
@@ -76,11 +76,19 @@ fn a_challenge_is_its_cookie() {
     assert_eq!(decode_kind(&long), DecodeErrorKind::TrailingBytes);
 }
 
+// Version 2 names settlement methods, under an OID of its own; a datagram
+// of version 1, which named ledgers, or of any other is refused
+// (spec/areas/rate-feed.md#wire-format).
 #[test]
 fn another_version_or_message_is_refused() {
+    assert_eq!(VERSION, 2);
+    let arc = dassie_oer::oid::encode::<14>(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 3, 2]);
+    assert_eq!(FEED_OID, arc);
     let mut datagram = encode_challenge(&Cookie::from_bytes([0; 16]));
-    datagram[0] = VERSION + 1;
-    assert_eq!(decode(&datagram), Err(WireError::Version(VERSION + 1)));
+    for version in [1, VERSION + 1] {
+        datagram[0] = version;
+        assert_eq!(decode(&datagram), Err(WireError::Version(version)));
+    }
     datagram[0] = VERSION;
     datagram[1] = 0x83;
     assert_eq!(decode_kind(&datagram), DecodeErrorKind::UnexpectedTag);
@@ -95,7 +103,7 @@ fn another_version_or_message_is_refused() {
 fn a_feed_round_trips_and_verifies() {
     let key = key();
     let ids = longest_ids();
-    for feed in [empty_feed(), two_ledger_feed(), largest_feed(&ids)] {
+    for feed in [empty_feed(), two_method_feed(), largest_feed(&ids)] {
         let datagram = sign_feed(&key, &feed).unwrap();
         assert!(datagram.len() <= MAX_DATAGRAM_BYTES);
         let Ok(Message::Feed(signed)) = decode(&datagram) else {
@@ -107,58 +115,58 @@ fn a_feed_round_trips_and_verifies() {
 }
 
 #[test]
-fn rates_are_looked_up_by_ledger() {
-    let feed = two_ledger_feed();
-    assert_eq!(
-        feed.rate("xrpl-testnet+xrp", "xrpl-testnet-rlusd+usd"),
-        Some(2_345_000_000_000_000)
-    );
-    assert_eq!(
-        feed.rate("xrpl-testnet-rlusd+usd", "xrpl-testnet+xrp"),
-        Some(421_000_000_000_000)
-    );
-    assert_eq!(feed.rate("xrpl-testnet+xrp", "xrpl-testnet+xrp"), None);
-    assert_eq!(feed.rate("stub+usd", "xrpl-testnet+xrp"), None);
+fn rates_are_looked_up_by_method() {
+    let feed = two_method_feed();
+    let (dsusd, xrp) = ("hub-xrpl-testnet-dsusd", "hub-xrpl-testnet-xrp");
+    assert_eq!(feed.rate(dsusd, xrp), Some(2_345_000_000_000_000));
+    assert_eq!(feed.rate(xrp, dsusd), Some(421_000_000_000_000));
+    assert_eq!(feed.rate(xrp, xrp), None);
+    assert_eq!(feed.rate("stub", xrp), None);
+    // A ledger's ID names no method.
+    assert_eq!(feed.rate("hub-xrpl-testnet-xrp+xrp", dsusd), None);
 }
 
 #[test]
 fn signing_refuses_a_feed_that_breaks_a_rule() {
     let key = key();
-    let cases: [(fn(&mut Feed<'static>), InvalidFeed); 10] = [
+    let cases: [(fn(&mut Feed<'static>), InvalidFeed); 12] = [
         (|feed| feed.fee_ppm = MAX_PPM + 1, InvalidFeed::FeePpm),
         (
             |feed| feed.valid_until_ms = feed.sequence_ms,
             InvalidFeed::ValidUntil,
         ),
         (
-            |feed| feed.ledgers = vec![feed.ledgers[0]; MAX_LEDGERS + 1],
-            InvalidFeed::TooManyLedgers,
+            |feed| feed.methods = vec![feed.methods[0]; MAX_METHODS + 1],
+            InvalidFeed::TooManyMethods,
         ),
-        (|feed| feed.ledgers[0].id = "XRP", InvalidFeed::LedgerId),
-        (|feed| feed.ledgers[0].id = "", InvalidFeed::LedgerId),
-        (|feed| feed.ledgers.swap(0, 1), InvalidFeed::LedgerOrder),
+        (|feed| feed.methods[0].id = "XRP", InvalidFeed::MethodId),
+        (|feed| feed.methods[0].id = "", InvalidFeed::MethodId),
+        (|feed| feed.methods[0].id = "a", InvalidFeed::MethodId),
+        // A ledger's ID is not a method's.
+        (|feed| feed.methods[0].id = "hub+usd", InvalidFeed::MethodId),
+        (|feed| feed.methods.swap(0, 1), InvalidFeed::MethodOrder),
         (|feed| feed.rates[0].to = 2, InvalidFeed::RatePair),
         (|feed| feed.rates[0].to = 0, InvalidFeed::RatePair),
         (|feed| feed.rates.swap(0, 1), InvalidFeed::RateOrder),
         (|feed| feed.rates[1].rate_e15 = 0, InvalidFeed::ZeroRate),
     ];
     for (break_it, expected) in cases {
-        let mut feed = two_ledger_feed();
+        let mut feed = two_method_feed();
         break_it(&mut feed);
         assert_eq!(sign_feed(&key, &feed), Err(expected));
     }
-    let mut feed = two_ledger_feed();
+    let mut feed = two_method_feed();
     feed.rates.push(rate(0, 1, 5));
     assert_eq!(sign_feed(&key, &feed), Err(InvalidFeed::RateOrder));
-    let long = "a".repeat(MAX_LEDGER_ID_BYTES + 1);
-    let mut feed = two_ledger_feed();
-    feed.ledgers[0].id = &long;
-    assert_eq!(sign_feed(&key, &feed), Err(InvalidFeed::LedgerId));
+    let long = "a".repeat(MAX_METHOD_ID_BYTES + 1);
+    let mut feed = two_method_feed();
+    feed.methods[0].id = &long;
+    assert_eq!(sign_feed(&key, &feed), Err(InvalidFeed::MethodId));
 }
 
 #[test]
 fn signing_refuses_another_nodes_feed() {
-    let feed = two_ledger_feed();
+    let feed = two_method_feed();
     assert_eq!(sign_feed(&other_key(), &feed), Err(InvalidFeed::PublicKey));
 }
 
@@ -175,7 +183,7 @@ fn decoding_refuses_a_feed_that_breaks_a_rule() {
         Err(WireError::Invalid(InvalidFeed::FeePpm))
     );
 
-    let mut feed = two_ledger_feed();
+    let mut feed = two_method_feed();
     feed.rates[1].rate_e15 = 1;
     let datagram = signed_with(&feed, |signed| {
         let last = signed.len() - 1;
@@ -186,7 +194,7 @@ fn decoding_refuses_a_feed_that_breaks_a_rule() {
         Err(WireError::Invalid(InvalidFeed::ZeroRate))
     );
 
-    let datagram = signed_with(&two_ledger_feed(), |signed| {
+    let datagram = signed_with(&two_method_feed(), |signed| {
         let from = signed.len() - 10;
         signed[from] = 7;
     });
@@ -198,11 +206,11 @@ fn decoding_refuses_a_feed_that_breaks_a_rule() {
 
 #[test]
 fn decoding_refuses_lists_past_their_bounds() {
-    // A count of ledgers past the bound is refused before any is read.
+    // A count of methods past the bound is refused before any is read.
     let feed = empty_feed();
     let count_at = 14 + 32 + 8 + 8 + 4;
     let datagram = signed_with(&feed, |signed| {
-        signed[count_at + 1] = (MAX_LEDGERS + 1) as u8;
+        signed[count_at + 1] = (MAX_METHODS + 1) as u8;
     });
     assert_eq!(decode_kind(&datagram), DecodeErrorKind::LimitExceeded);
 }
@@ -210,10 +218,10 @@ fn decoding_refuses_lists_past_their_bounds() {
 #[test]
 fn verifying_checks_exactly_the_bytes_received() {
     let key = key();
-    let datagram = sign_feed(&key, &two_ledger_feed()).unwrap();
+    let datagram = sign_feed(&key, &two_method_feed()).unwrap();
     // Any change to the signed part that still decodes fails the signature:
-    // here the first ledger's largest packet, which no rule constrains.
-    let first_id = "xrpl-testnet+xrp".len();
+    // here the first method's largest packet, which no rule constrains.
+    let first_id = "hub-xrpl-testnet-dsusd".len();
     let at = 2 + 2 + 14 + 32 + 8 + 8 + 4 + 2 + 1 + first_id + 7;
     let mut changed = datagram.clone();
     changed[at] ^= 1;

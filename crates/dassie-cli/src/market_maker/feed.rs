@@ -39,16 +39,17 @@ pub struct FeedView {
     pub valid_until_ms: u64,
     /// The target's fee, in parts per million.
     pub fee_ppm: u32,
-    /// Its rates: from, to, and out per in × 10^15.
+    /// Its rates: the methods from and to, by their schemes' IDs, and out
+    /// per in × 10^15.
     pub rates: Vec<(String, String, u64)>,
 }
 
 impl FeedView {
     fn of(feed: &dassie_feed::Feed<'_>) -> Self {
         let id = |index: u8| {
-            feed.ledgers
+            feed.methods
                 .get(usize::from(index))
-                .map_or_else(String::new, |ledger| ledger.id.to_owned())
+                .map_or_else(String::new, |method| method.id.to_owned())
         };
         Self {
             sequence_ms: feed.sequence_ms,
@@ -62,7 +63,8 @@ impl FeedView {
         }
     }
 
-    /// The rate from ledger `from` to `to`, if the target converts.
+    /// The rate from the method `from` to `to`, each by its scheme's ID, if
+    /// the target converts.
     #[must_use]
     pub fn rate(&self, from: &str, to: &str) -> Option<u64> {
         self.rates
@@ -231,7 +233,7 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use dassie_feed::{
-        Decision, Feed, InvalidFeed, Ledger, Limits, Rate, SubscriberTable, assemble_feed,
+        Decision, Feed, InvalidFeed, Limits, Method, Rate, SubscriberTable, assemble_feed,
         encode_challenge, sign_feed,
     };
     use dassie_identity::NodeKey;
@@ -240,8 +242,8 @@ mod tests {
     use super::*;
 
     const NOW_MS: u64 = 1_790_000_000_000;
-    const XRP: &str = "hub-xrpl-testnet-xrp+xrp";
-    const DSUSD: &str = "hub-xrpl-testnet-dsusd+usd";
+    const XRP: &str = "hub-xrpl-testnet-xrp";
+    const DSUSD: &str = "hub-xrpl-testnet-dsusd";
 
     fn key() -> NodeKey {
         NodeKey::from_bytes(&[3; 32])
@@ -264,12 +266,12 @@ mod tests {
             valid_until_ms: sequence_ms + 60_000,
             fee_ppm: 1_000,
             // In the order of their IDs, as a feed lists them.
-            ledgers: vec![
-                Ledger {
+            methods: vec![
+                Method {
                     id: DSUSD,
                     max_packet_amount: 1_000_000_000,
                 },
-                Ledger {
+                Method {
                     id: XRP,
                     max_packet_amount: 1_000_000_000,
                 },
@@ -333,7 +335,7 @@ mod tests {
         let current = client.current(NOW_MS).unwrap();
         assert_eq!(current.rate(XRP, DSUSD), Some(rate));
         assert_eq!(current.rate(DSUSD, XRP), Some(2_000_000_000_000_000));
-        assert_eq!(current.rate(XRP, "stub+usd"), None);
+        assert_eq!(current.rate(XRP, "stub"), None);
         assert_eq!(current.fee_ppm, 1_000);
 
         // An older one, or the same again, sets nothing back.

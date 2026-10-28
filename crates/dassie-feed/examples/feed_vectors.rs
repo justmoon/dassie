@@ -25,14 +25,14 @@ mod support;
 use dassie_feed::{Cookie, Feed, assemble_feed, encode_challenge, encode_subscribe, sign_feed};
 use dassie_identity::{NodeKey, Signature};
 use serde_json::{Value, json};
-use support::{empty_feed, hex, key, largest_feed, longest_ids, other_key, two_ledger_feed};
+use support::{empty_feed, hex, key, largest_feed, longest_ids, other_key, two_method_feed};
 
 fn main() {
     let key = key();
     let ids = longest_ids();
     let feeds = [
         ("heartbeat", empty_feed()),
-        ("two ledgers", two_ledger_feed()),
+        ("two methods", two_method_feed()),
         ("largest", largest_feed(&ids)),
     ];
     let cookie = Cookie::from_bytes(core::array::from_fn(|index| 0xc0 + index as u8));
@@ -63,7 +63,7 @@ fn feed_vector(name: &str, key: &NodeKey, feed: &Feed<'_>) -> Value {
         "sequenceMs": feed.sequence_ms,
         "validUntilMs": feed.valid_until_ms,
         "feePpm": feed.fee_ppm,
-        "ledgers": feed.ledgers.iter().map(|ledger| json!([ledger.id, ledger.max_packet_amount])).collect::<Vec<_>>(),
+        "methods": feed.methods.iter().map(|method| json!([method.id, method.max_packet_amount])).collect::<Vec<_>>(),
         "rates": feed.rates.iter().map(|rate| json!([rate.from, rate.to, rate.rate_e15])).collect::<Vec<_>>(),
         "datagram": hex(&datagram),
     })
@@ -72,7 +72,7 @@ fn feed_vector(name: &str, key: &NodeKey, feed: &Feed<'_>) -> Value {
 /// Feeds that decode but must not verify, and datagrams that must not
 /// decode, each with the error.
 fn refused(key: &NodeKey) -> Value {
-    let feed = two_ledger_feed();
+    let feed = two_method_feed();
     let signed = feed.signed_bytes().unwrap();
 
     let mut tampered = key.sign(&signed).as_bytes().to_owned();
@@ -94,13 +94,14 @@ fn refused(key: &NodeKey) -> Value {
     signature[0] = 1;
     let small = assemble_feed(&small_signed, &Signature::from_bytes(signature));
 
+    // Version 1, which named ledgers, is another version now.
     let mut version = sign_feed(key, &feed).unwrap();
-    version[0] = 2;
+    version[0] = 1;
 
     json!([
         { "name": "tampered signature", "datagram": hex(&tampered), "error": "Signature" },
         { "name": "signed by another key", "datagram": hex(&foreign), "error": "Signature" },
         { "name": "small-order key", "datagram": hex(&small), "error": "PublicKey" },
-        { "name": "version 2", "datagram": hex(&version), "error": "Version" },
+        { "name": "version 1", "datagram": hex(&version), "error": "Version" },
     ])
 }

@@ -18,13 +18,13 @@ use core::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use dassie_feed::{
     COOKIE_BYTES, Cookie, CookieSecret, Decision, FEED_HEARTBEAT_MS, FEED_MIN_INTERVAL_MS, Feed,
-    Limits, MAX_DATAGRAM_BYTES, MAX_LEDGERS, Message, Poll, Rate, Schedule, SubscriberTable,
+    Limits, MAX_DATAGRAM_BYTES, MAX_METHODS, Message, Poll, Rate, Schedule, SubscriberTable,
     assemble_feed, decode, encode_challenge, encode_subscribe, sign_feed,
 };
 use dassie_identity::Signature;
 use dassie_kit::ClientKey;
 use proptest::prelude::*;
-use support::{feed_of, key, two_ledger_feed};
+use support::{feed_of, key, two_method_feed};
 
 /// Re-encodes a decoded datagram.
 fn encode(message: &Message<'_>) -> Vec<u8> {
@@ -38,15 +38,15 @@ fn encode(message: &Message<'_>) -> Vec<u8> {
 }
 
 const IDS: [&str; 10] = [
-    "a+b",
-    "stub+usd",
-    "xrpl+xrp",
-    "xrpl-testnet+xrp",
-    "xrpl-testnet-dsusd+usd",
-    "xrpl-testnet-rlusd+usd",
-    "z",
+    "hub-xrpl-testnet-dsusd",
+    "hub-xrpl-testnet-xrp",
+    "hub-xrpl-xrp",
+    "stub",
+    "xrpl-testnet-xrp",
+    "xrpl-xrp",
     "z0",
-    "z1-+",
+    "z1-",
+    "zz",
     "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
 ];
 
@@ -54,19 +54,19 @@ const IDS: [&str; 10] = [
 /// other fields within their rules.
 fn feeds() -> impl Strategy<Value = Feed<'static>> {
     (
-        proptest::sample::subsequence(IDS.to_vec(), 0..=MAX_LEDGERS),
-        proptest::collection::vec(any::<(bool, u64)>(), MAX_LEDGERS * MAX_LEDGERS),
+        proptest::sample::subsequence(IDS.to_vec(), 0..=MAX_METHODS),
+        proptest::collection::vec(any::<(bool, u64)>(), MAX_METHODS * MAX_METHODS),
         any::<(u64, u64, u64)>(),
         0..=1_000_000u32,
     )
         .prop_map(
-            |(ledgers, pairs, (sequence, validity, max_packet), fee_ppm)| {
-                let count = ledgers.len() as u8;
+            |(methods, pairs, (sequence, validity, max_packet), fee_ppm)| {
+                let count = methods.len() as u8;
                 let mut rates = Vec::new();
                 for from in 0..count {
                     for to in (0..count).filter(|to| *to != from) {
                         let (present, rate) =
-                            pairs[usize::from(from) * MAX_LEDGERS + usize::from(to)];
+                            pairs[usize::from(from) * MAX_METHODS + usize::from(to)];
                         if present {
                             rates.push(Rate {
                                 from,
@@ -76,13 +76,13 @@ fn feeds() -> impl Strategy<Value = Feed<'static>> {
                         }
                     }
                 }
-                let mut feed = feed_of(&key(), ledgers, rates);
+                let mut feed = feed_of(&key(), methods, rates);
                 feed.sequence_ms = sequence.min(u64::MAX - 1);
                 feed.valid_until_ms =
                     feed.sequence_ms + 1 + validity % (u64::MAX - feed.sequence_ms);
                 feed.fee_ppm = fee_ppm;
-                for (index, ledger) in feed.ledgers.iter_mut().enumerate() {
-                    ledger.max_packet_amount = max_packet.wrapping_mul(index as u64 + 1);
+                for (index, method) in feed.methods.iter_mut().enumerate() {
+                    method.max_packet_amount = max_packet.wrapping_mul(index as u64 + 1);
                 }
                 feed
             },
@@ -129,7 +129,7 @@ proptest! {
     fn a_changed_feed_never_passes_for_the_original(
         edits in proptest::collection::vec((any::<prop::sample::Index>(), any::<u8>(), 0..3u8), 1..4),
     ) {
-        let original = sign_feed(&key(), &two_ledger_feed()).unwrap();
+        let original = sign_feed(&key(), &two_method_feed()).unwrap();
         let Ok(Message::Feed(signed)) = decode(&original) else { unreachable!() };
         let original_signed = signed.signed.to_vec();
         let mut bytes = original.clone();
@@ -159,7 +159,7 @@ proptest! {
         prop_assert_eq!(&signed.feed, &feed);
         prop_assert!(signed.verify().is_ok());
         for rate in &feed.rates {
-            let (from, to) = (feed.ledgers[usize::from(rate.from)].id, feed.ledgers[usize::from(rate.to)].id);
+            let (from, to) = (feed.methods[usize::from(rate.from)].id, feed.methods[usize::from(rate.to)].id);
             prop_assert_eq!(feed.rate(from, to), Some(rate.rate_e15));
         }
     }

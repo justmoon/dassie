@@ -318,6 +318,45 @@ fn a_hub_scheme_is_offered_once_it_synced_and_after_a_restart_unheard() {
     assert_eq!(core.peer.schemes(), [hub], "not offered after a restart");
 }
 
+// spec/areas/rate-feed.md#what-it-publishes: the rate feed names the
+// methods the node offers its peers, each with its ledger: a hub's once it
+// synced, never the owner book of its asset, which peers with nobody. A
+// change in them is a change in what a feed says, which the feed follows.
+#[test]
+fn the_feed_names_the_methods_the_node_offers() {
+    use dassie_ledger::LedgerId;
+
+    let (mut ledger, _) = funded_ledger();
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let test = (
+        dassie_node_core::config::Realm::Test,
+        dassie_node_core::config::LiveRealm::Refused,
+    );
+    let mut core = core_with(store, 12, test, Policies::DEV).unwrap();
+    add_stub(&mut core, COMMITTING);
+    add_xrpl(&mut core, "xrpl-testnet-xrp", SHARED_CONFIG).unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(600, 300))
+        .unwrap();
+    let mut outputs = Vec::new();
+    core.begin_step(NOW + 1_000);
+    core.finish_step(&mut outputs);
+    let (stub, hub) = (scheme_id("stub"), scheme_id(dassie_hub::member::SCHEME_ID));
+    assert_eq!(core.feed_methods(), [(stub, LedgerId::StubUsd)]);
+    let _ = core.take_changes();
+
+    Validators::new().no_account(&mut core);
+    core.finish_step(&mut outputs);
+    assert!(core.take_changes().prices, "the methods changed");
+    let mut methods = core.feed_methods();
+    methods.sort_unstable_by(|(a, _), (b, _)| a.as_str().cmp(b.as_str()));
+    let expected = [
+        (hub, LedgerId::HubXrplTestnetXrp),
+        (stub, LedgerId::StubUsd),
+    ];
+    assert_eq!(methods, expected);
+}
+
 /// The fake XRP Ledger, testnet or `mainnet`, its clock at the tests'
 /// [`NOW`], so that the validations a node reads of it are fresh.
 fn fake_ledger(mainnet: bool) -> dassie_xrpl::fake::FakeLedger {

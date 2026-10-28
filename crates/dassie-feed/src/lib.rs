@@ -1,11 +1,11 @@
 //! Dassie's public rate feed, without IO (spec/areas/rate-feed.md).
 //!
 //! A core node tells anyone who asks what it converts at: for each ordered
-//! pair of its ledgers, the rate a packet gets, with its fee and its largest
-//! packet. It encodes and signs one datagram, sends it over UDP to every
-//! subscriber, and forgets it: no retries, no acknowledgements, and no state
-//! beyond the subscriber table. A subscriber that misses one waits for the
-//! next.
+//! pair of the settlement methods its peers pay it on, the rate a packet
+//! gets, with its fee and each method's largest packet. It encodes and
+//! signs one datagram, sends it over UDP to every subscriber, and forgets
+//! it: no retries, no acknowledgements, and no state beyond the subscriber
+//! table. A subscriber that misses one waits for the next.
 //!
 //! - [`wire`]: the datagrams, in canonical OER with a version byte, and the
 //!   feed's Ed25519 signature;
@@ -40,9 +40,9 @@ pub use table::{
     SUBSCRIPTION_TTL_MS, SubscriberTable, TableStats,
 };
 pub use wire::{
-    CHALLENGE_BYTES, COOKIE_BYTES, FEED_OID, Feed, InvalidFeed, Ledger, MAX_DATAGRAM_BYTES,
-    MAX_FEED_BYTES, MAX_LEDGER_ID_BYTES, MAX_LEDGERS, MAX_PPM, MAX_RATES, Message, RATE_PRECISION,
-    Rate, SUBSCRIBE_BYTES, SignedFeed, VERSION, WireError, assemble_feed, decode, encode_challenge,
+    CHALLENGE_BYTES, COOKIE_BYTES, FEED_OID, Feed, InvalidFeed, MAX_DATAGRAM_BYTES, MAX_FEED_BYTES,
+    MAX_METHOD_ID_BYTES, MAX_METHODS, MAX_PPM, MAX_RATES, Message, Method, RATE_PRECISION, Rate,
+    SUBSCRIBE_BYTES, SignedFeed, VERSION, WireError, assemble_feed, decode, encode_challenge,
     encode_subscribe, sign_feed,
 };
 
