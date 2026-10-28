@@ -11,6 +11,8 @@ fn the_peer_settings_start_at_the_default_and_change() {
         connector_fee_ppm: 100_000,
         fx_spread_ppm: 1,
         rebalance_ppm: 0,
+        offer_swaps: false,
+        swapping: true,
     };
     store
         .commit_ledger(&LedgerBatch {

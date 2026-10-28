@@ -137,6 +137,12 @@ impl PeerNode {
                 Inbound::Reply(self.name_unseal(&accepted, name, &salt))
             }
             Content::NameRenew(name) => Inbound::Reply(self.name_renew(&accepted, name)),
+            Content::Subscription { subscribe } => {
+                Inbound::Reply(self.subscription_request(hooks, &accepted, subscribe))
+            }
+            Content::Snapshot(snapshot) => {
+                Inbound::Reply(self.snapshot_request(hooks, &accepted, snapshot))
+            }
             other => Inbound::Reply(self.answer(hooks, &accepted, other)),
         }
     }
@@ -359,7 +365,9 @@ impl PeerNode {
             | Content::NameRenew(_)
             | Content::MethodPacket { .. }
             | Content::MethodAdd { .. }
-            | Content::MethodDrop { .. } => Reply::refuse(400, "unexpected"),
+            | Content::MethodDrop { .. }
+            | Content::Subscription { .. }
+            | Content::Snapshot(_) => Reply::refuse(400, "unexpected"),
         }
     }
 

@@ -17,6 +17,7 @@ mod hub_moves;
 mod pricing;
 mod removal;
 mod slots;
+mod snapshots;
 
 const NOW: u64 = 1_800_000_000_000;
 
@@ -822,6 +823,8 @@ fn peer_settings_are_checked_and_kept() {
         connector_fee_ppm: 1_000,
         fx_spread_ppm: 2_000,
         rebalance_ppm: 30_000,
+        offer_swaps: false,
+        swapping: false,
     };
     core.set_peer_settings(settings).unwrap();
     core.flush();
@@ -831,6 +834,8 @@ fn peer_settings_are_checked_and_kept() {
     let core = core_on(store, 13);
     assert_eq!(core.peer_settings(), settings);
     assert_eq!(core.price_table().pricing(), settings.pricing());
+    // And it takes no swaps, as kept.
+    assert!(!core.connector.offers_swaps());
 }
 
 // spec/decisions/random-seed-simulations.md: a commit that fails stops the

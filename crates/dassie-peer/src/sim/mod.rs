@@ -95,6 +95,11 @@ pub struct StubHooks {
     /// Whether the node refuses every further method of a peering, as a
     /// node does whose accounts for one do not fit.
     pub refuse_methods: bool,
+    /// Whether the node offers swaps, and swaps: it takes subscriptions to
+    /// its snapshots, and subscribes to those of every peering with two
+    /// methods or more, each scheme standing for a ledger of its own
+    /// (spec/decisions/peer-swaps.md).
+    pub swaps: bool,
 }
 
 impl StubHooks {
@@ -202,6 +207,14 @@ impl PeeringHooks for StubHooks {
 
     fn closable(&self, node: NodeId) -> bool {
         !self.holding.contains(&node) && !self.busy.contains(&node)
+    }
+
+    fn offers_swaps(&self) -> bool {
+        self.swaps
+    }
+
+    fn wants_snapshots(&self, _: NodeId, peering: &crate::Peering) -> bool {
+        self.swaps && peering.methods.len() >= 2
     }
 }
 

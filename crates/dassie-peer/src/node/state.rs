@@ -622,6 +622,7 @@ impl PeerNode {
             "only peers are marked unreached"
         );
         self.check_periphery();
+        self.check_snapshots();
         self.check_channels();
         self.check_names();
         self.check_entries();

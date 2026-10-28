@@ -21,11 +21,12 @@ use dassie_peer::names::{Commitment, MAX_NAME_BYTES, Name, Salt};
 use dassie_peer::wire::{
     Content, EXTENSION_FEED, EXTENSION_PERIPHERY, EXTENSION_POST_QUANTUM, Entry, HubDetails,
     InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_NAME_LIST,
-    MAX_NAME_LIST_BYTES, MAX_OFFER_DETAILS, MAX_OFFERS, MAX_URL_BYTES, MethodResponse, NameHolding,
-    NameListResponse, NameReceipt, NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse,
-    RefusalReason, SchemeId, SettlementOffer, SignedNodeInfo, TerminationReason, decode_expiry,
-    decode_hash, decode_octets, decode_settling, encode_expiry, encode_octets, encode_settling,
-    is_valid_url, peek_kind, sign_node_info,
+    MAX_NAME_LIST_BYTES, MAX_OFFER_DETAILS, MAX_OFFERS, MAX_SNAPSHOT_BYTES, MAX_URL_BYTES,
+    MethodResponse, NameHolding, NameListResponse, NameReceipt, NodeInfo, NodeListResponse,
+    PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SettlementOffer, SignedNodeInfo,
+    SubscriptionResponse, TerminationReason, decode_expiry, decode_hash, decode_octets,
+    decode_settling, encode_expiry, encode_octets, encode_settling, is_valid_url, peek_kind,
+    sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -389,6 +390,7 @@ proptest! {
         let _ = NodeListResponse::decode_exact(&bytes);
         let _ = NameReceipt::decode_exact(&bytes);
         let _ = NameListResponse::decode_exact(&bytes);
+        let _ = SubscriptionResponse::decode_exact(&bytes);
         let _ = peek_kind(&bytes);
     }
 
@@ -1069,8 +1071,8 @@ fn settlement_method_messages_are_pinned_and_bounded() {
         assert_eq!(kind.carries_packet(), kind == Kind::MethodPacket);
     }
     assert_eq!(Content::decode_exact(&direct.to_vec()).unwrap(), direct);
-    assert_eq!(Kind::from_tag(19), None);
-    assert!(Content::decode_exact(&[0x93]).is_err());
+    assert_eq!(Kind::from_tag(21), None);
+    assert!(Content::decode_exact(&[0x95]).is_err());
 
     // A commitment past the bound is malformed; one at it is not.
     let at_bound = Content::MethodPacket {
@@ -1108,13 +1110,72 @@ fn method_answers_are_pinned() {
     }
     // Unknown reasons, past the last, read as unspecified; unknown tags are
     // malformed.
-    for code in [0x09, 0x63] {
+    for code in [0x0a, 0x63] {
         assert_eq!(
             MethodResponse::decode_exact(&[0x81, code]),
             Ok(MethodResponse::Refused(RefusalReason::Unspecified))
         );
     }
     assert!(MethodResponse::decode_exact(&[0x82, 0x00]).is_err());
+}
+
+// spec/decisions/peer-swaps.md: a `subscription` is a BOOLEAN, and a
+// `snapshot` an OCTET STRING of one to `MAX_SNAPSHOT_BYTES`, opaque to the
+// peer protocol; the answer to a subscription is shaped as a peering
+// answer's, and `NoSwaps` is the reason after the last before it.
+#[test]
+fn subscriptions_and_snapshots_are_pinned() {
+    let subscribe = Content::Subscription { subscribe: true };
+    let unsubscribe = Content::Subscription { subscribe: false };
+    assert_eq!(to_hex(&subscribe.to_vec()), "93ff");
+    assert_eq!(to_hex(&unsubscribe.to_vec()), "9300");
+    let snapshot = Content::Snapshot(&[0xab, 0xcd]);
+    assert_eq!(to_hex(&snapshot.to_vec()), "9402abcd");
+    for (tag, content) in [(19, &subscribe), (19, &unsubscribe), (20, &snapshot)] {
+        assert_eq!(
+            Content::decode_exact(&content.to_vec()).as_ref(),
+            Ok(content)
+        );
+        let kind = Kind::from_tag(tag).unwrap();
+        assert_eq!((content.kind(), kind.tag()), (kind, tag));
+        assert!(!kind.is_read_only());
+        assert!(!kind.carries_packet());
+        let mut trailing = content.to_vec();
+        trailing.push(0);
+        assert!(Content::decode_exact(&trailing).is_err());
+    }
+    // A BOOLEAN is 0x00 or 0xFF, nothing else.
+    for byte in [0x01, 0x7f, 0xfe] {
+        assert!(Content::decode_exact(&[0x93, byte]).is_err());
+    }
+    // A snapshot is never empty, and at most one datagram.
+    assert!(Content::decode_exact(&[0x94, 0x00]).is_err());
+    let at_bound = Content::Snapshot(&[0x5a; MAX_SNAPSHOT_BYTES]);
+    let mut bytes = at_bound.to_vec();
+    assert_eq!(bytes.len(), 1 + 3 + MAX_SNAPSHOT_BYTES);
+    assert_eq!(Content::decode_exact(&bytes).unwrap(), at_bound);
+    // One byte longer, its length says so too.
+    bytes[3] += 1;
+    bytes.push(0x5a);
+    assert!(Content::decode_exact(&bytes).is_err());
+
+    assert_eq!(RefusalReason::NoSwaps.code(), 9);
+    assert_eq!(RefusalReason::from_code(9), RefusalReason::NoSwaps);
+    let accepted = SubscriptionResponse::Accepted;
+    let refused = SubscriptionResponse::Refused(RefusalReason::NoSwaps);
+    assert_eq!(to_hex(&accepted.to_vec()), "80");
+    assert_eq!(to_hex(&refused.to_vec()), "8109");
+    for response in [accepted, refused] {
+        assert_eq!(
+            SubscriptionResponse::decode_exact(&response.to_vec()),
+            Ok(response)
+        );
+    }
+    assert_eq!(
+        SubscriptionResponse::decode_exact(&[0x81, 0x0a]),
+        Ok(SubscriptionResponse::Refused(RefusalReason::Unspecified))
+    );
+    assert!(SubscriptionResponse::decode_exact(&[0x82]).is_err());
 }
 
 // spec/areas/peer-protocol.md#link-states: `dassie/2` numbers its

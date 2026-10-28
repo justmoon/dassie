@@ -543,7 +543,7 @@ pub const RATES: [(&str, u128); 2] = [
 pub const CHARGES: PeerSettings = PeerSettings {
     connector_fee_ppm: 10_000,
     fx_spread_ppm: 5_000,
-    rebalance_ppm: dassie_connector::pricing::DEFAULT_REBALANCE_PPM,
+    ..PeerSettings::DEFAULT
 };
 
 /// How far a run across currencies moves a converting node's funds at
