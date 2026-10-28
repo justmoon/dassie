@@ -4,7 +4,9 @@
 #![allow(clippy::panic)]
 
 use dassie_connector::sim::*;
-use dassie_connector::{Config, EndpointId, Forwarded, Outcome, PacketState, RATE_PRECISION};
+use dassie_connector::{
+    Config, EndpointId, Forwarded, Outcome, PacketState, RATE_PRECISION, Responded,
+};
 use dassie_ilp::{Address, AmountTooLarge, ErrorCode, MAX_PACKET_LENGTH, Reject, Response, ildcp};
 use dassie_ledger::{
     AccountName, AccountPath, JournalEntry, LedgerId, Name, Reference, TransferState,
@@ -212,6 +214,55 @@ fn a_wrong_fulfillment_is_rejected_at_once() {
         h.respond(NOW + 20, RECEIVER, sent.request_id, &fulfill([3; 32]))
             .is_none()
     );
+}
+
+// A response that is no ILP packet fails its packet at once with T00, and
+// the money goes back.
+#[test]
+fn a_response_that_does_not_decode_is_a_t00() {
+    let mut h = Harness::new(Config::DEFAULT, 0);
+    let sent = pay(&mut h, 1, 10, [3; 32]);
+    let upstream = h
+        .respond(NOW + 10, RECEIVER, sent.request_id, &[0xff, 1, 2])
+        .unwrap();
+    assert_eq!((upstream.to, upstream.request_id), (ALICE, 1));
+    assert_eq!(
+        h.reject_written(upstream.length).0,
+        ErrorCode::T00_INTERNAL_ERROR
+    );
+    assert_eq!(h.net(h.owner), 0);
+    assert_eq!(h.ledger.pending_transfers().count(), 0);
+    assert_eq!(h.connector.pending_count(), 0);
+}
+
+// A response that matches no packet in flight, for a request ID never
+// sent, from an endpoint the packet did not go to, or for a packet already
+// resolved, is dropped and counted: it moves no money, sends nothing
+// upstream, and leaves the packet in flight to its own response.
+#[test]
+fn an_unexpected_response_is_dropped_and_counted() {
+    let mut h = Harness::new(Config::DEFAULT, 0);
+    let sent = pay(&mut h, 1, 10, [3; 32]);
+    let pending = h.ledger.pending_transfers().count();
+    for (from, request_id) in [(RECEIVER, sent.request_id + 1), (BOB, sent.request_id)] {
+        let responded = h.respond_full(NOW + 10, from, request_id, &fulfill([3; 32]));
+        assert_eq!(responded, Responded::Unmatched);
+    }
+    assert_eq!(h.connector.stats().unexpected_responses, 2);
+    assert_eq!(h.connector.pending_count(), 1);
+    assert_eq!(h.ledger.pending_transfers().count(), pending);
+    assert_eq!(h.net(h.owner), 0);
+    let upstream = h
+        .respond(NOW + 11, RECEIVER, sent.request_id, &fulfill([3; 32]))
+        .unwrap();
+    assert_eq!((upstream.to, upstream.request_id), (ALICE, 1));
+    assert_eq!(h.net(h.owner), 10);
+    let again = reject(ErrorCode::F99_APPLICATION_ERROR);
+    let responded = h.respond_full(NOW + 12, RECEIVER, sent.request_id, &again);
+    assert_eq!(responded, Responded::Unmatched);
+    assert_eq!(h.connector.stats().unexpected_responses, 3);
+    assert_eq!(h.connector.stats().fulfilled, 1);
+    assert_eq!(h.net(h.owner), 10);
 }
 
 // A packet is waited for until its own expiry, not a shorter timeout of
