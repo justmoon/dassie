@@ -13,7 +13,7 @@ import { createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { amountText, parseAmount, parseFailureText } from "@dassie/ui/currency";
 import { useNodeData } from "@dassie/ui/node-data";
-import { useRouter, useSearchParam } from "@dassie/ui/router";
+import { Link, useRouter, useSearchParam } from "@dassie/ui/router";
 import { describe, useClient } from "@dassie/ui/rpc";
 import { Card, ErrorText, Field, PageTitle } from "@dassie/ui/ui";
 import {
@@ -24,7 +24,7 @@ import {
   recipientName,
   type Step,
 } from "./send.ts";
-import { useWalletAddresses } from "./WalletAddresses.tsx";
+import { assetLabel, useWalletAddresses } from "./WalletAddresses.tsx";
 
 /** How long typing pauses before the recipient is looked up. */
 const LOOKUP_PAUSE_MS = 400;
@@ -50,19 +50,31 @@ export function Send(): JSX.Element {
   const ticker = setInterval(() => setNow(Date.now()), 1_000);
   onCleanup(() => clearInterval(ticker));
 
-  // The ledger that pays: the one chosen, else one in the recipient's
-  // asset, else the default, `$host`'s. The node pays from the ledger the
-  // route starts on, and says so if it is another.
-  const ledgers = () => data.ledgers() ?? [];
+  // The owner pays in an asset, from its one balance, which the node pays
+  // from the ledger it names (spec/decisions/one-balance-per-asset.md): the
+  // one chosen, else one in the recipient's asset, else the default,
+  // `$host`'s. The node pays from the ledger the route starts on, and says
+  // so if it is another. An asset no route can start from is not offered.
+  const balances = () =>
+    data.balances().filter((balance) => balance.paysFrom !== "");
   const chosen = () => {
-    const all = ledgers();
-    const same = all.find((entry) =>
-      entry.assetCode === recipient()?.assetCode &&
-      entry.assetScale === recipient()?.assetScale
+    const all = balances();
+    const same = all.find((balance) =>
+      balance.assetCode === recipient()?.assetCode &&
+      balance.assetScale === recipient()?.assetScale
     );
-    const wanted = ledger() ?? same?.id ??
-      addresses.addresses()?.find((address) => address.isDefault)?.ledger;
-    return all.find((entry) => entry.id === wanted) ?? all[0];
+    const fallback = addresses.addresses()?.find((address) => address.isDefault)
+      ?.ledger;
+    const wanted = ledger() ?? same?.paysFrom;
+    return all.find((balance) => balance.paysFrom === wanted) ??
+      all.find((balance) =>
+        fallback !== undefined && balance.ledgers.includes(fallback)
+      ) ?? all[0];
+  };
+  /** The asset a quote pays from, for people. */
+  const paidFrom = (id: string) => {
+    const balance = data.balances().find((entry) => entry.ledgers.includes(id));
+    return balance ? assetLabel(balance.name) : id;
   };
   // The amount is in the recipient's asset, or the paying ledger's.
   const scale = () =>
@@ -146,9 +158,9 @@ export function Send(): JSX.Element {
     setPending(true);
     try {
       // What was found, not what the box says now.
-      // An amount to send is in the chosen ledger's asset, so it pays
-      // from that one; else the node pays from the route's.
-      const from = fixed() === "send" ? chosen()?.id : ledger();
+      // An amount to send is in the chosen asset, so it pays from that;
+      // else the node pays from the route's.
+      const from = fixed() === "send" ? chosen()?.paysFrom : ledger();
       const response = await client.call("quoteSend", {
         recipient: found.request?.url ?? found.walletAddress,
         ledger: from ?? "",
@@ -246,27 +258,28 @@ export function Send(): JSX.Element {
                 {(text) => <p class="muted">For: {text()}</p>}
               </Show>
               <Show
-                when={ledgers().length > 0}
+                when={balances().length > 0}
                 fallback={
                   <p class="error" role="alert">
-                    You have no ledger to pay from.
+                    You have nothing to pay from. Payments go through a
+                    settlement hub: <Link href="/ledgers/create">add one</Link>.
                   </p>
                 }
               >
-                <Show when={ledgers().length > 1}>
+                <Show when={balances().length > 1}>
                   <Field label="Pay from" for={`${id}-ledger`}>
                     <select
                       id={`${id}-ledger`}
                       data-testid="send-ledger"
                       onChange={(event) => setLedger(event.currentTarget.value)}
                     >
-                      <For each={ledgers()}>
-                        {(entry) => (
+                      <For each={balances()}>
+                        {(balance) => (
                           <option
-                            value={entry.id}
-                            selected={entry.id === chosen()?.id}
+                            value={balance.paysFrom}
+                            selected={balance.paysFrom === chosen()?.paysFrom}
                           >
-                            {entry.id}
+                            {assetLabel(balance.name)}
                           </option>
                         )}
                       </For>
@@ -275,14 +288,41 @@ export function Send(): JSX.Element {
                 </Show>
                 <Show when={chosen()}>
                   {(entry) => (
-                    <p class="muted">
-                      You have{" "}
-                      <Amount
-                        value={entry().ownerBalance}
-                        currency={ledgerCurrency(entry())}
-                        testid="send-balance"
-                      />.
-                    </p>
+                    <>
+                      <p class="muted">
+                        You have{" "}
+                        <Amount
+                          value={entry().ownerBalance}
+                          currency={ledgerCurrency(entry())}
+                          testid="send-balance"
+                        />.
+                      </p>
+                      {
+                        /* What the node pays now, where less: payments under
+                          way, or the owner book not counting, which the
+                          node says why. */
+                      }
+                      <Show
+                        when={entry().ownerBalance > 0n &&
+                          entry().spendable < entry().ownerBalance}
+                      >
+                        <p class="muted" data-testid="send-spendable">
+                          You can pay{" "}
+                          <Amount
+                            value={entry().spendable}
+                            currency={ledgerCurrency(entry())}
+                          />{" "}
+                          now
+                          <Show when={entry().spendableHeld} fallback=".">
+                            {(why) => (
+                              <>
+                                : only what is in the hub counts, since {why()}.
+                              </>
+                            )}
+                          </Show>
+                        </p>
+                      </Show>
+                    </>
                   )}
                 </Show>
                 <fieldset class="radios">
@@ -378,7 +418,9 @@ export function Send(): JSX.Element {
                   )}
                 </dd>
                 <dt>From</dt>
-                <dd data-testid="send-review-ledger">{quoted().ledger}</dd>
+                <dd data-testid="send-review-ledger">
+                  {paidFrom(quoted().ledger)}
+                </dd>
                 <dt>You send</dt>
                 <dd>
                   <Amount

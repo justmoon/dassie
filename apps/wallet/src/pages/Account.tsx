@@ -1,8 +1,9 @@
 /**
  * Home (spec/areas/wallet.md#pages): the payment pointer, and the owner's
- * balance on each ledger in its own currency, as it changes, with the
- * total in the display currency (spec/decisions/owner-ledger.md) while the
- * rates allow.
+ * balance in each asset in its own currency, as it changes, its settlement
+ * hub's and its own account's together
+ * (spec/decisions/one-balance-per-asset.md), with the total in the display
+ * currency (spec/decisions/owner-ledger.md) while the rates allow.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -11,11 +12,11 @@ import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { useNodeData } from "@dassie/ui/node-data";
 import { Link } from "@dassie/ui/router";
 import {
+  assetLabel,
   FrontDoorNote,
   useWalletAddresses,
 } from "./payments/WalletAddresses.tsx";
 import { Card, LiveNote, PageTitle } from "@dassie/ui/ui";
-import { schemeName } from "./schemes.ts";
 
 export function Account(): JSX.Element {
   const data = useNodeData();
@@ -26,23 +27,21 @@ export function Account(): JSX.Element {
       <Card title="Balance" testid="page-account">
         <LiveNote status={data.ledgersStatus()} />
         <ul class="balances">
-          <For each={data.ledgers() ?? []} keyed={(ledger) => ledger.id}>
-            {(ledger) => (
+          <For each={data.balances()} keyed={(balance) => balance.name}>
+            {(balance) => (
               <li>
-                <span class="muted">
-                  {schemeName(ledger().settlementScheme)}
-                </span>
+                <span class="muted">{assetLabel(balance().name)}</span>
                 <Amount
-                  value={ledger().ownerBalance}
-                  currency={ledgerCurrency(ledger())}
+                  value={balance().ownerBalance}
+                  currency={ledgerCurrency(balance())}
                   size="lg"
-                  testid={`balance-${ledger().id}`}
+                  testid={`balance-${balance().name}`}
                 />
-                <Show when={ledger().ownerPending > 0n}>
+                <Show when={balance().ownerPending > 0n}>
                   <span class="muted">
                     (<Amount
-                      value={ledger().ownerPending}
-                      currency={ledgerCurrency(ledger())}
+                      value={balance().ownerPending}
+                      currency={ledgerCurrency(balance())}
                     />{" "}
                     in flight)
                   </span>

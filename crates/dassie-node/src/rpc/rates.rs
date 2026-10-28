@@ -9,7 +9,7 @@ use dassie_ledger::Asset;
 use super::handlers::Reply;
 use super::proto::{self, request::Method, response};
 use super::{RpcError, convert as times};
-use crate::engine::{Engine, LedgerView};
+use crate::engine::{BalanceView, Engine};
 use crate::node::Node;
 use crate::rates::{self, MAX_SOURCES, RateSource, SourceKind, currency};
 
@@ -96,7 +96,7 @@ pub(super) async fn ledgers(
     node: &Node,
     engine: &Engine,
 ) -> Result<proto::ListLedgersResponse, RpcError> {
-    let (views, assets) = engine.ledgers_and_assets().await?;
+    let (views, balances, assets) = engine.ledgers_and_assets().await?;
     let rates = engine.rates().await?;
     let display = node
         .store()
@@ -115,15 +115,16 @@ pub(super) async fn ledgers(
             })
             .collect(),
         display_currency: display.unwrap_or_default().into(),
-        total: display.and_then(|code| total(&views, &rates, code, now)),
+        total: display.and_then(|code| total(&balances, &rates, code, now)),
         external_assets: assets.iter().map(super::ledger::external_asset).collect(),
+        balances: balances.iter().map(super::ledger::balance).collect(),
     })
 }
 
-/// What the owner has on every ledger, in `code`: none while a rate it
+/// What the owner has in every asset, in `code`: none while a rate it
 /// needs is missing or stale.
 fn total(
-    views: &[LedgerView],
+    balances: &[BalanceView],
     rates: &Rates,
     code: &'static str,
     now: u64,
@@ -133,14 +134,16 @@ fn total(
         scale: DISPLAY_SCALE,
     };
     let mut sum: i128 = 0;
-    for view in views {
-        let from = view.id.asset();
+    for balance in balances {
+        let Some(from) = balance.ledgers.first().map(|ledger| ledger.asset()) else {
+            continue;
+        };
         if !rates.fresh(from.code, code, now, MAX_RATE_AGE_MS) {
             return None;
         }
-        let magnitude = u64::try_from(view.owner_balance.unsigned_abs()).ok()?;
+        let magnitude = u64::try_from(balance.owner_balance.unsigned_abs()).ok()?;
         let converted = i128::from(convert(rates, from, to, magnitude)?);
-        sum = if view.owner_balance < 0 {
+        sum = if balance.owner_balance < 0 {
             sum.checked_sub(converted)?
         } else {
             sum.checked_add(converted)?
@@ -159,26 +162,18 @@ mod tests {
 
     use dassie_connector::RATE_PRECISION;
     use dassie_ledger::LedgerId;
-    use dassie_settlement::LedgerStatus;
 
     use super::*;
 
-    fn view(id: LedgerId, owner_balance: i128) -> LedgerView {
-        LedgerView {
-            id,
-            scheme: String::new(),
+    fn view(id: LedgerId, owner_balance: i128) -> BalanceView {
+        BalanceView {
+            name: id.wallet_name(),
+            ledgers: vec![id],
+            pays_from: Some(id),
             owner_balance,
             owner_pending: 0,
-            on_ledger_balance: 0,
-            reserve: 0,
-            deposit_address: None,
-            issuer: None,
-            faucet: false,
-            status: LedgerStatus::Synced,
-            waiting: None,
-            peg: None,
-            removal_blockers: Vec::new(),
-            removing: None,
+            spendable: 0,
+            spendable_held: None,
         }
     }
 

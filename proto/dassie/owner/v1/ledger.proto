@@ -145,13 +145,49 @@ message ListLedgersResponse {
   repeated ExchangeRate rates = 2;
   // The currency the owner sees totals in; empty for none.
   string display_currency = 3;
-  // What the owner has on every ledger together, in the display currency
-  // at the current rates. Absent without a display currency, or while a
-  // rate it needs is missing or stale.
+  // What the owner has on every ledger together, and on its way between
+  // them, in the display currency at the current rates. Absent without a
+  // display currency, or while a rate it needs is missing or stale.
   DisplayTotal total = 4;
   // What the ledgers settle through, in a fixed order: each external asset
   // with what it holds as its ledger says, never as the books add it up.
   repeated ExternalAsset external_assets = 5;
+  // The owner's balance in each asset, in the order of the ledgers: what
+  // the owner sees and pays from.
+  repeated AssetBalance balances = 6;
+}
+
+// The owner's balance in one asset (spec/decisions/one-balance-per-asset.md):
+// what its settlement hub's ledger and the owner book that funds it hold
+// together, and a move between them while it is on neither. The node
+// manages how much of it is in the hub.
+message AssetBalance {
+  // The asset's name, as its wallet address ends: usd, xrp, dsusd or rlusd.
+  string name = 1;
+  string asset_code = 2;
+  uint32 asset_scale = 3;
+  // What the owner has of it. May be negative after a ledger lost money.
+  int64 owner_balance = 4;
+  // Of that, what packets in flight hold. A deposit into the hub on its
+  // way is not one.
+  uint64 owner_pending = 5;
+  // Its ledgers, by ID.
+  repeated string ledgers = 6;
+  // The ledger the owner's payments in it start on, which QuoteSend names:
+  // its hub's where the node is in one. Empty while no route can start on
+  // any of its ledgers, as on an owner book alone.
+  string pays_from = 7;
+  // The realm its money belongs to: TEST money has no value.
+  Realm realm = 8;
+  // What a new payment in it may spend now: what the owner has on
+  // pays_from and what the node can move into its hub from the owner
+  // book, less what unfinished payments are still to send. Less than the
+  // balance where the owner book does not count, as spendable_held says.
+  uint64 spendable = 9;
+  // Why the owner book does not count toward spendable now, for the
+  // owner to read, with what to do: the node's own moves are off, or the
+  // hub takes no deposits. Empty while it counts.
+  string spendable_held = 10;
 }
 
 // Something the node holds outside its books, which settlement schemes

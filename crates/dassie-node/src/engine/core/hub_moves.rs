@@ -715,14 +715,7 @@ impl Core {
         else {
             return 0;
         };
-        let Some(funding) = self.funding.get(&scheme) else {
-            return 0;
-        };
-        let available = self
-            .hub_account(scheme)
-            .is_some_and(|account| account.frozen().is_none())
-            && self.takes_deposits_for_payments(scheme);
-        if !funding.automatic || funding.given_up.is_some() || !available {
+        if !self.funding.contains_key(&scheme) || self.refill_held(scheme).is_some() {
             return 0;
         }
         let Some(book) = self.owner_book(scheme) else {
@@ -736,6 +729,53 @@ impl Core {
             .map(|(_, moving)| moving.held.saturating_add(moving.gone))
             .fold(0, u128::saturating_add);
         (u128::from(spendable) * u128::from(UNITS_PER_DROP)).saturating_add(on_its_way)
+    }
+
+    /// Why the owner book does not count toward the owner's payments over
+    /// the hub that books `ledger` while it holds something the node could
+    /// move in, for the owner to read, with what the owner can do; `None`
+    /// while it counts, or there is nothing to count
+    /// (spec/decisions/one-balance-per-asset.md).
+    pub(super) fn refill_withheld(&self, ledger: LedgerId) -> Option<&'static str> {
+        let scheme = self
+            .book_on(ledger)
+            .filter(|_| owner_book_ledger(ledger).is_some())?;
+        let book = self.owner_book(scheme)?;
+        self.book_spendable(book).filter(|funds| *funds > 0)?;
+        self.refill_held(scheme)
+    }
+
+    /// Why the hub of `scheme` takes nothing from the owner book for the
+    /// owner's payments, if it does not: the owner's choice, or the hub's
+    /// state.
+    fn refill_held(&self, scheme: Name) -> Option<&'static str> {
+        let funding = self.funding.get(&scheme)?;
+        if !funding.automatic {
+            return Some(
+                "your node's own moves into the hub are off: move funds into it on the Hubs \
+                 page, or let your node move funds by itself",
+            );
+        }
+        if funding.given_up.is_some() {
+            return Some(
+                "your node's own moves wait for you after a move you gave up: move funds into \
+                 the hub on the Hubs page, or let your node move funds by itself again",
+            );
+        }
+        match self.hub_account(scheme) {
+            None => return Some("your node's account in the hub is not available now"),
+            Some(account) if account.frozen().is_some() => {
+                return Some("the hub is frozen: nothing moves into it until its issuer lets go");
+            }
+            Some(_) => {}
+        }
+        if !self.takes_deposits_for_payments(scheme) {
+            return Some(
+                "the hub takes no deposits now: it stalled, shut down or made no progress in \
+                 the last few minutes",
+            );
+        }
+        None
     }
 
     /// Whether the hub of `scheme` takes a deposit for the owner's

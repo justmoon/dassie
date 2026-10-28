@@ -12,7 +12,9 @@ use super::handlers::{Items, Reply};
 use super::live::{self, Follow, KEEPALIVE, Source};
 use super::proto::{self, request::Method, response, stream_item};
 use super::{RpcError, convert};
-use crate::engine::{AssetView, Engine, EngineError, LedgerView, RemovalBlocker, TokenView};
+use crate::engine::{
+    AssetView, BalanceView, Engine, EngineError, LedgerView, RemovalBlocker, TokenView,
+};
 use crate::node::Node;
 use crate::open_payments::auth::OpError;
 use crate::store::JournalRow;
@@ -442,6 +444,29 @@ pub(super) fn ledger(view: &LedgerView) -> proto::Ledger {
         connection_problem: problem(view.status, view.waiting),
         peg: view.peg.map(peg),
         removing_methods: view.removing,
+    }
+}
+
+pub(super) fn balance(view: &BalanceView) -> proto::AssetBalance {
+    let first = view.ledgers.first();
+    proto::AssetBalance {
+        name: view.name.into(),
+        asset_code: first.map_or("", |ledger| ledger.asset().code).into(),
+        asset_scale: first.map_or(0, |ledger| ledger.asset().scale).into(),
+        owner_balance: saturate(view.owner_balance),
+        owner_pending: u64::try_from(view.owner_pending).unwrap_or(u64::MAX),
+        ledgers: view
+            .ledgers
+            .iter()
+            .map(|ledger| ledger.as_str().into())
+            .collect(),
+        pays_from: view
+            .pays_from
+            .map(|ledger| ledger.as_str().to_string())
+            .unwrap_or_default(),
+        realm: realm(first.map_or(dassie_ledger::Realm::Test, |ledger| ledger.realm())).into(),
+        spendable: u64::try_from(view.spendable).unwrap_or(u64::MAX),
+        spendable_held: view.spendable_held.unwrap_or_default().into(),
     }
 }
 

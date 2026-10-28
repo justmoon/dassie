@@ -149,6 +149,34 @@ pub struct LedgerView {
     pub removing: Option<u32>,
 }
 
+/// The owner's balance in one asset, as the owner sees it: every ledger of
+/// the asset, a settlement hub's and the owner book that funds it, and a
+/// move between them that is on neither ledger while it is on its way
+/// (spec/decisions/one-balance-per-asset.md).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BalanceView {
+    /// The asset's name, as its wallet address has it: `xrp`, `dsusd`.
+    pub name: &'static str,
+    /// Its ledgers, in the order of the ledgers.
+    pub ledgers: Vec<LedgerId>,
+    /// The ledger the owner's payments in it start on: the one whose scheme
+    /// peers, a hub's where the node is in one; `None` while none does.
+    pub pays_from: Option<LedgerId>,
+    /// What the owner has of it, on all its ledgers and on its way between
+    /// them.
+    pub owner_balance: i128,
+    /// What packets in flight hold of it.
+    pub owner_pending: u128,
+    /// What a new payment in it may spend now, from
+    /// [`pays_from`](Self::pays_from): what the owner has there, and what
+    /// the node can move into its hub, less what unfinished payments are
+    /// still to send.
+    pub spendable: u128,
+    /// Why that is less than the balance, where the owner book does not
+    /// count toward it, for the owner to read.
+    pub spendable_held: Option<&'static str>,
+}
+
 /// What keeps a scheme from being removed, with how many. Peerings that
 /// settle on it do not: removal winds their methods on it down
 /// (spec/decisions/settlement-methods.md).
@@ -1219,6 +1247,73 @@ impl Core {
         .filter(|(n, _)| *n > 0)
         .map(|(_, blocker)| blocker)
         .collect()
+    }
+
+    /// The owner's balance in each asset of `views`, in their order: what
+    /// its ledgers hold, and a deposit into its hub that left the owner
+    /// book and the hub has not booked yet.
+    pub fn balance_views(&self, views: &[LedgerView]) -> Vec<BalanceView> {
+        let mut balances: Vec<BalanceView> = Vec::new();
+        for view in views {
+            let name = view.id.wallet_name();
+            let index = match balances.iter().position(|balance| balance.name == name) {
+                Some(index) => index,
+                None => {
+                    balances.push(BalanceView {
+                        name,
+                        ledgers: Vec::new(),
+                        pays_from: None,
+                        owner_balance: 0,
+                        owner_pending: 0,
+                        spendable: 0,
+                        spendable_held: None,
+                    });
+                    balances.len() - 1
+                }
+            };
+            let Some(balance) = balances.get_mut(index) else {
+                continue;
+            };
+            assert!(
+                balance
+                    .ledgers
+                    .first()
+                    .is_none_or(|first| first.asset() == view.id.asset()),
+                "an asset's ledgers count alike"
+            );
+            balance.ledgers.push(view.id);
+            balance.owner_balance = balance.owner_balance.saturating_add(view.owner_balance);
+            balance.owner_pending = balance.owner_pending.saturating_add(view.owner_pending);
+            let peers = self
+                .schemes
+                .values()
+                .any(|active| active.scheme.ledger() == view.id && active.scheme.peers());
+            if peers && balance.pays_from.is_none_or(|ledger| !ledger.is_hub()) {
+                balance.pays_from = Some(view.id);
+            }
+        }
+        // A deposit into the hub is the owner's still, on its way: once gone
+        // from the book it counts toward the balance, and while the book
+        // holds it, it is no packet in flight.
+        for (ledger, on_its_way) in self.moves_on_their_way() {
+            if let Some(balance) = balances
+                .iter_mut()
+                .find(|balance| balance.ledgers.contains(&ledger))
+            {
+                let gone = i128::try_from(on_its_way.gone).unwrap_or(i128::MAX);
+                balance.owner_balance = balance.owner_balance.saturating_add(gone);
+                balance.owner_pending = balance.owner_pending.saturating_sub(on_its_way.held);
+            }
+        }
+        for balance in &mut balances {
+            if let Some(ledger) = balance.pays_from {
+                balance.spendable = u128::from(self.owner_available(ledger))
+                    .saturating_add(self.hub_refill(ledger))
+                    .saturating_sub(self.promised_on(ledger));
+                balance.spendable_held = self.refill_withheld(ledger);
+            }
+        }
+        balances
     }
 
     fn ledger_view(&self, ledger: LedgerId) -> Option<LedgerView> {

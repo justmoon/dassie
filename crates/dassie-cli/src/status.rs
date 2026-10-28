@@ -661,27 +661,52 @@ fn who(id: &str, url: &str) -> String {
     }
 }
 
-/// Prints each peer's settlement methods, if the node peers with any, and
-/// the node's ledgers, whose assets the methods' amounts are in.
+/// Prints each peer's settlement methods, if the node peers with any, the
+/// owner's balance in each asset, and the node's ledgers, whose assets the
+/// methods' amounts are in.
 async fn peers_and_ledgers(client: &mut Client, peers: Option<&[proto::NetworkPeer]>) {
-    let ledgers = ledger_list(client).await;
+    let (ledgers, balances) = match ledger_list(client).await {
+        Ok(list) => (Ok(list.ledgers), Ok(list.balances)),
+        Err(problem) => (Err(problem.clone()), Err(problem)),
+    };
     if let Some(peers) = peers
         && let Some(methods) = methods(peers, ledgers.as_deref().unwrap_or_default())
     {
         line("Peers", &methods);
     }
+    line("Balances", &balances_line(balances));
     line("Ledgers", &ledgers_line(ledgers));
 }
 
-/// The node's ledgers, or why the daemon would not say.
-async fn ledger_list(client: &mut Client) -> Result<Vec<proto::Ledger>, String> {
+/// The node's ledgers and the owner's balances, or why the daemon would
+/// not say.
+async fn ledger_list(client: &mut Client) -> Result<proto::ListLedgersResponse, String> {
     match client
         .call(Method::ListLedgers(proto::ListLedgersRequest {}))
         .await
     {
-        Ok(response::Method::ListLedgers(list)) => Ok(list.ledgers),
+        Ok(response::Method::ListLedgers(list)) => Ok(list),
         other => Err(unexpected(other)),
     }
+}
+
+/// The owner's balance in each asset, its settlement hub's and its own
+/// account's together (spec/decisions/one-balance-per-asset.md).
+fn balances_line(balances: Result<Vec<proto::AssetBalance>, String>) -> String {
+    let balances = match balances {
+        Ok(balances) => balances,
+        Err(problem) => return format!("unknown ({problem})"),
+    };
+    if balances.is_empty() {
+        return "none yet: add a ledger in the wallet".into();
+    }
+    entries(balances.iter().map(|balance| {
+        format!(
+            "{} {}",
+            amount(balance.owner_balance, balance.asset_scale),
+            balance.name.to_uppercase()
+        )
+    }))
 }
 
 fn ledgers_line(ledgers: Result<Vec<proto::Ledger>, String>) -> String {
@@ -805,6 +830,30 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // spec/decisions/one-balance-per-asset.md: one balance per asset, named
+    // as its wallet address is, so DSUSD is not taken for the dollar.
+    #[test]
+    fn balances_name_their_asset() {
+        let balance = |name: &str, value| proto::AssetBalance {
+            name: name.into(),
+            asset_code: if name == "xrp" { "XRP" } else { "USD" }.into(),
+            asset_scale: 9,
+            owner_balance: value,
+            ..Default::default()
+        };
+        assert_eq!(
+            balances_line(Ok(vec![
+                balance("xrp", 99_500_000_000),
+                balance("dsusd", 20_000_000_000)
+            ])),
+            format!("99.5 XRP\n  {:<12} 20 DSUSD", "")
+        );
+        assert_eq!(
+            balances_line(Ok(Vec::new())),
+            "none yet: add a ledger in the wallet"
+        );
+    }
 
     #[test]
     fn amounts() {

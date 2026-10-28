@@ -433,8 +433,16 @@ impl Core {
             .saturating_add(self.hub_refill(ledger));
         let promised = self.promised_on(ledger);
         if available < promised + u128::from(debit) {
+            // Only what is in the hub counts while the owner book cannot be
+            // moved in for it: the owner reads why.
             return Err(EngineError::Precondition(
-                "the funds do not cover the payment".into(),
+                match self.refill_withheld(ledger) {
+                    Some(why) => format!(
+                        "the funds do not cover the payment: only what is in the hub counts, since \
+                     {why}"
+                    ),
+                    None => "the funds do not cover the payment".into(),
+                },
             ));
         }
         Ok(())
