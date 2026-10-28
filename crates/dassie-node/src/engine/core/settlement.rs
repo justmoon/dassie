@@ -675,7 +675,7 @@ impl Core {
 
     /// The credit we count when `node` asks us to settle on `scheme` over
     /// a hub: the default, or more for a peer that asks often, by its pace,
-    /// at most half the hub's ceiling (spec/decisions/settle-by-request-rate.md).
+    /// at most a quarter of the hub's ceiling (spec/decisions/settle-by-request-rate.md).
     pub(super) fn counted_credit(&self, node: NodeId, scheme: SchemeId) -> u64 {
         let credit = self.peer_credit;
         let most = policy::most_counted_credit(self.settle.max_packet);
