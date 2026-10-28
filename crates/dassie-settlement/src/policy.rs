@@ -118,8 +118,7 @@ pub const fn hub_step(target: u64) -> u64 {
 /// The floor and the ceiling of a hub whose target is `target`: below the
 /// floor, a [`hub_step`] under the target, the node deposits from its own
 /// account back up to it; above the ceiling, a step over it, it withdraws
-/// back down to it. Only what the node takes from its peers' holds toward
-/// it takes it past the ceiling.
+/// back down to it.
 #[must_use]
 pub const fn hub_limits(target: u64) -> (u64, u64) {
     let step = hub_step(target);

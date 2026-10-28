@@ -30,8 +30,9 @@
 //! - **Joining by deposit.** While the hub has no account for the node's
 //!   key, the first deposit opens it: tag 0, the account key as the memo,
 //!   of the hub's type for it (`dassie_hub::escrow::OPEN_MEMO_TYPE`),
-//!   sized to the account reserve, the fees of its first operations and the
-//!   target, as much of it as the XRPL account holds.
+//!   sized to the target, which the account reserve and the fees of its
+//!   first operations count toward, never less than they and a largest
+//!   packet, as much of it as the XRPL account holds.
 //! - **One move at a time, done by the counters.** A move names the counter
 //!   of the hub account it shows in, and the value it takes it to: a
 //!   deposit, what deposits credited the account as agreed when it was made
@@ -835,14 +836,16 @@ fn withdrawal(held: &Held, standing: &Standing, middle: u64) -> Option<Planned> 
 }
 
 /// The deposit that opens the account, once the hub says it has none for
-/// us, if the XRPL account has at least the least that opens it: what
-/// opening it takes and the target, as much of it as the account holds
-/// beyond the gas it keeps.
+/// us, if the XRPL account has at least the least that opens it: the
+/// target, since the account's reserve and the fees of its first operations
+/// count toward what the node keeps, and at least the least that opens it,
+/// as much of it as the account holds beyond the gas it keeps. So a low
+/// target the owner set opens the account at it, never past its ceiling.
 fn opening(standing: &Standing) -> Option<Planned> {
     let funds = standing.xrpl?.saturating_sub(standing.gas_kept);
     let enough = standing.unfunded && funds >= standing.least_opening();
     let target = standing.floor.midpoint(standing.ceiling);
-    let drops = standing.opening.saturating_add(target).min(funds);
+    let drops = target.max(standing.least_opening()).min(funds);
     enough.then(|| Planned::deposit(drops, 0, false))
 }
 
@@ -1037,9 +1040,9 @@ mod tests {
         let open = funding.due(1, &none).unwrap();
         assert_eq!(
             (open.direction, open.drops),
-            (Direction::Deposit, 2_001_000 + 5_200_000)
+            (Direction::Deposit, 5_200_000)
         );
-        assert_eq!(open.target, 2_001_000 + 5_200_000);
+        assert_eq!(open.target, 5_200_000);
         none.xrpl = Some(3_000_000);
         assert_eq!(funding.due(1, &none).unwrap().drops, 3_000_000, "all of it");
         none.xrpl = Some(2_100_999);

@@ -5640,7 +5640,7 @@ fn the_node_keeps_its_hub_between_floor_and_ceiling() {
 
     wait_and_close(&mut core, &mut ledger, 1_000);
     let made = deposits(&mut ledger, escrow);
-    let opening = fees.account_reserve + fees.starting_balance + middle;
+    let opening = middle;
     assert_eq!(made.len(), 1, "{made:?}");
     assert_eq!(
         (made[0].tag, made[0].key, made[0].amount, made[0].sender),
@@ -5769,7 +5769,7 @@ fn the_owners_target_moves_the_floor_and_the_ceiling() {
     wait_and_close(&mut core, &mut ledger, 1_000);
     let made = deposits(&mut ledger, escrow);
     let middle = target / units;
-    let opening = fees.account_reserve + fees.starting_balance + middle;
+    let opening = middle;
     assert_eq!((made.len(), made[0].amount), (1, opening));
 
     // Past the owner's ceiling, though far below the default floor: a
