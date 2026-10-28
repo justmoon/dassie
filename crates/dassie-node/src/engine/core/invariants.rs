@@ -56,7 +56,8 @@ impl Core {
     }
 
     /// Our settlements in progress: each is its pending transfer, and what
-    /// waits to execute or be announced is one of them.
+    /// waits to execute is one of them. A message waits for at most each
+    /// method of a channel, each of a settlement posted already.
     fn check_settling(&self) {
         for (&(scheme, id), settling) in &self.settle.settling {
             self.check_settling_transfer(scheme, id, settling);
@@ -66,14 +67,14 @@ impl Core {
             self.settle.to_execute.iter().all(known),
             "executes what is settling"
         );
+        let config = self.peer.config();
+        let methods = dassie_peer::MAX_METHODS;
         assert!(
-            self.settle.announce.iter().all(known),
-            "announces what is settling"
+            self.settle.notices.len() <= (config.max_channels + config.max_downlinks) * methods,
+            "a notice waits for each method of a channel"
         );
         // Kept per method: requests for a method of a peering at the last
         // check, and backoffs while the channel with the peer is open.
-        let config = self.peer.config();
-        let methods = dassie_peer::MAX_METHODS;
         assert!(
             self.settle.asked.len() <= (config.max_core_peers() + config.max_downlinks) * methods,
             "a request to settle per method of a peering"

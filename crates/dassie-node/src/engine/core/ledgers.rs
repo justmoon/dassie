@@ -260,11 +260,9 @@ impl Core {
                 .iter()
                 .find(|info| info.id == id.as_str())
                 .map(|info| info.ledger);
-            // The tests' second stub, which a test restarts with.
+            // The tests' second and third stubs, which a test restarts with.
             #[cfg(test)]
-            let known = known.or_else(|| {
-                (id.as_str() == super::tests::STUB_TWO).then_some(LedgerId::HubXrplTestnetXrp)
-            });
+            let known = known.or_else(|| super::tests::StubTwo::of(id.as_str()).map(|(l, _)| l));
             let Some(ledger) = known else {
                 return Err(format!("settlement scheme {id}: unknown to this version"));
             };
