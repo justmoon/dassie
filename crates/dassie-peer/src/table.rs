@@ -636,13 +636,6 @@ pub struct Standing {
     /// update of one we held: one we see first may be up to a reissue old.
     /// Kept across its peerings: it is the node's clock, not theirs.
     pub skew_ms: Option<i64>,
-    /// When we next check that it answers at its URL.
-    pub url_check_at_ms: u64,
-    /// Whether it answered at its URL the last time we checked.
-    pub url_answered: Option<bool>,
-    /// Whether it answered at its URL over HTTPS, with a certificate a
-    /// public authority issued, the last time we checked.
-    pub https_answered: Option<bool>,
 }
 
 const _: () = assert!(STANDING_BUCKETS == 6, "the buckets' array");
@@ -657,9 +650,6 @@ impl Standing {
         }; 6],
         bucket_ms: 0,
         skew_ms: None,
-        url_check_at_ms: 0,
-        url_answered: None,
-        https_answered: None,
     };
 
     /// The newest bucket at `now_ms`, of buckets `bucket_ms` long: older
@@ -702,6 +692,50 @@ impl Standing {
                 sent: all.sent.saturating_add(beats.sent),
                 answered: all.answered.saturating_add(beats.answered),
             })
+    }
+}
+
+/// What we found of a node's URL when we checked it
+/// (spec/decisions/promotion-to-core.md): over QUIC, dialled anew, and over
+/// HTTPS, with a certificate a public authority issued. In memory only: a
+/// restart checks again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UrlCheck {
+    /// When we next check it.
+    pub check_at_ms: u64,
+    /// Whether it answered over QUIC the last time we checked.
+    pub quic: Option<bool>,
+    /// Whether it answered over HTTPS the last time we checked.
+    pub https: Option<bool>,
+    /// Since when it has failed a check without passing both since.
+    pub failing_since_ms: Option<u64>,
+}
+
+impl UrlCheck {
+    /// Never checked.
+    pub const NEW: Self = Self {
+        check_at_ms: 0,
+        quic: None,
+        https: None,
+        failing_since_ms: None,
+    };
+
+    /// Whether it answered both ways the last time we checked.
+    #[must_use]
+    pub const fn passes(&self) -> bool {
+        matches!((self.quic, self.https), (Some(true), Some(true)))
+    }
+
+    /// Takes in what a check found at `now_ms`: failing since the first
+    /// failure, until it answers over QUIC with nothing failing. An HTTPS
+    /// check we could not make, its client busy or missing, says nothing
+    /// either way.
+    pub fn settle(&mut self, now_ms: u64) {
+        if self.quic == Some(false) || self.https == Some(false) {
+            self.failing_since_ms.get_or_insert(now_ms);
+        } else if self.quic == Some(true) {
+            self.failing_since_ms = None;
+        }
     }
 }
 
@@ -819,6 +853,10 @@ pub struct Entry {
     /// What an uplink watches of a peer to promote it
     /// (spec/decisions/promotion-to-core.md): reset with each peering.
     pub standing: Standing,
+    /// What we found of its URL when we checked it, as an uplink of a
+    /// downlink asking to be promoted, or as the bootstrap node it is
+    /// registered with: anew with each URL.
+    pub url: UrlCheck,
     /// Until when its peering requests are refused: an owner ended our
     /// peering with it.
     pub refuse_until_ms: u64,
@@ -853,6 +891,7 @@ impl Entry {
                 settle_unreached: false,
             },
             standing: Standing::NEW,
+            url: UrlCheck::NEW,
             refuse_until_ms: 0,
         }
     }
@@ -873,9 +912,7 @@ impl Entry {
             self.standing.skew_ms = Some(sequence.saturating_sub(now));
         }
         if old.endpoint != new.endpoint {
-            self.standing.url_answered = None;
-            self.standing.https_answered = None;
-            self.standing.url_check_at_ms = 0;
+            self.url = UrlCheck::NEW;
         }
     }
 
