@@ -297,6 +297,33 @@ impl PeeringHooks for Hooks<'_> {
         Ok(Agreed { state, credit_out })
     }
 
+    /// A downlink turning core gets a core peer's accounts on each of its
+    /// methods' ledgers where it has none, in the core peers' share, which
+    /// must have room for them all; a downlink's opened only once value
+    /// moved with it (spec/decisions/lazy-downlink-accounts.md).
+    fn open_core_accounts(&mut self, now_ms: u64, peer: NodeId, schemes: &[SchemeId]) -> bool {
+        let Some(name) = name(peer) else {
+            return false;
+        };
+        let mut wanted: Vec<(LedgerId, u64)> = Vec::new();
+        for scheme in schemes {
+            if let Some(active) = self.scheme(*scheme) {
+                wanted.push((active.scheme.ledger(), active.start_credit()));
+            }
+        }
+        wanted.retain(|(ledger, _)| !has_accounts(self.ledger, *ledger, name));
+        // All of them, or none: a peering that ends instead leaves no
+        // accounts behind in the core peers' share.
+        let room = peer_budget(self.ledger.config().max_accounts, false);
+        let taken = peer_accounts(self.ledger).saturating_sub(2 * self.downlinks.opened.len());
+        if taken + 2 * wanted.len() > room {
+            return false;
+        }
+        wanted
+            .into_iter()
+            .all(|(ledger, start)| self.open(now_ms, peer, ledger, start).is_ok())
+    }
+
     fn finalize(
         &mut self,
         now_ms: u64,
@@ -1542,23 +1569,16 @@ impl Core {
     }
 
     /// A peer's kind changed in place, its peering and channel kept
-    /// (spec/decisions/promotion-to-core.md). Its QUIC connection takes the
-    /// place of its kind. A core peer gets its accounts on every method
-    /// that has none yet, in the core peers' share, or the peering ends: a
-    /// downlink's opened only once value moved with it
-    /// (spec/decisions/lazy-downlink-accounts.md). Accounts opened as one
-    /// kind's stay in that kind's share for good, as every peer's do. A
-    /// downlink is reached at its child address, and keeps room for the
-    /// accounts it waits for; a core peer keeps its child address while
-    /// the peering lasts.
+    /// (spec/decisions/promotion-to-core.md), a new core peer's accounts
+    /// opened already ([`Hooks::open_core_accounts`]). Its QUIC connection
+    /// takes the place of its kind. Accounts opened as one kind's stay in
+    /// that kind's share for good, as every peer's do. A downlink is
+    /// reached at its child address, and keeps room for the accounts it
+    /// waits for; a core peer keeps its child address while the peering
+    /// lasts.
     fn peer_kind_changed(&mut self, peer: NodeId, downlink: bool) {
         self.peerings_changed = true;
         self.refresh_waiting(peer);
-        if !downlink && !self.open_core_accounts(peer) {
-            self.peer
-                .terminate(self.now_ms, &peer, TerminationReason::Unspecified);
-            return;
-        }
         if let Some(&endpoint) = self.peer_endpoints.get(&peer) {
             let child = format!("{}.{peer}", self.connector.own_address());
             if let Err(error) =
@@ -1573,40 +1593,6 @@ impl Core {
         }
         self.resync_slots(peer);
         self.update_routes();
-    }
-
-    /// Opens a new core peer's accounts on each of its methods' ledgers
-    /// where it has none, while the core peers' share has room. Returns
-    /// whether it has them on every one.
-    fn open_core_accounts(&mut self, peer: NodeId) -> bool {
-        let Some(name) = name(peer) else {
-            return false;
-        };
-        let wanted: Vec<(LedgerId, u64)> = self
-            .peer
-            .peering_of(&peer)
-            .map(|peering| {
-                peering
-                    .schemes()
-                    .filter_map(|scheme| {
-                        let active = self.schemes.get(&Name::new(scheme.as_str()).ok()?)?;
-                        Some((active.scheme.ledger(), active.start_credit()))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let now = self.now_ms;
-        for (ledger, start) in wanted {
-            if has_accounts(&self.ledger, ledger, name) {
-                continue;
-            }
-            if !room_for_core_peer(&self.ledger, &self.downlinks.opened)
-                || self.ledger.open_peer(now, ledger, name, start).is_err()
-            {
-                return false;
-            }
-        }
-        true
     }
 
     /// Makes a peer a connector endpoint, with a slot per method of its

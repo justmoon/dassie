@@ -670,8 +670,10 @@ impl PeerNode {
             && let (Some(key), Some(link)) = (entry.key, entry.link.as_ref())
         {
             // A periphery node is reached only over the connection it
-            // opened, whether or not its link state has a URL.
-            let core = self.is_core_node(node, link.endpoint.is_some());
+            // opened, whether or not its link state has a URL, and so is our
+            // downlink until its peering turns core
+            // ([`follow_kinds`](Self::follow_kinds)).
+            let core = !entry.is_downlink() && self.is_core_node(node, link.endpoint.is_some());
             return Some((key, link.endpoint.clone().filter(|_| core)));
         }
         self.bootstrap
@@ -951,6 +953,8 @@ impl PeerNode {
         self.expire_requests(hooks);
         self.retry_answers();
         self.retry_settlements();
+        // Before the review, which judges each peer as its kind.
+        self.follow_kinds(hooks);
         // Before our link state is issued, which says whom we advertise.
         self.review_peers(hooks);
         self.issue_own();

@@ -321,3 +321,27 @@ fn a_periphery_node_refuses_and_subscribes_to_its_uplink() {
         SubscriptionResponse::Refused(RefusalReason::NoSwaps)
     );
 }
+
+// Review of #669: a core peer we subscribe to that turns periphery is our
+// downlink from then on, in place, and our subscription to it ends at once,
+// with the peer told: only core peers are subscribed to.
+#[test]
+fn a_peer_turning_downlink_is_no_longer_subscribed_to() {
+    let (mut network, _, b) = pair(85, [true, true], true);
+    wait(&mut network, |network| network.node(0).subscribed_to(&b));
+    network.periphery.insert(1);
+    network.act(1, |node, now| {
+        node.set_own_info(
+            now,
+            dassie_peer::OwnInfo {
+                url: None,
+                alias: String::new(),
+                feed_port: None,
+            },
+        );
+    });
+    wait(&mut network, |network| network.node(0).is_downlink(&b));
+    let node = network.node(0);
+    assert!(node.peering_of(&b).is_some(), "the same peering");
+    assert!(!node.subscribed_to(&b));
+}

@@ -348,10 +348,7 @@ impl PeerNode {
             .collect();
         let timeout = self.config.poll_timeout_ms;
         for peer in unwanted {
-            self.snapshots.subscriptions.remove(&peer);
-            let content = Content::Subscription { subscribe: false };
-            // Lost, it is made good by our refusal of the peer's next push.
-            let _ = self.send(peer, &content, Purpose::Gossip, timeout);
+            self.unsubscribe(peer);
         }
         for peer in wanted {
             let subscription = self
@@ -379,6 +376,16 @@ impl PeerNode {
                 }
             }
         }
+    }
+
+    /// Ends our subscription to `peer`, if there is one, and tells it so.
+    pub(super) fn unsubscribe(&mut self, peer: NodeId) {
+        if self.snapshots.subscriptions.remove(&peer).is_none() {
+            return;
+        }
+        let content = Content::Subscription { subscribe: false };
+        // Lost, it is made good by our refusal of the peer's next push.
+        let _ = self.send(peer, &content, Purpose::Gossip, self.config.poll_timeout_ms);
     }
 
     /// When the subscriptions are next looked at: only while the node has

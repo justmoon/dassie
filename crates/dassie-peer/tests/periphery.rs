@@ -892,68 +892,104 @@ fn downlinks_ended_by_a_node_turning_periphery_leave_a_full_table() {
     assert!(core_entries(&network, turning) <= 3);
 }
 
+/// Gives node `index` `url`, or takes its URL away, and makes it reached
+/// as the simulation reaches a core or periphery node.
+fn set_url(network: &mut Network, index: usize, url: Option<String>) {
+    if url.is_some() {
+        network.periphery.remove(&index);
+    } else {
+        network.periphery.insert(index);
+    }
+    network.act(index, |node, now| {
+        node.set_own_info(
+            now,
+            dassie_peer::OwnInfo {
+                url,
+                alias: String::new(),
+                feed_port: None,
+            },
+        );
+    });
+}
+
+/// Whether `at` is peered with `node` as it was `since`, as a downlink if
+/// `downlink`, its channel reaching it as the kind is reached.
+fn peered_as(network: &Network, at: usize, node: &NodeId, since: u64, downlink: bool) -> bool {
+    let peer = network.node(at);
+    peer.peering_of(node).is_some_and(|p| p.since_ms == since)
+        && peer.is_downlink(node) == downlink
+        && peer
+            .channels()
+            .any(|(id, channel)| id == node && channel.endpoint.is_none() == downlink)
+}
+
 // spec/decisions/promotion-to-core.md: a peering's kind follows the peer's
 // status in place. A periphery node that gets a URL, a core node for now,
-// stays peered with its uplinks, which take it as a core peer, with the
-// same peering and channel; losing its URL again makes it their downlink
-// again, still the same peering.
+// stays peered with its uplinks: they take it as a core peer, with the
+// same peering and channel, once it is registered, whose URL the bootstrap
+// nodes probed, and as a downlink until then. Losing its URL again makes it
+// their downlink again, still the same peering.
 #[test]
 fn a_peers_kind_changes_in_place() {
     let (core, periphery) = (3, 1);
     let mut network = Network::with_periphery(23, core, 1, periphery, Config::DEV);
     settle(&mut network, 90_000);
     let turning = core;
-    let uplinks: Vec<usize> = (0..core)
-        .filter(|index| network.node(*index).is_downlink(&id(turning)))
+    let node = id(turning);
+    let uplinks: Vec<(usize, u64)> = (0..core)
+        .filter(|at| network.node(*at).is_downlink(&node))
+        .map(|at| (at, network.node(at).peering_of(&node).unwrap().since_ms))
         .collect();
     assert!(!uplinks.is_empty(), "the periphery node has an uplink");
-    let since = |network: &Network, at: usize| {
-        network
-            .node(at)
-            .peering_of(&id(turning))
-            .map(|peering| peering.since_ms)
-    };
-    let before: Vec<Option<u64>> = uplinks.iter().map(|at| since(&network, *at)).collect();
-    let set_url = |network: &mut Network, url: Option<String>| {
-        network.act(turning, |node, now| {
-            node.set_own_info(
-                now,
-                dassie_peer::OwnInfo {
-                    url,
-                    alias: String::new(),
-                    feed_port: None,
-                },
-            );
-        });
-    };
-    set_url(&mut network, Some(dassie_peer::sim::url(turning)));
-    network.periphery.remove(&turning);
-    settle(&mut network, 60_000);
-    for (at, before) in uplinks.iter().zip(&before) {
-        let node = network.node(*at);
-        assert!(
-            !node.is_downlink(&id(turning)),
-            "node {at} takes it as core"
-        );
-        assert_eq!(since(&network, *at), *before, "node {at}: the same peering");
-        assert!(
-            node.channels()
-                .any(|(node, channel)| *node == id(turning) && channel.endpoint.is_some())
-        );
+    set_url(&mut network, turning, Some(dassie_peer::sim::url(turning)));
+    let start = network.now;
+    while !uplinks
+        .iter()
+        .all(|(at, since)| peered_as(&network, *at, &node, *since, false))
+    {
+        for (at, since) in &uplinks {
+            let as_core = peered_as(&network, *at, &node, *since, false);
+            assert!(as_core || peered_as(&network, *at, &node, *since, true));
+        }
+        settle(&mut network, 5_000);
+        assert!(network.now < start + 10 * 60_000, "it turns core");
     }
-    set_url(&mut network, None);
-    network.periphery.insert(turning);
+    set_url(&mut network, turning, None);
     settle(&mut network, 60_000);
-    for (at, before) in uplinks.iter().zip(&before) {
-        let node = network.node(*at);
-        assert!(
-            node.is_downlink(&id(turning)),
-            "node {at} takes it as a downlink"
-        );
-        assert_eq!(since(&network, *at), *before, "node {at}: the same peering");
-        assert!(
-            node.channels()
-                .any(|(node, channel)| *node == id(turning) && channel.endpoint.is_none())
-        );
+    for (at, since) in &uplinks {
+        assert!(peered_as(&network, *at, &node, *since, true), "node {at}");
     }
+}
+
+// Review of #669: a downlink whose peering we are ending keeps its kind
+// while it ends, whatever its link state says: it is never listed.
+#[test]
+fn an_ending_peering_keeps_its_kind() {
+    let (core, periphery) = (3, 1);
+    let mut network = Network::with_periphery(29, core, 1, periphery, Config::DEV);
+    settle(&mut network, 90_000);
+    let turning = core;
+    let uplink = (0..core)
+        .find(|index| network.node(*index).is_downlink(&id(turning)))
+        .expect("an uplink");
+    network.act(uplink, |node, now| {
+        assert!(node.terminate(
+            now,
+            &id(turning),
+            dassie_peer::wire::TerminationReason::Owner
+        ));
+    });
+    set_url(&mut network, turning, Some(dassie_peer::sim::url(turning)));
+    for _ in 0..60 {
+        settle(&mut network, 5_000);
+        let node = network.node(uplink);
+        if node.peering_of(&id(turning)).is_none() {
+            break;
+        }
+        assert!(node.is_downlink(&id(turning)), "it ends as a downlink");
+    }
+    assert!(
+        network.node(uplink).peering_of(&id(turning)).is_none(),
+        "it ended"
+    );
 }

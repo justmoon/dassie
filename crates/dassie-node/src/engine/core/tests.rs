@@ -2226,27 +2226,84 @@ fn link_state_update(node: &Arc<IdentityKey>, sequence: u64, url: Option<&str>) 
     Content::LinkStateUpdate(SignedNodeInfo::decode_exact(&state).unwrap()).to_vec()
 }
 
+/// A core node taking downlinks, as [`core_taking_downlinks`], with one
+/// bootstrap node: what its list names is on the majority.
+fn core_with_bootstrap(store: Arc<Store>) -> Core {
+    let boot = IdentityKey::from_bytes(&[13; 32]);
+    let mut core = Core::start(
+        CoreParts {
+            bootstrap: vec![dassie_peer::Bootstrap {
+                id: boot.node_id(),
+                endpoint: dassie_peer::wire::Endpoint::of_url("https://boot.test").unwrap(),
+                key: boot.public_key(),
+            }],
+            ..core_parts_taking_downlinks(store)
+        },
+        NOW,
+    )
+    .unwrap();
+    add_stub(&mut core, COMMITTING);
+    core
+}
+
+/// Steps `core` at `at`, answering its requests for its bootstrap node's
+/// list with one naming `listed`, and the download that follows.
+fn step_with_list(core: &mut Core, at: u64, listed: &[dassie_identity::NodeId]) {
+    use dassie_peer::wire::{Kind, NodeListResponse};
+    let mut outputs = Vec::new();
+    core.begin_step(at);
+    core.finish_step(&mut outputs);
+    while !outputs.is_empty() {
+        let mut next = Vec::new();
+        for output in outputs {
+            let Output::PeerRequest(request) = output else {
+                continue;
+            };
+            let body = match request.kind {
+                Kind::NodeListHashRequest => vec![9; 32],
+                Kind::NodeListRequest => NodeListResponse(listed.to_vec()).to_vec(),
+                _ => continue,
+            };
+            core.begin_step(at);
+            core.peer_response(request.id, Ok(dassie_peer::Response { status: 200, body }));
+            core.finish_step(&mut next);
+        }
+        outputs = next;
+    }
+}
+
+/// `downlink` peers with `core` on the stub with commitments, at `at`.
+fn peer_as_downlink(core: &mut Core, downlink: &Arc<IdentityKey>, at: u64) {
+    let mut outputs = Vec::new();
+    core.begin_step(at);
+    let body = stub_downlink_request(core, downlink, at);
+    core.peer_inbound(dassie_peer::InboundId(1), downlink.identity(), &body, None);
+    core.finish_step(&mut outputs);
+    assert!(core.peer.is_downlink(&downlink.node_id()));
+}
+
+/// `node` sends `core` its link state, at `at`, with `url` or without one.
+fn send_link_state(core: &mut Core, node: &Arc<IdentityKey>, at: u64, url: Option<&str>) {
+    core.begin_step(at);
+    let update = link_state_update(node, at, url);
+    core.peer_inbound(dassie_peer::InboundId(2), node.identity(), &update, None);
+    core.finish_step(&mut Vec::new());
+}
+
 // spec/decisions/promotion-to-core.md: a peering's kind follows the peer's
 // status in place. A downlink that turns core, for now by a URL in its link
-// state, is the same peering: its accounts open in the core peers' share,
-// as a core peer's must be, and it carries other nodes' traffic, at its
-// child address still. Turning periphery again, it is a downlink there.
+// state, stays a downlink until it is registered, whose URL the bootstrap
+// nodes probed; then it is the same peering as a core peer: its accounts
+// open in the core peers' share, as a core peer's must be, and it carries
+// other nodes' traffic, at its child address still. Turning periphery
+// again, it is a downlink there.
 #[test]
 fn a_downlink_turning_core_keeps_its_peering() {
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let refused = dassie_node_core::config::LiveRealm::Refused;
-    let mut core = core_taking_downlinks(store, Realm::Test, refused, NOW);
-    add_stub(&mut core, COMMITTING);
-    let mut outputs = Vec::new();
-    core.finish_step(&mut outputs);
+    let mut core = core_with_bootstrap(store);
     let downlink = Arc::new(IdentityKey::from_bytes(&[12; 32]));
-    let at = NOW + 1_000;
-    core.begin_step(at);
-    let body = stub_downlink_request(&mut core, &downlink, at);
-    core.peer_inbound(dassie_peer::InboundId(1), downlink.identity(), &body, None);
-    core.finish_step(&mut outputs);
     let id = downlink.node_id();
-    assert!(core.peer.is_downlink(&id));
+    peer_as_downlink(&mut core, &downlink, NOW + 1_000);
     let since = core.peer.peering_of(&id).unwrap().since_ms;
     let name = dassie_ledger::Name::new(id.as_str()).unwrap();
     let stub = dassie_ledger::LedgerId::StubUsd;
@@ -2255,17 +2312,24 @@ fn a_downlink_turning_core_keeps_its_peering() {
         "lazy"
     );
 
-    let at = NOW + 2_000;
-    core.begin_step(at);
-    let update = link_state_update(&downlink, at, Some("https://d.example:4443"));
-    core.peer_inbound(
-        dassie_peer::InboundId(2),
-        downlink.identity(),
-        &update,
-        None,
+    send_link_state(
+        &mut core,
+        &downlink,
+        NOW + 2_000,
+        Some("https://d.example:4443"),
     );
-    core.finish_step(&mut outputs);
-    assert!(!core.peer.is_downlink(&id), "a core peer now");
+    step_with_list(&mut core, NOW + 3_000, &[]);
+    assert!(
+        core.peer.is_downlink(&id),
+        "not registered: a downlink still"
+    );
+    let poll = Policies::DEFAULT.peer.list_poll_interval_ms;
+    let mut at = NOW + 3_000;
+    while core.peer.is_downlink(&id) {
+        at += poll;
+        assert!(at < NOW + 10 * poll, "it turns core once registered");
+        step_with_list(&mut core, at, &[id]);
+    }
     assert_eq!(core.peer.peering_of(&id).unwrap().since_ms, since);
     assert!(super::peers::has_accounts(&core.ledger, stub, name));
     let endpoint = dassie_connector::EndpointId::Peer(core.peer_endpoints[&id]);
@@ -2277,16 +2341,8 @@ fn a_downlink_turning_core_keeps_its_peering() {
     );
     core.check_invariants();
 
-    let at = NOW + 3_000;
-    core.begin_step(at);
-    let update = link_state_update(&downlink, at, None);
-    core.peer_inbound(
-        dassie_peer::InboundId(3),
-        downlink.identity(),
-        &update,
-        None,
-    );
-    core.finish_step(&mut outputs);
+    send_link_state(&mut core, &downlink, at + 1_000, None);
+    step_with_list(&mut core, at + 2_000, &[id]);
     assert!(core.peer.is_downlink(&id), "a downlink again");
     assert_eq!(core.peer.peering_of(&id).unwrap().since_ms, since);
     assert!(!core.connector.is_transit(endpoint));
@@ -2294,6 +2350,47 @@ fn a_downlink_turning_core_keeps_its_peering() {
         core.connector.endpoint_address(endpoint),
         Some(child.as_str())
     );
+    core.check_invariants();
+}
+
+// Review of #669: a downlink turning core whose accounts do not fit the
+// core peers' share, full of former core peers' accounts, which stay, ends
+// its peering instead, as a core node's request would be refused: no
+// account of it is opened, and the node's books and endpoints hold.
+#[test]
+fn a_downlink_turning_core_without_room_ends_its_peering() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_with_bootstrap(store);
+    let max_accounts = Policies::DEFAULT.ledger.max_accounts;
+    let core_pairs = u32::try_from(super::peers::peer_budget(max_accounts, false) / 2).unwrap();
+    for seed in 0..core_pairs {
+        accept_on_stub(&mut core, seed, false).unwrap();
+    }
+    let downlink = Arc::new(IdentityKey::from_bytes(&[12; 32]));
+    let id = downlink.node_id();
+    peer_as_downlink(&mut core, &downlink, NOW + 1_000);
+    send_link_state(
+        &mut core,
+        &downlink,
+        NOW + 2_000,
+        Some("https://d.example:4443"),
+    );
+    let poll = Policies::DEFAULT.peer.list_poll_interval_ms;
+    let mut at = NOW + 2_000;
+    while core
+        .peer
+        .peering_of(&id)
+        .is_some_and(|peering| peering.depeering.is_none())
+    {
+        at += poll;
+        assert!(at < NOW + 10 * poll, "the peering ends");
+        step_with_list(&mut core, at, &[id]);
+        core.check_invariants();
+    }
+    assert!(core.peer.is_downlink(&id), "it ends as it was");
+    let name = dassie_ledger::Name::new(id.as_str()).unwrap();
+    let stub = dassie_ledger::LedgerId::StubUsd;
+    assert!(!super::peers::has_accounts(&core.ledger, stub, name));
     core.check_invariants();
 }
 
@@ -3741,25 +3838,34 @@ fn core_taking_downlinks(
 ) -> Core {
     Core::start(
         CoreParts {
-            store,
-            key: Arc::new(IdentityKey::from_bytes(&[7; 32])),
             realm,
             live,
-            policies: Policies::DEFAULT,
-            rng: Box::new(SeededRng::new(5)),
-            peer_rng: Box::new(SeededRng::new(6)),
-            own_info: dassie_peer::OwnInfo {
-                url: Some("https://core.test".into()),
-                alias: String::new(),
-                feed_port: None,
-            },
-            bootstrap: Vec::new(),
-            uplinks: Vec::new(),
-            dev_core: Vec::new(),
+            ..core_parts_taking_downlinks(store)
         },
         now,
     )
     .unwrap()
+}
+
+/// The parts of a core node in the test realm that takes downlinks.
+fn core_parts_taking_downlinks(store: Arc<Store>) -> CoreParts {
+    CoreParts {
+        store,
+        key: Arc::new(IdentityKey::from_bytes(&[7; 32])),
+        realm: Realm::Test,
+        live: dassie_node_core::config::LiveRealm::Refused,
+        policies: Policies::DEFAULT,
+        rng: Box::new(SeededRng::new(5)),
+        peer_rng: Box::new(SeededRng::new(6)),
+        own_info: dassie_peer::OwnInfo {
+            url: Some("https://core.test".into()),
+            alias: String::new(),
+            feed_port: None,
+        },
+        bootstrap: Vec::new(),
+        uplinks: Vec::new(),
+        dev_core: Vec::new(),
+    }
 }
 
 /// A core node of the live realm that takes downlinks, on RLUSD alone,

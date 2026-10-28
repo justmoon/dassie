@@ -218,7 +218,6 @@ impl PeerNode {
             return Processed::Old;
         }
         let (now, rate) = (self.now_ms, self.config.link_state_rate);
-        let core = self.is_core_node(&id, !signed.info.is_periphery());
         let Some(entry) = self.table.get_mut(&id) else {
             self.stats.link_states_dropped += 1;
             return Processed::Dropped;
@@ -261,10 +260,6 @@ impl PeerNode {
             .link
             .as_ref()
             .is_none_or(|old| old.neighbors != link.neighbors);
-        // A peer that turned from core to periphery, or back, is a peer of
-        // the other kind now, with other bounds and reach: the peering
-        // changes kind in place (spec/areas/network.md#periphery-nodes).
-        let switched = entry.peering().is_some() && entry.is_downlink() == core;
         // What a peer offered before, to tell an account it names anew.
         let before =
             (entry.peering().is_some()).then(|| entry.link.as_ref().map(|old| old.offers.clone()));
@@ -275,9 +270,6 @@ impl PeerNode {
         self.stats.link_states_accepted += 1;
         if changed {
             self.gossip.routes_dirty = true;
-        }
-        if switched {
-            self.change_kind(id, !core);
         }
         if let Some(before) = before {
             self.tell_accounts_named(id, before.as_deref());

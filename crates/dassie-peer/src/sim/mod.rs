@@ -645,9 +645,7 @@ impl Network {
         };
         for index in 0..count + periphery {
             let skew = i64::try_from(rng.next_u64() % 20_001).unwrap() - 10_000;
-            if index < count {
-                network.by_endpoint.insert(endpoint(index), index);
-            }
+            network.by_endpoint.insert(endpoint(index), index);
             network.nodes.push(SimNode {
                 node: None,
                 stored: Stored::default(),
@@ -1083,14 +1081,18 @@ impl Network {
         ));
         let generation = self.nodes[from].generation;
         // A periphery node is reached by its ID, over the connection it
-        // opened; nothing else is without an endpoint.
+        // opened, never at a URL; nothing else is without an endpoint.
         let to = match &request.endpoint {
             None => self
                 .periphery
                 .iter()
                 .copied()
                 .find(|index| key(*index).node_id() == request.to),
-            Some(endpoint) => self.by_endpoint.get(endpoint).copied(),
+            Some(endpoint) => self
+                .by_endpoint
+                .get(endpoint)
+                .copied()
+                .filter(|index| !self.periphery.contains(index)),
         };
         let Some(to) = to else {
             self.schedule(

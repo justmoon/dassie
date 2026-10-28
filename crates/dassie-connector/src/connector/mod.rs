@@ -681,7 +681,8 @@ impl Connector {
 
     /// Changes peer `id`'s kind in place, as its status changed
     /// (spec/decisions/promotion-to-core.md). A downlink sends only its own
-    /// packets, so it gets a child's share of those in flight, and is
+    /// packets, so it gets a child's share of those in flight, which its
+    /// new Prepares meet while those it sent before drain, and it is
     /// reached at `child_address`, its address below ours. A core peer may
     /// carry other nodes' traffic; one that was a downlink keeps its child
     /// address while its peering lasts, so that payment requests handed

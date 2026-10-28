@@ -540,6 +540,39 @@ fn a_peers_kind_changes_in_place() {
     );
 }
 
+// Review of #669: a core peer with more Prepares in flight from it than a
+// child's share, demoted, keeps them: they drain, and only its new ones
+// meet the child's share.
+#[test]
+fn a_demoted_peer_drains_what_it_has_in_flight() {
+    // A node's shares: a child's far smaller than a peer's.
+    let config = Config {
+        max_pending_per_endpoint: 4,
+        ..Config::DEFAULT
+    };
+    let mut harness = Harness::new(config, 10_000_000_000);
+    harness.add_peer(2, "dtwo", TRUST, 0);
+    let core = EndpointId::Peer(4);
+    harness.add_peer(4, "dcore", TRUST, 0);
+    set(&mut harness, &[("test.das.dfar", &[TWO])]);
+    let child_share = config.max_pending_per_endpoint;
+    let sent = u32::try_from(child_share).unwrap() + 1;
+    for n in 0..sent {
+        let mut fulfillment = [0; 32];
+        fulfillment[..4].copy_from_slice(&n.to_be_bytes());
+        let packet = prepare("test.das.dfar.x", 10, NOW + 20_000, fulfillment);
+        assert_eq!(forwarded_to(harness.prepare(NOW, core, n, &packet)), TWO);
+    }
+    harness
+        .connector
+        .set_peer_kind(core, true, &format!("{OWN}.dcore"))
+        .unwrap();
+    harness.check();
+    let packet = prepare("test.das.dfar.x", 10, NOW + 20_000, [0xff; 32]);
+    let outcome = harness.prepare(NOW, core, sent, &packet);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::T05_RATE_LIMITED);
+}
+
 // spec/areas/connector.md#a-periphery-node: below the node's address beneath
 // an uplink lie its own endpoints, which get the packet written below its
 // own address; a peer's packet for anywhere else gets F02, while the
