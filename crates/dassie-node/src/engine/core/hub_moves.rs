@@ -591,9 +591,12 @@ impl Core {
             .filter(|_| account.is_synced())
             .map(|(_, view)| {
                 let number = account.number();
+                // A stranger's hold toward us counts nowhere: anyone may
+                // open one, and the node never takes from it, so it is
+                // nothing a failing hub could cost the owner.
                 let toward_us: u64 = account
                     .holds()
-                    .filter(|(_, hold)| Some(hold.payee) == number)
+                    .filter(|(n, hold)| Some(hold.payee) == number && !account.is_stranger(*n))
                     .map(|(_, hold)| hold.amount)
                     .fold(0, u64::saturating_add);
                 let paying = account

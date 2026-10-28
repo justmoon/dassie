@@ -5022,6 +5022,26 @@ impl Validators {
     /// The node's account 5 opened a hold of `amount` toward account 9, in
     /// a new final block, after which it holds `balance`.
     fn opened_hold(&mut self, core: &mut Core, amount: u64, balance: u64, deposited: u64) {
+        self.hold_opened(core, (7, 5, 9), amount, balance, deposited);
+    }
+
+    /// Account 9, a stranger the node does not peer with, opened a hold of
+    /// `amount` toward the node's account 5, which holds `balance`.
+    fn stranger_hold(&mut self, core: &mut Core, amount: u64, balance: u64, deposited: u64) {
+        self.hold_opened(core, (8, 9, 5), amount, balance, deposited);
+    }
+
+    /// The account of the key from `seed`, `payer`, opened a hold of
+    /// `amount` toward `payee`, in a new final block, after which the
+    /// node's account 5 holds `balance`.
+    fn hold_opened(
+        &mut self,
+        core: &mut Core,
+        (seed, payer, payee): (u8, u32, u32),
+        amount: u64,
+        balance: u64,
+        deposited: u64,
+    ) {
         use dassie_hub::client::{AccountView, Statement};
         use dassie_hub::ledger::{Detail, Outcome};
         use dassie_hub::operation::{
@@ -5031,15 +5051,15 @@ impl Validators {
 
         self.height += 1;
         let key =
-            dassie_hub::member::member_key(&IdentityKey::from_bytes(&[7; 32]), &self.rules.id());
+            dassie_hub::member::member_key(&IdentityKey::from_bytes(&[seed; 32]), &self.rules.id());
         let fees = self.rules.terms.fees;
         let operation = SignedMemberOperation::sign(
             &self.rules.id(),
-            AccountNumber(5),
+            AccountNumber(payer),
             1,
             fees.operation,
             MemberOperation::HoldOpen {
-                payee: AccountNumber(9),
+                payee: AccountNumber(payee),
                 amount,
             },
             &key,
@@ -5048,7 +5068,7 @@ impl Validators {
             key: self.member,
             balance,
             reserve: fees.account_reserve,
-            sequence: 2,
+            sequence: if payer == 5 { 2 } else { 1 },
             disbursal: true,
             closing: false,
             deposited,
@@ -5185,9 +5205,15 @@ fn only_the_owner_book_names_a_deposit_address() {
             .deposit_address
     };
     hub.no_account(&mut core);
-    assert_eq!(view(&core, dassie_ledger::LedgerId::HubXrplTestnetXrp), None);
+    assert_eq!(
+        view(&core, dassie_ledger::LedgerId::HubXrplTestnetXrp),
+        None
+    );
     hub.account(&mut core, 3_000_000, 3_000_000);
-    assert_eq!(view(&core, dassie_ledger::LedgerId::HubXrplTestnetXrp), None);
+    assert_eq!(
+        view(&core, dassie_ledger::LedgerId::HubXrplTestnetXrp),
+        None
+    );
     assert_eq!(
         view(&core, dassie_ledger::LedgerId::XrplTestnetXrp),
         Some(own.to_address())
@@ -5609,6 +5635,39 @@ fn our_holds_count_toward_the_hub_ceiling() {
         made[1].amount < floor.midpoint(ceiling) - balance,
         "less than the midpoint asks"
     );
+}
+
+// spec/areas/hubs.md#in-the-node: anyone in the hub may open a hold toward
+// the node's account, and the node takes nothing from one that is not a
+// peer's, so it counts nowhere in what the node keeps in the hub: a
+// stranger's hold of a ceiling makes the node withdraw nothing, nor keeps
+// it from filling its float.
+#[test]
+fn a_strangers_hold_moves_nothing() {
+    use dassie_settlement::policy;
+
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let floor =
+        policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0) / dassie_xrpl::UNITS_PER_DROP;
+    let ceiling = policy::hub_ceiling(p) / dassie_xrpl::UNITS_PER_DROP;
+    let balance = floor.midpoint(ceiling);
+    hub.account(&mut core, balance, opening);
+    hub.stranger_hold(&mut core, ceiling, balance, opening);
+    let outputs = wait_and_close(&mut core, &mut ledger, 4_000);
+    assert_eq!(withdrawals(&outputs), [], "nothing withdrawn");
+
+    hub.account(&mut core, 100_000, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 2, "below the floor: {made:?}");
+    assert_eq!(made[1].amount, floor.midpoint(ceiling) - 100_000);
 }
 
 // spec/areas/hubs.md#in-the-node: a deposit on its way is done only once

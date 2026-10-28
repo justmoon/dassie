@@ -16,9 +16,10 @@
 //!   ceiling; above the ceiling, it withdraws to the owner's own account
 //!   down to the midpoint, never below the floor: the hub keeps a float, and
 //!   the owner's funds are kept on the own account
-//!   (spec/decisions/one-balance-per-asset.md). Holds toward us grow by our
-//!   peers' settlements alone, so only they can take the hub past the
-//!   ceiling, until they are taken and withdrawn.
+//!   (spec/decisions/one-balance-per-asset.md). Holds toward us count only
+//!   from our peers, never a stranger's, which anyone may open, and they
+//!   grow by our peers' settlements alone, so only those can take the hub
+//!   past the ceiling, until they are taken and withdrawn.
 //! - **Joining by deposit.** While the hub has no account for the node's
 //!   key, the first deposit opens it: tag 0, the account key as the memo,
 //!   of the hub's type for it (`dassie_hub::escrow::OPEN_MEMO_TYPE`),
