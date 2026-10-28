@@ -2535,6 +2535,11 @@ html[data-theme="dark"] :is(a, .hero .say em, .site-hero h2 em, .tabbar div.on, 
 html[data-theme="dark"] :is(.btn.primary, .balance, .icon-note .inline-icons .ember-pebble, .icon-note .inline-icons .ember-pebble svg) {
   color: #FBF6EE;
 }
+/* At dusk, Terracotta's marks on night surfaces (trust bars, bullets) take its dusk step, so they still show; its grounds,
+   the balance card and the veld, keep Terracotta. */
+html[data-theme="dark"] :is(.trust i, .close-card.watch li::before) {
+  background: #CC7650;
+}
 html[data-theme="dark"] .tx .v.in {
   color: #9CC98C;
 }

@@ -23,7 +23,7 @@
 - The drawings are heavy: grass is drawn blade by blade, a few megabytes of SVG in all. They are files beside the page, so the page itself stays short enough to read; the dark mode recolors only the drawings inline in it.
 - The mark's rock is ink rather than terracotta. Brown read as something else to people who saw the mark; ink costs the mark its third color, and the kopjes in scenes are granite ([granite-rocks](granite-rocks.md)).
 - In dark mode the drawings have little contrast by design: silhouettes against the night, carried by their rims of light.
-- Terracotta is one color, the darkest of the earths Kopje once used, so that a card of earth stands apart from Ember, which is action, and carries Daylight text at any size. The balance card and the veld grass are darker for it, and the grass reads there by the sunlit edges of its blades.
+- Terracotta is one color, the darkest earth, so that a card of earth stands apart from Ember, which is action, and carries Daylight text at any size. At dusk its small marks, a trust bar or a bullet on a night surface, take a lighter step of it, as dark as that they would not show. The balance card and the veld grass are darker for it, and the grass reads there by the sunlit edges of its blades.
 - The wallet and the desktop app keep their look until they take Kopje ([roadmap](../roadmap.md#kopje-across-dassie)).
 
 ## Rejected
