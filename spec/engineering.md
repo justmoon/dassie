@@ -47,7 +47,9 @@ Dassie is not a consensus system ([own-books](decisions/own-books.md)). Each nod
 
 ## No fuzzing or random seeds in CI
 
-CI runs tests on fixed seeds only, property tests included ([Testing](areas/testing.md#property-tests)), and no simulation sweeps: a simulation in CI is a scenario on one fixed seed, or the few that between them reach what it checks. A random seed per commit would fail pull requests on bugs they did not touch, and a sweep makes every one of them wait for what the campaign checks anyway. Random-seed campaigns and any fuzzing run outside CI, and never in it, nightly included ([random-seed-simulations](decisions/random-seed-simulations.md)).
+CI runs tests on fixed seeds only, property tests included ([Testing](areas/testing.md#property-tests)). A random seed per commit would fail pull requests on bugs they did not touch. Random-seed campaigns and any fuzzing run outside CI, and never in it, nightly included ([random-seed-simulations](decisions/random-seed-simulations.md)).
+
+No test runs a simulation, in CI or in a local test suite, not even on one fixed seed: simulations are a tool for developing a feature, and the campaign's. A failure one finds becomes a targeted test that sets up its degenerate case directly and runs only the code it turns on, since the rest of a run is noise to the repro and costs every pull request its time ([no-simulations-in-tests](decisions/no-simulations-in-tests.md)).
 
 For the same reason no Rust test's outcome depends on how fast the machine is: a test over real sockets runs its protocol on a clock it moves by hand, and waits for progress, never for a span of real time ([Testing](areas/testing.md#over-real-sockets)).
 
@@ -73,3 +75,4 @@ The flake's checks are kept by their inputs, so a check reruns only when somethi
 - [own-books](decisions/own-books.md): each node keeps its own books; why not reconcile.
 - [node-and-pnpm](decisions/node-and-pnpm.md): Node and pnpm rather than Deno or Bun.
 - [random-seed-simulations](decisions/random-seed-simulations.md): simulations from random seeds, and why CI runs no sweeps.
+- [no-simulations-in-tests](decisions/no-simulations-in-tests.md): why no test runs a simulation, and a case one finds becomes a targeted test.

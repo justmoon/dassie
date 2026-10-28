@@ -12,15 +12,15 @@ Sweeps of fixed seeds in CI, with minimums on what they reached, became CI's slo
 
 The simulations run continuously, outside CI, from random seeds; each seed draws its own configuration, and a failure becomes an issue that names its seed. The design follows TigerBeetle's VOPR and fuzzing fleet.
 
-- **One runner,** `dassie-sim`, so that `cargo test` and the campaign run the same harnesses, and any failure replays from its seed.
+- **One runner,** `dassie-sim`, so that a developer and the campaign run the same harnesses, and any failure replays from its seed.
 - **Swarm testing:** each seed draws the whole configuration, and some seeds switch a fault off entirely, so rare combinations get their turn.
 - **Two phases:** chaos with every invariant checked, then healing, after which the network must converge within a time derived from the production rules. A run that cannot converge whatever the code does is unsupported, neither passed nor failed.
 - **Faults stay within what the node relies on:** the store commits durably, so the only store fault is a commit that fails.
 - **Coverage counts:** each run counts what it reached, and the runner adds the counts up over a range of seeds, so whoever changes a generator can see whether it still reaches a case.
 - **A campaign on spot VMs** runs `main`, and pull requests that ask for it. It runs unreviewed code in the project that holds the bootstrap nodes' phrases, so its VMs run as a service account that can read only its GitHub credentials, and the code they build runs in a sandbox that cannot reach those ([Testing](../areas/testing.md#isolating-pull-requests)).
 - **Failures become issues,** one per signature; a failure on a pull request is a comment there instead. A tripwire simulation fails on purpose now and then, so a silent campaign shows. A fix comes with a targeted test, because a seed reproduces a failure only at the commit it ran on.
-- **CI runs no sweeps.** A simulation in CI is a scenario: one situation set up on one fixed seed, or the few that between them reach what it checks, or a check that a seed whose run is short passes and replays the same run. Sweeps over seeds run in the campaign alone, and nothing asserts minimums on what they reached.
-- **A failure the campaign finds becomes a targeted test,** so that the bug it found cannot come back unnoticed.
+- **No test runs a simulation,** in CI or in a local test suite, not even on one fixed seed ([no-simulations-in-tests](no-simulations-in-tests.md)). Sweeps over seeds run in the campaign alone, and nothing asserts minimums on what they reached.
+- **A failure the campaign finds becomes a targeted test** of the case it found, set up directly, so that the bug cannot come back unnoticed ([no-simulations-in-tests](no-simulations-in-tests.md)).
 - **The campaign is not a check.** It posts no commit status, so nothing it finds shows next to CI's checks or blocks anything; its issues are what someone acts on.
 - **Releases do not wait for the campaign yet.** While Dassie changes quickly and no live network runs on its releases, a release held until the campaign has cleared its commit would slow every release for little gain. Releases wait for it once a live network depends on them ([roadmap](../roadmap.md#continuous-simulation)).
 
