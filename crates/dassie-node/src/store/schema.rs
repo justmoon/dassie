@@ -22,7 +22,8 @@ pub const EARLY_TESTNET_APPLICATION_ID: i32 = 0x7DA5_E2C9;
 
 /// The migrations, in order. Migration `n` (1-based) brings `user_version`
 /// to `n`. Never edit one that has shipped; add another.
-pub(super) const MIGRATIONS: &[&str] = &[BASELINE, MIGRATION_2, MIGRATION_3, MIGRATION_4];
+pub(super) const MIGRATIONS: &[&str] =
+    &[BASELINE, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5];
 
 /// The schema version this code writes: the number of migrations.
 pub const SCHEMA_VERSION: i64 = version_of(MIGRATIONS);
@@ -710,6 +711,18 @@ DROP INDEX ledger_transfers_by_packet;
 DROP INDEX ledger_transfers_trust;
 ";
 
+/// Migration 5: a hub's validator keeps its verifier's state with how far
+/// it followed the escrow (spec/areas/hubs.md#the-validator-in-the-node):
+/// the hub's network, then the verifier's UNL lists and manifests, whether
+/// it is UNL-blocked, and its anchor, as the verifier writes them
+/// (spec/areas/xrpl.md#state-and-restarts), so that a restart neither
+/// lifts a block nor takes an older anchor as current. It is bounded as an
+/// XRPL account's state is, and NULL until the watcher first writes it.
+const MIGRATION_5: &str = "
+ALTER TABLE hub_escrow ADD COLUMN verifier BLOB
+  CHECK (verifier IS NULL OR length(verifier) <= 262144);
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1248,6 +1261,7 @@ pub const TABLES: &[Table] = &[
             ("newest_ledger", "INTEGER", true, false),
             ("newest_close_time", "INTEGER", true, false),
             ("scanned_to", "INTEGER", true, false),
+            ("verifier", "BLOB", false, false),
         ],
     },
     Table {

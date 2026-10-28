@@ -71,7 +71,7 @@ fn in_asset(scheme: Name, smallest: u64) -> String {
 /// the testnet, XRP for the XRP hub and DSUSD for the DSUSD hub; on
 /// mainnet, XRP for the XRP hub and RLUSD for the RLUSD hub, each of the
 /// hub's realm. `None` for a ledger that is no hub's.
-pub(super) const fn owner_book_ledger(hub: LedgerId) -> Option<LedgerId> {
+pub(crate) const fn owner_book_ledger(hub: LedgerId) -> Option<LedgerId> {
     match hub {
         LedgerId::HubXrplTestnetXrp => Some(LedgerId::XrplTestnetXrp),
         LedgerId::HubXrplTestnetDsusdUsd => Some(LedgerId::XrplTestnetDsusdUsd),
@@ -246,16 +246,24 @@ fn restored(
 
 /// The hubs the node is in, each by the scheme over it.
 impl Core {
-    /// The active schemes over a hub, in their order: at most
-    /// [`MAX_OWN_HUBS`], one per asset, each the node's account in a hub
-    /// once it has one.
+    /// The active schemes over a hub, in their order: those on a hub's
+    /// ledger, each the node's account in a hub once it has one. The stub
+    /// with commitments, which stands in for a member in tests and
+    /// simulations, is in no hub. A ledger has at most one active scheme
+    /// (spec/areas/settlement.md#schemes-and-ledgers), and there is a
+    /// hub's ledger per asset a hub may hold, so there are at most
+    /// [`MAX_OWN_HUBS`].
     pub(super) fn hub_schemes(&self) -> Vec<Name> {
-        self.schemes
+        let hubs: Vec<Name> = self
+            .schemes
             .iter()
-            .filter(|(_, active)| active.over_hub)
+            .filter(|(_, active)| {
+                active.over_hub && owner_book_ledger(active.scheme.ledger()).is_some()
+            })
             .map(|(name, _)| *name)
-            .take(MAX_OWN_HUBS)
-            .collect()
+            .collect();
+        assert!(hubs.len() <= MAX_OWN_HUBS, "a scheme per hub's ledger");
+        hubs
     }
 
     /// Restores the moves of each hub the node is in from the database, or

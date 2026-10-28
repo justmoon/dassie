@@ -117,7 +117,6 @@ use dassie_ledger::LedgerId;
 use dassie_node_core::config::{LiveRealm, Realm};
 use dassie_oer::Decode;
 use dassie_payments::amount::paid_in_full;
-use dassie_peer::wire::SchemeId;
 use dassie_peer::{Bootstrap, Failure, InboundId, OwnInfo, RequestId, Response};
 use dassie_settlement::policy;
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
@@ -236,14 +235,15 @@ pub enum Settling {
     /// A settlement hub of XRP of this many validators on the fake
     /// ledger's mainnet, in the live realm: each node funds its account in
     /// the hub from its `xrpl-xrp` owner book, which its owner's deposits
-    /// fund, and peers over the hub (spec/roadmap.md#mainnet-hubs).
+    /// fund, and peers over the hub
+    /// (spec/areas/testing.md#over-a-settlement-hub).
     HubLive(usize),
     /// A settlement hub of RLUSD of this many validators on the fake
     /// ledger's mainnet, in the live realm: each node runs the owner books
     /// of XRP and RLUSD on its mainnet account, peering on neither, funds
     /// its account in the hub from the RLUSD book, which the fake ledger's
     /// issuer mints, the escrow's gas from the XRP book, and peers over the
-    /// hub (spec/roadmap.md#mainnet-hubs).
+    /// hub (spec/areas/testing.md#over-a-settlement-hub).
     HubRlusd(usize),
 }
 
@@ -412,16 +412,16 @@ impl Settling {
         match self {
             Self::Trusting | Self::OwnerBooks if ledger == USD => r#"{"trust":"unlimited"}"#.into(),
             Self::OwnerBooks | Self::OwnerBooksLive if self.owner_books(0).contains(&ledger) => {
-                r#"{"peers":false}"#.into()
+                String::new()
             }
             Self::StubHub(limit) if ledger == USD => format!(r#"{{"commitments":{limit}}}"#),
             Self::HubDsusd(_) | Self::Hub(_) | Self::HubAcross(_) | Self::Hubs(_)
                 if ledger == XRP || ledger == DSUSD =>
             {
-                r#"{"peers":false}"#.into()
+                String::new()
             }
             Self::HubLive(_) | Self::HubRlusd(_) if ledger == LIVE_XRP || ledger == RLUSD => {
-                r#"{"peers":false}"#.into()
+                String::new()
             }
             _ => Self::scheme(ledger).1.into(),
         }
@@ -504,9 +504,6 @@ pub struct Withdrawal {
     pub by: usize,
     /// The peer.
     pub peer: NodeId,
-    /// The scheme the pair settles over, if the node still had the
-    /// peering.
-    pub scheme: Option<SchemeId>,
 }
 
 /// What the issuer of the run's token stops, in a run on a token.
@@ -518,16 +515,6 @@ pub enum IssuerFreeze {
     Deep(usize),
     /// Every line: no holder pays another.
     Global,
-}
-
-impl IssuerFreeze {
-    /// Whether it stops what node `index` pays or is paid.
-    pub const fn stops(self, index: usize) -> bool {
-        match self {
-            Self::Line(node) | Self::Deep(node) => node == index,
-            Self::Global => true,
-        }
-    }
 }
 
 /// The rates of runs across currencies and on a token: a dollar buys two
@@ -559,8 +546,32 @@ const MOST_MOVED_TENTHS: i128 = 1;
 /// priced as one packet there, paying its own impact
 /// (spec/decisions/passive-rebalancing.md), less its fee, and 5% for
 /// packets' rounding and a second hop's fee. The same currency loses only
-/// the 5%.
+/// the 5%. Node 1 holds what each node starts with on each ledger, each an
+/// asset of its own, as a node holds a hub's ledger that no owner book
+/// funds; [`least_across_whole`] for one that funds its hubs from its books.
 pub fn least_across(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
+    least_across_from(ledger, into, sent, Settling::deposit)
+}
+
+/// [`least_across`] for a run across hubs, whose node 1 funds each hub
+/// from its owner book of the hub's asset: it holds each asset whole, in
+/// the hub and the book together, what it started with in the book, as
+/// its prices count it (spec/decisions/passive-rebalancing.md).
+pub fn least_across_whole(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
+    least_across_from(ledger, into, sent, |ledger| {
+        // The node's own mapping, which its prices group by.
+        Settling::deposit(crate::engine::core::owner_book_ledger(ledger).unwrap_or(ledger))
+    })
+}
+
+/// [`least_across`], with node 1 starting with `start` of each ledger's
+/// asset.
+fn least_across_from(
+    ledger: LedgerId,
+    into: LedgerId,
+    sent: u64,
+    start: impl Fn(LedgerId) -> i128,
+) -> u64 {
     use dassie_connector::{Holding, Inventory};
     if ledger.asset().code == into.asset().code {
         return sent / 100 * 95;
@@ -573,7 +584,7 @@ pub fn least_across(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
         ledger,
         owner: dassie_ledger::AccountId(0),
         holding: Holding {
-            posted: u128::try_from(Settling::deposit(ledger) * tenths / 10).unwrap(),
+            posted: u128::try_from(start(ledger) * tenths / 10).unwrap(),
             ..Holding::NONE
         },
     };
@@ -891,9 +902,6 @@ pub struct Sim {
     /// in the ledger's internal units: the owner's deposits and
     /// withdrawals there.
     pub issued: BTreeMap<usize, (i128, i128)>,
-    /// Each freeze of the issuer, from when it applied to when it was
-    /// lifted, if it was.
-    pub freezes: Vec<(IssuerFreeze, u64, Option<u64>)>,
     /// Each stretch in which the ledger's servers or validators failed a
     /// node, or every node, from when it began to when it ended: a server
     /// lying to one node, or a quorum withheld or a list lapsed for all.
@@ -1090,7 +1098,6 @@ impl Sim {
                 })
                 .collect(),
             issued: BTreeMap::new(),
-            freezes: Vec::new(),
             outages: Vec::new(),
             payments: Vec::new(),
             abandoned: Vec::new(),
@@ -1747,18 +1754,10 @@ impl Sim {
             peer, short: true, ..
         }) = event
         {
-            let scheme = self.nodes[index].core.as_ref().and_then(|core| {
-                core.network()
-                    .peers
-                    .into_iter()
-                    .find(|view| view.id == *peer)
-                    .map(|view| view.peering.first().scheme)
-            });
             self.withdrawn.push(Withdrawal {
                 at: self.now,
                 by: index,
                 peer: *peer,
-                scheme,
             });
         }
         if let Event::Settlement(SettlementEvent::Reconciled {
@@ -2071,22 +2070,12 @@ impl Sim {
             IssuerFreeze::Global => self.ledger.global_freeze(token.issuer, on),
         }
         .unwrap();
-        // It applies with the next ledger, and is lifted with it.
-        let at = self.next_close;
         if on {
-            self.freezes.push((freeze, at, None));
             self.count(match freeze {
                 IssuerFreeze::Line(_) => "issuer freezes",
                 IssuerFreeze::Deep(_) => "issuer deep freezes",
                 IssuerFreeze::Global => "issuer global freezes",
             });
-        } else if let Some(held) = self
-            .freezes
-            .iter_mut()
-            .rev()
-            .find(|(held, _, until)| *held == freeze && until.is_none())
-        {
-            held.2 = Some(at);
         }
         self.trace.push(format!(
             "{} the issuer {} {freeze:?}",
@@ -2705,7 +2694,22 @@ impl Sim {
     /// Or when a failed commit stopped either node before its part was on
     /// disk.
     pub fn pay_outgoing(&mut self, from: usize, to: usize, amount: u64) -> Result<(), String> {
-        let ledger = self.settling.ledger();
+        self.pay_outgoing_in(from, self.settling.ledger(), to, amount)
+    }
+
+    /// As [`Sim::pay_outgoing`], from node `from`'s `ledger` to a receiver
+    /// on the same ledger.
+    ///
+    /// # Errors
+    ///
+    /// As [`Sim::pay_outgoing`].
+    pub fn pay_outgoing_in(
+        &mut self,
+        from: usize,
+        ledger: LedgerId,
+        to: usize,
+        amount: u64,
+    ) -> Result<(), String> {
         let mut incoming = None;
         let stopped = |index: usize| format!("node {index} stopped");
         let created = self.step(to, |core| {
@@ -3151,7 +3155,7 @@ impl Sim {
 impl Sim {
     /// An outgoing payment across currencies, of a fixed `debit` from
     /// `from`'s first ledger to a receiver on `to`'s last, at no worse than
-    /// [`least_across`].
+    /// [`least_across_whole`].
     pub fn pay_outgoing_across(&mut self, from: usize, to: usize, debit: u64) {
         let ledger = self.settling.ledgers(from)[0];
         let into = *self.settling.ledgers(to).last().unwrap();
@@ -3171,7 +3175,7 @@ impl Sim {
             incoming = Some(payment);
         });
         let incoming = incoming.unwrap();
-        let receive = least_across(ledger, into, debit);
+        let receive = least_across_whole(ledger, into, debit);
         let mut outgoing = None;
         self.step(from, |core| {
             let created = core

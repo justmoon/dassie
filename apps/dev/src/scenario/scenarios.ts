@@ -49,9 +49,9 @@ export interface ScenarioDef {
   readonly realm?: "test" | "live";
   /**
    * Each scheme's config, by scheme ID, where it is not empty, for every
-   * node that runs it: such as `{"peers":false}` for an XRP Ledger scheme
-   * that is only its owner's book (spec/areas/settlement.md#owner-books).
-   * The hub scheme's is the founded hub's rules, never set here.
+   * node that runs it: such as the stub's kind. An XRP Ledger scheme, an
+   * owner book whatever its config (spec/areas/xrpl.md#owner-books), needs
+   * none. The hub scheme's is the founded hub's rules, never set here.
    */
   readonly configs?: Readonly<Record<string, string>>;
   /**
@@ -198,10 +198,6 @@ export const MAINNET_DEPOSIT_DROPS = 1_000_000_000n;
  */
 export const UNLIMITED_STUB = JSON.stringify({ trust: "unlimited" });
 
-/** An XRP Ledger scheme's config as an owner book, which peers with nobody
- * (spec/areas/settlement.md#owner-books). */
-export const OWNER_BOOK = JSON.stringify({ peers: false });
-
 /** The scheme of a member of the DSUSD hub on the testnet. */
 export const DSUSD_HUB_SCHEME = "hub-xrpl-testnet-dsusd";
 
@@ -264,7 +260,6 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     schemes: [["xrpl-testnet-dsusd"]],
     addedSchemes: ["xrpl-testnet-dsusd"],
     bootstrap: [],
-    configs: { "xrpl-testnet-dsusd": OWNER_BOOK },
     mint: { token: "DSUSD", value: "100" },
     pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
   },
@@ -276,7 +271,6 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     schemes: [["xrpl-xrp", "xrpl-rlusd"]],
     addedSchemes: ["xrpl-xrp", "xrpl-rlusd"],
     bootstrap: [],
-    configs: { "xrpl-xrp": OWNER_BOOK, "xrpl-rlusd": OWNER_BOOK },
     mint: { token: "RLUSD", value: "100" },
     // 200,000 XRP at the dev rate: deeper than RLUSD's floor of 100,000
     // XRP, below which its peg guard reads no price, even 5% off its peg.
@@ -299,7 +293,7 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     ],
     addedSchemes: [HUB_OWNER_BOOK, HUB_SCHEME],
     bootstrap: [0, 1],
-    configs: { stub: UNLIMITED_STUB, [HUB_OWNER_BOOK]: OWNER_BOOK },
+    configs: { stub: UNLIMITED_STUB },
     hub: { validators: [3, 4, 5, 6], sponsor: 3, members: [1, 2] },
   },
   {
@@ -319,10 +313,6 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     addedSchemes: IN_BOTH_HUBS,
     bootstrap: [4],
     periphery: [{ node: 5, uplinks: [4] }, { node: 6, uplinks: [4] }],
-    configs: {
-      [HUB_OWNER_BOOK]: OWNER_BOOK,
-      [TOKEN_SCHEMES.DSUSD]: OWNER_BOOK,
-    },
     // The faucet's 1000 XRP are worth 500 dollars at the dev rates, so the
     // core node holds about a twentieth of its value in DSUSD.
     mint: { token: "DSUSD", value: "25" },
@@ -351,10 +341,6 @@ export const SCENARIOS: readonly ScenarioDef[] = [
       { node: 6, uplinks: [4, 5] },
       { node: 7, uplinks: [4, 5] },
     ],
-    configs: {
-      [HUB_OWNER_BOOK]: OWNER_BOOK,
-      [TOKEN_SCHEMES.DSUSD]: OWNER_BOOK,
-    },
     // As in "market-maker": each core node holds about a twentieth of its
     // value in DSUSD.
     mint: { token: "DSUSD", value: "25" },
@@ -376,7 +362,6 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     ],
     addedSchemes: [HUB_OWNER_BOOK, HUB_SCHEME],
     bootstrap: [4, 5],
-    configs: { [HUB_OWNER_BOOK]: OWNER_BOOK },
     hub: { validators: [0, 1, 2, 3], sponsor: 0, members: [4, 5] },
   },
   {
@@ -406,10 +391,6 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     ],
     addedSchemes: [HUB_OWNER_BOOK, HUB_SCHEME],
     bootstrap: [5, 6],
-    configs: {
-      [HUB_OWNER_BOOK]: JSON.stringify({ peers: false }),
-      "xrpl-testnet-dsusd": JSON.stringify({ peers: false }),
-    },
     mint: { token: "DSUSD", value: "100" },
     pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
     hubs: [
@@ -437,7 +418,6 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     ],
     addedSchemes: ["xrpl-xrp", "hub-xrpl-xrp"],
     bootstrap: [4, 5],
-    configs: { "xrpl-xrp": OWNER_BOOK, "xrpl-rlusd": OWNER_BOOK },
     mint: { token: "RLUSD", value: "100" },
     // As deep as live-owner-books's: RLUSD's peg guard reads no price
     // from a shallower one.
@@ -622,8 +602,8 @@ function invalidPeriphery(def: ScenarioDef): string | undefined {
  * is founded with, each one of its nodes, once; a sponsor among its nodes
  * that runs the owner book of XRP, which funds the escrow; and members,
  * each one of its nodes, once, that run the hub's scheme and the owner
- * book, the book peering with nobody, as nodes added later do, with
- * nothing else. A member may run another scheme too, as a node that
+ * book, which peers with nobody, as nodes added later do, with nothing
+ * else. A member may run another scheme too, as a node that
  * converts between the hub and the stub does, but no other member runs
  * it: two members that share one peer over it before their hub accounts
  * exist, and that peering stays off the hub
@@ -691,21 +671,7 @@ export function invalidHub(def: ScenarioDef): string | undefined {
   if (def.configs?.[HUB_SCHEME] !== undefined) {
     return `${HUB_SCHEME}'s config is the founded hub's rules`;
   }
-  if (!ownerBookOnly(def.configs?.[HUB_OWNER_BOOK])) {
-    return `${HUB_OWNER_BOOK} peers: its config must say "peers": false`;
-  }
   return undefined;
-}
-
-/** Whether an XRP Ledger scheme's `config` makes it an owner book, which
- * peers with nobody (spec/areas/xrpl.md#owner-books). */
-function ownerBookOnly(config: string | undefined): boolean {
-  if (config === undefined) return false;
-  try {
-    return (JSON.parse(config) as { peers?: unknown }).peers === false;
-  } catch {
-    return false;
-  }
 }
 
 /**

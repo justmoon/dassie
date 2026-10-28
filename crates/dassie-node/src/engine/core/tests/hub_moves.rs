@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use dassie_hub::Rules;
-use dassie_hub::member::{DSUSD_SCHEME_ID, MAINNET_SCHEME_ID, RLUSD_SCHEME_ID};
+use dassie_hub::member::{DSUSD_SCHEME_ID, MAINNET_SCHEME_ID, RLUSD_SCHEME_ID, SCHEME_ID};
 use dassie_hub::rules::{Asset, Millis};
 use dassie_identity::{NodeKey, PublicKey};
 use dassie_ledger::{LedgerId, Name};
@@ -330,7 +330,12 @@ fn withdraws_once_the_escrow_has_its_gas(
     let withdrawn = loop {
         match core.hub_withdraw(amount * UNITS_PER_DROP) {
             Ok(status) => break status,
-            Err(EngineError::Exhausted(why)) => assert!(why.contains("XRP"), "{why}"),
+            // The wallet sends the withdrawal again on these words
+            // (`isGasCheck` in apps/wallet/src/pages/hubs/hubs.ts).
+            Err(EngineError::Exhausted(why)) => assert!(
+                why.contains("escrow pays its fees") && why.contains("try again shortly"),
+                "{why}"
+            ),
             Err(other) => panic!("{other:?}"),
         }
         refused += 1;
@@ -593,4 +598,31 @@ fn rlusd_off_its_peg_halts_the_mainnet_rlusd_hubs_ledger() {
     seconds(&mut core, &mut ledger, recover + 2);
     assert_eq!(peg(&core, book).unwrap().paused, None);
     assert!(!core.hub_halted(hub_ledger));
+}
+
+// spec/areas/hubs.md#in-the-node: the hubs the node is in are those of its
+// schemes on a hub's ledger, each with its own funding. The stub with
+// commitments beside them, which stands in for a member in tests and
+// simulations, is in none and has none.
+#[test]
+fn the_stub_with_commitments_is_in_no_hub() {
+    let (mut ledger, _) = super::funded_ledger();
+    let dsusd = Hub::new(DSUSD_SCHEME_ID, TESTNET.id, DSUSD);
+    let xrp = Hub::new(SCHEME_ID, TESTNET.id, Asset::Xrp);
+    let mut core = super::core(9);
+    super::add_stub(&mut core, super::COMMITTING);
+    super::add_xrpl(&mut core, "xrpl-testnet-xrp", super::SHARED_CONFIG).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    core.add_scheme(DSUSD_SCHEME_ID, dsusd.config()).unwrap();
+    core.add_scheme(SCHEME_ID, xrp.config()).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    // In the order of their names.
+    let hubs = [
+        Name::new(SCHEME_ID).unwrap(),
+        Name::new(DSUSD_SCHEME_ID).unwrap(),
+    ];
+    assert_eq!(core.hub_schemes(), hubs);
+    let funded: Vec<Name> = core.funding.keys().copied().collect();
+    assert_eq!(funded, hubs);
+    assert_eq!(core.hub_rules().len(), 2);
 }

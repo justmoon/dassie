@@ -4,8 +4,8 @@
 //! them.
 //!
 //! `node-owner-books` runs on the testnet: each node runs the owner books
-//! of XRP and DSUSD (`xrpl-testnet-xrp`, `xrpl-testnet-dsusd`, each
-//! `{"peers": false}`), funded from the faucet, which the fake ledger's
+//! of XRP and DSUSD (`xrpl-testnet-xrp`, `xrpl-testnet-dsusd`, each with
+//! an empty config), funded from the faucet, which the fake ledger's
 //! issuer mints DSUSD into, and peers and pays over the stub with unlimited
 //! trust as the scripted runs do (`scripted.rs`). While payments are under
 //! way, each owner pays out of its XRP book to an address outside the node,

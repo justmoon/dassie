@@ -30,7 +30,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [hub-founding](hub-founding.md) | The sponsor founds a hub over a stream of its own, and a quorum's signatures of the genesis found it | hubs, peer-protocol, designs/settlement-hubs |
 | [hub-keys-by-network](hub-keys-by-network.md) | A hub's keys name its network, and a validator validates on its owner's network | hubs, identity, node |
 | [hub-protocol-version](hub-protocol-version.md) | A hub runs one version of the hub protocol, which its ID commits to (moving a hub to another version not built) | hubs, overview, designs/settlement-hubs |
-| [hub-scheme-names](hub-scheme-names.md) | A hub scheme's ID names its underlying ledger and its asset (not built) | hubs, settlement, xrpl |
+| [hub-scheme-names](hub-scheme-names.md) | A hub scheme's ID names its underlying ledger and its asset | hubs, settlement, xrpl |
 | [hubs-only](hubs-only.md) | Peers settle only over settlement hubs | designs/settlement-hubs, settlement, network, xrpl, testing |
 | [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (transfer fees not built) | xrpl, settlement, connector |
 | [lazy-downlink-accounts](lazy-downlink-accounts.md) | A downlink's accounts open once value first moves with it, in room kept for it while its channel is open | network, settlement, connector, ledger |
@@ -78,7 +78,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [synced-before-peering](synced-before-peering.md) | A node peers on a scheme only once it has seen its ledger | settlement, network, xrpl |
 | [thresholds-in-packets](thresholds-in-packets.md) | A link's thresholds are counted in its largest packet | settlement, connector |
 | [tigerstyle](tigerstyle.md) | Engineering style: pragmatic TigerStyle and deterministic simulation | engineering, testing |
-| [token-hubs](token-hubs.md) | A hub may hold an issued token; its issuer's freeze pauses it, a clawback ends it, and its fees are paid in XRP anyone may send (not built) | designs/settlement-hubs, xrpl, settlement |
+| [token-hubs](token-hubs.md) | A hub may hold an issued token; its issuer's freeze pauses it, a clawback ends it, and its fees are paid in XRP anyone may send (partly built) | designs/settlement-hubs, xrpl, settlement |
 | [unreachable-peers](unreachable-peers.md) | A node takes no Prepare from a peer it cannot reach | connector, peer-protocol, settlement |
 | [unusable-limits](unusable-limits.md) | A limit no payment can use is caught before approval | payments, wallet |
 | [verified-ledgers](verified-ledgers.md) | The node books only what ledgers its own UNL validated prove (design, not built) | designs/xrpl-validation, xrpl, designs/settlement-hubs |

@@ -297,8 +297,9 @@ impl Core {
         })
     }
 
-    /// Whether a peer's settlement on `scheme` can reach us now: not while
-    /// our line cannot receive (spec/areas/settlement.md#when-peers-cannot-pay-us).
+    /// Whether a peer's settlement on `scheme` can reach us now: not once
+    /// its hub is shutting down, stalled or ended
+    /// (spec/areas/settlement.md#when-peers-cannot-pay-us).
     fn can_receive(&self, scheme: SchemeId) -> bool {
         Name::new(scheme.as_str()).ok().is_some_and(|name| {
             self.schemes

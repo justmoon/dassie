@@ -14,7 +14,7 @@
 - **A version of the hub protocol** (`rules::HUB_VERSION`) names what every validator of a hub must agree on: the hub's encodings and digests, what its ledger does with a block, and its consensus rules. It is not the release's version: a release that changes none of them keeps it, and one that changes any of them, however small, makes a new one.
 - **The terms name it, first,** so the hub ID commits to it. A hub runs one version for its whole life: new rules keep it, as they keep the asset.
 - **A node runs only the version its code runs.** Terms of another version neither decode nor check: a validator neither accepts nor signs the genesis of such a hub, its file of hubs is refused, a member does not join, and a stored hub of another version does not load. A node never runs a hub it would execute otherwise than its peers.
-- **Golden vectors pin the version** (`testdata/hub/vectors.json`): rules and the ID, operations, promises, statements, a block with the state the ledger leaves after it, a vote, the genesis and its certificate, and the escrow's transactions. A change that moves one is a new version.
+- **Golden vectors pin the version** (`testdata/hub/vectors.json`): rules and the ID, operations, promises, statements, a block with the state the ledger leaves after it, a vote, the genesis and its certificate, and the escrow's transactions. Once a release carries a version, a change that moves one of its vectors is a new version; until then no hub a release founded runs it, and its vectors may still move.
 
 ## Accepted
 

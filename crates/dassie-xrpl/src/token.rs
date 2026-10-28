@@ -49,9 +49,8 @@ use core::marker::PhantomData;
 use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
 use dassie_settlement::{
     AssetId, DollarRate, Effect, ExternalAsset, LedgerStatus, OwnerPayment, OwnerPaymentState,
-    PegView, PreparedSettlement, ReconcileCause, SchemeError, SettlementScheme,
+    PegView, ReconcileCause, SchemeError, SettlementScheme,
 };
-use rand_core::CryptoRng;
 
 use crate::account::{News, Ours, XrplAccount};
 use crate::amount::IssuedAsset;
@@ -221,14 +220,6 @@ impl<T: IssuedToken> TokenScheme<T> {
     /// Whether the issuer froze our line, so that it pays only the issuer.
     fn frozen(&self) -> bool {
         matches!(self.line, Some(Some(view)) if view.theirs.freeze || view.theirs.deep_freeze)
-    }
-
-    /// Whether no one can pay us on our line: it is deep-frozen, the
-    /// issuer froze its token for every holder, or it charges a transfer
-    /// fee, which a Payment without `SendMax` cannot pay.
-    fn cannot_receive(&self) -> bool {
-        matches!(self.line, Some(Some(view)) if view.theirs.deep_freeze)
-            || matches!(self.issuer, Some(Some(issuer)) if issuer.global_freeze || issuer.transfer_fee)
     }
 
     /// Runs its peg guard, if it has one, on `timings`: the node's, which
@@ -660,12 +651,6 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         false
     }
 
-    /// Not while the issuer stops what is paid to us, nor while the peg
-    /// guard pauses the scheme.
-    fn can_receive(&self) -> bool {
-        !self.cannot_receive() && !self.paused()
-    }
-
     fn converts(&self) -> bool {
         !self.paused()
     }
@@ -745,58 +730,6 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
             self.tell(now_ms, account, item, effects);
         }
         self.f.caught_up(account, self.id(), effects);
-    }
-
-    /// None: it peers with no one.
-    fn peering_info(&self, out: &mut Vec<u8>) {
-        out.clear();
-    }
-
-    fn create_peering_request(
-        &mut self,
-        _peer: Name,
-        _peering_info: &[u8],
-        _out: &mut Vec<u8>,
-    ) -> Result<(), SchemeError> {
-        Err(SchemeError::Unsupported)
-    }
-
-    fn accept_peering_request(
-        &mut self,
-        _peer: Name,
-        _data: &[u8],
-    ) -> Result<Vec<u8>, SchemeError> {
-        Err(SchemeError::Unsupported)
-    }
-
-    fn finalize_peering_request(
-        &mut self,
-        _peer: Name,
-        _peering_info: &[u8],
-    ) -> Result<Vec<u8>, SchemeError> {
-        Err(SchemeError::Unsupported)
-    }
-
-    fn prepare_settlement(
-        &mut self,
-        _rng: &mut dyn CryptoRng,
-        _asset: Option<&mut dyn ExternalAsset>,
-        _peer: Name,
-        _amount: u64,
-        _peer_state: &[u8],
-    ) -> Result<PreparedSettlement, SchemeError> {
-        Err(SchemeError::Unsupported)
-    }
-
-    /// It prepares none, so none is executed: one the node asks for anyway
-    /// can never apply.
-    fn execute_settlement(
-        &mut self,
-        _asset: Option<&mut dyn ExternalAsset>,
-        settlement: Name,
-        effects: &mut Vec<Effect>,
-    ) {
-        effects.push(Effect::Cancel { settlement });
     }
 
     fn reconcile(

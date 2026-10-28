@@ -14,6 +14,8 @@ use crate::node::Policies;
 use crate::store::Store;
 
 mod hub_moves;
+mod pricing;
+mod removal;
 mod slots;
 
 const NOW: u64 = 1_800_000_000_000;
@@ -310,7 +312,8 @@ fn xrpl_network(scheme: &str) -> &'static dassie_xrpl::Network {
 /// Adds the XRPL scheme `scheme` to `core` with `config` as an owner might
 /// have written it before an account's config was its own: what it says of
 /// the account (its server and faucet), trusting the fake ledger's
-/// validators, is the account's config, and whether it peers the scheme's
+/// validators, is the account's config, and `peers`, which a stored config
+/// may still say, the scheme's
 /// (spec/areas/settlement.md#external-assets).
 fn add_xrpl(
     core: &mut Core,
@@ -2246,52 +2249,14 @@ impl dassie_settlement::SettlementScheme for Witness {
         account.follow(self.id(), None, false);
     }
 
-    fn peering_info(&self, out: &mut Vec<u8>) {
-        out.clear();
+    /// An owner book: it peers with nobody, and a settlement message on
+    /// it books nothing, as a scheme that would settle directly must be.
+    fn peers(&self) -> bool {
+        false
     }
 
-    fn create_peering_request(
-        &mut self,
-        _peer: dassie_ledger::Name,
-        _info: &[u8],
-        _out: &mut Vec<u8>,
-    ) -> Result<(), dassie_settlement::SchemeError> {
-        Err(dassie_settlement::SchemeError::Unsupported)
-    }
-
-    fn accept_peering_request(
-        &mut self,
-        _peer: dassie_ledger::Name,
-        _data: &[u8],
-    ) -> Result<Vec<u8>, dassie_settlement::SchemeError> {
-        Err(dassie_settlement::SchemeError::Unsupported)
-    }
-
-    fn finalize_peering_request(
-        &mut self,
-        _peer: dassie_ledger::Name,
-        _info: &[u8],
-    ) -> Result<Vec<u8>, dassie_settlement::SchemeError> {
-        Err(dassie_settlement::SchemeError::Unsupported)
-    }
-
-    fn prepare_settlement(
-        &mut self,
-        _rng: &mut dyn rand_core::CryptoRng,
-        _asset: Option<&mut dyn dassie_settlement::ExternalAsset>,
-        _peer: dassie_ledger::Name,
-        _amount: u64,
-        _state: &[u8],
-    ) -> Result<dassie_settlement::PreparedSettlement, dassie_settlement::SchemeError> {
-        Err(dassie_settlement::SchemeError::Unavailable)
-    }
-
-    fn execute_settlement(
-        &mut self,
-        _asset: Option<&mut dyn dassie_settlement::ExternalAsset>,
-        _settlement: dassie_ledger::Name,
-        _effects: &mut Vec<dassie_settlement::Effect>,
-    ) {
+    fn books_messages(&self) -> bool {
+        false
     }
 
     fn reconcile(
@@ -2363,52 +2328,14 @@ impl dassie_settlement::SettlementScheme for HubStandIn {
         0
     }
 
-    fn peering_info(&self, out: &mut Vec<u8>) {
-        out.clear();
+    /// An owner book: it peers with nobody, and a settlement message on
+    /// it books nothing, as a scheme that would settle directly must be.
+    fn peers(&self) -> bool {
+        false
     }
 
-    fn create_peering_request(
-        &mut self,
-        _peer: dassie_ledger::Name,
-        _info: &[u8],
-        _out: &mut Vec<u8>,
-    ) -> Result<(), dassie_settlement::SchemeError> {
-        Err(dassie_settlement::SchemeError::Unsupported)
-    }
-
-    fn accept_peering_request(
-        &mut self,
-        _peer: dassie_ledger::Name,
-        _data: &[u8],
-    ) -> Result<Vec<u8>, dassie_settlement::SchemeError> {
-        Err(dassie_settlement::SchemeError::Unsupported)
-    }
-
-    fn finalize_peering_request(
-        &mut self,
-        _peer: dassie_ledger::Name,
-        _info: &[u8],
-    ) -> Result<Vec<u8>, dassie_settlement::SchemeError> {
-        Err(dassie_settlement::SchemeError::Unsupported)
-    }
-
-    fn prepare_settlement(
-        &mut self,
-        _rng: &mut dyn rand_core::CryptoRng,
-        _asset: Option<&mut dyn dassie_settlement::ExternalAsset>,
-        _peer: dassie_ledger::Name,
-        _amount: u64,
-        _state: &[u8],
-    ) -> Result<dassie_settlement::PreparedSettlement, dassie_settlement::SchemeError> {
-        Err(dassie_settlement::SchemeError::Unavailable)
-    }
-
-    fn execute_settlement(
-        &mut self,
-        _asset: Option<&mut dyn dassie_settlement::ExternalAsset>,
-        _settlement: dassie_ledger::Name,
-        _effects: &mut Vec<dassie_settlement::Effect>,
-    ) {
+    fn books_messages(&self) -> bool {
+        false
     }
 
     fn reconcile(
@@ -2456,7 +2383,7 @@ std::thread_local! {
     /// beside it.
     static STUB_TWO_PACKETS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Whether every [`StubTwo`] of this thread cannot receive a peer's
-    /// settlement, as a scheme whose line an issuer froze
+    /// settlement, as a hub's scheme once its hub stalled
     /// (spec/areas/settlement.md#when-peers-cannot-pay-us).
     static STUB_TWO_UNPAYABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -5476,13 +5403,12 @@ fn a_hub_withdrawal_takes_only_the_owners_funds() {
 }
 
 /// A core node that takes downlinks, with the XRP Ledger testnet scheme
-/// as an owner book, configured not to peer, synced on `ledger`, and the hub
-/// of [`hub_rules`].
+/// as an owner book, synced on `ledger`, and the hub of [`hub_rules`].
 fn owner_book_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let refused = dassie_node_core::config::LiveRealm::Refused;
     let mut core = core_taking_downlinks(store, Realm::Test, refused, NOW);
-    let book = r#"{"server":"ws://ledger.test","faucet":null,"peers":false}"#;
+    let book = r#"{"server":"ws://ledger.test","faucet":null}"#;
     add_xrpl(&mut core, "xrpl-testnet-xrp", book).unwrap();
     follow_xrpl(&mut core, ledger);
     core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(600, 300))
@@ -5493,10 +5419,10 @@ fn owner_book_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
 }
 
 // spec/areas/settlement.md#owner-books, spec/areas/hubs.md#in-the-node: the
-// XRP Ledger testnet scheme configured not to peer is the owner book of XRP
-// on the testnet. The node never lists it in its link state, and refuses a
-// peering on it as on a scheme it does not run; yet the hub is funded from
-// it, and withdrawn to its account, as from one that peers.
+// XRP Ledger testnet scheme is the owner book of XRP on the testnet. The
+// node never lists it in its link state, and refuses a peering on it as on a
+// scheme it does not run; yet the hub is funded from it, and withdrawn to
+// its account.
 #[test]
 fn an_owner_book_funds_the_hub_and_never_peers() {
     use dassie_ledger::{LedgerId, Name};

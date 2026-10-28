@@ -36,7 +36,7 @@ pub fn check_cap(sim: &Sim, payment: &Payment) -> Result<(), String> {
         .into_iter()
         .find(|row| row.id == id)
         .unwrap();
-    let ledger = sim.settling.ledger();
+    let ledger = payment.ledger;
     let path = format!("{ledger}:equity/owner/btp/{id}");
     let mut spent: Vec<(u64, u64)> = Vec::new();
     let mut after = None;
@@ -380,35 +380,16 @@ pub fn not_settled_down(sim: &mut Sim, seconds: u64, what: &str) -> Outcome {
 
 /// Routine settlement never withdraws an honest peer for room: only a peer
 /// that stays short, settling nothing, past the grace
-/// (spec/decisions/peering-lifecycle.md). An issuer's freeze of its token
-/// stops what the nodes it touches pay or are paid in it, so while it
-/// holds, and for a grace after it is lifted, a pair it touches that
-/// settles in the token may be withdrawn; a pair that settles in XRP may not
-/// (spec/areas/settlement.md#when-peers-cannot-pay-us). So does a stretch in
-/// which the ledger's servers or validators fail a node, or every node: a
-/// node that cannot see its ledger settles nothing, honestly, so a pair it
-/// is in may be withdrawn, until a grace after the stretch.
+/// (spec/decisions/peering-lifecycle.md). An issuer's freeze excuses
+/// nothing: it touches only owner books, on which nothing peers, and a
+/// frozen hub's method is unavailable, never withdrawn for room
+/// (spec/areas/hubs.md#a-frozen-hub). A stretch in which the ledger's
+/// servers or validators fail a node, or every node, does: a node that
+/// cannot see its ledger settles nothing, honestly, so a pair it is in may
+/// be withdrawn, until a grace after the stretch.
 pub fn check_withdrawn(sim: &Sim) -> Result<(), String> {
     let grace = sim.peer.advertise_short_grace_ms;
-    let token = sim
-        .settling
-        .token()
-        .map(|(ledger, _)| Settling::scheme(ledger).0);
     let id = |index: usize| key(index).node_id();
-    let frozen = |withdrawal: &Withdrawal| {
-        let on_token = withdrawal
-            .scheme
-            .is_some_and(|scheme| Some(scheme.as_str()) == token);
-        on_token
-            && sim.freezes.iter().any(|&(freeze, from, until)| {
-                let touched = (0..sim.nodes.len()).any(|index| {
-                    freeze.stops(index) && (index == withdrawal.by || id(index) == withdrawal.peer)
-                });
-                touched
-                    && withdrawal.at >= from
-                    && until.is_none_or(|until| withdrawal.at <= until + grace)
-            })
-    };
     let unseen = |withdrawal: &Withdrawal| {
         sim.outages.iter().any(|&(node, from, until)| {
             node.is_none_or(|index| index == withdrawal.by || id(index) == withdrawal.peer)
@@ -416,7 +397,7 @@ pub fn check_withdrawn(sim: &Sim) -> Result<(), String> {
                 && withdrawal.at <= until + grace
         })
     };
-    match (sim.withdrawn.iter()).find(|withdrawal| !frozen(withdrawal) && !unseen(withdrawal)) {
+    match (sim.withdrawn.iter()).find(|withdrawal| !unseen(withdrawal)) {
         Some(withdrawal) => Err(format!(
             "node {} withdrew {} for room at {}",
             withdrawal.by,
@@ -686,11 +667,11 @@ fn check_outgoing_payment(
     Ok(())
 }
 
-/// Whether the run is over one hub of XRP run in the simulation, whose
-/// members fund their accounts in it from their XRP Ledger accounts: its
-/// books are the hub's to check.
+/// Whether the run is over a hub of XRP run in the simulation, or two hubs,
+/// whose members fund their accounts in them from their owner books on the
+/// XRP Ledger: its books are the hubs' to check.
 fn is_hub_run(sim: &Sim) -> bool {
-    matches!(sim.settling, Settling::Hub(_))
+    matches!(sim.settling, Settling::Hub(_) | Settling::Hubs(_))
 }
 
 /// Each node's books, on their own: they hold what its scheme holds, and
@@ -966,7 +947,7 @@ fn check_received_across(sim: &Sim) -> Result<(), String> {
             u128::from(received(sim, payment)),
             u128::from(sent(payment)),
         );
-        let least = u128::from(super::least_across(
+        let least = u128::from(super::least_across_whole(
             payment.ledger,
             into,
             u64::try_from(sent).unwrap(),

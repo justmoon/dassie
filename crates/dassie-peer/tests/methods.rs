@@ -13,7 +13,7 @@
 
 use dassie_identity::{NodeId, NodeKey};
 use dassie_kit::sim::SeededRng;
-use dassie_peer::sim::{Network, SECOND, START, STUB, StubHooks, key, scheme};
+use dassie_peer::sim::{Faults, Network, SECOND, START, STUB, StubHooks, key, scheme};
 use dassie_peer::wire::{Entry, Kind, NodeInfo, SchemeId, TerminationReason, sign_node_info};
 use dassie_peer::{
     Config, Event, MAX_SCHEMES, Output, OwnInfo, PeerNode, SendError, Sources, Stored, StoredNode,
@@ -363,6 +363,155 @@ fn a_method_only_one_side_holds_is_repaired() {
     settle(&mut network, 5_000);
     assert_eq!(methods(&network, asked, &ids[other]), [scheme(STUB)]);
     assert!(network.node(asked).peering_of(&ids[other]).is_some());
+}
+
+// The same for a request to settle on a method only one side holds: it is
+// refused, and its sender told, so it drops its side too
+// (spec/areas/network.md#one-sided-peerings).
+#[test]
+fn a_request_to_settle_on_a_method_only_one_side_holds_repairs_it() {
+    let (mut network, _, b) = both(87);
+    let asked = requester(&network, &b);
+    let other = 1 - asked;
+    let ids = [*network.node(0).own(), *network.node(1).own()];
+    network.cut.insert((other, asked));
+    network.set_running(other, scheme(SECOND), false);
+    settle(&mut network, 500);
+    network.crash(other);
+    network.cut.clear();
+    network.start(other);
+    settle(&mut network, 5_000);
+    assert_eq!(methods(&network, asked, &ids[other]), two());
+    assert_eq!(methods(&network, other, &ids[asked]), [scheme(STUB)]);
+    network.act(asked, |node, now| {
+        node.request_settlement(now, &ids[other], scheme(SECOND))
+            .unwrap();
+    });
+    settle(&mut network, 5_000);
+    assert_eq!(methods(&network, asked, &ids[other]), [scheme(STUB)]);
+    assert_eq!(methods(&network, other, &ids[asked]), [scheme(STUB)]);
+    let dropped = events(&network, asked, |event| {
+        matches!(event, Event::MethodDropped { scheme: s, by_us: false, .. }
+            if *s == scheme(SECOND))
+    });
+    assert_eq!(dropped, 1);
+}
+
+// A peer that takes our request for a method and drops the method before
+// its acceptance reaches us: its drop ends our request, and the acceptance
+// that arrives after it adds nothing, so neither side holds the method.
+#[test]
+fn a_method_dropped_before_its_acceptance_arrives_is_not_added() {
+    let mut network = Network::new(88, 2, 1, Config::DEV);
+    let (a, b) = (*network.node(0).own(), *network.node(1).own());
+    wait(&mut network, |network| {
+        methods(network, 0, &b) == [scheme(STUB)] && methods(network, 1, &a) == [scheme(STUB)]
+    });
+    let asked = requester(&network, &b);
+    let other = 1 - asked;
+    let ids = [a, b];
+    network.set_running(other, scheme(SECOND), true);
+    wait(&mut network, |network| {
+        network
+            .node(asked)
+            .nodes()
+            .iter()
+            .any(|view| view.id == ids[other] && view.schemes.contains(&scheme(SECOND)))
+    });
+    // Every message takes a second from here on, so the peer's acceptance
+    // is on its way for that long.
+    network.faults = Faults {
+        min_latency_ms: 1_000,
+        max_latency_ms: 1_000,
+        ..Faults::NONE
+    };
+    network.set_running(asked, scheme(SECOND), true);
+    let accepted = |network: &Network| {
+        events(network, other, |event| {
+            matches!(event, Event::MethodAdded { scheme: s, inbound: true, .. }
+                if *s == scheme(SECOND))
+        }) == 1
+    };
+    for _ in 0..1_000 {
+        if accepted(&network) {
+            break;
+        }
+        settle(&mut network, 10);
+    }
+    assert!(accepted(&network), "the peer never took the method");
+    // The peer drops it at once, and its drop overtakes its acceptance.
+    network.faults = Faults::NONE;
+    network.set_running(other, scheme(SECOND), false);
+    settle(&mut network, 5_000);
+    assert_eq!(methods(&network, asked, &ids[other]), [scheme(STUB)]);
+    assert_eq!(methods(&network, other, &ids[asked]), [scheme(STUB)]);
+    let added = events(&network, asked, |event| {
+        matches!(event, Event::MethodAdded { .. })
+    });
+    assert_eq!(added, 0, "the late acceptance added the method");
+}
+
+// The same, with the acceptance on its way for longer than the backoff
+// after a failed request, and the peer taking the scheme up again: the
+// drop ends our request only once its own answer is in, so no second
+// request starts before it, and the late acceptance is taken for no other
+// request. We never hold the method while the peer does not.
+#[test]
+fn a_late_acceptance_answers_no_later_request() {
+    let mut network = Network::new(89, 2, 1, Config::DEV);
+    let (a, b) = (*network.node(0).own(), *network.node(1).own());
+    wait(&mut network, |network| {
+        methods(network, 0, &b) == [scheme(STUB)] && methods(network, 1, &a) == [scheme(STUB)]
+    });
+    let asked = requester(&network, &b);
+    let other = 1 - asked;
+    let ids = [a, b];
+    network.set_running(other, scheme(SECOND), true);
+    wait(&mut network, |network| {
+        network
+            .node(asked)
+            .nodes()
+            .iter()
+            .any(|view| view.id == ids[other] && view.schemes.contains(&scheme(SECOND)))
+    });
+    // The acceptance takes three seconds, longer than the backoff after a
+    // first failure (twice `DEV_MIN_BACKOFF_MS`).
+    let slow = |ms| Faults {
+        min_latency_ms: ms,
+        max_latency_ms: ms,
+        ..Faults::NONE
+    };
+    network.faults = slow(3_000);
+    network.set_running(asked, scheme(SECOND), true);
+    let accepted = |network: &Network| {
+        events(network, other, |event| {
+            matches!(event, Event::MethodAdded { scheme: s, inbound: true, .. }
+                if *s == scheme(SECOND))
+        }) == 1
+    };
+    for _ in 0..1_000 {
+        if accepted(&network) {
+            break;
+        }
+        settle(&mut network, 10);
+    }
+    assert!(accepted(&network), "the peer never took the method");
+    // The peer drops it at once, its drop overtaking its acceptance, and
+    // takes the scheme up again; what we send from here takes two seconds,
+    // so a second request would still be asking when the acceptance comes.
+    network.faults = Faults::NONE;
+    network.set_running(other, scheme(SECOND), false);
+    settle(&mut network, 10);
+    network.set_running(other, scheme(SECOND), true);
+    network.faults = slow(2_000);
+    for _ in 0..3_000 {
+        settle(&mut network, 10);
+        let ours = methods(&network, asked, &ids[other]).contains(&scheme(SECOND));
+        let theirs = methods(&network, other, &ids[asked]).contains(&scheme(SECOND));
+        assert!(!ours || theirs, "we hold a method the peer does not");
+    }
+    assert_eq!(methods(&network, asked, &ids[other]), two());
+    assert_eq!(methods(&network, other, &ids[asked]), two());
 }
 
 // A link state that lists a scheme many times names one method on it: the

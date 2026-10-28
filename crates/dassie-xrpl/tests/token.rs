@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dassie_ledger::Name;
 use dassie_settlement::{
-    AssetEffect, Detach, DollarRate, Effect, ExternalAsset, LedgerInput, LedgerStatus,
+    AssetEffect, Detach, DollarRate, Effect, ExternalAsset, Freeze, LedgerInput, LedgerStatus,
     OwnerPayment, OwnerPaymentState, PegPause, ReconcileCause, SchemeError, SettlementScheme,
 };
 use dassie_xrpl::account::{self, News, XrplAccount};
@@ -983,13 +983,13 @@ fn the_line_books_deposits_withdrawals_and_clawbacks() {
     assert_eq!(world.nodes[0].books[USD].owner, i128::from(usd(13_750_000)));
 }
 
-// spec/areas/xrpl.md#the-token-scheme: the issuer's freezes. A frozen line
-// pays the owner nothing but stays synced and still receives; a deep-frozen
-// line, or a global freeze read at the settlement check, cannot receive
-// either; a transfer fee also stops the owner's payments. Lifted, it pays
-// again.
+// spec/areas/xrpl.md#the-token-scheme: the issuer's freezes. A frozen line,
+// deep-frozen or not, pays the owner nothing but stays synced; so does a
+// line under a global freeze, read at the settlement check, or whose issuer
+// charges a transfer fee. Each freeze is shown in what the account holds.
+// Lifted, it pays again.
 #[test]
-fn freezes_stop_paying_and_receiving() {
+fn freezes_stop_paying() {
     let mut world = synced(2);
     world.mint(0, "10");
     world.close();
@@ -999,6 +999,7 @@ fn freezes_stop_paying_and_receiving() {
     let unavailable = |world: &mut World| {
         world.pay_owner(0, &owner_payment(to, usd(1))) == Err(SchemeError::Unavailable)
     };
+    let shown = |world: &World| world.nodes[0].account.holdings()[1].freeze;
 
     world
         .ledger
@@ -1007,7 +1008,13 @@ fn freezes_stop_paying_and_receiving() {
     world.close();
     assert!(unavailable(&mut world));
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
-    assert!(world.nodes[0].dsusd().can_receive());
+    assert_eq!(
+        shown(&world),
+        Freeze {
+            line: true,
+            ..Freeze::default()
+        }
+    );
 
     world
         .ledger
@@ -1015,31 +1022,38 @@ fn freezes_stop_paying_and_receiving() {
         .unwrap();
     world.close();
     assert!(unavailable(&mut world));
-    assert!(!world.nodes[0].dsusd().can_receive());
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
+    assert_eq!(
+        shown(&world),
+        Freeze {
+            line: true,
+            deep: true,
+            global: false
+        }
+    );
 
     world
         .ledger
         .freeze(address, IssuedAsset::DSUSD, false)
         .unwrap();
     world.close();
-    assert!(world.nodes[0].dsusd().can_receive());
+    assert_eq!(shown(&world), Freeze::default());
 
-    // A global freeze changes only the issuer's account: seen at the next
-    // settlement check, proven at the anchor.
+    // A global freeze changes only the issuer's account: after a settlement
+    // check, which proves it at the anchor, it is shown and the owner is not
+    // paid.
     world.ledger.global_freeze(dsusd::ISSUER, true).unwrap();
     world.close();
-    assert!(world.nodes[0].dsusd().can_receive());
     world.settlement_check(0);
-    assert!(!world.nodes[0].dsusd().can_receive());
+    assert!(shown(&world).global);
     assert!(unavailable(&mut world));
+    assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
     world.ledger.global_freeze(dsusd::ISSUER, false).unwrap();
     world.close();
     world.settlement_check(0);
-    assert!(world.nodes[0].dsusd().can_receive());
+    assert_eq!(shown(&world), Freeze::default());
 
-    // A transfer fee no DSUSD node pays: no peer can pay us either
-    // (spec/areas/settlement.md#when-peers-cannot-pay-us).
+    // A transfer fee, which no Payment without `SendMax` pays.
     world
         .ledger
         .set_transfer_rate(dsusd::ISSUER, 1_002_000_000)
@@ -1047,12 +1061,10 @@ fn freezes_stop_paying_and_receiving() {
     world.close();
     world.settlement_check(0);
     assert!(unavailable(&mut world));
-    assert!(!world.nodes[0].dsusd().can_receive());
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
     world.ledger.set_transfer_rate(dsusd::ISSUER, 0).unwrap();
     world.close();
     world.settlement_check(0);
-    assert!(world.nodes[0].dsusd().can_receive());
     let id = world.pay(USD, 0, 1, usd(1_000_000));
     world.close();
     assert_eq!(world.nodes[0].books[USD].paid, [(id, true)]);
@@ -1070,11 +1082,12 @@ fn an_old_answer_of_the_issuer_is_not_taken() {
     world.ledger.global_freeze(dsusd::ISSUER, false).unwrap();
     world.closes(2);
     world.settlement_check(0);
-    assert!(world.nodes[0].dsusd().can_receive());
+    let global = |world: &World| world.nodes[0].account.holdings()[1].freeze.global;
+    assert!(!global(&world));
     // A server behind says the token is still frozen: not taken.
     let mut current = std::mem::replace(&mut world.ledger, behind);
     world.settlement_check(0);
-    assert!(world.nodes[0].dsusd().can_receive());
+    assert!(!global(&world));
     std::mem::swap(&mut world.ledger, &mut current);
 }
 
@@ -1988,7 +2001,8 @@ fn a_line_a_server_alters_books_nothing() {
             books.reconciled.is_empty() && books.losses.is_empty(),
             "{lie:?}"
         );
-        assert!(world.nodes[0].dsusd().can_receive(), "{lie:?}");
+        let shown = world.nodes[0].account.holdings()[1].freeze;
+        assert_eq!(shown, Freeze::default(), "{lie:?}");
         assert_eq!(world.nodes[0].account.write_offs(), write_offs, "{lie:?}");
         world.ledger.set_lie_for_all(None);
         world.wait(account::STALL_MS);

@@ -32,7 +32,6 @@ sha2 = { version = "0.11", default-features = false }
 ripemd = { version = "0.2", default-features = false }
 # The rippled WebSocket API is JSON.
 serde_json = { version = "1.0.154", default-features = false, features = ["alloc"] }
-rand_core = { version = "0.10", default-features = false }
 
 [dev-dependencies]
 dassie-identity = { path = "../dassie-identity" }

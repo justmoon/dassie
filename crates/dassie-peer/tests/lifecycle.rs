@@ -779,8 +779,8 @@ fn depeered(network: &Network, peer: &NodeId, reason: TerminationReason) -> bool
 // room for twice as long as a silent peer is kept, node 1 is withdrawn,
 // since the link carries nothing, but not ended for room: every request to
 // settle failed before it reached node 1, so it had no chance to settle,
-// and an end for room would keep the pair apart and raise node 1 no credit
-// again (spec/decisions/peering-lifecycle.md,
+// and an end for room would keep the pair apart for the cooldown
+// (spec/decisions/peering-lifecycle.md,
 // spec/decisions/ended-for-room.md). Once it is reached again, only the time
 // it is reached counts toward the end.
 #[test]
@@ -918,7 +918,7 @@ fn an_outage_of_the_ledger_pauses_the_time_short() {
 }
 
 // spec/areas/settlement.md#when-peers-cannot-pay-us: while no settlement
-// from a peer can reach us (our line frozen deep), its time short grows
+// from a peer can reach us (its hub stalled), its time short grows
 // toward withdrawing it, past the grace, but never toward ending the
 // peering for room, however long it lasts.
 #[test]

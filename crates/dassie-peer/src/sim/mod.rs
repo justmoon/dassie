@@ -87,8 +87,8 @@ pub struct StubHooks {
     pub unrun: bool,
     /// The schemes the node no longer runs, of the two.
     pub unrun_schemes: BTreeSet<SchemeId>,
-    /// The schemes that cannot receive a peer's settlement now, as while
-    /// an issuer froze the node's line.
+    /// The schemes that cannot receive a peer's settlement now, as
+    /// a hub's scheme once its hub stalled.
     pub unpayable: BTreeSet<SchemeId>,
     /// Whether the node refuses every further method of a peering, as a
     /// node does whose accounts for one do not fit.

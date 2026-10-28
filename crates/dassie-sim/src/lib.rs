@@ -37,7 +37,7 @@ pub static SIMS: &[Sim] = &[
         name: "node",
         about: "whole nodes' engine cores, with a network, faults and payments drawn per seed, \
                 through chaos, then healed, on the stub with unlimited trust or with \
-                commitments, or over a settlement hub run in the simulation",
+                commitments, or over one or two settlement hubs run in the simulation",
         describe: dassie_node::sim::swarm::describe,
         run: dassie_node::sim::swarm::run,
         // The most, and most of the time: it runs the node whole, and each

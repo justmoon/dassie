@@ -7,7 +7,9 @@
  * (spec/areas/hubs.md#payout-bundles). No stream carries hubs, so the page
  * asks again every few seconds while it shows (spec/areas/wallet.md#live-data).
  * A token hub its issuer froze says so, and since when
- * (spec/areas/hubs.md#a-frozen-hub). It draws in Kopje
+ * (spec/areas/hubs.md#a-frozen-hub). A withdrawal from a token hub that
+ * the node holds back while it checks the escrow's XRP goes again by
+ * itself, a few times, while the page shows. It draws in Kopje
  * (apps/website/brand/index.html): the value cube only beside the balance,
  * ember for action.
  */
@@ -26,6 +28,7 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
+import { RpcError } from "@dassie/rpc";
 import { Amount } from "@dassie/ui/amount";
 import {
   type Currency,
@@ -51,7 +54,10 @@ import {
 } from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
 import {
+  afterWithdrawalFailed,
   automaticText,
+  type CallFailure,
+  GAS_CHECK_TEXT,
   givenUpText,
   holdRows,
   holdsTotal,
@@ -388,6 +394,13 @@ function Holds(props: {
   );
 }
 
+/** A failed call, as the page reads it. */
+function failureOf(failure: unknown): CallFailure {
+  return failure instanceof RpcError
+    ? { code: failure.code, message: failure.message }
+    : { message: describe(failure) };
+}
+
 /** The move on its way, the one given up, and moving funds. */
 function Moves(
   props: { status: HubStatus; currency: Currency; polled: PolledHubs },
@@ -399,6 +412,60 @@ function Moves(
   const [text, setText] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string>();
+  // While the node checks a token hub's escrow's XRP, the withdrawal goes
+  // again by itself: the timer that sends it, and a round that a cancel
+  // or a new move ends, so an answer of an ended round starts no other.
+  const [checking, setChecking] = createSignal(false);
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let round = 0;
+  const stopRetrying = () => {
+    round += 1;
+    if (retry !== undefined) clearTimeout(retry);
+    retry = undefined;
+    setChecking(false);
+  };
+  onCleanup(stopRetrying);
+  // A move the node took: the amount it was of goes, unless the owner
+  // typed another since.
+  const moved = (direction: "deposit" | "withdraw", clear = true) => {
+    if (clear) setText("");
+    toast({
+      title: direction === "deposit"
+        ? "Deposit on its way"
+        : "Withdrawal on its way",
+      description: "It shows here once the hub's validators agree on it.",
+    });
+  };
+  const withdraw = async (
+    request: { amount: bigint; hubId: string },
+    retries: number,
+  ) => {
+    const mine = round;
+    retry = undefined;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const { status } = await client.call("hubWithdraw", request);
+      if (status) props.polled.take(status);
+      if (mine === round) setChecking(false);
+      moved("withdraw", mine === round);
+    } catch (failure) {
+      if (mine !== round) return;
+      const next = afterWithdrawalFailed(failureOf(failure), retries);
+      if (next.kind === "retry") {
+        setChecking(true);
+        retry = setTimeout(
+          () => void withdraw(request, retries + 1),
+          next.afterMs,
+        );
+      } else {
+        setChecking(false);
+        setError(next.text);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
   const act = async (what: () => Promise<{ status?: HubStatus }>) => {
     setBusy(true);
     setError(undefined);
@@ -420,20 +487,13 @@ function Moves(
       return;
     }
     const request = { amount: parsed.value, hubId: id() };
-    const done = await act(() =>
-      direction === "deposit"
-        ? client.call("hubDeposit", request)
-        : client.call("hubWithdraw", request)
-    );
-    if (done) {
-      setText("");
-      toast({
-        title: direction === "deposit"
-          ? "Deposit on its way"
-          : "Withdrawal on its way",
-        description: "It shows here once the hub's validators agree on it.",
-      });
+    stopRetrying();
+    if (direction === "withdraw") {
+      await withdraw(request, 0);
+      return;
     }
+    const done = await act(() => client.call("hubDeposit", request));
+    if (done) moved("deposit");
   };
   return (
     <section class="hub-moves stack">
@@ -478,6 +538,24 @@ function Moves(
           </Alert>
         )}
       </Show>
+      <Show when={checking()}>
+        <Alert
+          title="Checking the hub's fees"
+          testid={`hub-gas-check-${id()}`}
+        >
+          <p>{GAS_CHECK_TEXT}</p>
+          <div class="actions">
+            <button
+              type="button"
+              class="link"
+              data-testid={`hub-gas-check-cancel-${id()}`}
+              onClick={stopRetrying}
+            >
+              Don't send it again
+            </button>
+          </div>
+        </Alert>
+      </Show>
       {/* Enter moves nothing: the owner picks which way with a button. */}
       <form onSubmit={(event: SubmitEvent) => event.preventDefault()}>
         <Field
@@ -491,7 +569,12 @@ function Moves(
             autocomplete="off"
             data-testid={`hub-amount-${id()}`}
             value={text()}
-            onInput={(event) => setText(event.currentTarget.value)}
+            onInput={(event) => {
+              // A withdrawal waiting to go again is of the amount it was:
+              // a new one is the owner's to send.
+              if (checking()) stopRetrying();
+              setText(event.currentTarget.value);
+            }}
           />
         </Field>
         <div class="actions">
