@@ -43,7 +43,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
-use crate::clock::{Clock, SystemClock};
+use crate::clock::{Clock, SystemClock, interval_passed};
 use crate::store::StoredCertificate;
 
 /// How the fake ledger is served.
@@ -56,7 +56,8 @@ pub struct Options {
     /// Where its faucet, its issuer and its deposits listen, over HTTPS
     /// with this certificate. Mainnet's has no faucet.
     pub faucet: Option<(SocketAddr, StoredCertificate)>,
-    /// How often a ledger closes.
+    /// How often a ledger closes: in real time, or on the clock a test
+    /// gives it ([`Server::close_on`]).
     pub close_every: Duration,
 }
 
@@ -70,6 +71,8 @@ struct Shared {
     next: AtomicU64,
     /// The clock its ledgers close on.
     clock: Mutex<Arc<dyn Clock>>,
+    /// Told when a test sets the clock, so that its closes go by it at once.
+    clock_set: tokio::sync::Notify,
 }
 
 /// A running fake ledger.
@@ -117,6 +120,7 @@ impl Server {
             connections: Mutex::new(BTreeMap::new()),
             next: AtomicU64::new(1),
             clock: Mutex::new(clock),
+            clock_set: tokio::sync::Notify::new(),
         });
         let cancel = CancellationToken::new();
         let listener = TcpListener::bind(options.listen)
@@ -178,13 +182,18 @@ impl Server {
 
     /// Closes its ledgers on `clock` from now on, a test's, whose nodes then
     /// read its validations as fresh: a second after the last at least, so
-    /// a ledger never closes before its parent.
+    /// a ledger never closes before its parent. A clock moved by hand paces
+    /// the closes too: one closes each time the test moves it on by
+    /// [`Options::close_every`], a second at least, and none while it
+    /// stands still, so that a test waits for a close by moving its clock,
+    /// never for real time (spec/areas/testing.md#over-real-sockets).
     pub fn close_on(&self, clock: Arc<dyn Clock>) {
         *self
             .shared
             .clock
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = clock;
+        self.shared.clock_set.notify_one();
     }
 
     /// What an account's config names to trust its validators: its
@@ -224,12 +233,31 @@ fn close_time_of(clock: &dyn Clock) -> u64 {
     (clock.now_ms() / 1_000).saturating_sub(RIPPLE_EPOCH_UNIX_S)
 }
 
+/// The least time between two closes on a clock moved by hand: a ledger's
+/// close time counts whole seconds, and each is a second after its
+/// parent's at least, so closes any closer would run the ledger's time
+/// ahead of the test's.
+const LEAST_CLOSE_ON_A_TEST_CLOCK_MS: u64 = 1_000;
+
+/// Closes a ledger every `every` on the server's clock: of real time on the
+/// system clock, and on a test's whenever the test moves it that far, a
+/// second at least ([`Server::close_on`]), so that a ledger closes as the
+/// test's daemons' time passes and never while it stands still.
 async fn close_ledgers(every: Duration, shared: Arc<Shared>, cancel: CancellationToken) {
-    let mut interval = tokio::time::interval(every);
+    let every_ms = u64::try_from(every.as_millis()).unwrap_or(u64::MAX);
     loop {
+        let clock = Arc::clone(&shared.clock.lock().unwrap_or_else(PoisonError::into_inner));
+        let mut moves = clock.subscribe();
+        let wait_ms = if moves.is_some() {
+            every_ms.max(LEAST_CLOSE_ON_A_TEST_CLOCK_MS)
+        } else {
+            every_ms
+        };
         tokio::select! {
             () = cancel.cancelled() => return,
-            _ = interval.tick() => {}
+            // A test set its clock: the wait starts again on it.
+            () = shared.clock_set.notified() => continue,
+            () = interval_passed(clock.as_ref(), &mut moves, wait_ms) => {}
         }
         let clock = Arc::clone(&shared.clock.lock().unwrap_or_else(PoisonError::into_inner));
         let out = shared

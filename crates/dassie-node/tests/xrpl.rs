@@ -194,7 +194,7 @@ async fn the_xrp_book_holds_across_a_restart() {
     // Meanwhile, someone sends A 3 XRP, and a ledger closes with it.
     let held = server.ledger().balance(account_of(&key_a)).unwrap();
     server.ledger().deposit(account_of(&key_a), 3_000_000);
-    closed("the deposit", || {
+    closed(&clock, "the deposit", || {
         server.ledger().balance(account_of(&key_a)) == Some(held + 3_000_000)
     })
     .await;
@@ -418,11 +418,17 @@ async fn the_owner_asks_the_faucet_for_more() {
     server.stop();
 }
 
-/// Waits until `done`, as the fake ledger closes a ledger with it. It
-/// closes them in real time, every 100 ms, outside any node's clock, so
-/// only a hang ends the wait ([`support::HANG`]).
-async fn closed(what: &str, mut done: impl FnMut() -> bool) {
-    support::eventually(what, async || done().then_some(())).await;
+/// Waits until `done`, as the fake ledger closes a ledger with it: it
+/// closes them on `clock`, which this moves on until then.
+async fn closed(clock: &ManualClock, what: &str, mut done: impl FnMut() -> bool) {
+    for _ in 0..600 {
+        if done() {
+            return;
+        }
+        clock.advance(250);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("not closed in time: {what}");
 }
 
 /// The issuer of the fake ledger's test DSUSD takes requests over HTTPS
@@ -440,7 +446,10 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
     let wallet = Wallet::from_seed([3; 16]);
     let holder = wallet.account();
     server.ledger().deposit(holder, 100_000_000);
-    closed("the deposit", || server.ledger().balance(holder).is_some()).await;
+    closed(&clock, "the deposit", || {
+        server.ledger().balance(holder).is_some()
+    })
+    .await;
     // A new account's first sequence is the ledger that made it.
     let info = serde_json::json!({ "command": "account_info", "account": holder.to_address() });
     let info: serde_json::Value =
@@ -463,7 +472,7 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
     let submit =
         serde_json::json!({ "command": "submit", "tx_blob": dassie_xrpl::hex_upper(&signed.blob) });
     server.ledger().request(0, submit.to_string().as_bytes());
-    closed("the trust line", || {
+    closed(&clock, "the trust line", || {
         server
             .ledger()
             .token_balance(holder, IssuedAsset::DSUSD)
@@ -494,7 +503,7 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
     let held = |value: &str| {
         server.ledger().token_balance(holder, IssuedAsset::DSUSD) == TokenValue::parse(value)
     };
-    closed("the mint", || held("12.5")).await;
+    closed(&clock, "the mint", || held("12.5")).await;
     let claw = post(
         "/tokens/clawback",
         serde_json::json!({ "account": holder.to_address(), "value": "2" }),
@@ -503,7 +512,7 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
         support::send(address, true, claw).await.status,
         hyper::StatusCode::OK
     );
-    closed("the clawback", || held("10.5")).await;
+    closed(&clock, "the clawback", || held("10.5")).await;
     let refused = post(
         "/tokens/mint",
         serde_json::json!({ "destination": holder.to_address(), "value": "-1" }),
