@@ -269,8 +269,10 @@ impl Setup {
                 }
                 Out::Cursor(cursor) => {
                     self.cursor = Some(cursor);
-                    if let Some(kept) = self.watcher.take_kept() {
-                        self.kept = Some(kept);
+                    match self.watcher.take_kept() {
+                        Some(Kept::State(state)) => self.kept = Some(state),
+                        Some(Kept::Dropped) => self.kept = None,
+                        None => {}
                     }
                 }
                 Out::Problem(problem) => self.problems.push(problem),
@@ -1569,6 +1571,10 @@ fn a_restarted_validator_keeps_its_verifier_s_block_and_anchor() {
         setup.closes(2);
         setup.tick(LIST_RETRY_MS);
     }
+    assert!(
+        setup.xrpl.lies_told(Lie::Transaction) > 0,
+        "the lie was met"
+    );
     assert!(setup.attested.is_empty(), "{:?}", setup.attested);
     assert_eq!(setup.watcher.verifier().anchor(), Some(anchor));
     assert!(setup.watcher.verifier().unl().blocked(setup.now));

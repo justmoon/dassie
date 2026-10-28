@@ -25,7 +25,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
 use super::driver::hex;
-use super::escrow::{Out, Unrestored, Watcher};
+use super::escrow::{Kept, Out, Unrestored, Watcher};
 use super::service::EscrowLinks;
 use crate::clock::{Clock, clock_moved};
 use crate::log::target;
@@ -289,12 +289,15 @@ impl Follow {
                     self.hand_over(watcher);
                 }
                 Out::Cursor(cursor) => {
-                    let verifier = watcher.take_kept();
                     let hub = self.hub.0.as_bytes();
-                    if let Err(error) =
-                        self.store
-                            .keep_hub_escrow(hub, &cursor, verifier.as_deref())
-                    {
+                    let written = match watcher.take_kept() {
+                        None => self.store.set_hub_escrow(hub, &cursor),
+                        Some(Kept::State(state)) => {
+                            self.store.keep_hub_escrow(hub, &cursor, Some(&state))
+                        }
+                        Some(Kept::Dropped) => self.store.keep_hub_escrow(hub, &cursor, None),
+                    };
+                    if let Err(error) = written {
                         tracing::warn!(target: target::HUB, %error, "cannot record how far the escrow was followed");
                     }
                 }

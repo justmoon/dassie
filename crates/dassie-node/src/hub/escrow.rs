@@ -88,7 +88,9 @@
 //!   the testnet, and a fork, which stops the verifier, on any other
 //!   network. A state of another network, or one the verifier does not
 //!   read, is dropped, and the verifier starts afresh, its cursor's newest
-//!   ledger still telling a server behind, or a chain gone back.
+//!   ledger still telling a server behind, or a chain gone back; so does
+//!   one too large to keep, which drops what the host kept before
+//!   ([`Kept::Dropped`]) rather than leave an older state to restart from.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -303,6 +305,18 @@ pub enum Out {
     Cursor(EscrowCursor),
     /// Something the owner should read in the log.
     Problem(&'static str),
+}
+
+/// What a watcher hands its host to write of its verifier with a cursor
+/// ([`Watcher::take_kept`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Kept {
+    /// Its state, after the hub's network: what [`Watcher::restore`] takes
+    /// back.
+    State(Vec<u8>),
+    /// Nothing: what was kept before is dropped, as its state is too large
+    /// to keep, and a restart starts afresh rather than from an older one.
+    Dropped,
 }
 
 /// Why what a watcher kept of its verifier before a restart is not taken
@@ -562,8 +576,12 @@ pub struct Watcher {
     kept_changes: u64,
     /// When it was last handed to the host.
     kept_ms: Option<u64>,
-    /// The state handed to the host with the cursor, until it takes it.
-    keeping: Option<Vec<u8>>,
+    /// What to write of the verifier with the cursor, until the host takes
+    /// it.
+    keeping: Option<Kept>,
+    /// Whether its state was last too large to keep, and what the host
+    /// kept before dropped.
+    over_bound: bool,
     now_ms: u64,
     out: VecDeque<Out>,
 }
@@ -626,6 +644,7 @@ impl Watcher {
             kept_changes: 0,
             kept_ms: None,
             keeping: None,
+            over_bound: false,
             now_ms: 0,
             out: VecDeque::new(),
         }
@@ -672,9 +691,9 @@ impl Watcher {
         Ok(())
     }
 
-    /// The verifier's state, after the hub's network, to write with the
-    /// cursor of the [`Out::Cursor`] just taken, if it is handed over now.
-    pub fn take_kept(&mut self) -> Option<Vec<u8>> {
+    /// What to write of the verifier with the cursor of the [`Out::Cursor`]
+    /// just taken, if anything: without it, what the host kept stays.
+    pub fn take_kept(&mut self) -> Option<Kept> {
         self.keeping.take()
     }
 
@@ -740,7 +759,7 @@ impl Watcher {
         assert_eq!(self.remembered.len(), self.remembered_order.len());
         assert!(self.submits.len() <= MAX_QUEUED_SUBMITS);
         assert!(
-            (self.keeping.as_ref()).is_none_or(|kept| kept.len() <= MAX_HUB_VERIFIER_BYTES),
+            !matches!(&self.keeping, Some(Kept::State(kept)) if kept.len() > MAX_HUB_VERIFIER_BYTES),
             "the verifier's state handed over is bounded"
         );
         assert!(self.pending_submits() <= MAX_PENDING_SUBMITS);
@@ -1931,13 +1950,21 @@ impl Watcher {
         let mut kept = self.network.to_be_bytes().to_vec();
         kept.extend(self.verifier.state());
         if kept.len() > MAX_HUB_VERIFIER_BYTES {
-            self.keeping = None;
+            // What the host kept before is older, and may be of a chain
+            // gone: it is dropped once, said once, and a restart starts
+            // afresh until the state fits again.
+            if self.over_bound {
+                return;
+            }
+            self.over_bound = true;
+            self.keeping = Some(Kept::Dropped);
             self.out.push_back(Out::Problem(
-                "the XRPL verifier's lists are too large to keep: a restart fetches them anew",
+                "the XRPL verifier's lists are too large to keep: a restart fetches them and anchors anew",
             ));
-            return;
+        } else {
+            self.over_bound = false;
+            self.keeping = Some(Kept::State(kept));
         }
-        self.keeping = Some(kept);
         if !(self.out.iter()).any(|out| matches!(out, Out::Cursor(_))) {
             self.out.push_back(Out::Cursor(cursor));
         }

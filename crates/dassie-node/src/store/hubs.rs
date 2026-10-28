@@ -208,16 +208,27 @@ impl Store {
         Ok(row.flatten())
     }
 
-    /// Records how far the validator of `hub` followed its escrow, keeping
-    /// what it kept of its verifier.
+    /// Records how far the validator of `hub` followed its escrow; what it
+    /// kept of its verifier stays.
     pub fn set_hub_escrow(&self, hub: &[u8; 32], cursor: &EscrowCursor) -> Result<(), StoreError> {
-        self.keep_hub_escrow(hub, cursor, None)
+        self.lock().execute_cached(
+            "INSERT INTO hub_escrow (hub, newest_ledger, newest_close_time, scanned_to) \
+             VALUES (?1, ?2, ?3, ?4) ON CONFLICT (hub) DO UPDATE SET \
+             newest_ledger = ?2, newest_close_time = ?3, scanned_to = ?4",
+            params![
+                &hub[..],
+                cursor.newest_ledger,
+                to_sql_time(cursor.newest_close_time),
+                cursor.scanned_to,
+            ],
+        )?;
+        Ok(())
     }
 
     /// Records how far the validator of `hub` followed its escrow, and with
-    /// it its verifier's state if `verifier` holds one, in one write, so a
-    /// restart reads the two as they were together. Without one, what was
-    /// kept of the verifier stays.
+    /// it its verifier's state, in one write, so a restart reads the two as
+    /// they were together. Without a state, what was kept of the verifier
+    /// is dropped, and a restart starts it afresh.
     pub fn keep_hub_escrow(
         &self,
         hub: &[u8; 32],
@@ -231,7 +242,7 @@ impl Store {
             "INSERT INTO hub_escrow (hub, newest_ledger, newest_close_time, scanned_to, verifier) \
              VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (hub) DO UPDATE SET \
              newest_ledger = ?2, newest_close_time = ?3, scanned_to = ?4, \
-             verifier = coalesce(?5, verifier)",
+             verifier = ?5",
             params![
                 &hub[..],
                 cursor.newest_ledger,
@@ -375,8 +386,8 @@ mod tests {
     }
 
     // spec/areas/hubs.md#the-validator-in-the-node: the verifier's state is
-    // written with the cursor, stays while only the cursor moves, and is
-    // bounded.
+    // written with the cursor, stays while only the cursor moves, is
+    // dropped when written without one, and is bounded.
     #[test]
     fn the_verifier_is_kept_with_the_cursor() {
         let store = Store::open_in_memory().unwrap();
@@ -410,6 +421,9 @@ mod tests {
             .keep_hub_escrow(&hub, &cursor(12), Some(&largest))
             .unwrap();
         assert_eq!(store.hub_verifier(&hub).unwrap(), Some(largest));
+        store.keep_hub_escrow(&hub, &cursor(13), None).unwrap();
+        assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor(13)));
+        assert_eq!(store.hub_verifier(&hub).unwrap(), None);
         // The column's own bound is the same.
         let refused = store.lock().execute(
             "UPDATE hub_escrow SET verifier = ?1 WHERE hub = ?2",
