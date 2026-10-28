@@ -377,8 +377,8 @@ impl PeerNode {
         if periphery {
             extensions.push((EXTENSION_PERIPHERY, Vec::new()));
         }
-        // A core node's rate feed, at its URL's host; a periphery node has
-        // no URL to name one at.
+        // Where a core node answers requests for its snapshot, at its URL's
+        // host; a periphery node has no URL to name one at.
         if let Some(port) = self.own_info.feed_port.filter(|_| !periphery) {
             extensions.push((EXTENSION_FEED, port.to_be_bytes().to_vec()));
         }

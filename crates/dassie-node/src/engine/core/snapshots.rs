@@ -5,16 +5,21 @@
 //! the node's swaps to read.
 //!
 //! The peer protocol carries a snapshot as opaque bytes, and keeps the
-//! subscriptions; the core decides when to push, and where its snapshot
-//! comes from ([`SnapshotSource`]).
+//! subscriptions; the core decides when to push, which of a peer's to take
+//! ([`Core::takes_snapshot`]), and where its own comes from
+//! ([`SnapshotSource`]): the engine's is [`OwnSnapshots`](super::OwnSnapshots).
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use dassie_feed::{FEED_HEARTBEAT_MS, MAX_DATAGRAM_BYTES, Poll, Schedule};
-use dassie_identity::NodeId;
+use dassie_connector::PriceTable;
+use dassie_feed::{
+    FEED_HEARTBEAT_MS, MAX_DATAGRAM_BYTES, Poll, Schedule, Snapshot, SnapshotMessage,
+    decode_snapshot_datagram,
+};
+use dassie_identity::{NodeId, PublicKey};
 use dassie_ledger::{LedgerId, Name};
-use dassie_peer::wire::MAX_SNAPSHOT_BYTES;
+use dassie_peer::wire::{MAX_SNAPSHOT_BYTES, SchemeId};
 
 use super::Core;
 use super::ledgers::ActiveScheme;
@@ -27,15 +32,35 @@ const _: () = assert!(dassie_feed::MAX_SNAPSHOT_BYTES <= MAX_SNAPSHOT_BYTES);
 // again, so that one or two lost do not count.
 const _: () = assert!(dassie_peer::SUBSCRIPTION_SILENCE_MS >= 3 * FEED_HEARTBEAT_MS);
 
+/// What the node's snapshot is made from, as of the core's step: the price
+/// table the connector converts at, and the methods the node offers.
+#[derive(Clone, Copy, Debug)]
+pub struct Quoting<'a> {
+    /// The price table, with what the owner held when it was built.
+    pub table: &'a PriceTable,
+    /// The settlement methods the node offers its peers, each once with
+    /// its scheme's ledger ([`Core::offered_methods`]).
+    pub methods: &'a [(SchemeId, LedgerId)],
+    /// How old a rate the connector converts at may be.
+    pub max_rate_age_ms: u64,
+}
+
 /// Where the core takes the node's snapshot from: its quotes at one
 /// moment, signed by its node key (spec/decisions/peer-swaps.md).
 pub trait SnapshotSource: Send {
-    /// The node's current snapshot, or none while it has none to give. The
-    /// core asks at the end of every step while the node offers swaps, so
-    /// it answers from what it made last, and gives the same bytes until
-    /// what they quote changes. A snapshot is never empty and at most
-    /// [`MAX_SNAPSHOT_BYTES`]: one of the feed's datagrams.
-    fn current(&mut self, now_ms: u64) -> Option<Arc<[u8]>>;
+    /// The node's current snapshot, made from `quoting`, or none while it
+    /// has none to give. The core asks at the end of every step while the
+    /// node offers swaps, so it answers from what it made last, and gives
+    /// the same bytes until what they quote changes or they are due again.
+    /// A snapshot is never empty and at most [`MAX_SNAPSHOT_BYTES`]: one of
+    /// the feed's datagrams.
+    fn current(&mut self, now_ms: u64, quoting: &Quoting<'_>) -> Option<Arc<[u8]>>;
+
+    /// When to be asked again at the latest, even if nothing changes: to
+    /// make the snapshot of a change it held back, or the heartbeat's.
+    fn next_ms(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// No snapshot: what the core starts with, until one is plugged in
@@ -44,7 +69,7 @@ pub trait SnapshotSource: Send {
 pub struct NoSnapshots;
 
 impl SnapshotSource for NoSnapshots {
-    fn current(&mut self, _: u64) -> Option<Arc<[u8]>> {
+    fn current(&mut self, _: u64, _: &Quoting<'_>) -> Option<Arc<[u8]>> {
         None
     }
 }
@@ -52,6 +77,9 @@ impl SnapshotSource for NoSnapshots {
 /// Publishing the node's snapshots to its subscribers.
 pub(super) struct Publishing {
     source: Box<dyn SnapshotSource>,
+    /// The snapshot the source gave last, which the node's UDP endpoint
+    /// answers requests with.
+    current: Option<Arc<[u8]>>,
     /// The feed's schedule: at most once per interval while the snapshot
     /// changes, a heartbeat otherwise (spec/areas/rate-feed.md#publishing).
     schedule: Schedule,
@@ -64,6 +92,7 @@ impl Publishing {
     pub(super) fn new() -> Self {
         Self {
             source: Box::new(NoSnapshots),
+            current: None,
             schedule: Schedule::new(),
             due_ms: None,
         }
@@ -76,17 +105,35 @@ impl Core {
         self.publishing.source = source;
     }
 
-    /// The latest snapshot `peer` pushed us, while we subscribe to it: what
-    /// the node's swaps price a swap with it by. Its signature and age are
-    /// for the reader to check, as `dassie-feed` reads a snapshot.
+    /// The node's current snapshot, signed, as the step left it: none on a
+    /// node that offers no swaps.
     #[must_use]
-    pub fn peer_snapshot(&self, peer: &NodeId) -> Option<&[u8]> {
-        self.peer.snapshot_of(peer)
+    pub const fn own_snapshot(&self) -> Option<&Arc<[u8]>> {
+        self.publishing.current.as_ref()
+    }
+
+    /// The latest snapshot `peer` pushed us, while we subscribe to it and it
+    /// has not expired: what the node's swaps price a swap with it by. It
+    /// was taken only verified under the peer's key and newer than the one
+    /// before ([`Self::takes_snapshot`]), so it is only decoded again here.
+    #[must_use]
+    pub fn peer_snapshot(&self, peer: &NodeId) -> Option<Snapshot> {
+        self.peer
+            .snapshot_of(peer)
+            .and_then(|bytes| self.unexpired(bytes))
     }
 
     /// Every peer's latest snapshot, as [`Self::peer_snapshot`] gives each.
-    pub fn peer_snapshots(&self) -> impl Iterator<Item = (&NodeId, &[u8])> {
-        self.peer.snapshots()
+    pub fn peer_snapshots(&self) -> impl Iterator<Item = (&NodeId, Snapshot)> {
+        self.peer
+            .snapshots()
+            .filter_map(|(peer, bytes)| Some((peer, self.unexpired(bytes)?)))
+    }
+
+    /// The snapshot of `bytes`, one the node took, if it still counts.
+    fn unexpired(&self, bytes: &[u8]) -> Option<Snapshot> {
+        let snapshot = decoded(bytes)?;
+        (self.now_ms < snapshot.valid_until_ms).then_some(snapshot)
     }
 
     /// Whether the node offers swaps to its peers: its owner lets it, and
@@ -105,10 +152,17 @@ impl Core {
     pub(super) fn publish_snapshot(&mut self) {
         let now = self.now_ms;
         let current = if self.offers_swaps() {
-            self.publishing.source.current(now)
+            let methods = self.offered_methods();
+            let quoting = Quoting {
+                table: &self.prices.table,
+                methods: &methods,
+                max_rate_age_ms: self.connector.config().max_rate_age_ms,
+            };
+            self.publishing.source.current(now, &quoting)
         } else {
             None
         };
+        self.publishing.current.clone_from(&current);
         let changed = self.peer.set_snapshot(current);
         if !self.peer.has_subscribers() {
             self.publishing.due_ms = None;
@@ -126,10 +180,38 @@ impl Core {
         self.publishing.due_ms = Some(next_ms);
     }
 
-    /// When the snapshot is next due to be pushed, while the node has
-    /// subscribers.
-    pub(super) const fn snapshot_deadline(&self) -> Option<u64> {
-        self.publishing.due_ms
+    /// When the snapshot is next due: to be pushed, while the node has
+    /// subscribers, or to be made, while the node offers swaps.
+    pub(super) fn snapshot_deadline(&self) -> Option<u64> {
+        let making = self
+            .offers_swaps()
+            .then(|| self.publishing.source.next_ms())
+            .flatten();
+        [self.publishing.due_ms, making].into_iter().flatten().min()
+    }
+
+    /// Whether to keep `snapshot`, pushed by a peer whose connection proved
+    /// `key`, in place of `held`, the one kept last: only if it decodes,
+    /// verifies under the key, is newer than the one held and has not
+    /// expired by `now_ms`, as a reader takes one
+    /// (`dassie_feed::take_snapshot`).
+    pub(super) fn takes_snapshot(
+        key: &PublicKey,
+        snapshot: &[u8],
+        held: Option<&[u8]>,
+        now_ms: u64,
+    ) -> bool {
+        let last = held.and_then(decoded).map(|held| held.sequence_ms);
+        dassie_feed::take_snapshot(key, snapshot, last, now_ms).is_ok()
+    }
+}
+
+/// The snapshot of `bytes`, decoded but not verified: one the node took,
+/// verified then.
+fn decoded(bytes: &[u8]) -> Option<Snapshot> {
+    match decode_snapshot_datagram(bytes) {
+        Ok(SnapshotMessage::Snapshot(signed)) => Some(signed.snapshot),
+        Ok(SnapshotMessage::Request) | Err(_) => None,
     }
 }
 

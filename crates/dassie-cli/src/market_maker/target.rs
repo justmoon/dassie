@@ -1,11 +1,12 @@
 //! Who a target is, from its discovery document
 //! (spec/areas/http.md#the-nodes-discovery-document): its node ID, its
-//! public key, and its feed's port if it names one. The ID must be the
-//! key's, so a feed that verifies under the key is the target's.
+//! public key, and the UDP port it answers requests for its snapshot on, if
+//! it names one. The ID must be the key's, so a snapshot that verifies
+//! under the key is the target's.
 //!
-//! [`follow`] finds one target and then keeps its feed: a task per target,
-//! so that a target that does not answer holds up none of the others, and
-//! is asked again until it does.
+//! [`follow`] finds one target and then keeps asking it for its snapshot:
+//! a task per target, so that a target that does not answer holds up none
+//! of the others, and is asked again until it does.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
@@ -21,7 +22,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::TARGET;
 use super::config::Target;
-use super::feed::{self, FeedClient, FeedView};
+use super::feed::{self, SnapshotClient};
 
 /// How long the discovery document may take.
 const DISCOVERY_TIMEOUT_MS: u64 = 10_000;
@@ -42,21 +43,21 @@ pub struct TargetInfo {
     pub node_id: NodeId,
     /// Its identity, its two keys, of which the ID is the hash.
     pub identity: NodeIdentity,
-    /// Its feed's UDP port, if it names one.
+    /// The UDP port it answers requests for its snapshot on, if it names
+    /// one.
     pub feed_port: Option<u16>,
 }
 
 /// Finds `target` from its discovery document, again every
 /// [`FIND_RETRY_MS`] until it is found, then publishes who it is to
-/// `found` and keeps its feed on
-/// a socket of its own, publishing each feed it takes to `feeds`, until
-/// `cancel`.
+/// `found` and asks it for its snapshot on a socket of its own, publishing
+/// each snapshot it takes to `snapshots`, until `cancel`.
 pub async fn follow(
     client: OutboundClient,
     target: Target,
     clock: Arc<dyn Clock>,
     found: watch::Sender<Option<TargetInfo>>,
-    feeds: watch::Sender<Option<FeedView>>,
+    snapshots: watch::Sender<Option<Arc<dassie_feed::Snapshot>>>,
     cancel: CancellationToken,
 ) {
     let (info, address, socket) = loop {
@@ -78,14 +79,15 @@ pub async fn follow(
     };
     tracing::info!(
         target: TARGET, url = %target.url, node = %info.node_id, feed = %address,
-        "following a target's feed"
+        "following a target's snapshots"
     );
-    let client = FeedClient::new(address, info.identity, clock.now_ms());
+    let client = SnapshotClient::new(address, info.identity, clock.now_ms());
     found.send_replace(Some(info));
-    feed::run(socket, client, clock, feeds, cancel).await;
+    feed::run(socket, client, clock, snapshots, cancel).await;
 }
 
-/// Who `target` is, where its feed is, and a socket to subscribe on.
+/// Who `target` is, where it answers requests for its snapshot, and a
+/// socket to ask on.
 async fn find(
     client: &OutboundClient,
     target: &Target,

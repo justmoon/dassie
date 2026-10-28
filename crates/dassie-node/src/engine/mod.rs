@@ -37,9 +37,9 @@ pub use self::core::{
     AssetView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, Direction,
     EngineError, EngineEvent, Event, HubHold, HubStatus, IncomingPolicy, LedgerEvent, LedgerView,
     Lie, Measured, Move, NamesView, NetworkView, NewIncoming, NewOutgoing, NewSwap, NewToken,
-    Outbound, Output, PaymentEvent, PeerEvent, PeerView, Prober, RemovalBlocker, SCHEMES,
-    SettlementEvent, Severity, SwapOutcome, SwapSent, TokenView, ledger_realm, ledger_slug,
-    offered,
+    NoSnapshots, Outbound, Output, OwnSnapshots, PaymentEvent, PeerEvent, PeerView, Prober,
+    Quoting, RemovalBlocker, SCHEMES, SettlementEvent, Severity, SnapshotSource, SwapOutcome,
+    SwapSent, TokenView, ledger_realm, ledger_slug, offered,
 };
 
 use crate::clock::clock_moved;
@@ -134,20 +134,6 @@ pub struct Versions {
     pub network: u64,
     /// Open Payments resources.
     pub payments: u64,
-    /// What the rate feed publishes: the price table, or the settlement
-    /// methods the node offers its peers.
-    pub prices: u64,
-}
-
-/// What the rate feed says, from one commit of the engine
-/// (spec/areas/rate-feed.md#what-it-publishes).
-#[derive(Clone, Debug)]
-pub struct FeedSource {
-    /// What the connector converts transit at.
-    pub table: dassie_connector::PriceTable,
-    /// The settlement methods the node offers its peers, each with its
-    /// scheme's ledger, each once.
-    pub methods: Vec<(dassie_peer::wire::SchemeId, dassie_ledger::LedgerId)>,
 }
 
 /// A handle to the running engine. Cheap to clone; stale once its
@@ -434,19 +420,6 @@ impl Engine {
         self.call(|core| Ok(*core.price_table())).await
     }
 
-    /// What the rate feed says, as of the engine's last commit: the price
-    /// table, and the settlement methods the node offers its peers, each
-    /// with its ledger (spec/areas/rate-feed.md#what-it-publishes).
-    pub async fn feed_source(&self) -> Result<FeedSource, EngineError> {
-        self.call(|core| {
-            Ok(FeedSource {
-                table: *core.price_table(),
-                methods: core.feed_methods(),
-            })
-        })
-        .await
-    }
-
     /// Measures what the path from `ledger`'s payer to the receiver at
     /// `destination` delivers per unit sent, with packets the receiver
     /// cannot fulfill (spec/decisions/open-payments.md), for `by`, whose
@@ -722,7 +695,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
     let config = node.subscribe_config();
     let parts = CoreParts {
         store: node.store_handle(),
-        key,
+        key: Arc::clone(&key),
         realm: node.config().realm,
         live: node.live_realm(),
         policies: *node.policies(),
@@ -732,13 +705,16 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         bootstrap: node.bootstrap(),
         uplinks: node.pinned_uplinks(),
     };
-    let core = match Core::start(parts, node.now_ms()) {
+    let mut core = match Core::start(parts, node.now_ms()) {
         Ok(core) => core,
         Err(error) => {
             tracing::error!(target: target::ENGINE, %error, "the ledger could not start");
             return;
         }
     };
+    // The node's snapshots, from its price table, signed with its key
+    // (spec/areas/rate-feed.md#the-node-side).
+    core.set_snapshot_source(Box::new(OwnSnapshots::new(key)));
     let (commands, receiver) = mpsc::channel(QUEUE);
     let generation = CancellationToken::new();
     let packets = broadcast::Sender::new(PACKET_EVENTS);
@@ -768,6 +744,8 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         versions,
     };
     driver.run(receiver, config, &shutdown).await;
+    // Without an engine, the node has no snapshot to answer with.
+    node.set_snapshot(None);
 }
 
 /// What runs the core: takes commands in batches, steps the core, and
@@ -936,7 +914,6 @@ impl Driver<'_> {
                 versions.ledger += u64::from(changes.ledger);
                 versions.network += u64::from(changes.network);
                 versions.payments += u64::from(changes.payments);
-                versions.prices += u64::from(changes.prices);
             });
         }
         if self.core.take_peerings_changed() {
@@ -951,6 +928,7 @@ impl Driver<'_> {
             }
             self.node.set_peerings(classes);
         }
+        self.node.set_snapshot(self.core.own_snapshot());
         if self.core.take_held_names_changed() {
             self.node
                 .open_payments()

@@ -39,6 +39,8 @@ pub(super) struct Hooks<'a> {
     /// The owner's peer settings: whether the node offers swaps, and
     /// swaps (spec/decisions/peer-swaps.md).
     pub settings: PeerSettings,
+    /// The step's time, which a peer's snapshot must not have expired by.
+    pub now_ms: u64,
 }
 
 impl Hooks<'_> {
@@ -499,11 +501,14 @@ impl PeeringHooks for Hooks<'_> {
             && super::snapshots::spans_two_ledgers(peering.schemes(), self.schemes)
     }
 
-    // A snapshot's signature, and that it is newer than the one held, are
-    // `dassie-feed`'s to check, once its snapshot exists: until then every
-    // one is kept, the last to arrive.
-    fn takes_snapshot(&self, _: NodeId, _: &PublicKey, _: &[u8], _: Option<&[u8]>) -> bool {
-        true
+    fn takes_snapshot(
+        &self,
+        _: NodeId,
+        key: &PublicKey,
+        snapshot: &[u8],
+        held: Option<&[u8]>,
+    ) -> bool {
+        Core::takes_snapshot(key, snapshot, held, self.now_ms)
     }
 }
 
@@ -593,8 +598,13 @@ impl Core {
         }
         self.peer_settings = settings;
         // Whether the connector takes a peer's swaps follows the owner's
-        // word (spec/decisions/peer-swaps.md).
+        // word (spec/decisions/peer-swaps.md), and so does whether the link
+        // state names the port the node answers requests for its snapshot
+        // on.
         self.connector.set_offer_swaps(settings.offer_swaps);
+        let own_info = self.own_info_offered(self.peer.own_info().clone());
+        let now = self.now_ms;
+        self.peer.set_own_info(now, own_info);
         self.prices.due = true;
         self.batch.peer_settings = Some(settings);
         self.changes.network = true;
@@ -705,6 +715,7 @@ impl Core {
             store: &self.store,
             downlinks: &self.downlinks,
             settings: self.peer_settings,
+            now_ms: now,
         };
         f(&mut self.peer, &mut hooks, now)
     }
@@ -1062,10 +1073,24 @@ impl Core {
         self.after_peer();
     }
 
+    /// `info` as our link state says it: the port the node answers
+    /// requests for its snapshot on only while its owner lets it offer
+    /// swaps, since a node that offers none answers no request
+    /// (spec/areas/rate-feed.md#finding-a-node). The peer protocol leaves
+    /// it out on a periphery node, which offers none either.
+    pub(super) fn own_info_offered(&self, info: dassie_peer::OwnInfo) -> dassie_peer::OwnInfo {
+        dassie_peer::OwnInfo {
+            feed_port: self.feed_port.filter(|_| self.peer_settings.offer_swaps),
+            ..info
+        }
+    }
+
     /// Changes what our link state says: a new one follows. What it
     /// offers is the core's ([`Self::update_peer_schemes`]).
     pub fn set_own_info(&mut self, info: dassie_peer::OwnInfo) {
         let now = self.now_ms;
+        self.feed_port = info.feed_port;
+        let info = self.own_info_offered(info);
         self.peer.set_own_info(now, info);
         // Becoming a periphery node, or a core node again, changes how
         // packets from peers are routed.
@@ -1126,10 +1151,6 @@ impl Core {
             .filter_map(|name| Some((name, self.offering(name)?)))
             .collect();
         let offers = super::hubs::offers(offerings);
-        // The rate feed names the schemes of the offers: a change in them is
-        // a change in what a feed says (spec/areas/rate-feed.md#what-it-publishes).
-        let schemes = offers.iter().map(|offer| offer.scheme);
-        self.changes.prices |= !schemes.eq(self.peer.offers().iter().map(|offer| offer.scheme));
         let now = self.now_ms;
         self.peer.set_offers(now, offers);
         self.follow_hubs();

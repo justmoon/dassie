@@ -1,31 +1,32 @@
 //! When to publish (spec/areas/rate-feed.md#publishing).
 //!
-//! A node's rates move with every conversion, but a feed costs a signature
-//! and a datagram per subscriber, so a node publishes at most once per
-//! [`FEED_MIN_INTERVAL_MS`] while its rates change, and otherwise a
-//! heartbeat every [`FEED_HEARTBEAT_MS`], so subscribers know it is alive
-//! and its rates still hold. A change that comes within the interval is
-//! published when the interval ends, never lost.
+//! A node's quotes move with every conversion, but a snapshot costs a
+//! signature and a push to every subscriber, so a node makes one at most
+//! once per [`FEED_MIN_INTERVAL_MS`] while its quotes change, and otherwise
+//! a heartbeat every [`FEED_HEARTBEAT_MS`], so readers know it is alive and
+//! its quotes still hold. A change that comes within the interval is
+//! published when the interval ends, never lost. The names are the rate
+//! feed's, whose schedule the snapshot keeps.
 
 use dassie_kit::SECOND_MS;
 
-/// The least time between two feeds.
+/// The least time between two snapshots.
 pub const FEED_MIN_INTERVAL_MS: u64 = SECOND_MS;
 
-/// The most time between two feeds.
+/// The most time between two snapshots.
 pub const FEED_HEARTBEAT_MS: u64 = 30 * SECOND_MS;
 
-/// How long a feed counts after it was made: a few heartbeats, so that a
-/// lost one or two do not leave a subscriber without rates.
+/// How long a snapshot counts after it was made: a few heartbeats, so that
+/// a lost one or two do not leave a reader without quotes.
 pub const FEED_VALIDITY_MS: u64 = 3 * FEED_HEARTBEAT_MS;
 
 /// What to do now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Poll {
-    /// Publish a feed with this sequence and validity, and poll again at
+    /// Publish a snapshot with this sequence and validity, and poll again at
     /// `next_ms`.
     Publish {
-        /// The feed's sequence: larger than any before.
+        /// The snapshot's sequence: larger than any before.
         sequence_ms: u64,
         /// Until when it counts.
         valid_until_ms: u64,
@@ -46,11 +47,11 @@ struct Published {
     sequence_ms: u64,
 }
 
-/// The schedule of one node's feed.
+/// The schedule of one node's snapshots.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Schedule {
     last: Option<Published>,
-    /// Whether the content changed since the last feed.
+    /// Whether the content changed since the last snapshot.
     pending: bool,
 }
 
@@ -67,8 +68,8 @@ impl Schedule {
     /// Whether to publish at `now_ms`, given whether the content changed
     /// since the last poll. The first poll always publishes.
     ///
-    /// A clock that went back is taken as the time of the last feed, so the
-    /// heartbeat is not held up by the jump; the sequence still grows.
+    /// A clock that went back is taken as the time of the last snapshot, so
+    /// the heartbeat is not held up by the jump; the sequence still grows.
     pub fn poll(&mut self, now_ms: u64, changed: bool) -> Poll {
         self.pending |= changed;
         let Some(mut last) = self.last else {

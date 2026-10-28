@@ -1,4 +1,4 @@
-//! The numbers of a snapshot (spec/areas/rate-feed.md#snapshots): quotes as
+//! The numbers of a snapshot (spec/areas/rate-feed.md#numbers): quotes as
 //! 32-bit floats, and ladders of amounts as a 16-bit float and 8-bit steps.
 //!
 //! Every number here is defined by integer arithmetic alone, so every

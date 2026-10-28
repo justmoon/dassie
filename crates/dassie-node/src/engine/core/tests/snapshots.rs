@@ -15,7 +15,7 @@ use dassie_oer::{Decode, Encode};
 use dassie_peer::wire::{Content, Kind, RefusalReason, SubscriptionResponse};
 use dassie_peer::{Method, Peering, PeeringHooks, RequestId, Response};
 
-use super::super::{Core, Output, SnapshotSource};
+use super::super::{Core, Output, Quoting, SnapshotSource};
 use super::{NOW, STUB_TWO, TRUSTING, add_stub, core_taking_downlinks, scheme_id};
 use crate::store::{PeerSettings, Store};
 
@@ -23,7 +23,7 @@ use crate::store::{PeerSettings, Store};
 struct Fixed(Option<Arc<[u8]>>);
 
 impl SnapshotSource for Fixed {
-    fn current(&mut self, _: u64) -> Option<Arc<[u8]>> {
+    fn current(&mut self, _: u64, _: &Quoting<'_>) -> Option<Arc<[u8]>> {
         self.0.clone()
     }
 }
@@ -282,4 +282,83 @@ fn snapshots_are_wanted_of_peerings_on_two_ledgers_while_swapping() {
     })
     .unwrap();
     assert_eq!(wants(&mut core, &two), (true, false));
+}
+
+/// A snapshot of `key`'s made at `sequence_ms`, counting for a minute.
+fn peer_snapshot(key: &IdentityKey, sequence_ms: u64) -> Vec<u8> {
+    let snapshot = dassie_feed::Snapshot {
+        sequence_ms,
+        valid_until_ms: sequence_ms + 60_000,
+        grid_bp: [1, 3, 10, 30, 100, 300, 1_000, 3_000],
+        methods: Vec::new(),
+    };
+    dassie_feed::sign_snapshot(key, &snapshot).unwrap()
+}
+
+// spec/decisions/peer-swaps.md: a peer's snapshot is kept only if it
+// decodes, verifies under the key its connection proved, is newer than
+// the one held and has not expired, as a reader takes one.
+#[test]
+fn a_peers_snapshot_is_taken_only_verified_newer_and_unexpired() {
+    let (mut core, _) = with_downlink();
+    let peer = IdentityKey::from_bytes(&[12; 32]);
+    let key = peer.public_key();
+    let id = peer.node_id();
+    let at = NOW + 2_000;
+    core.begin_step(at);
+    let first = peer_snapshot(&peer, at - 10);
+    let newer = peer_snapshot(&peer, at - 5);
+    let foreign = peer_snapshot(&IdentityKey::from_bytes(&[13; 32]), at);
+    let expired = peer_snapshot(&peer, at - 60_000);
+    let takes = |core: &mut Core, bytes: &[u8], held: Option<&[u8]>| {
+        core.with_peer(|_, hooks, _| hooks.takes_snapshot(id, &key, bytes, held))
+    };
+    assert!(takes(&mut core, &first, None));
+    assert!(takes(&mut core, &newer, Some(&first)));
+    assert!(!takes(&mut core, &first, Some(&newer)), "older");
+    assert!(!takes(&mut core, &first, Some(&first)), "the same");
+    assert!(!takes(&mut core, &foreign, None), "another node's");
+    assert!(!takes(&mut core, &expired, None), "expired");
+    assert!(!takes(&mut core, &[2, 1, 0], None), "broken");
+    let request = dassie_feed::encode_request();
+    assert!(!takes(&mut core, &request, None), "a request");
+}
+
+// spec/areas/rate-feed.md#the-node-side: a core node that offers swaps has
+// a snapshot, made by the engine's source and signed with its key; one
+// whose owner offers none has none. Its link state names the port it
+// answers requests on only while it offers swaps.
+#[test]
+fn a_core_node_that_offers_swaps_has_a_snapshot_and_names_its_port() {
+    let (mut core, _) = with_downlink();
+    let key = Arc::new(IdentityKey::from_bytes(&[7; 32]));
+    core.set_snapshot_source(Box::new(super::super::OwnSnapshots::new(Arc::clone(&key))));
+    let at = NOW + 2_000;
+    step(&mut core, at);
+    let bytes = core.own_snapshot().unwrap().clone();
+    let mut reader = dassie_feed::SnapshotReader::new(key.public_key());
+    assert_eq!(reader.receive(&bytes, at).unwrap().sequence_ms, at);
+    assert_eq!(core.peer.own_snapshot(), Some(&bytes[..]));
+    assert!(core.snapshot_deadline().is_some(), "the heartbeat");
+
+    let info = core.peer.own_info().clone();
+    core.set_own_info(dassie_peer::OwnInfo {
+        feed_port: Some(7768),
+        ..info
+    });
+    assert_eq!(core.peer.own_info().feed_port, Some(7768));
+    let off = PeerSettings {
+        offer_swaps: false,
+        ..PeerSettings::DEFAULT
+    };
+    core.set_peer_settings(off).unwrap();
+    step(&mut core, at + 1);
+    assert_eq!(core.own_snapshot(), None);
+    assert_eq!(core.peer.own_snapshot(), None);
+    assert_eq!(core.peer.own_info().feed_port, None);
+    core.set_peer_settings(PeerSettings::DEFAULT).unwrap();
+    step(&mut core, at + 2);
+    assert!(core.own_snapshot().is_some());
+    assert_eq!(core.peer.own_info().feed_port, Some(7768));
+    core.check_invariants();
 }

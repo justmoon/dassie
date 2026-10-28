@@ -1,7 +1,7 @@
 [package]
 name = "dassie-feed"
 version.workspace = true
-description = "Dassie's public rate feed as a sans-IO core: signed UDP datagrams, a bounded subscriber table proven by cookies, and when to publish"
+description = "Dassie's snapshots as a sans-IO core: a node's quotes and ladders per settlement method, signed, the padded request for one, pricing a swap from one, and when to make one"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -12,15 +12,11 @@ workspace = true
 
 [dependencies]
 dassie-identity = { path = "../dassie-identity" }
-# Its `ClientKey`: subscribers are bounded per IPv4 address or IPv6 /56, as
-# the node's other per-client limits are.
+# Its `SECOND_MS`, for the schedule.
 dassie-kit = { path = "../dassie-kit" }
 dassie-oer = { path = "../dassie-oer", default-features = false, features = ["alloc"] }
-# The address cookie: HMAC-SHA256 under a secret the caller injects.
-hmac = { version = "0.13", default-features = false, features = ["zeroize"] }
+# A method's tag: a truncated SHA-256 of its scheme's ID.
 sha2 = { version = "0.11", default-features = false }
-subtle = { version = "2.6", default-features = false }
-zeroize = { version = "1.9", default-features = false }
 
 [dev-dependencies]
 # Exact checks of the snapshot's numbers against their definitions.

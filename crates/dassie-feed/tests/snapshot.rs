@@ -1,4 +1,4 @@
-//! Snapshots, requests and their readers (spec/areas/rate-feed.md#snapshots).
+//! Snapshots, requests and their readers (spec/areas/rate-feed.md#wire-format).
 
 #![allow(
     clippy::unwrap_used,
@@ -13,15 +13,15 @@ use core::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use dassie_feed::{
     Answer, AnswerLimits, Answerer, InvalidSnapshot, LEVELS, Ladder, MAX_DATAGRAM_BYTES,
-    MAX_SNAPSHOT_BYTES, MAX_SNAPSHOT_METHODS, Message, Quote, REQUEST_BYTES, Ratio,
-    SnapshotMessage, SnapshotReader, SnapshotRejected, SnapshotWireError, Unanswered,
-    attach_signature, check_request, decode, decode_snapshot_datagram, encode_request,
-    encode_subscribe, method_tag, sign_feed, sign_snapshot, snapshot_signing_message,
+    MAX_SNAPSHOT_BYTES, MAX_SNAPSHOT_METHODS, Quote, REQUEST_BYTES, Ratio, SNAPSHOT_OID,
+    SNAPSHOT_VERSION, SnapshotMessage, SnapshotReader, SnapshotRejected, SnapshotWireError,
+    Unanswered, attach_signature, check_request, decode_snapshot_datagram, encode_request,
+    method_tag, sign_snapshot, snapshot_signing_message, take_snapshot,
 };
 use dassie_identity::PublicKey;
 use support::{
     closed_side_snapshot, empty_snapshot, key, largest_snapshot, open_method, other_key,
-    snapshot_of, two_method_feed, two_method_snapshot,
+    snapshot_of, two_method_snapshot,
 };
 
 const DSUSD: &str = "hub-xrpl-testnet-dsusd";
@@ -79,10 +79,7 @@ fn the_signature_covers_the_oid_and_every_byte() {
     let snapshot = two_method_snapshot();
     let unsigned = snapshot.unsigned_bytes().unwrap();
     let message = snapshot_signing_message(&unsigned);
-    assert_eq!(
-        &message[..dassie_feed::FEED_OID.len()],
-        dassie_feed::FEED_OID
-    );
+    assert_eq!(&message[..SNAPSHOT_OID.len()], SNAPSHOT_OID);
     let signature = key().sign(&message);
     let bytes = attach_signature(unsigned.clone(), &signature);
     assert_eq!(bytes, signed(&snapshot));
@@ -217,19 +214,23 @@ fn requests_are_exactly_their_size_and_zero() {
     assert!(decode_snapshot_datagram(&with_byte(&request, 1, 0x82)).is_err());
 }
 
+// Version 2, under an OID of its own; a datagram of any other version is
+// refused (spec/areas/rate-feed.md#wire-format).
 #[test]
-fn the_feed_and_the_snapshot_refuse_each_other() {
-    // Both are version 2 until the node serves snapshots: neither reads the
-    // other's datagrams as its own.
-    let feed = sign_feed(&key(), &two_method_feed()).unwrap();
-    let subscribe = encode_subscribe(None);
-    assert!(decode_snapshot_datagram(&feed).is_err());
-    assert!(decode_snapshot_datagram(&subscribe).is_err());
-    let snapshot = signed(&two_method_snapshot());
+fn another_version_is_refused() {
+    assert_eq!(SNAPSHOT_VERSION, 2);
+    let arc = dassie_oer::oid::encode::<14>(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 3, 2]);
+    assert_eq!(SNAPSHOT_OID, arc);
     let request = encode_request();
-    assert!(decode(&snapshot).is_err());
-    assert!(decode(&request).is_err());
-    assert!(!matches!(decode(&request), Ok(Message::Subscribe(_))));
+    let snapshot = signed(&two_method_snapshot());
+    for version in [1, 3] {
+        for datagram in [&request[..], &snapshot] {
+            assert_eq!(
+                decode_snapshot_datagram(&with_byte(datagram, 0, version)),
+                Err(SnapshotWireError::Version(version))
+            );
+        }
+    }
 }
 
 #[test]
@@ -266,6 +267,29 @@ fn a_reader_takes_only_newer_unexpired_snapshots_of_its_node() {
     assert_eq!(reader.receive(&signed(&newer), now), Ok(newer));
 }
 
+// A caller that keeps the last sequence itself, as a node keeps a peer's
+// snapshot, takes what a reader would.
+#[test]
+fn take_snapshot_is_the_readers_rule() {
+    let key = key().public_key();
+    let snapshot = two_method_snapshot();
+    let (now, bytes) = (snapshot.sequence_ms, signed(&snapshot));
+    assert_eq!(take_snapshot(&key, &bytes, None, now), Ok(snapshot.clone()));
+    let last = Some(snapshot.sequence_ms);
+    assert_eq!(
+        take_snapshot(&key, &bytes, last, now),
+        Err(SnapshotRejected::Old)
+    );
+    assert_eq!(
+        take_snapshot(&key, &bytes, None, snapshot.valid_until_ms),
+        Err(SnapshotRejected::Expired)
+    );
+    assert_eq!(
+        take_snapshot(&other_key().public_key(), &bytes, None, now),
+        Err(SnapshotRejected::Invalid(InvalidSnapshot::Signature))
+    );
+}
+
 #[test]
 fn requests_are_answered_only_from_someone_and_within_budget() {
     let request = encode_request();
@@ -292,7 +316,7 @@ fn requests_are_answered_only_from_someone_and_within_budget() {
         Err(Unanswered::NotRequest)
     );
     assert!(matches!(
-        check_request(peer(), &encode_subscribe(None)),
+        check_request(peer(), &[SNAPSHOT_VERSION, 0x80]),
         Err(Unanswered::Malformed(_))
     ));
     // The answer is never larger than the request.

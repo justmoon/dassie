@@ -61,9 +61,9 @@ pub const MAX_CONFIG_BYTES: u64 = 64 * 1024;
 /// Most bytes in a ledger's ID: its scheme's, `+` and its asset's.
 const MAX_LEDGER_ID_BYTES: usize = 64;
 
-/// Most bytes in a settlement method's ID, its scheme's, as a feed names
-/// it.
-const MAX_METHOD_ID_BYTES: usize = dassie_feed::MAX_METHOD_ID_BYTES;
+/// Most bytes in a settlement method's ID, its scheme's: more than any
+/// scheme a node runs has. A snapshot names a method by a tag of it.
+const MAX_METHOD_ID_BYTES: usize = 32;
 
 /// Most bytes in a URL or a path.
 const MAX_TEXT_BYTES: usize = 1024;

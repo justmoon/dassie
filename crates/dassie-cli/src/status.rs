@@ -413,10 +413,10 @@ fn relay(relay: Option<&proto::ChosenRelay>, periphery: bool) -> Option<String> 
     })
 }
 
-/// The rate feed: whether the node serves it and where, how many it goes
-/// to, and its counters since the node started
+/// The UDP endpoint for the node's snapshot: whether it answers and where,
+/// and its counters since the node started
 /// (spec/areas/rate-feed.md#what-the-owner-sees). A periphery node
-/// publishes none, by design, so it gets no line.
+/// answers no request, by design, so it gets no line.
 fn feed(node: &proto::GetStatusResponse) -> Option<String> {
     let Some(feed) = &node.feed else {
         return (!node.periphery).then(|| {
@@ -426,33 +426,20 @@ fn feed(node: &proto::GetStatusResponse) -> Option<String> {
     if !feed.serving {
         return (!node.periphery).then(|| {
             format!(
-                "not served yet: the node publishes it at {} once it has a domain name",
+                "not answering: the node answers at {} once it has a domain name and offers swaps",
                 feed.address
             )
         });
     }
-    let subscribers = plural(u64::from(feed.subscribers), "subscriber");
     Some(entries([
-        format!("served at {}, to {subscribers}", feed.address),
+        format!("answering at {}", feed.address),
         format!(
-            "published {}; sent {}, {} failed, {} out of time",
-            plural(feed.published, "feed"),
-            plural(feed.sent, "datagram"),
-            feed.send_failed,
-            feed.unsent
-        ),
-        format!(
-            "took {}: {} challenged, {} subscribed, {} renewed, {} ignored; {} lapsed",
+            "took {}: answered {}, {} over the budget, {} ignored; {} sends failed",
             plural(feed.received, "datagram"),
-            feed.challenged,
-            feed.subscribed,
-            feed.renewed,
+            feed.answered,
+            feed.over_budget,
             feed.ignored,
-            feed.expired
-        ),
-        format!(
-            "refused {} for a full table, {} for a client's share",
-            feed.refused_full, feed.refused_client
+            feed.send_failed
         ),
     ]))
 }
@@ -1045,8 +1032,8 @@ mod tests {
         assert_eq!(relay(Some(&unknown), true), Some(unreachable));
     }
 
-    // A core node's feed: where it is served, to how many, and its
-    // counters; or why it is not.
+    // A core node's endpoint for its snapshot: where it answers, and its
+    // counters; or why it does not.
     #[test]
     fn the_rate_feed() {
         let core = |feed: Option<proto::RateFeed>| proto::GetStatusResponse {
@@ -1056,42 +1043,32 @@ mod tests {
         let served = proto::RateFeed {
             serving: true,
             address: "0.0.0.0:7768".into(),
-            subscribers: 1,
-            published: 12,
-            sent: 30,
             send_failed: 2,
-            unsent: 1,
             received: 40,
-            challenged: 3,
-            subscribed: 2,
-            renewed: 33,
-            refused_full: 1,
-            refused_client: 0,
             ignored: 1,
-            expired: 1,
+            answered: 36,
+            over_budget: 3,
         };
         assert_eq!(
             feed(&core(Some(served.clone()))).unwrap(),
-            "served at 0.0.0.0:7768, to 1 subscriber\n               \
-             published 12 feeds; sent 30 datagrams, 2 failed, 1 out of time\n               \
-             took 40 datagrams: 3 challenged, 2 subscribed, 33 renewed, 1 ignored; 1 lapsed\n               \
-             refused 1 for a full table, 0 for a client's share"
+            "answering at 0.0.0.0:7768\n               \
+             took 40 datagrams: answered 36, 3 over the budget, 1 ignored; 2 sends failed"
         );
         let waiting = proto::RateFeed {
             serving: false,
-            subscribers: 0,
             ..served
         };
         assert_eq!(
             feed(&core(Some(waiting.clone()))).unwrap(),
-            "not served yet: the node publishes it at 0.0.0.0:7768 once it has a domain name"
+            "not answering: the node answers at 0.0.0.0:7768 once it has a domain name and \
+             offers swaps"
         );
         let none = feed(&core(None)).unwrap();
         assert!(
             none.starts_with("none: the node has no UDP socket"),
             "{none}"
         );
-        // A periphery node publishes none, which is no fault: no line.
+        // A periphery node answers none, which is no fault: no line.
         let at_the_edge = |feed| proto::GetStatusResponse {
             feed,
             ..periphery()

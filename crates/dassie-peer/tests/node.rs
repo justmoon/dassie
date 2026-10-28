@@ -549,8 +549,9 @@ fn with_feed(own: &Arc<IdentityKey>, boot: &IdentityKey, feed_port: Option<u16>)
     )
 }
 
-// A core node with a rate feed names its port in its link state; one
-// without names none (spec/areas/rate-feed.md#finding-a-feed).
+// A core node that answers requests for its snapshot names their port in
+// its link state; one that answers none names none
+// (spec/areas/rate-feed.md#finding-a-node).
 #[test]
 fn a_core_node_names_its_feed_port_in_its_link_state() {
     let (own, boot) = (key(0), key(1));

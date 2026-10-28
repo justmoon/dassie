@@ -319,12 +319,11 @@ fn a_hub_scheme_is_offered_once_it_synced_and_after_a_restart_unheard() {
     assert_eq!(core.peer.schemes(), [hub], "not offered after a restart");
 }
 
-// spec/areas/rate-feed.md#what-it-publishes: the rate feed names the
+// spec/areas/rate-feed.md#what-it-publishes: the snapshot quotes the
 // methods the node offers its peers, each with its ledger: a hub's once it
-// synced, never the owner book of its asset, which peers with nobody. A
-// change in them is a change in what a feed says, which the feed follows.
+// synced, never the owner book of its asset, which peers with nobody.
 #[test]
-fn the_feed_names_the_methods_the_node_offers() {
+fn the_snapshot_quotes_the_methods_the_node_offers() {
     use dassie_ledger::LedgerId;
 
     let (mut ledger, _) = funded_ledger();
@@ -343,13 +342,11 @@ fn the_feed_names_the_methods_the_node_offers() {
     core.begin_step(NOW + 1_000);
     core.finish_step(&mut outputs);
     let (stub, hub) = (scheme_id("stub"), scheme_id(dassie_hub::member::SCHEME_ID));
-    assert_eq!(core.feed_methods(), [(stub, LedgerId::StubUsd)]);
-    let _ = core.take_changes();
+    assert_eq!(core.offered_methods(), [(stub, LedgerId::StubUsd)]);
 
     Validators::new().no_account(&mut core);
     core.finish_step(&mut outputs);
-    assert!(core.take_changes().prices, "the methods changed");
-    let mut methods = core.feed_methods();
+    let mut methods = core.offered_methods();
     methods.sort_unstable_by(|(a, _), (b, _)| a.as_str().cmp(b.as_str()));
     let expected = [
         (hub, LedgerId::HubXrplTestnetXrp),
@@ -760,18 +757,6 @@ fn steps_report_what_they_changed() {
     add_stub(&mut core, TRUSTING);
     core.finish_step(&mut outputs);
     assert!(core.take_changes().ledger);
-    // The rate feed follows the prices: new charges move them, and a table
-    // built again that says the same moves nothing.
-    let settings = crate::store::PeerSettings {
-        connector_fee_ppm: 1_000,
-        ..crate::store::PeerSettings::DEFAULT
-    };
-    core.set_peer_settings(settings).unwrap();
-    core.finish_step(&mut outputs);
-    assert!(core.take_changes().prices);
-    core.set_peer_settings(settings).unwrap();
-    core.finish_step(&mut outputs);
-    assert!(!core.take_changes().prices);
 }
 
 // spec/areas/payments.md#the-nodes-names: the names the node answers to

@@ -3532,24 +3532,8 @@ rec {
             features = [ "alloc" ];
           }
           {
-            name = "hmac";
-            packageId = "hmac";
-            usesDefaultFeatures = false;
-            features = [ "zeroize" ];
-          }
-          {
             name = "sha2";
             packageId = "sha2 0.11.1";
-            usesDefaultFeatures = false;
-          }
-          {
-            name = "subtle";
-            packageId = "subtle";
-            usesDefaultFeatures = false;
-          }
-          {
-            name = "zeroize";
-            packageId = "zeroize";
             usesDefaultFeatures = false;
           }
         ];

@@ -120,7 +120,8 @@ pub enum TcpPorts {
     HttpsOnly(u16),
 }
 
-/// The standalone runtime's socket for the rate feed.
+/// The standalone runtime's UDP socket for requests for the node's
+/// snapshot (spec/areas/rate-feed.md#the-socket).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum FeedSocket {
     /// The HTTPS listener's address at
@@ -130,7 +131,7 @@ pub enum FeedSocket {
     /// This address instead: for the development environment's many nodes
     /// on one host.
     At(SocketAddr),
-    /// None: for a node that never publishes a feed, as the desktop app's
+    /// None: for a node that never answers one, as the desktop app's
     /// periphery node (spec/areas/desktop.md#sockets).
     Off,
 }
@@ -209,7 +210,7 @@ impl Prepared {
             Runtime::Systemd => {
                 let sockets = systemd::take_sockets(env).map_err(DaemonError::Activation)?;
                 if sockets.feed.is_none() {
-                    tracing::warn!(target: target::DAEMON, socket = systemd::FEED_SOCKET, "systemd passed no UDP socket for the rate feed: the node publishes no feed");
+                    tracing::warn!(target: target::DAEMON, socket = systemd::FEED_SOCKET, "systemd passed no UDP socket for snapshots: the node answers no request for its snapshot");
                 }
                 quic_at_https_port(&sockets.quic, &sockets.https)?;
                 let udp = (sockets.quic, sockets.feed);
@@ -384,12 +385,12 @@ fn bind_quic(address: SocketAddr) -> Result<UdpSocket, DaemonError> {
 
 /// The UDP socket for the rate feed on `address`: the HTTPS listener's
 /// address at the feed's port, unless the options name another. A node
-/// that cannot have one publishes no feed.
+/// that cannot have one answers no request for its snapshot.
 fn bind_feed(address: SocketAddr) -> Option<UdpSocket> {
     match UdpSocket::bind(address) {
         Ok(socket) => Some(socket),
         Err(error) => {
-            tracing::warn!(target: target::DAEMON, %address, %error, "no UDP socket for the rate feed: the node publishes no feed");
+            tracing::warn!(target: target::DAEMON, %address, %error, "no UDP socket for snapshots: the node answers no request for its snapshot");
             None
         }
     }
@@ -656,7 +657,7 @@ fn attach_feed(node: &Node, socket: UdpSocket) -> Option<IpAddr> {
             address.map(|address| address.ip())
         }
         Err(error) => {
-            tracing::warn!(target: target::DAEMON, ?address, %error, "no rate feed: the node publishes none");
+            tracing::warn!(target: target::DAEMON, ?address, %error, "no UDP socket for snapshots: the node answers no request for its snapshot");
             None
         }
     }

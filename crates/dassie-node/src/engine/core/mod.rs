@@ -21,6 +21,7 @@ mod incoming;
 mod invariants;
 mod ledgers;
 mod names;
+mod own_snapshot;
 mod owner_payments;
 mod packets;
 mod payers;
@@ -64,6 +65,7 @@ pub use hubs::HubPeer;
 pub use incoming::{IncomingPolicy, NewIncoming};
 pub use ledgers::{LedgerView, RemovalBlocker};
 pub use names::NamesView;
+pub use own_snapshot::{Content as SnapshotContent, OwnSnapshots, grid_bp};
 pub use packets::ledger_slug;
 pub use payers::{CreatedOutgoing, NewOutgoing};
 pub use peers::{NetworkView, PeerView};
@@ -72,7 +74,7 @@ pub use probes::{
 };
 pub use schemes::{AssetView, LedgerEvent, SCHEMES, offered};
 pub use settlement::Lie;
-pub use snapshots::{NoSnapshots, SnapshotSource};
+pub use snapshots::{NoSnapshots, Quoting, SnapshotSource};
 pub use swaps::{
     MAX_SWAP_OUTCOMES, NewSwap, SWAP_DATA_LENGTH, SWAP_DATA_VERSION, SwapOutcome, SwapSent,
 };
@@ -265,10 +267,6 @@ pub struct Changes {
     pub network: bool,
     /// Open Payments resources.
     pub payments: bool,
-    /// What the rate feed publishes (spec/areas/rate-feed.md#the-node-side):
-    /// the price table, what the connector converts transit at, or the
-    /// settlement methods the node offers its peers.
-    pub prices: bool,
 }
 
 /// What the core is made from.
@@ -402,6 +400,10 @@ pub struct Core {
     /// Pushing the node's snapshots to the peers subscribed to them
     /// (spec/areas/network.md#snapshot-subscriptions).
     publishing: snapshots::Publishing,
+    /// The UDP port the node answers snapshot requests on, as the node
+    /// names it: the link state names it only while the node offers swaps
+    /// ([`Self::own_info_offered`]).
+    feed_port: Option<u16>,
 }
 
 /// The exchange rates, and the price table the connector charges transit and
@@ -476,6 +478,7 @@ impl Core {
     #[allow(clippy::too_many_lines)]
     pub fn start(parts: CoreParts, now_ms: u64) -> Result<Self, String> {
         check_parts(&parts)?;
+        let feed_port = parts.own_info.feed_port;
         let peer = new_peer(
             &parts.store,
             &parts.key,
@@ -544,8 +547,12 @@ impl Core {
             events: Events::new(),
             funding: BTreeMap::new(),
             publishing: snapshots::Publishing::new(),
+            feed_port,
         };
         core.restore()?;
+        let own_info = core.peer.own_info().clone();
+        core.peer
+            .set_own_info(now_ms, core.own_info_offered(own_info));
         Ok(core)
     }
 
@@ -854,14 +861,6 @@ impl Core {
         {
             table.halt(active.scheme.ledger());
         }
-        // What a feed says: the charges, the ledgers and the prices. The
-        // holdings move with every packet, and only move the prices.
-        let old = &self.prices.table;
-        let ledger = |entry: &dassie_connector::pricing::LedgerPrice| entry.ledger;
-        self.changes.prices |= old.pricing() != table.pricing()
-            || old.valid_until_ms() != table.valid_until_ms()
-            || !old.ledgers().map(ledger).eq(table.ledgers().map(ledger))
-            || !old.prices().eq(table.prices());
         self.prices.table = table;
     }
 
@@ -954,9 +953,9 @@ impl Core {
 
     /// The settlement methods the node offers its peers, each once with its
     /// scheme's ledger: the schemes of the settlement offers its link state
-    /// names, of which no owner book is one, as the rate feed names them
+    /// names, of which no owner book is one, as its snapshot quotes them
     /// (spec/areas/rate-feed.md#what-it-publishes).
-    pub fn feed_methods(&self) -> Vec<(dassie_peer::wire::SchemeId, dassie_ledger::LedgerId)> {
+    pub fn offered_methods(&self) -> Vec<(dassie_peer::wire::SchemeId, dassie_ledger::LedgerId)> {
         self.peer
             .offers()
             .iter()

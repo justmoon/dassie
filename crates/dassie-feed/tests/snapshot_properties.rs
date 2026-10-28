@@ -1,5 +1,5 @@
 //! Properties of snapshots over arbitrary input
-//! (spec/areas/rate-feed.md#snapshots): decoding never panics and reads
+//! (spec/areas/rate-feed.md#reading-a-snapshot): decoding never panics and reads
 //! only canonical bytes, so decoding and encoding again gives the bytes;
 //! and a priced swap never says more than the ladders promise. Fixed seed
 //! in CI (.cargo/config.toml).
