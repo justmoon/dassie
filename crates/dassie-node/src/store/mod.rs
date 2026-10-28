@@ -33,6 +33,8 @@ mod peer_settings_tests;
 mod peer_tests;
 mod rates;
 mod schema;
+#[cfg(test)]
+mod schema_tests;
 mod snapshot;
 
 use std::fmt;
@@ -112,6 +114,13 @@ pub enum StoreError {
         /// The newest this version knows.
         known: i64,
     },
+    /// The file has a schema older than the baseline's, which no release
+    /// wrote: a build from before the first release on this schema
+    /// (spec/decisions/database-continuity.md).
+    TooOld {
+        /// Its `user_version`.
+        found: i64,
+    },
     /// A table does not match the code.
     SchemaMismatch(String),
     /// A stored value is invalid, which only a bug or a hand edit can cause.
@@ -147,6 +156,11 @@ impl fmt::Display for StoreError {
             Self::TooNew { found, known } => write!(
                 f,
                 "the database is from a newer version of Dassie (schema {found}, this version knows {known})"
+            ),
+            Self::TooOld { found } => write!(
+                f,
+                "the database has schema {found}, older than any release of Dassie wrote, which \
+                 this version does not migrate: set the node up again"
             ),
             Self::SchemaMismatch(problem) => {
                 write!(f, "the database does not match this version: {problem}")

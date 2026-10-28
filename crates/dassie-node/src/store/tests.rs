@@ -101,6 +101,50 @@ fn refuses_a_database_of_the_early_testnet() {
     );
 }
 
+// spec/decisions/database-continuity.md: a new database runs the baseline
+// and every migration after it, and is then current: opened again, it
+// migrates nothing and keeps no copy.
+#[test]
+fn a_new_database_is_current() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join(DATABASE_FILE);
+    drop(Store::open(temp.path()).unwrap());
+    assert_eq!(user_version(&path), SCHEMA_VERSION);
+    drop(Store::open(temp.path()).unwrap());
+    assert_eq!(user_version(&path), SCHEMA_VERSION);
+    assert!(!temp.path().join(PRE_MIGRATION_FILE).exists());
+}
+
+// spec/decisions/database-continuity.md: a database older than the
+// baseline, which no release wrote, is refused, and left as it is with no
+// copy kept.
+#[test]
+fn refuses_a_database_older_than_the_baseline() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join(DATABASE_FILE);
+    drop(Store::open(temp.path()).unwrap());
+    let older = schema::BASELINE_VERSION - 1;
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .pragma_update(None, "user_version", older)
+        .unwrap();
+    drop(connection);
+    let error = Store::open(temp.path()).unwrap_err();
+    assert!(
+        matches!(error, StoreError::TooOld { found } if found == older),
+        "{error}"
+    );
+    assert!(
+        error.to_string().contains("set the node up again"),
+        "{error}"
+    );
+    assert_eq!(user_version(&path), older, "left as it is");
+    assert!(
+        !temp.path().join(PRE_MIGRATION_FILE).exists(),
+        "no copy kept"
+    );
+}
+
 #[test]
 fn refuses_foreign_and_newer_databases() {
     let temp = tempfile::tempdir().unwrap();
@@ -841,7 +885,8 @@ fn a_hub_kept_before_targets_reads_with_the_default() {
     let temp = tempfile::tempdir().unwrap();
     {
         let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-        schema::prepare(&mut connection, &schema::MIGRATIONS[..10]).unwrap();
+        // The baseline and migration 10: version 10.
+        schema::prepare(&mut connection, &schema::MIGRATIONS[..2]).unwrap();
         connection
             .execute(
                 "INSERT INTO hub_funding (scheme, automatic, paused_until_ms)
@@ -861,171 +906,35 @@ fn a_hub_kept_before_targets_reads_with_the_default() {
     assert_eq!(kept.row.paused_until_ms, 40);
 }
 
-// spec/areas/node.md#database, spec/decisions/ended-for-room.md: a
-// database written while a channel kept the mark of an end for room moves
-// forward through migration 4. The channel loads as it was without the
-// mark, a closed one stays closed, and the indexes only the credit's growth
-// read are gone.
+// spec/areas/payments.md#wallet-addresses: the wallet address `$host`
+// names starts unchosen, and is kept by its name once chosen.
 #[test]
-fn a_channel_stored_with_the_mark_of_an_end_for_room_loads_without_it() {
+fn the_default_address_starts_unchosen_and_is_kept() {
     let temp = tempfile::tempdir().unwrap();
-    let open = dassie_identity::TableKeygen::identity_key(&[10; 32]);
-    let closed = dassie_identity::TableKeygen::identity_key(&[11; 32]);
-    {
-        let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-        schema::prepare(&mut connection, &schema::MIGRATIONS[..3]).unwrap();
-        let insert = |key: &dassie_identity::IdentityKey, closed: u8| {
-            connection
-                .execute(
-                    "INSERT INTO settlement_channels (node, public_key, url, settled_in,
-                       settled_out, ended_for_room, closed, paid_us)
-                     VALUES (?1, ?2, 'https://e.example', 3, 4, 1, ?3, 1)",
-                    rusqlite::params![
-                        key.node_id().as_str(),
-                        key.public_key().as_bytes().to_vec(),
-                        closed
-                    ],
-                )
-                .unwrap();
-        };
-        insert(&open, 0);
-        insert(&closed, 1);
-    }
     let store = Store::open(temp.path()).unwrap();
-    assert_eq!(
-        user_version(&temp.path().join(DATABASE_FILE)),
-        SCHEMA_VERSION
-    );
-    let stored = store.load_peer().unwrap();
-    let [channel] = stored.channels.as_slice() else {
-        panic!("{:?}", stored.channels)
-    };
-    assert_eq!(channel.node, open.node_id());
-    assert_eq!(
-        channel.channel,
-        dassie_peer::Channel {
-            key: open.public_key(),
-            endpoint: dassie_peer::wire::Endpoint::of_url("https://e.example"),
-            settled_in: 3,
-            settled_out: 4,
-            outbox: None,
-            paid_us: true,
-        }
-    );
-    assert_eq!(
-        store.closed_channel(&closed.node_id()).unwrap(),
-        Some(dassie_peer::Closed {
-            settled_in: 3,
-            settled_out: 4,
-            paid_us: true,
-        })
-    );
-    let indexes: i64 = store
-        .lock()
-        .query_row(
-            "SELECT count(*) FROM sqlite_schema WHERE type = 'index' AND name IN
-               ('ledger_transfers_by_packet', 'ledger_transfers_trust')",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(indexes, 0);
-}
-
-// spec/areas/node.md#database, spec/areas/payments.md#wallet-addresses: a
-// database written while the default named a ledger moves forward through
-// migration 7. The ledger becomes its asset's wallet address, a hub's
-// ledger the same as its owner book's.
-#[test]
-fn a_default_ledger_becomes_its_assets_wallet_address() {
-    for (ledger, name) in [
-        ("hub-xrpl-testnet-xrp+xrp", Some("xrp")),
-        ("xrpl-testnet-dsusd+usd", Some("dsusd")),
-        ("stub+usd", Some("usd")),
-        ("eur+eur", None),
-    ] {
-        let temp = tempfile::tempdir().unwrap();
-        {
-            let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-            schema::prepare(&mut connection, &schema::MIGRATIONS[..6]).unwrap();
-            connection
-                .execute(
-                    "UPDATE payment_settings SET default_ledger = ?1 WHERE id = 1",
-                    [ledger],
-                )
-                .unwrap();
-        }
-        let store = Store::open(temp.path()).unwrap();
-        assert_eq!(
-            store.default_address().unwrap().as_deref(),
-            name,
-            "{ledger}"
-        );
-    }
-    let store = Store::open_in_memory().unwrap();
     assert_eq!(store.default_address().unwrap(), None);
     store.set_default_address(Some("xrp")).unwrap();
+    drop(store);
+    let store = Store::open(temp.path()).unwrap();
     assert_eq!(store.default_address().unwrap().as_deref(), Some("xrp"));
+    store.set_default_address(None).unwrap();
+    assert_eq!(store.default_address().unwrap(), None);
 }
 
-// spec/areas/node.md#database, spec/decisions/one-balance-per-asset.md: a
-// database that kept where the owner's funds were kept moves forward
-// through migration 10, which drops the choice with its table.
+// spec/areas/hubs.md#the-validator-in-the-node: a hub's escrow cursor is
+// kept with nothing of the verifier until the watcher first writes it;
+// once kept, the verifier's state round-trips beside the cursor.
 #[test]
-fn where_funds_were_kept_goes() {
-    let temp = tempfile::tempdir().unwrap();
-    {
-        let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-        schema::prepare(&mut connection, &schema::MIGRATIONS[..9]).unwrap();
-        connection
-            .execute(
-                "INSERT INTO funds_kept (asset, kept) VALUES ('xrp', 'own')",
-                [],
-            )
-            .unwrap();
-    }
-    drop(Store::open(temp.path()).unwrap());
-    let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-    let tables: i64 = connection
-        .query_row(
-            "SELECT count(*) FROM sqlite_schema WHERE name = 'funds_kept'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(tables, 0);
-}
-
-// spec/areas/node.md#database, spec/areas/hubs.md#the-validator-in-the-node:
-// a database written before a hub's validator kept its verifier moves
-// forward through migration 5. Its cursor loads as it was, with nothing
-// kept of the verifier, which then starts afresh; once kept, the
-// verifier's state round-trips beside the cursor.
-#[test]
-fn an_escrow_cursor_stored_before_the_verifier_was_kept_loads_without_it() {
+fn an_escrow_cursor_keeps_its_verifier_beside_it() {
     let temp = tempfile::tempdir().unwrap();
     let hub = [7; 32];
-    {
-        let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-        schema::prepare(&mut connection, &schema::MIGRATIONS[..4]).unwrap();
-        connection
-            .execute(
-                "INSERT INTO hub_escrow (hub, newest_ledger, newest_close_time, scanned_to)
-                 VALUES (?1, 90, 700, 80)",
-                [&hub[..]],
-            )
-            .unwrap();
-    }
-    let store = Store::open(temp.path()).unwrap();
-    assert_eq!(
-        user_version(&temp.path().join(DATABASE_FILE)),
-        SCHEMA_VERSION
-    );
     let cursor = EscrowCursor {
         newest_ledger: 90,
         newest_close_time: 700,
         scanned_to: 80,
     };
+    let store = Store::open(temp.path()).unwrap();
+    store.keep_hub_escrow(&hub, &cursor, None).unwrap();
     assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor));
     assert_eq!(store.hub_verifier(&hub).unwrap(), None);
     store
@@ -1035,85 +944,4 @@ fn an_escrow_cursor_stored_before_the_verifier_was_kept_loads_without_it() {
     let store = Store::open(temp.path()).unwrap();
     assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor));
     assert_eq!(store.hub_verifier(&hub).unwrap(), Some(vec![1, 2, 3]));
-}
-
-// spec/areas/node.md#database, spec/decisions/settlement-methods.md: a
-// database written before a peering's methods had a table of their own
-// moves forward through migration 2. Its peering loads as one method, on
-// the scheme it was made on, with its state, credit and time short of
-// room; what is the pair's stays, the termination being told included, and
-// nothing of it cascades away while `peers` is rebuilt.
-#[test]
-fn a_peering_stored_before_methods_loads_as_its_one_method() {
-    let temp = tempfile::tempdir().unwrap();
-    let node = dassie_identity::NodeId::from_bytes(&[9; 24]);
-    {
-        let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-        connection
-            .pragma_update(None, "foreign_keys", "ON")
-            .unwrap();
-        schema::prepare(&mut connection, &schema::MIGRATIONS[..1]).unwrap();
-        connection
-            .execute_batch(&format!(
-                "INSERT INTO peer_nodes (id, link_state, sources, first_seen_ms)
-                   VALUES ('{node}', NULL, 1, 10);
-                 INSERT INTO peers (node, scheme, state, credit_out, since_ms, inbound,
-                   last_seen_ms, short_for_ms, depeering_since_ms, depeering_reason,
-                   short_reached_ms)
-                   VALUES ('{node}', 'stub', x'0102', 900, 14, 1, 15, 17, 18, 4, 12);
-                 INSERT INTO peer_terminations (node, since_ms, reason, by_us, acknowledged)
-                   VALUES ('{node}', 20, 1, 1, 0);"
-            ))
-            .unwrap();
-    }
-    let store = Store::open(temp.path()).unwrap();
-    assert_eq!(
-        user_version(&temp.path().join(DATABASE_FILE)),
-        SCHEMA_VERSION
-    );
-    let stored = store.load_peer().unwrap();
-    let [loaded] = stored.nodes.as_slice() else {
-        panic!("{:?}", stored.nodes)
-    };
-    let peering = loaded.peering.as_ref().unwrap();
-    assert_eq!(
-        peering.methods,
-        [dassie_peer::Method {
-            scheme: dassie_peer::wire::SchemeId::parse("stub").unwrap(),
-            state: vec![1, 2],
-            credit_out: 900,
-            short_for_ms: 17,
-            short_reached_ms: 12,
-            short_checked_ms: None,
-            winding: None,
-            unpayable_since_ms: None,
-        }]
-    );
-    assert_eq!(
-        (peering.since_ms, peering.inbound, peering.last_seen_ms),
-        (14, true, 15)
-    );
-    assert_eq!(peering.depeering.map(|d| d.since_ms), Some(18));
-    let termination = loaded.termination.unwrap();
-    assert_eq!((termination.since_ms, termination.by_us), (20, true));
-    // The peering's row still holds its termination's and its method's:
-    // removing the node takes all three.
-    store
-        .commit_ledger(&LedgerBatch {
-            peer: dassie_peer::PeerBatch {
-                removed: vec![node],
-                ..dassie_peer::PeerBatch::default()
-            },
-            ..LedgerBatch::default()
-        })
-        .unwrap();
-    for table in ["peers", "peer_methods", "peer_terminations"] {
-        let rows: i64 = store
-            .lock()
-            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
-                row.get(0)
-            })
-            .unwrap();
-        assert_eq!(rows, 0, "{table}");
-    }
 }
