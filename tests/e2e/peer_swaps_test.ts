@@ -17,6 +17,7 @@
 import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { DEV_RATES, Scenario, type ScenarioNode } from "@dassie/dev/scenario";
+import type { PeerSnapshot } from "@dassie/rpc/proto";
 
 import {
   DASSIE,
@@ -133,20 +134,14 @@ test(
       assert(d2Dsusd > d2Xrp, "d2 short of XRP");
 
       // Each node's gain on each way of swapping with the other, by their
-      // snapshots as each holds the other's.
-      const gains = async () => {
-        const [ofD2, ofD1] = [
-          await peerSnapshot(d1, d2),
-          await peerSnapshot(d2, d1),
-        ];
-        if (!ofD1 || !ofD2) return undefined;
-        return {
-          d1PaysXrp: gainPpm(ofD1, ofD2, XRP_METHOD, DSUSD_METHOD),
-          d1PaysDsusd: gainPpm(ofD1, ofD2, DSUSD_METHOD, XRP_METHOD),
-          d2PaysXrp: gainPpm(ofD2, ofD1, XRP_METHOD, DSUSD_METHOD),
-          d2PaysDsusd: gainPpm(ofD2, ofD1, DSUSD_METHOD, XRP_METHOD),
-        };
-      };
+      // snapshots as each holds the other's: undefined where a side is
+      // closed, as while a rate the node converts at is stale.
+      const gains = (ofD1: PeerSnapshot, ofD2: PeerSnapshot) => ({
+        d1PaysXrp: gainPpm(ofD1, ofD2, XRP_METHOD, DSUSD_METHOD),
+        d1PaysDsusd: gainPpm(ofD1, ofD2, DSUSD_METHOD, XRP_METHOD),
+        d2PaysXrp: gainPpm(ofD2, ofD1, XRP_METHOD, DSUSD_METHOD),
+        d2PaysDsusd: gainPpm(ofD2, ofD1, DSUSD_METHOD, XRP_METHOD),
+      });
       const status = (node: ScenarioNode) => node.rpc.call("getSwapStatus", {});
       // They stopped once neither sent a swap since a moment when nothing
       // was pending, and each has since been pushed a snapshot of the
@@ -155,10 +150,13 @@ test(
       // a swap in flight, a peer backed off from (T04, T05 and the like),
       // or one waiting for its next snapshot after a refusal or a swap that
       // came back short: each of those only defers the next decision, and
-      // under load a backoff grows to half a minute. A node looks at a new
+      // under load a backoff grows to half a minute. And both snapshots
+      // price every way, so that they decided on open quotes: a side closed
+      // for a stale rate only pauses them too. A node looks at a new
       // snapshot in the step that takes it, which the owner's calls wait
       // for.
       let calm: { sent: [bigint, bigint]; at: number } | undefined;
+      let settled: ReturnType<typeof gains> | undefined;
       let last: unknown;
       await scenario.until(
         "they swap until neither's quotes clear the other's costs",
@@ -169,7 +167,7 @@ test(
             await peerSnapshot(d1, d2),
             await peerSnapshot(d2, d1),
           ];
-          const now = await gains();
+          const now = ofD1 && ofD2 ? gains(ofD1, ofD2) : undefined;
           last = { now, d1: one, d2: two, calm };
           const sent: [bigint, bigint] = [one.sent, two.sent];
           const idle = [one, two].every((swaps) =>
@@ -184,7 +182,13 @@ test(
           const fresh = [ofD2, ofD1].every((snapshot) =>
             snapshot !== undefined && snapshot.sequence > since
           );
-          return fresh && one.fulfilled > 0n && two.fulfilled > 0n;
+          const open = now !== undefined &&
+            Object.values(now).every((gain) => gain !== undefined);
+          if (!fresh || !open || one.fulfilled === 0n || two.fulfilled === 0n) {
+            return false;
+          }
+          settled = now;
+          return true;
         },
         RUN_MS,
       ).catch((error) => {
@@ -200,9 +204,8 @@ test(
       // Neither's quotes clear the other's costs: at the top of the other's
       // book, valued at the swapping node's own curve, no swap gains more
       // than its costs, well below the spread they started beyond.
-      const end = await gains();
-      assert(end, "each holds the other's snapshot");
-      for (const [way, gain] of Object.entries(end)) {
+      assert(settled, "the gains they settled at");
+      for (const [way, gain] of Object.entries(settled)) {
         assert(
           gain !== undefined && gain < QUIET_PPM,
           `${way} gains ${gain} ppm`,

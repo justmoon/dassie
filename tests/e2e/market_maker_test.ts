@@ -81,10 +81,10 @@ const RUN_MS = 300_000;
 const PORT_OFFSET = PORT_OFFSETS["market_maker_test.ts"];
 
 /**
- * What the reader swaps: a quarter of the largest packet of DSUSD, one
- * packet, whose XRP back, at about two XRP a dollar, is within the largest
- * packet too: the core node refuses a larger one (F08), and the smaller
- * one sent then would need a rate rounded below what was promised.
+ * What the reader swaps: a quarter of the largest packet of DSUSD, whose
+ * XRP back, at about two XRP a dollar, is within the largest packet too,
+ * so that it goes as one packet, the one the snapshot's promise is
+ * computed for here.
  */
 const READ_SWAP = LARGEST_PACKET / 4n;
 /** How often the reader tries again when a newer snapshot promises less
