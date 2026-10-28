@@ -395,6 +395,20 @@ pub trait ExternalAsset: Send + Any {
         Err(SchemeError::Unsupported)
     }
 
+    /// A settlement through it is expected or about to be made until
+    /// `until_ms`: money the node asked for may arrive on its ledger, such
+    /// as a withdrawal from a settlement hub, or the node is about to pay
+    /// out of it. An asset that reads its ledger on demand reads it on
+    /// every ledger meanwhile, so that it sees what arrives as soon as its
+    /// ledger shows it, and signs from a fresh view of it. Returns whether
+    /// it could sign now: one that cannot yet gets ready, and is asked again
+    /// at a later check, which is no failure. Nothing to do, and ready, by
+    /// default.
+    fn settling(&mut self, until_ms: u64) -> bool {
+        let _ = until_ms;
+        true
+    }
+
     /// What the owner may spend now on the ledger of `scheme`, a scheme on
     /// it, by the books: the owner's funds there, less what is pending. The
     /// node says it before each call that may sign, so a holding one scheme

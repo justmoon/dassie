@@ -11,7 +11,9 @@ use dassie_settlement::{
     ExternalAsset, LedgerInput, LedgerStatus, OwnerPayment, OwnerPaymentState, ReconcileCause,
     SchemeError,
 };
-use dassie_xrpl::account::{Doubt, HISTORY_BOUND, STALL_MS};
+use dassie_xrpl::account::{
+    Doubt, HEARTBEAT_MS, HISTORY_BOUND, MAX_SETTLING_MS, PAYING_MS, STALL_MS,
+};
 use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Lie, RESERVE_BASE};
 use support::{Effect, XrplScheme};
 
@@ -75,6 +77,11 @@ struct World {
     nodes: Vec<Node>,
     now: u64,
     next_connection: u64,
+    /// Whether a settlement through every account is near, so that each
+    /// anchors on every ledger, as these tests of what is booked need;
+    /// otherwise each anchors on demand
+    /// (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
+    hot: bool,
 }
 
 fn entropy(seed: u8) -> [u8; 32] {
@@ -99,6 +106,7 @@ impl World {
             nodes: Vec::new(),
             now,
             next_connection: 1,
+            hot: true,
         };
         for seed in 0..count {
             let node = name(&format!("node{seed}"));
@@ -271,6 +279,11 @@ impl World {
 
     /// Closes a ledger, and delivers the streams.
     fn close(&mut self) {
+        if self.hot {
+            for index in 0..self.nodes.len() {
+                self.settling(index, self.now + MAX_SETTLING_MS);
+            }
+        }
         self.now += 4_000;
         let close_time = dassie_xrpl::unl::ledger_seconds(self.now);
         for (connection, message) in self.ledger.close_at(close_time) {
@@ -284,6 +297,18 @@ impl World {
         }
         self.timers();
         self.check();
+    }
+
+    /// Node `index` is told a settlement through its account is near until
+    /// `until`, as the node tells it: whether it can sign now.
+    fn settling(&mut self, index: usize, until: u64) -> bool {
+        if !self.nodes[index].online {
+            return false;
+        }
+        let mut effects = Vec::new();
+        let ready = self.nodes[index].scheme.settling(until, &mut effects);
+        self.apply(index, effects);
+        ready
     }
 
     /// Runs the nodes' timers that are due.
@@ -348,13 +373,16 @@ impl World {
     }
 
     /// Node `index`'s owner pays `payment` out of the account, which the
-    /// node holds against the owner's funds while it is on its way.
+    /// node holds against the owner's funds while it is on its way. As the
+    /// node, it first tells the account a payment is near: an account
+    /// whose anchor is stale anchors anew, which the fake answers at once.
     fn pay_owner(
         &mut self,
         index: usize,
         payment: &OwnerPayment,
         effects: &mut Vec<Effect>,
     ) -> Result<Name, SchemeError> {
+        self.settling(index, self.now + PAYING_MS);
         let id = self.nodes[index].scheme.pay_owner(payment, effects)?;
         self.nodes[index]
             .books
@@ -1501,4 +1529,195 @@ fn an_owners_payment_is_cancelled_only_once_proven_absent() {
     world.closes(2);
     assert_eq!(world.owner_payment(0, id), OwnerPaymentState::Cancelled);
     assert_eq!(world.nodes[0].scheme.account.unproven().settlements, 0);
+}
+
+/// Two funded, synced nodes whose accounts anchor on demand: neither
+/// expects a settlement, so each anchors only when a hint, a payment, a
+/// read or its heartbeat asks (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
+fn idle() -> World {
+    let mut world = World::new(2);
+    world.hot = false;
+    world.closes(2);
+    for node in &world.nodes {
+        assert_eq!(node.scheme.status(), LedgerStatus::Synced, "{}", node.name);
+    }
+    world
+}
+
+/// The anchoring rounds node `index` started so far: each asks for its
+/// ledger's validations once.
+fn rounds(world: &World, index: usize) -> usize {
+    let asked = world.nodes[index].asked.iter();
+    asked.filter(|command| *command == "validations").count()
+}
+
+/// Closes ledgers until node `index`'s books hold `owner` for the owner,
+/// at most `most`: how many closed.
+fn closes_until_booked(world: &mut World, index: usize, owner: i128, most: usize) -> usize {
+    let booked = (1..=most).find(|_| {
+        world.close();
+        world.nodes[index].books.owner == owner
+    });
+    booked.expect("booked within the ledgers allowed")
+}
+
+/// How many ledgers close in an hour, at the fake's four seconds each.
+const HOUR_OF_LEDGERS: usize = 900;
+
+// spec/designs/xrpl-validation.md#6-the-account-on-proofs: an account that
+// waits for nothing anchors only on its heartbeat, a few times an hour,
+// where one that anchors on every ledger does so once a ledger; its books
+// hold to the ledger throughout.
+#[test]
+fn an_idle_account_anchors_only_on_its_heartbeat() {
+    let mut every = funded();
+    let before = rounds(&every, 0);
+    every.closes(HOUR_OF_LEDGERS);
+    assert_eq!(rounds(&every, 0) - before, HOUR_OF_LEDGERS);
+    let mut idle = idle();
+    let before = rounds(&idle, 0);
+    idle.closes(HOUR_OF_LEDGERS);
+    let beats = usize::try_from(HOUR_OF_LEDGERS as u64 * 4_000 / HEARTBEAT_MS).unwrap();
+    let rounds = rounds(&idle, 0) - before;
+    assert!((beats - 1..=beats).contains(&rounds), "{rounds} rounds");
+    assert_eq!(idle.nodes[0].books.owner, i128::from(FUNDED));
+}
+
+// A hint that a transaction touched an idle account starts a round at
+// once: a deposit nobody expected is booked as the ledger that holds it
+// closes, with one round.
+#[test]
+fn a_hint_of_a_deposit_starts_a_round_and_it_is_booked() {
+    let mut world = idle();
+    world.closes(10);
+    let before = rounds(&world, 0);
+    let owner = world.nodes[0].books.owner + 4_000_000_000;
+    world.pay(1, 0, 4_000_000_000);
+    assert_eq!(closes_until_booked(&mut world, 0, owner, 1), 1);
+    assert_eq!(rounds(&world, 0) - before, 1);
+}
+
+// spec/designs/xrpl-validation.md#6-the-account-on-proofs: a server that
+// withholds the hint of a deposit nobody expected, from the stream and
+// from the history, hides it until the heartbeat, whose round finds it by
+// the history the proven state names, and no longer.
+#[test]
+fn a_deposit_a_server_hides_is_booked_by_the_heartbeat() {
+    let mut world = idle();
+    let connection = world.nodes[0].connection;
+    world
+        .ledger
+        .set_lie(connection, Some(Lie::HistoryNewestLeftOut));
+    world.nodes[0].lagging = true;
+    let owner = world.nodes[0].books.owner + 7_000_000_000;
+    world.ledger.deposit(world.account(0), 7_000_000);
+    let most = usize::try_from(HEARTBEAT_MS / 4_000).unwrap() + 1;
+    let closed = closes_until_booked(&mut world, 0, owner, most);
+    assert!(closed > 1, "hidden until the heartbeat");
+    assert!(world.ledger.lies_told(Lie::HistoryNewestLeftOut) > 0);
+    assert_eq!(world.nodes[0].books.suspense, 0);
+}
+
+// spec/designs/xrpl-validation.md#6-the-account-on-proofs: an account told
+// a settlement is on its way to it anchors on every ledger until it is
+// credited, so it is credited in as many ledgers as when every ledger was
+// anchored, whether or not the server tells of it.
+#[test]
+fn a_settlement_asked_for_is_credited_as_soon_as_on_every_ledger() {
+    for withheld in [false, true] {
+        let ledgers = |mut world: World, expects: bool| {
+            if withheld {
+                let connection = world.nodes[0].connection;
+                world
+                    .ledger
+                    .set_lie(connection, Some(Lie::HistoryNewestLeftOut));
+                world.nodes[0].lagging = true;
+            }
+            if expects {
+                world.settling(0, world.now + MAX_SETTLING_MS);
+            }
+            let owner = world.nodes[0].books.owner + 4_000_000_000;
+            world.pay(1, 0, 4_000_000_000);
+            closes_until_booked(&mut world, 0, owner, 10)
+        };
+        let every = ledgers(funded(), false);
+        let on_demand = ledgers(idle(), true);
+        assert_eq!(every, 1, "{withheld}");
+        assert_eq!(on_demand, every, "{withheld}");
+    }
+}
+
+// spec/designs/xrpl-validation.md#6-the-account-on-proofs: an account
+// signs only from a fresh anchor. Asked to pay from a stale one, it
+// refuses, and a round starts; asked again, it signs from the anchor that
+// round took. While it anchors on every ledger, as with a payment of its
+// own on its way, its anchor is fresh, and it signs with no round more.
+#[test]
+fn a_payer_signs_from_a_fresh_anchor() {
+    let mut world = idle();
+    world.closes(10);
+    let payment = OwnerPayment {
+        destination: world.account(1).to_address(),
+        tag: None,
+        memo: None,
+        amount: 1_000_000_000,
+    };
+    let before = rounds(&world, 0);
+    let mut effects = Vec::new();
+    let refused = world.nodes[0].scheme.pay_owner(&payment, &mut effects);
+    assert_eq!(refused, Err(SchemeError::Unavailable));
+    world.apply(0, effects);
+    assert_eq!(rounds(&world, 0) - before, 1, "a round at once");
+    let mut effects = Vec::new();
+    let first = world.pay_owner(0, &payment, &mut effects).unwrap();
+    world.apply(0, effects);
+    assert_eq!(rounds(&world, 0) - before, 1, "signed from it");
+    world.close();
+    assert_eq!(world.owner_payment(0, first), OwnerPaymentState::Applied);
+    // Hot while its payment was on its way: a round on that ledger, and
+    // the next payment signs with none more.
+    assert_eq!(rounds(&world, 0) - before, 2);
+    let mut effects = Vec::new();
+    let second = world.pay_owner(0, &payment, &mut effects).unwrap();
+    world.apply(0, effects);
+    assert_eq!(rounds(&world, 0) - before, 2, "no round more");
+    world.close();
+    assert_eq!(world.owner_payment(0, second), OwnerPaymentState::Applied);
+}
+
+// spec/designs/xrpl-validation.md#6-the-account-on-proofs: while a
+// settlement through it is expected, the account anchors on every ledger;
+// once the money arrived it anchors on demand again.
+#[test]
+fn an_account_expecting_money_anchors_on_every_ledger_until_it_arrives() {
+    let mut world = idle();
+    world.closes(10);
+    let quiet = rounds(&world, 0);
+    world.closes(10);
+    assert_eq!(rounds(&world, 0), quiet, "idle");
+    world.settling(0, world.now + MAX_SETTLING_MS);
+    let expecting = rounds(&world, 0);
+    world.closes(5);
+    assert_eq!(rounds(&world, 0) - expecting, 5, "a round a ledger");
+    let owner = world.nodes[0].books.owner + 4_000_000_000;
+    world.pay(1, 0, 4_000_000_000);
+    assert_eq!(closes_until_booked(&mut world, 0, owner, 1), 1);
+    let credited = rounds(&world, 0);
+    world.closes(10);
+    assert_eq!(rounds(&world, 0), credited, "on demand again");
+}
+
+// A reserve the ledger stream names other than the anchor's is a hint that
+// it changed: an idle account anchors, and reconciles it at once.
+#[test]
+fn a_new_reserve_is_reconciled_by_an_idle_account() {
+    let mut world = idle();
+    world.closes(10);
+    world.ledger.set_reserve(2 * RESERVE_BASE, 0);
+    world.close();
+    let reserve = i128::from(RESERVE_BASE * UNITS_PER_DROP);
+    assert_eq!(
+        world.nodes[0].books.reconciled,
+        [(-reserve, ReconcileCause::Reserve)]
+    );
 }

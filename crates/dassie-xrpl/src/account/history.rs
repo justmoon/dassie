@@ -803,6 +803,9 @@ impl XrplAccount {
             Phase::Synced => {
                 self.tell_issuers(&view.issuers, false);
                 self.tell_pools(&view.pools);
+                // A read that waited for a fresh anchor goes now, at the
+                // newest the server has, fresh or not.
+                self.read_at_anchor();
                 // A gap the walk left while synced, as a burst past what
                 // one walk finds leaves: the schemes match their books to
                 // the balance the anchor proves, as when they sync, rather
@@ -915,8 +918,27 @@ impl XrplAccount {
     }
 
     /// Reads what the schemes asked for at the anchor, in one state proof,
-    /// unless a read is on its way.
+    /// unless a read is on its way. A pool or a balance is read at the
+    /// ledger's own pace: at the anchor while the account anchors on every
+    /// ledger and its anchor is fresh ([`super::FRESH_ANCHOR_MS`]); else a
+    /// round is asked for, and the read goes once it took an anchor, so a
+    /// peg guard's reading costs a round at the guard's own cadence. An
+    /// issuer's account, which the schemes ask for at every settlement
+    /// check, is read at the anchor there is, however old: the anchor before
+    /// a payment is fresh.
     pub(super) fn read_asked(&mut self) {
+        let needs_current =
+            !self.balances_asked.is_empty() || self.pools.values().any(|watch| watch.asked);
+        let current = self.hot() && self.anchor_fresh();
+        if needs_current && self.phase == Phase::Synced && !current {
+            self.want_fresh();
+            return;
+        }
+        self.read_at_anchor();
+    }
+
+    /// Reads what the schemes asked for at the anchor there is.
+    fn read_at_anchor(&mut self) {
         let Some(kept) = self.anchor else {
             return;
         };
@@ -942,7 +964,8 @@ impl XrplAccount {
             .map(|kept| kept.anchor)
             .filter(|anchor| anchor.hash == at)
         else {
-            return self.read_asked();
+            // A newer anchor came meanwhile: the read goes again at it.
+            return self.read_at_anchor();
         };
         let Some(answer) = self.answer(outcome, api::state_proof_result) else {
             return;
@@ -1143,14 +1166,20 @@ impl XrplAccount {
     }
 
     /// A transaction the stream says validated: a hint, whose proof is
-    /// asked for, so that the history finds it proven.
+    /// asked for, so that the history finds it proven. One in a ledger past
+    /// the anchor asks for a round, whose walk finds it: so what touched
+    /// the account is booked as soon as the server tells of it, however
+    /// idle the account was.
     pub(super) fn hinted(&mut self, record: &TxRecord) {
         let hash = record.hash;
-        if !record.validated
-            || self.phase == Phase::Disconnected
-            || self.proofs.contains_key(&hash)
-            || self.hints.len() >= super::MAX_HINTS
-        {
+        if !record.validated || self.phase == Phase::Disconnected {
+            return;
+        }
+        let past = (self.anchor).is_none_or(|kept| record.ledger_index > kept.anchor.index);
+        if past {
+            self.want_anchor();
+        }
+        if self.proofs.contains_key(&hash) || self.hints.len() >= super::MAX_HINTS {
             return;
         }
         self.hints.insert(hash);
@@ -1437,7 +1466,7 @@ mod tests {
         account.at = Some((10, u32::MAX));
         account.sequence = 5;
         account.balance = Some(1_000_000_000);
-        account.validated = 10;
+        crate::account::tests::fresh_anchor(&mut account, 10);
         account.follow(scheme, Some((10, u32::MAX)), true);
         account
     }

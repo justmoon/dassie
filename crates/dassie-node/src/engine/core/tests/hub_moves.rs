@@ -495,6 +495,105 @@ fn a_live_hub_is_funded_from_the_live_book() {
     );
 }
 
+// spec/areas/hubs.md#in-the-node, spec/designs/xrpl-validation.md#6-the-account-on-proofs:
+// an owner book's account that waited for nothing anchors on demand, so
+// its anchor is stale, and it signs from no stale anchor. The deposit the
+// floor calls for has it anchor anew first, and goes at the next check:
+// the wait is no failure, which would hold the deposit back a backoff.
+#[test]
+fn a_deposit_from_an_idle_book_waits_for_a_fresh_anchor_not_a_backoff() {
+    let mut ledger = super::fake_ledger(true);
+    let own = own_account(&MAINNET);
+    ledger.deposit(own, dassie_xrpl::fake::FAUCET_DROPS);
+    ledger.close();
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = super::core_taking_downlinks(store, Realm::Live, LiveRealm::DevSwitch, NOW);
+    super::add_xrpl(&mut core, "xrpl-xrp", r#"{"server":"ws://ledger.test"}"#).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    let mut hub = Hub::new(MAINNET_SCHEME_ID, MAINNET.id, Asset::Xrp);
+    core.add_scheme(MAINNET_SCHEME_ID, hub.config()).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    let anchored = |core: &Core| {
+        let account = core.xrpl_accounts().next().unwrap();
+        account.anchor().unwrap().index
+    };
+    // A minute of ledgers, none of which the account anchors on.
+    for _ in 0..15 {
+        core.begin_step(core.now_ms() + 4_000);
+        super::close_xrpl(&mut core, &mut ledger);
+    }
+    let idle = anchored(&core);
+    assert!(idle + 10 < ledger.ledger(), "idle at {idle}");
+
+    hub.no_account(&mut core);
+    super::wait_and_close(&mut core, &mut ledger, 1_000);
+    assert!(anchored(&core) > idle, "anchored anew");
+    let made = super::deposits(&mut ledger, hub.escrow());
+    assert_eq!(made.len(), 1, "{made:?}");
+    assert_eq!((made[0].tag, made[0].sender), (0, own.0));
+}
+
+/// A live-realm core whose `xrpl-xrp` book is synced and then idle a
+/// minute, its account's anchor stale, in the mainnet XRP hub `hub`.
+fn idle_live_book(ledger: &mut FakeLedger, hub: &Hub) -> Core {
+    let own = own_account(&MAINNET);
+    ledger.deposit(own, dassie_xrpl::fake::FAUCET_DROPS);
+    ledger.close();
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = super::core_taking_downlinks(store, Realm::Live, LiveRealm::DevSwitch, NOW);
+    super::add_xrpl(&mut core, "xrpl-xrp", r#"{"server":"ws://ledger.test"}"#).unwrap();
+    super::follow_xrpl(&mut core, ledger);
+    core.add_scheme(MAINNET_SCHEME_ID, hub.config()).unwrap();
+    super::follow_xrpl(&mut core, ledger);
+    for _ in 0..15 {
+        core.begin_step(core.now_ms() + 4_000);
+        super::close_xrpl(&mut core, ledger);
+    }
+    core
+}
+
+// spec/designs/xrpl-validation.md#6-the-account-on-proofs: a sponsor's
+// payment that founds a hub's escrow, out of an idle XRP book, is no
+// refusal: the book's account, told a payment is near, reads its ledger
+// anew, and once it has, which the engine waits for a bounded while
+// (`Engine::pay_from_xrpl`), the payment is made on the first ask, so
+// the founding never shows the owner a problem.
+#[test]
+fn an_idle_book_founds_an_escrow_once_it_read_its_ledger_anew() {
+    let mut ledger = super::fake_ledger(true);
+    let hub = Hub::new(MAINNET_SCHEME_ID, MAINNET.id, Asset::Xrp);
+    let mut core = idle_live_book(&mut ledger, &hub);
+    let escrow = hub.escrow().to_address();
+    assert!(
+        !core.founding_book_ready(),
+        "it reads its ledger anew first"
+    );
+    super::follow_xrpl(&mut core, &mut ledger);
+    assert!(core.founding_book_ready(), "one round later");
+    core.pay_from_xrpl(&escrow, 50_000_000).unwrap();
+}
+
+// spec/areas/hubs.md#in-the-node, spec/designs/xrpl-validation.md#6-the-account-on-proofs:
+// the owner's first deposit into the hub out of an idle owner book goes
+// through: the book's account, told a payment is near, reads its ledger
+// anew, and once it has, which the engine waits for a bounded while
+// (`Engine::hub_deposit`), the deposit is made on the owner's first ask.
+// Asked of a stale anchor without that wait, it would be refused.
+#[test]
+fn an_idle_books_first_owner_deposit_goes_once_it_read_its_ledger_anew() {
+    let mut ledger = super::fake_ledger(true);
+    let mut hub = Hub::new(MAINNET_SCHEME_ID, MAINNET.id, Asset::Xrp);
+    let mut core = idle_live_book(&mut ledger, &hub);
+    let opening = 30_000_000;
+    hub.account(&mut core, opening, opening);
+    let amount = 2_000_000 * UNITS_PER_DROP;
+    assert!(!core.hub_deposit_ready(MAINNET_SCHEME_ID));
+    super::follow_xrpl(&mut core, &mut ledger);
+    assert!(core.hub_deposit_ready(MAINNET_SCHEME_ID), "one round later");
+    let status = core.hub_deposit_to(MAINNET_SCHEME_ID, amount).unwrap();
+    assert!(status.moving.is_some_and(|moving| moving.owner));
+}
+
 // spec/decisions/hub-scheme-names.md, spec/areas/xrpl.md#the-peg-guard: a
 // member scheme on a mainnet hub of RLUSD, made from its rules, books on
 // `hub-xrpl-rlusd+usd` through an account of its own, `hub-xrpl-rlusd`;
