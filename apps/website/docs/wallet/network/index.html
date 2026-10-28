@@ -71,8 +71,8 @@
         which every other node then knows about.
       </p>
       <p>
-        Your node knows the testnet's four bootstrap nodes from the start,
-        <code>boot1.dassie.xyz</code> to <code>boot4.dassie.xyz</code>, and
+        Your node knows the testnet's five bootstrap nodes from the start,
+        <code>boot1.dassie.xyz</code> to <code>boot5.dassie.xyz</code>, and
         registers with them by itself when it starts. It renews before a
         registration lapses.
         <a href="/docs/reference/environment/#DASSIE_BOOTSTRAP_NODES"><code>DASSIE_BOOTSTRAP_NODES</code></a>
@@ -101,7 +101,7 @@
           uplinks, and its card shows its uplinks too (below).
         </li>
         <li>
-          <em>Listed by 3 of 4 bootstrap nodes</em>: how many list it.
+          <em>Listed by 3 of 5 bootstrap nodes</em>: how many list it.
         </li>
       </ul>
       <p>
@@ -200,7 +200,7 @@
           its payments in and out, each <em>connected</em> or
           <em>not connected</em>, with when it was last heard from. With none
           yet, no payment reaches your node: it looks for core nodes that
-          share a settlement hub with it. On the testnet, all four
+          share a settlement hub with it. On the testnet, all five
           bootstrap nodes are in both of its hubs, so a node in either
           finds uplinks among them. In
           the graph, your node has a line to each uplink it reaches directly.

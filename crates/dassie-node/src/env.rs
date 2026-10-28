@@ -27,16 +27,17 @@ use crate::quic::proxy::{NoProxy, Proxy};
 
 /// The public testnet's bootstrap nodes
 /// (spec/decisions/bootstrap-network.md), in one region, us-east1, so that
-/// they can validate the testnet's settlement hub: boot1 and boot4 in zone
-/// b, boot2 in c, boot3 in d. Each entry names a node's ID, URL and its two
-/// keys, Ed25519 and SLH-DSA, and each ID is checked against its keys at
-/// startup, like any entry. `DASSIE_BOOTSTRAP_NODES=[]` makes a node run
-/// alone.
+/// four of them, boot1–4, can validate the testnet's settlement hubs: boot1
+/// and boot4 in zone b, boot2 and boot5 in c, boot3 in d. Each entry names
+/// a node's ID, URL and its two keys, Ed25519 and SLH-DSA, and each ID is
+/// checked against its keys at startup, like any entry.
+/// `DASSIE_BOOTSTRAP_NODES=[]` makes a node run alone.
 pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
   {"id":"32f6pclvm5p5xxdeqigvgxpjezayxacvmnnwgcy","url":"https://boot1.dassie.xyz","publicKey":"2DJ7XMcmzgUu-Ec50PSdPvNHL5_4PKo6WmYrP4nMHEU","slhDsaPublicKey":"4nvvGnn31qeJEYBdzzulzaDcIpFtdFq9HeNhA6fJNeg"},
   {"id":"wfubobuj5r7d7m4zkut4p2vvt5gd4szbif7czby","url":"https://boot2.dassie.xyz","publicKey":"FWAmSiJvL2c0c_6y4qdcWL3BVUF0j1AccrS7IrS4eRw","slhDsaPublicKey":"Usj-SMIJ2xBwIPIe5-TcOMH0sElKvDl344ut413AJj4"},
   {"id":"2mbtvg34lgihhdssw7v3ecwiogzs5l4jondqxjq","url":"https://boot3.dassie.xyz","publicKey":"MENy-bobL2KCbx2c12FO2aoQvaeWctWtPR38Gtz6qYY","slhDsaPublicKey":"JSGuAoeDSnid0EjtM2bbdt5ltY5ihJMj9ALizTUTjjk"},
-  {"id":"cxctokwbdeczn2ganlberxwwghzyp6xs2coj2qq","url":"https://boot4.dassie.xyz","publicKey":"SwEEVe2I4YSvM-814iProgG_PauuBMWnk49MjW2DMXQ","slhDsaPublicKey":"yftGkX5GBqNR3lJJ6kGcDlbKtgzNDK5F2N9zanQVJMQ"}
+  {"id":"cxctokwbdeczn2ganlberxwwghzyp6xs2coj2qq","url":"https://boot4.dassie.xyz","publicKey":"SwEEVe2I4YSvM-814iProgG_PauuBMWnk49MjW2DMXQ","slhDsaPublicKey":"yftGkX5GBqNR3lJJ6kGcDlbKtgzNDK5F2N9zanQVJMQ"},
+  {"id":"kqntakq5gnfyqylfuxtbas72n75r2fmudcjljwy","url":"https://boot5.dassie.xyz","publicKey":"GBFueVq2q-ewZXJhQhTRnjm8AUx0n9chh5Z_VHGVih4","slhDsaPublicKey":"SWQYw1iHn24XrxMZvrMDEhFao8g7vYXM7wS0fVky5aw"}
 ]"#;
 
 /// The relay a node keeps a connection to while it has no hostname, unless
@@ -671,7 +672,7 @@ mod tests {
         entry.to_string()
     }
 
-    // spec/decisions/bootstrap-network.md: the default list names boot1–4,
+    // spec/decisions/bootstrap-network.md: the default list names boot1–5,
     // each passing the checks of a configured entry, its ID among them.
     #[test]
     fn the_default_bootstrap_nodes_are_the_testnet() {
@@ -688,6 +689,7 @@ mod tests {
                 ("wfubobuj5r7d7m4zkut4p2vvt5gd4szbif7czby", "boot2"),
                 ("2mbtvg34lgihhdssw7v3ecwiogzs5l4jondqxjq", "boot3"),
                 ("cxctokwbdeczn2ganlberxwwghzyp6xs2coj2qq", "boot4"),
+                ("kqntakq5gnfyqylfuxtbas72n75r2fmudcjljwy", "boot5"),
             ]
             .map(|(id, host)| (id.to_owned(), format!("https://{host}.dassie.xyz")))
             .to_vec())
