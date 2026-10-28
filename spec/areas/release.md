@@ -85,7 +85,7 @@ The original's layout. Each version is unpacked into `/opt/dassie/<version>`, an
 - **It sets `umask 022`,** so that on a hardened host what it installs stays readable by the node's own user.
 - **`--no-service` installs the files alone,** for a host that runs the node under units of its own, such as the [market maker's VM](market-maker-vm.md#releases-and-updates), or none, such as a container. It then needs no systemd.
 - **It never runs beside `dassie update`:** it takes the updater's lock with `flock` before it reads an existing install, or before it makes the first one, and holds it to the end, uninstalling included. An update prunes every version it does not keep and what an install left half done, so beside an install it could delete the version `current` is about to name. Where an update holds the lock, it stops and changes nothing.
-- **Uninstalling keeps the node's data and the group `dassie-users`.** It removes the units, every version and the link in `/usr/local/bin`, but the data holds the node key and the books, which installing again picks up.
+- **Uninstalling keeps the node's data, the group `dassie-users` and the owner's drop-ins.** It removes the units, every version and the link in `/usr/local/bin`, but the data holds the node key and the books, and the drop-ins are the owner's changes, which it leaves alone as updates do ([systemd units](#systemd-units)); installing again picks all of it up. An owner who wants a clean slate removes `/etc/systemd/system/dassie*.d` too.
 
 ## `dassie update`
 
