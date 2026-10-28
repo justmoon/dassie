@@ -93,7 +93,7 @@ fn a_payment_beyond_the_hub_waits_for_its_deposit() {
     wait_and_close(&mut core, &mut ledger, 1_000);
     let opening = deposits(&mut ledger, escrow)[0].amount;
     let p = Policies::DEFAULT.connector.max_packet_amount;
-    let floor = policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0) / UNITS_PER_DROP;
+    let floor = policy::hub_floor(p) / UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
     let balance = floor.midpoint(ceiling);
     hub.account(&mut core, balance, opening);
@@ -127,7 +127,8 @@ fn a_payment_beyond_the_hub_waits_for_its_deposit() {
     let made = deposits(&mut ledger, escrow);
     assert_eq!(made.len(), 2, "the shortfall: {made:?}");
     let promised = debit.div_ceil(UNITS_PER_DROP);
-    assert_eq!(made[1].amount, floor.midpoint(ceiling) + promised - balance);
+    let kept = balance + hub.rules.terms.fees.account_reserve;
+    assert_eq!(made[1].amount, floor.midpoint(ceiling) + promised - kept);
     assert!(made[1].amount > ceiling, "past the ceiling");
 
     // Once the hub booked the deposit, it counts there alone, not again
@@ -142,10 +143,14 @@ fn a_payment_beyond_the_hub_waits_for_its_deposit() {
     assert_eq!(
         core.hub_refill(LedgerId::HubXrplTestnetXrp),
         u128::from(spendable.saturating_sub(fee)) * u128::from(UNITS_PER_DROP),
-        "a deposit the hub booked counts once"
+        "a deposit the hub booked counts once, no gas kept back without a token hub"
     );
-    for _ in 0..4 {
+    for step in 0.. {
         wait_and_close(&mut core, &mut ledger, 1_000);
+        let row = core.store.outgoing_payment(id).unwrap().unwrap();
+        if row.state != OutgoingState::Sending || step == 400 {
+            break;
+        }
     }
     let row = core.store.outgoing_payment(id).unwrap().unwrap();
     assert_eq!(row.state, OutgoingState::Completed, "{row:?}");
@@ -165,7 +170,7 @@ fn a_shut_down_hub_draws_no_deposit_for_payments() {
     wait_and_close(&mut core, &mut ledger, 1_000);
     let opening = deposits(&mut ledger, escrow)[0].amount;
     let p = Policies::DEFAULT.connector.max_packet_amount;
-    let floor = policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0) / UNITS_PER_DROP;
+    let floor = policy::hub_floor(p) / UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
     let balance = floor.midpoint(ceiling);
     hub.account(&mut core, balance, opening);
@@ -204,7 +209,7 @@ fn a_hub_with_no_progress_lately_draws_no_deposit_for_payments() {
     wait_and_close(&mut core, &mut ledger, 1_000);
     let opening = deposits(&mut ledger, escrow)[0].amount;
     let p = Policies::DEFAULT.connector.max_packet_amount;
-    let floor = policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0) / UNITS_PER_DROP;
+    let floor = policy::hub_floor(p) / UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
     let balance = floor.midpoint(ceiling);
     hub.account(&mut core, balance, opening);
@@ -246,7 +251,7 @@ fn after_a_restart_a_quiet_hub_draws_no_deposit_for_payments() {
     wait_and_close(&mut core, &mut ledger, 1_000);
     let opening = deposits(&mut ledger, escrow)[0].amount;
     let p = Policies::DEFAULT.connector.max_packet_amount;
-    let floor = policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0) / UNITS_PER_DROP;
+    let floor = policy::hub_floor(p) / UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
     let balance = floor.midpoint(ceiling);
     hub.account(&mut core, balance, opening);

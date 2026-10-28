@@ -27,11 +27,11 @@ use support::hubs::{
 /// The largest packet, in internal units: 0.1 XRP.
 const MAX_PACKET: u64 = 100_000_000;
 
-/// What a payment takes beyond what the payer's account in the hub can
-/// spend above its floor: ten of the largest packets, more than the
-/// trigger and the payee's redeem threshold together, so that what the
-/// payer funds of its hold takes the account below its floor even with
-/// what it still owes unfunded.
+/// What a payment takes beyond what the payer keeps in the hub above its
+/// floor: ten of the largest packets, more than the trigger, the payee's
+/// redeem threshold and the hold's reserve together, so that what the
+/// payee takes of the payer's hold takes what it keeps below its floor
+/// even with what it still owes unfunded.
 const BEYOND_FLOOR: u64 = 10 * MAX_PACKET;
 
 const XRP: &[HubAsset] = &[HubAsset::Xrp];
@@ -94,9 +94,9 @@ async fn kept(net: &HubNet, member: &support::hubs::Member, scheme: &str) -> (Bo
 // spec/areas/hubs.md#in-the-node, spec/areas/xrpl.md#owner-books: the
 // faucet funds each member's owner book of XRP, which follows the fake
 // ledger at an address that starts with `r`, and peers with nobody. A
-// client of one member pays the other's receiver more than the payer's
-// account in the hub can spend above its floor, so the payer moves XRP
-// into the hub as it pays: its owner book pays exactly what moved and the
+// client of one member pays the other's receiver more than the payer
+// keeps in the hub above its floor, so the payer moves XRP into the hub
+// as it pays: its owner book pays exactly what moved and the
 // XRP Ledger's fees for it, and its hub book gets what moved, less the
 // payment and the hub's fees. Restarted, both members' owner books, hub
 // books and accounts' counters in the hub are as they were, each book
@@ -124,7 +124,10 @@ async fn members_settle_from_their_owner_books_across_a_restart() {
     let (payer, payee) = (&members[0], &members[1]);
     let status = hub_status(&payer.node, hub.scheme).await;
     assert!(status.automatic, "the payer moves funds by itself");
-    let payment = status.balance.saturating_sub(status.floor) + BEYOND_FLOOR;
+    // What it keeps: the balance, the reserve and its holds toward peers.
+    let holds: u64 = status.paying.iter().map(|hold| hold.amount).sum();
+    let in_hub = status.balance + status.reserve + holds;
+    let payment = in_hub.saturating_sub(status.floor) + BEYOND_FLOOR;
     let (before, counters) = kept(&net, payer, hub.scheme).await;
     let (_, journaled) = transfers_since(&payer.node, None).await;
     pay(

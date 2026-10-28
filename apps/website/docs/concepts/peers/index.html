@@ -123,11 +123,12 @@
         </li>
         <li>
           <strong>The hub itself.</strong> What your node keeps in a hub,
-          its own holds included, is at risk if the hub fails. Your node tops
-          its hub account up from its own account on the ledger when it runs
-          low, and never deposits past a ceiling of a hundred of the largest
-          packets. What peers pay you arrives in the hub, and what goes past
-          that ceiling moves on to your own account.
+          its own holds included, is at risk if the hub fails. Your node keeps
+          a thousand of the largest packets there, more than its holds are
+          likely ever to need, and tops the hub account up from its own
+          account on the ledger when it runs a tenth below that. What peers
+          pay you arrives in the hub, and what goes a tenth past it moves on
+          to your own account.
           <a href="/docs/wallet/hubs/">Your hubs</a> shows where each one
           stands.
         </li>

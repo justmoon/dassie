@@ -806,10 +806,13 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
     };
     // The node's snapshots, from its price table, signed with its key
     // (spec/areas/rate-feed.md#the-node-side).
-    core.set_snapshot_source(Box::new(OwnSnapshots::new(key)));
+    core.set_snapshot_source(Box::new(OwnSnapshots::new(Arc::clone(&key))));
     let (commands, receiver) = mpsc::channel(QUEUE);
     let generation = CancellationToken::new();
     let broadcasts = Broadcasts::new();
+    // The event log listens from the first step on
+    // (spec/areas/node.md#the-event-log).
+    record_events(&node, key.node_id(), &broadcasts, &generation);
     let (versions, versions_receiver) = watch::channel(Versions::default());
     let engine = Engine {
         commands: commands.clone(),
@@ -841,6 +844,24 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
     driver.run(receiver, config, &shutdown).await;
     // Without an engine, the node has no snapshot to answer with.
     node.set_snapshot(None);
+}
+
+/// Has the event log record this engine's packet trace and hub events, if
+/// the owner turned it on.
+fn record_events(
+    node: &Node,
+    own_id: dassie_identity::NodeId,
+    broadcasts: &Broadcasts,
+    generation: &CancellationToken,
+) {
+    if let Some(log) = node.event_log() {
+        log.record(
+            own_id,
+            (broadcasts.packets.subscribe(), broadcasts.hubs.subscribe()),
+            node.clock(),
+            generation.clone(),
+        );
+    }
 }
 
 /// What runs the core: takes commands in batches, steps the core, and

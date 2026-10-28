@@ -11,7 +11,7 @@ What is not built yet: the open areas of work, the gaps between the spec's contr
 A ledger kept by n = 3f + 1 validators and backed by an escrow on the XRP Ledger, so that two nodes peered over a hub cannot walk away with what they owe each other; peers settle only over hubs, over every hub both are in ([hubs-only](decisions/hubs-only.md), [Network](areas/network.md#settlement-methods)). The design is [designs/settlement-hubs.md](designs/settlement-hubs.md); the reasons are [settlement-hubs](decisions/settlement-hubs.md). What is built is in [Settlement hubs](areas/hubs.md).
 
 - **Parts that can be built side by side:**
-  - the member's side in the node: closing by the owner, a floor and a ceiling the owner sets, the member's account following a change of validators, whose set it now takes from the rules it was built with, and moving a scheme to another hub, as to a default hub founded again, which needs the old account closed and its state let go ([In the node](areas/hubs.md#in-the-node), [hub-named-when-added](decisions/hub-named-when-added.md));
+  - the member's side in the node: closing by the owner, a target the owner sets, the member's account following a change of validators, whose set it now takes from the rules it was built with, and moving a scheme to another hub, as to a default hub founded again, which needs the old account closed and its state let go ([In the node](areas/hubs.md#in-the-node), [hub-named-when-added](decisions/hub-named-when-added.md));
   - the validator role in the node: gathering the old set's signatures after a change of escrow keys, for the withdrawals sequenced before it and the old set's change of the signer list ([The validator in the node](areas/hubs.md#the-validator-in-the-node));
   - founding a hub: a sponsor replacing a validator that refuses or fails before genesis, and the wallet's view of a founding ([Founding a hub](areas/hubs.md#founding-a-hub));
   - payout bundles: validators passing views and bundles of higher blocks around before and after they sign, a validator that comes back signing from what a member hands it, and the node submitting a quorum's set itself once its validators are gone. Before it submits a token hub's set, a member checks its own proof of the escrow's trust line, and the first to submit a dissolving token hub's set tops the escrow's XRP up to 2 XRP: the reserve of its signer list and trust line, which the set's change of signer list needs, and a margin for the set's fees ([Payout bundles](areas/hubs.md#payout-bundles), [token-hubs](decisions/token-hubs.md));
@@ -159,13 +159,6 @@ A node's default rate sources are exchanges whose terms license their market dat
 - **Left to build:** following mainnet's validated ledgers for the pool's price on a node of either realm, with no key; the pool as XRP's only source, with its floor and window; Norges Bank's, the Bank of Canada's and the Czech National Bank's sources beside the ECB's; the new defaults, for new nodes and for nodes upgraded with the sources they started with; the peg guard turned off on RLUSD and DSUSD, with their hubs' ledgers converting as the XRP hub's does; the sources named in the wallet; the keeper's target.
 - **Done when:** a new node's sources are only these; XRP's rate follows mainnet's XRP/RLUSD pool, and a pool pushed for less than half the window leaves it unmoved; a test node signs nothing on mainnet; no dollar token's scheme or hub pauses for its price; the fiat currencies' rates come from the four banks, each dropped once older than its calendar allows; the wallet names the sources; and the keeper holds DSUSD's pool at mainnet's XRP/RLUSD price.
 - **Later:** a source of XRP's price in dollars outside every dollar token's pool, close to real time and with terms that allow a node's use, and the peg guard on it again.
-
-### Kopje across Dassie
-
-The brand page holds Dassie's visual identity, Kopje ([visual-identity](decisions/visual-identity.md)), and dassie.land and the wallet draw in it; the desktop app's own parts do not yet.
-
-- **Left to build:** the desktop app's icons and tray, and the page its window shows while the node starts.
-- **Done when:** every part of the desktop app draws in Kopje's palette, type and mark, light and dark.
 
 ## Not built yet
 

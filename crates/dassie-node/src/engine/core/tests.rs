@@ -5618,11 +5618,10 @@ fn only_the_owner_book_names_a_deposit_address() {
 
 // spec/areas/hubs.md#in-the-node: a node in a hub that has no account for
 // it opens one by its first deposit (tag 0, its hub key as the memo, the
-// account reserve, the floor and the fees of the first operations). Below
-// the floor, it deposits up to
-// the midpoint, by its account's tag, one move at a time: the next waits
-// until the hub credited it. Above the ceiling, it withdraws down to the
-// midpoint, to its own XRPL account.
+// account reserve, the fees of the first operations and the target). Below
+// the floor, it deposits up to the target, the midpoint, by its account's
+// tag, one move at a time: the next waits until the hub credited it. Above
+// the ceiling, it withdraws down to the target, to its own XRPL account.
 #[test]
 fn the_node_keeps_its_hub_between_floor_and_ceiling() {
     use dassie_settlement::policy;
@@ -5634,15 +5633,14 @@ fn the_node_keeps_its_hub_between_floor_and_ceiling() {
     hub.no_account(&mut core);
     let fees = hub.rules.terms.fees;
     let p = Policies::DEFAULT.connector.max_packet_amount;
-    let credit = Policies::DEFAULT.peer_credit;
-    let floor = policy::hub_floor(p, credit, 0) / dassie_xrpl::UNITS_PER_DROP;
+    let floor = policy::hub_floor(p) / dassie_xrpl::UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / dassie_xrpl::UNITS_PER_DROP;
     let middle = floor.midpoint(ceiling);
-    assert_eq!((floor, ceiling), (475_000, 10_000_000));
+    assert_eq!((floor, ceiling), (90_000_000, 110_000_000));
 
     wait_and_close(&mut core, &mut ledger, 1_000);
     let made = deposits(&mut ledger, escrow);
-    let opening = fees.account_reserve + floor + fees.starting_balance;
+    let opening = fees.account_reserve + fees.starting_balance + middle;
     assert_eq!(made.len(), 1, "{made:?}");
     assert_eq!(
         (made[0].tag, made[0].key, made[0].amount, made[0].sender),
@@ -5657,21 +5655,21 @@ fn the_node_keeps_its_hub_between_floor_and_ceiling() {
     let made = deposits(&mut ledger, escrow);
     assert_eq!(made.len(), 2, "one on its way: {made:?}");
     assert_eq!((made[1].tag, made[1].key), (5, None));
-    assert_eq!(made[1].amount, middle - 100_000);
+    assert_eq!(made[1].amount, middle - 100_000 - fees.account_reserve);
 
     // Credited, then peers' settlements taken past the ceiling: withdrawn
-    // to the owner's own account down to the midpoint, counting the account
+    // to the owner's own account down to the target, counting the account
     // reserve.
     hub.account(&mut core, middle, opening + made[1].amount);
-    let balance = 12_000_000;
+    let balance = 120_000_000;
     hub.account(&mut core, balance, opening + made[1].amount);
     let outputs = wait_and_close(&mut core, &mut ledger, 4_000);
-    let exposure = balance + fees.account_reserve;
+    let kept = balance + fees.account_reserve;
     let to = dassie_hub::operation::Destination {
         account: own.0,
         tag: None,
     };
-    assert_eq!(withdrawals(&outputs), [(exposure - middle, to)]);
+    assert_eq!(withdrawals(&outputs), [(kept - middle, to)]);
     assert_eq!(deposits(&mut ledger, escrow).len(), 2);
     let status = core.hub_status().unwrap();
     assert_eq!(status.account, Some(5));
@@ -5994,12 +5992,14 @@ fn a_late_deposit_given_up_is_booked_once_if_credited() {
     );
 }
 
-// spec/areas/hubs.md#in-the-node: what the node keeps in the hub counts its
-// own holds toward peers, the credit it extends them there: below the
-// floor, a deposit fills only what the ceiling leaves once they and the
-// hold's reserve count.
+// spec/decisions/generous-hub-target.md: what the node keeps in the hub
+// counts its own holds toward peers, the credit it extends them there, and
+// they never keep the deposit from going: a node whose holds are past what
+// the old ceiling of a hundred packets allowed, and that can spend next to
+// nothing, deposits back up to the target, its holds and their reserve
+// counted.
 #[test]
-fn our_holds_count_toward_the_hub_ceiling() {
+fn our_holds_never_hold_back_the_deposit() {
     use dassie_settlement::policy;
 
     let (mut ledger, _) = funded_ledger();
@@ -6010,14 +6010,13 @@ fn our_holds_count_toward_the_hub_ceiling() {
     wait_and_close(&mut core, &mut ledger, 1_000);
     let opening = deposits(&mut ledger, escrow)[0].amount;
     let p = Policies::DEFAULT.connector.max_packet_amount;
-    let floor =
-        policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0) / dassie_xrpl::UNITS_PER_DROP;
+    let floor = policy::hub_floor(p) / dassie_xrpl::UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / dassie_xrpl::UNITS_PER_DROP;
     hub.account(&mut core, floor, opening);
 
     let fees = hub.rules.terms.fees;
-    let hold = 7_000_000;
-    let balance = 100_000;
+    let hold = 100 * p / dassie_xrpl::UNITS_PER_DROP;
+    let balance = 10;
     hub.opened_hold(&mut core, hold, balance, opening);
     let status = core.hub_status().unwrap();
     assert_eq!(status.paying.len(), 1, "the hold is ours");
@@ -6026,18 +6025,14 @@ fn our_holds_count_toward_the_hub_ceiling() {
     let made = deposits(&mut ledger, escrow);
     assert_eq!(made.len(), 2, "below the floor: {made:?}");
     let kept = balance + fees.account_reserve + fees.hold_reserve + hold;
-    assert_eq!(made[1].amount, ceiling - kept, "up to the ceiling only");
-    assert!(
-        made[1].amount < floor.midpoint(ceiling) - balance,
-        "less than the midpoint asks"
-    );
+    assert_eq!(made[1].amount, floor.midpoint(ceiling) - kept);
 }
 
-// spec/areas/hubs.md#in-the-node: anyone in the hub may open a hold toward
-// the node's account, and the node takes nothing from one that is not a
-// peer's, so it counts nowhere in what the node keeps in the hub: a
-// stranger's hold of a ceiling makes the node withdraw nothing, nor keeps
-// it from filling its float.
+// spec/decisions/generous-hub-target.md: a hold toward the node's account
+// is the payer's until the node takes from it, a stranger's above all,
+// which anyone may open and the node never takes from: it counts nowhere
+// in what the node keeps in the hub. A stranger's hold of a ceiling makes
+// the node withdraw nothing, nor keeps it from filling its float.
 #[test]
 fn a_strangers_hold_moves_nothing() {
     use dassie_settlement::policy;
@@ -6050,8 +6045,7 @@ fn a_strangers_hold_moves_nothing() {
     wait_and_close(&mut core, &mut ledger, 1_000);
     let opening = deposits(&mut ledger, escrow)[0].amount;
     let p = Policies::DEFAULT.connector.max_packet_amount;
-    let floor =
-        policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0) / dassie_xrpl::UNITS_PER_DROP;
+    let floor = policy::hub_floor(p) / dassie_xrpl::UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / dassie_xrpl::UNITS_PER_DROP;
     let balance = floor.midpoint(ceiling);
     hub.account(&mut core, balance, opening);
@@ -6063,7 +6057,8 @@ fn a_strangers_hold_moves_nothing() {
     wait_and_close(&mut core, &mut ledger, 4_000);
     let made = deposits(&mut ledger, escrow);
     assert_eq!(made.len(), 2, "below the floor: {made:?}");
-    assert_eq!(made[1].amount, floor.midpoint(ceiling) - 100_000);
+    let reserve = hub.rules.terms.fees.account_reserve;
+    assert_eq!(made[1].amount, floor.midpoint(ceiling) - 100_000 - reserve);
 }
 
 // spec/areas/hubs.md#in-the-node: a deposit on its way is done only once
@@ -6296,8 +6291,7 @@ fn a_hub_withdrawal_takes_only_the_owners_funds() {
     let opening = deposits(&mut ledger, escrow)[0].amount;
     // Only the floor, so nothing moves by itself.
     let p = Policies::DEFAULT.connector.max_packet_amount;
-    let floor = dassie_settlement::policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0)
-        / dassie_xrpl::UNITS_PER_DROP;
+    let floor = dassie_settlement::policy::hub_floor(p) / dassie_xrpl::UNITS_PER_DROP;
     let units = dassie_xrpl::UNITS_PER_DROP;
     let balance = floor + 3_000_000;
     hub.account(&mut core, balance, opening);
@@ -6400,21 +6394,20 @@ fn an_owner_book_funds_the_hub_and_never_peers() {
     // account.
     let fees = hub.rules.terms.fees;
     let p = Policies::DEFAULT.connector.max_packet_amount;
-    let credit = Policies::DEFAULT.peer_credit;
-    let floor = dassie_settlement::policy::hub_floor(p, credit, 0) / units;
+    let floor = dassie_settlement::policy::hub_floor(p) / units;
     let ceiling = dassie_settlement::policy::hub_ceiling(p) / units;
     hub.account(&mut core, floor + 1_000, opening);
-    let balance = 12_000_000;
+    let balance = ceiling + 10_000_000;
     hub.account(&mut core, balance, opening);
     let outputs = wait_and_close(&mut core, &mut ledger, 4_000);
     let to = dassie_hub::operation::Destination {
         account: own.0,
         tag: None,
     };
-    let exposure = balance + fees.account_reserve;
+    let kept = balance + fees.account_reserve;
     assert_eq!(
         withdrawals(&outputs),
-        [(exposure - floor.midpoint(ceiling), to)]
+        [(kept - floor.midpoint(ceiling), to)]
     );
     let moving = core.hub_status().unwrap().moving.unwrap();
     assert_eq!(moving.direction, super::Direction::Withdraw);

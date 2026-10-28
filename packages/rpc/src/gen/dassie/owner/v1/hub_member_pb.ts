@@ -212,8 +212,10 @@ export type HubStatus = Message<"dassie.owner.v1.HubStatus"> & {
   taking: HubHold[];
 
   /**
-   * Below the floor the node deposits, above the ceiling it withdraws to
-   * the owner's own account, each time back to the midpoint.
+   * When what the node keeps in the hub (the balance, the reserve and its
+   * holds toward peers) is below the floor, the node deposits; above the
+   * ceiling, it withdraws to the owner's own account; each time back to the
+   * midpoint, its target.
    *
    * @generated from field: uint64 floor = 10;
    */

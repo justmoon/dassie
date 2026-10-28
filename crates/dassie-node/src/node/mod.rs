@@ -447,11 +447,8 @@ pub struct Node {
     open_payments: crate::open_payments::State,
     /// Wakes the rate fetcher.
     rates_wake: Notify,
-    /// The QUIC endpoint, where the node has a UDP socket.
-    quic: std::sync::OnceLock<Arc<crate::quic::Quic>>,
-    /// The UDP socket that answers requests for the node's snapshot, where
-    /// the node has one.
-    feed: std::sync::OnceLock<Arc<crate::feed::FeedEndpoint>>,
+    /// What the daemon gives the node once it is made.
+    attached: Attached,
     /// The settlement hubs the node validates, which the hub's stream
     /// reaches (spec/areas/hubs.md#the-validator-in-the-node).
     hubs: Arc<crate::hub::Hubs>,
@@ -462,6 +459,20 @@ pub struct Node {
     sponsoring: crate::hub::sponsor::Sponsoring,
     /// Whether the live realm may be set and run.
     live_realm: dassie_node_core::config::LiveRealm,
+}
+
+/// What the daemon gives the node once it is made, before its engine
+/// starts.
+#[derive(Debug, Default)]
+struct Attached {
+    /// The QUIC endpoint, where the node has a UDP socket.
+    quic: std::sync::OnceLock<Arc<crate::quic::Quic>>,
+    /// The UDP socket that answers requests for the node's snapshot, where
+    /// the node has one.
+    feed: std::sync::OnceLock<Arc<crate::feed::FeedEndpoint>>,
+    /// The event log, where the owner turned it on
+    /// (spec/areas/node.md#the-event-log).
+    event_log: std::sync::OnceLock<crate::event_log::EventLog>,
 }
 
 impl std::fmt::Debug for Node {
@@ -593,8 +604,7 @@ impl Node {
             dev_wallet_dir,
             open_payments: crate::open_payments::State::new(public_names),
             rates_wake: Notify::new(),
-            quic: std::sync::OnceLock::new(),
-            feed: std::sync::OnceLock::new(),
+            attached: Attached::default(),
             hubs: Arc::new(crate::hub::Hubs::default()),
             founding: std::sync::OnceLock::new(),
             sponsoring: crate::hub::sponsor::Sponsoring::default(),
@@ -820,24 +830,35 @@ impl Node {
     /// The rate feed's socket, where the node has one.
     #[must_use]
     pub fn feed(&self) -> Option<&Arc<crate::feed::FeedEndpoint>> {
-        self.feed.get()
+        self.attached.feed.get()
     }
 
     /// Gives the node its rate feed's socket, before its engine starts: the
     /// link state it issues then names the feed's port.
     pub fn attach_feed(&self, feed: Arc<crate::feed::FeedEndpoint>) {
-        let _ = self.feed.set(feed);
+        let _ = self.attached.feed.set(feed);
+    }
+
+    /// The event log, where the owner turned it on.
+    #[must_use]
+    pub fn event_log(&self) -> Option<&crate::event_log::EventLog> {
+        self.attached.event_log.get()
+    }
+
+    /// Gives the node its event log, before its engine starts.
+    pub fn attach_event_log(&self, log: crate::event_log::EventLog) {
+        let _ = self.attached.event_log.set(log);
     }
 
     /// The QUIC endpoint, where the node has one.
     #[must_use]
     pub fn quic(&self) -> Option<&Arc<crate::quic::Quic>> {
-        self.quic.get()
+        self.attached.quic.get()
     }
 
     /// Gives the node its QUIC endpoint, before its engine starts.
     pub fn attach_quic(&self, quic: Arc<crate::quic::Quic>) {
-        let _ = self.quic.set(quic);
+        let _ = self.attached.quic.set(quic);
     }
 
     /// Whether private peers are allowed (dev and tests).

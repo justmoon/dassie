@@ -3159,7 +3159,7 @@ rec {
       };
       "dassie-base64url" = rec {
         crateName = "dassie-base64url";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-base64url; };
         libName = "dassie_base64url";
@@ -3173,7 +3173,7 @@ rec {
       };
       "dassie-cli" = rec {
         crateName = "dassie-cli";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         crateBin = [
           {
@@ -3368,7 +3368,7 @@ rec {
       };
       "dassie-connector" = rec {
         crateName = "dassie-connector";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-connector; };
         libName = "dassie_connector";
@@ -3433,7 +3433,7 @@ rec {
       };
       "dassie-desktop" = rec {
         crateName = "dassie-desktop";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         crateBin = [
           {
@@ -3512,7 +3512,7 @@ rec {
       };
       "dassie-feed" = rec {
         crateName = "dassie-feed";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-feed; };
         libName = "dassie_feed";
@@ -3555,7 +3555,7 @@ rec {
       };
       "dassie-hub" = rec {
         crateName = "dassie-hub";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-hub; };
         libName = "dassie_hub";
@@ -3647,7 +3647,7 @@ rec {
       };
       "dassie-identity" = rec {
         crateName = "dassie-identity";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-identity; };
         libName = "dassie_identity";
@@ -3726,7 +3726,7 @@ rec {
       };
       "dassie-ilp" = rec {
         crateName = "dassie-ilp";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-ilp; };
         libName = "dassie_ilp";
@@ -3760,7 +3760,7 @@ rec {
       };
       "dassie-kit" = rec {
         crateName = "dassie-kit";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-kit; };
         libName = "dassie_kit";
@@ -3790,7 +3790,7 @@ rec {
       };
       "dassie-ledger" = rec {
         crateName = "dassie-ledger";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-ledger; };
         libName = "dassie_ledger";
@@ -3804,7 +3804,7 @@ rec {
       };
       "dassie-node" = rec {
         crateName = "dassie-node";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-node; };
         libName = "dassie_node";
@@ -4093,7 +4093,7 @@ rec {
       };
       "dassie-node-core" = rec {
         crateName = "dassie-node-core";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-node-core; };
         libName = "dassie_node_core";
@@ -4147,7 +4147,7 @@ rec {
       };
       "dassie-oer" = rec {
         crateName = "dassie-oer";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-oer; };
         libName = "dassie_oer";
@@ -4168,7 +4168,7 @@ rec {
       };
       "dassie-payments" = rec {
         crateName = "dassie-payments";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-payments; };
         libName = "dassie_payments";
@@ -4226,7 +4226,7 @@ rec {
       };
       "dassie-peer" = rec {
         crateName = "dassie-peer";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-peer; };
         libName = "dassie_peer";
@@ -4306,7 +4306,7 @@ rec {
       };
       "dassie-release" = rec {
         crateName = "dassie-release";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         crateBin = [
           {
@@ -4355,7 +4355,7 @@ rec {
       };
       "dassie-settlement" = rec {
         crateName = "dassie-settlement";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-settlement; };
         libName = "dassie_settlement";
@@ -4385,7 +4385,7 @@ rec {
       };
       "dassie-sim" = rec {
         crateName = "dassie-sim";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         crateBin = [
           {
@@ -4450,7 +4450,7 @@ rec {
       };
       "dassie-stream" = rec {
         crateName = "dassie-stream";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-stream; };
         libName = "dassie_stream";
@@ -4532,7 +4532,7 @@ rec {
       };
       "dassie-wallet-assets" = rec {
         crateName = "dassie-wallet-assets";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-wallet-assets; };
         libName = "dassie_wallet_assets";
@@ -4556,7 +4556,7 @@ rec {
       };
       "dassie-wasm" = rec {
         crateName = "dassie-wasm";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-wasm; };
         libName = "dassie_wasm";
@@ -4605,7 +4605,7 @@ rec {
       };
       "dassie-xrpl" = rec {
         crateName = "dassie-xrpl";
-        version = "0.3.2";
+        version = "0.3.3";
         edition = "2024";
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-xrpl; };
         libName = "dassie_xrpl";

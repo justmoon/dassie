@@ -584,6 +584,7 @@ fn make_node(
     if let Some(to) = extras.node_out {
         let _ = to.send(Arc::downgrade(&node));
     }
+    attach_event_log(&node, settings)?;
     // Peers reach the node at its QUIC socket too, which may listen apart
     // from the HTTPS listener.
     let quic_ip = quic.local_addr().ok().map(|address| address.ip());
@@ -609,6 +610,32 @@ fn make_node(
     }
     let tls = tls::server_config(Arc::clone(node.certificate())).map_err(DaemonError::Tls)?;
     Ok((node, listeners, tls))
+}
+
+/// Opens the event log the owner named, if any, before the engine starts
+/// (spec/areas/node.md#the-event-log).
+///
+/// # Errors
+///
+/// The file cannot be opened: the owner asked for a record of the node's
+/// traffic, and a node that ran without it would leave a gap found only
+/// when the record is read.
+fn attach_event_log(node: &Node, settings: &Settings) -> Result<(), DaemonError> {
+    let Some(config) = &settings.event_log else {
+        return Ok(());
+    };
+    let log = crate::event_log::EventLog::open(config, node.clock()).map_err(|error| {
+        DaemonError::Env(EnvError {
+            variable: "DASSIE_EVENT_LOG",
+            problem: format!(
+                "names a file the node cannot write, {}: {error}",
+                config.path.display()
+            ),
+        })
+    })?;
+    tracing::warn!(target: target::DAEMON, path = %config.path.display(), max_bytes = config.max_bytes, "recording every packet and hub event in the event log (DASSIE_EVENT_LOG)");
+    node.attach_event_log(log);
+    Ok(())
 }
 
 /// Makes the QUIC endpoint on `socket` and gives it to the node, with the

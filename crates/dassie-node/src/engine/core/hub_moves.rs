@@ -23,7 +23,8 @@ use dassie_settlement::{
 use dassie_xrpl::XrplAccount;
 
 use super::hub_funding::{
-    Direction, Funding, Gas, GasNext, GasSeen, Held, Move, Planned, Standing,
+    Direction, Funding, Gas, GasNext, GasSeen, Held, LEAST_ESCROW_GAS_DROPS, Move, Planned,
+    Standing,
 };
 use super::{Core, EngineError, hub_events};
 use crate::store::{HubFundingRow, HubMoveRow};
@@ -545,7 +546,7 @@ impl Core {
     /// hub, the hub's fee on an operation per least settlement, since the
     /// payer pays the gas of the settlements that follow, and the XRP
     /// Ledger's fee on a deposit from the owner book that refills the hub,
-    /// over what the node moves between the floor and the ceiling. All of
+    /// over the least such a deposit moves, a step of the target. All of
     /// it from the hub's rules and the node's own settings, which no
     /// message carries. Nothing on a method over no hub; `None` while the
     /// scheme has stopped, or a token hub's deposit fee, which is XRP, has
@@ -572,7 +573,7 @@ impl Core {
         let max_packet = self.settle.max_packet;
         let gas = fees.operation.saturating_mul(UNITS_PER_DROP);
         let gas_ppm = per(gas, policy::minimum(max_packet))?;
-        let (floor, ceiling) = self.hub_limits(self.hub_peerings(scheme).len());
+        let step = policy::hub_step(max_packet);
         let deposit = XRPL_FEE_DROPS.saturating_mul(UNITS_PER_DROP);
         let deposit = if ledger.asset().code == "XRP" {
             deposit
@@ -584,25 +585,26 @@ impl Core {
                 .convert_at_spot(book, ledger, deposit, self.now_ms(), max_age)
                 .ok()?
         };
-        let move_ppm = per(deposit, ceiling.saturating_sub(floor))?;
+        let move_ppm = per(deposit, step)?;
         u32::try_from(gas_ppm.saturating_add(move_ppm)).ok()
     }
 
-    /// The floor and the ceiling, in internal units, for `peerings`.
-    fn hub_limits(&self, peerings: usize) -> (u64, u64) {
+    /// The floor and the ceiling, in internal units: the target less a
+    /// step and with one (spec/decisions/generous-hub-target.md).
+    const fn hub_limits(&self) -> (u64, u64) {
         let max_packet = self.settle.max_packet;
-        let peerings = u64::try_from(peerings).unwrap_or(u64::MAX);
         (
-            policy::hub_floor(max_packet, self.peer_credit, peerings),
+            policy::hub_floor(max_packet),
             policy::hub_ceiling(max_packet),
         )
     }
 
     /// The hub account as last agreed, once the account read up to it.
-    /// What the node keeps there is all a failing hub could cost it: the
-    /// balance and the reserves, its holds toward peers, which are the
-    /// credit it extends them over the hub, paid in advance, and what the
-    /// holds toward it hold, not taken yet.
+    /// What the node keeps there is what it put in: the balance and the
+    /// reserves, and its holds toward peers, which are the credit it
+    /// extends them over the hub, paid in advance. Its peers' holds toward
+    /// it count nowhere: they are the peers' until it takes them, and what
+    /// it takes joins the balance (spec/decisions/generous-hub-target.md).
     fn held(account: &HubAccount) -> Option<Held> {
         let hold_reserve = account.terms().fees.hold_reserve;
         account
@@ -610,14 +612,6 @@ impl Core {
             .filter(|_| account.is_synced())
             .map(|(_, view)| {
                 let number = account.number();
-                // A stranger's hold toward us counts nowhere: anyone may
-                // open one, and the node never takes from it, so it is
-                // nothing a failing hub could cost the owner.
-                let toward_us: u64 = account
-                    .holds()
-                    .filter(|(n, hold)| Some(hold.payee) == number && !account.is_stranger(*n))
-                    .map(|(_, hold)| hold.amount)
-                    .fold(0, u64::saturating_add);
                 let paying = account
                     .holds()
                     .filter(|(_, hold)| Some(hold.payer) == number)
@@ -631,12 +625,11 @@ impl Core {
                     hold_reserve.saturating_mul(u64::try_from(paying).unwrap_or(u64::MAX));
                 Held {
                     balance: view.balance,
-                    exposure: view
+                    kept: view
                         .balance
                         .saturating_add(view.reserve)
                         .saturating_add(hold_reserves)
-                        .saturating_add(ours)
-                        .saturating_add(toward_us),
+                        .saturating_add(ours),
                     deposited: view.deposited,
                     withdrawn: view.withdrawn,
                 }
@@ -650,8 +643,14 @@ impl Core {
         let active = self.schemes.get(&scheme)?;
         let terms = account.terms();
         let fees = terms.fees;
-        let (floor, ceiling) = self.hub_limits(self.hub_peerings(scheme).len());
+        let (floor, ceiling) = self.hub_limits();
         let (floor, ceiling) = (drops_up(floor), ceiling / UNITS_PER_DROP);
+        let peerings = u64::try_from(self.hub_peerings(scheme).len()).unwrap_or(u64::MAX);
+        let least_spendable = drops_up(policy::hub_spendable(
+            self.settle.max_packet,
+            self.peer_credit,
+            peerings,
+        ));
         let unfunded = active
             .asset
             .and_then(|asset| self.assets.get(&asset))
@@ -676,9 +675,9 @@ impl Core {
             unavailable,
             floor,
             ceiling,
+            least_spendable,
             opening: fees
                 .account_reserve
-                .saturating_add(floor)
                 .saturating_add(fees.starting_balance)
                 .max(terms.new_account_minimum()),
             least_payout: fees.least_payout,
@@ -688,6 +687,9 @@ impl Core {
             xrpl: self
                 .owner_book(scheme)
                 .and_then(|book| self.book_spendable(book)),
+            gas_kept: self
+                .owner_book(scheme)
+                .map_or(0, |(_, ledger)| self.gas_kept(ledger)),
             hub_owner: self.owner_available(active.scheme.ledger()) / UNITS_PER_DROP,
             hub_posted: self.owner_posted(active.scheme.ledger()) / UNITS_PER_DROP,
             // A hub that shut down, stalled or has not made progress
@@ -722,6 +724,25 @@ impl Core {
         Some(funds.saturating_sub(book_fee(ledger)))
     }
 
+    /// What the node's own deposits leave in the owner book on `ledger`, in
+    /// the book asset's smallest unit: from the XRP book of a network
+    /// whose token hub the node is in, the gas that hub's escrow and the
+    /// token book's payments spend, a token hub escrow's least gas twice
+    /// over, since a deposit may otherwise take all of it; nothing
+    /// otherwise, where the XRP pays for nothing else
+    /// (spec/decisions/generous-hub-target.md).
+    pub(super) fn gas_kept(&self, ledger: LedgerId) -> u64 {
+        let pays_gas = self.schemes.values().any(|active| {
+            let hub = active.scheme.ledger();
+            hub.asset().code != "XRP" && gas_book_ledger(hub) == Some(ledger)
+        });
+        if pays_gas {
+            LEAST_ESCROW_GAS_DROPS.saturating_mul(2)
+        } else {
+            0
+        }
+    }
+
     /// What the owner book can still move into the hub that books `ledger`
     /// for the owner's payments, in the ledger's units: what the book can
     /// spend, and a deposit on its way as the prices count it, held on the
@@ -743,7 +764,10 @@ impl Core {
         let Some(book) = self.owner_book(scheme) else {
             return 0;
         };
-        let spendable = self.book_spendable(book).unwrap_or(0);
+        let spendable = self
+            .book_spendable(book)
+            .unwrap_or(0)
+            .saturating_sub(self.gas_kept(book.1));
         let on_its_way: u128 = self
             .moves_on_their_way()
             .into_iter()
@@ -1293,7 +1317,7 @@ impl Core {
     fn hub_status_of(&self, scheme: Name) -> Option<HubStatus> {
         let account = self.hub_account(scheme)?;
         let peers = self.hub_peerings(scheme);
-        let (floor, ceiling) = self.hub_limits(peers.len());
+        let (floor, ceiling) = self.hub_limits();
         let number = account.number();
         let view = account.view().map(|(_, view)| *view);
         let units = dassie_hub::member::units;
@@ -1427,11 +1451,11 @@ impl Core {
         }
         let deposited = match standing.held {
             Some(held) => held.deposited,
-            None if standing.unfunded && drops >= standing.opening => 0,
+            None if standing.unfunded && drops >= standing.least_opening() => 0,
             None if standing.unfunded => {
                 return Err(EngineError::Invalid(format!(
                     "opening the account takes at least {}",
-                    in_asset(scheme, standing.opening)
+                    in_asset(scheme, standing.least_opening())
                 )));
             }
             None => {
@@ -1646,7 +1670,7 @@ mod tests {
         Standing {
             held: Some(Held {
                 balance,
-                exposure: balance,
+                kept: balance,
                 deposited: 7,
                 withdrawn: 3,
             }),

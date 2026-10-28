@@ -21,7 +21,7 @@ Not supported: SPSP ([open-payments](../decisions/open-payments.md)), card autho
 
 What the node receives in an asset over Interledger arrives in its settlement hub. The hub keeps a float, and the rest goes to the owner's own account; the owner has no setting for it ([one-balance-per-asset](../decisions/one-balance-per-asset.md)):
 
-- **In the hub, a float.** The node's own moves keep the hub account between a floor and a ceiling, and withdraw what is beyond the ceiling to the owner book of the asset, back to the midpoint ([Settlement hubs](hubs.md#in-the-node)).
+- **In the hub, a generous float.** The node's own moves keep what it put in the hub near a target more than its holds are likely ever to need, depositing from the owner book of the asset once it falls a step below, and withdrawing what is a step beyond to that book, back to the target ([Settlement hubs](hubs.md#in-the-node), [generous-hub-target](../decisions/generous-hub-target.md)). So most owners' funds are in the hub.
 - **Deposits go to the owner's own account,** on the asset's own ledger: Receive shows, for each asset, the owner book's deposit method, never the hub's escrow, and the hub's ledger reports no deposit address. The node moves into the hub what the floor needs.
 - **An asset no hub of the node's realm holds,** such as the stub's dollars, stays where it arrives.
 
