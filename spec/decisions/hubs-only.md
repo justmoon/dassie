@@ -22,7 +22,7 @@
 - **Members may be anywhere.** Only a hub's validators need to be close to each other. A node checks no distance before it joins a hub, and a member far from the validators books what it learns of too late, as the design has it.
 - **Joining by being paid.** A node with no account in a hub is paid into it by its peer, whichever of them asked to peer, as [the design](../designs/settlement-hubs.md#5-joining) has it; a node need not deposit before it can peer. Until then it takes its peer's packets on what the peer owes it, and spends only that, through the same peer. The peer opens its account with `pay` only once what it owes the node reaches the hub's minimum for a new account, and pays in no more than it owes. No node extends credit to a node without an account: outside a hold, the only credit is what the new member is owed until it is paid in.
 - **When a hub fails, its method becomes unavailable** on every peering over it. Nothing falls back to settling directly: a peering left with no method ends, as any does.
-- **Tests that are not about settlement** run on a stub with unlimited trust, which bounds room but never asks to settle and never settles. Tests of settlement run on the stub of a hub's member, or on hubs in the simulation.
+- **Tests that are not about settlement** run on a stub with unlimited trust, which bounds room but never asks to settle and never settles. Tests of settlement run on the stub of a hub's member, or on the hub's member itself in the hub crate's tests; hubs in the simulation run only in `dassie-sim` and the campaign.
 
 ## Accepted
 
