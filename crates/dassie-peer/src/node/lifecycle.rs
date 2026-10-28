@@ -560,25 +560,39 @@ impl PeerNode {
     /// open; a downlink within the downlinks' bounds and among the free
     /// receivers'. Otherwise the peering ends instead.
     fn change_kind(&mut self, hooks: &mut dyn PeeringHooks, id: NodeId, downlink: bool) {
-        let fits = if downlink {
-            self.fits_as_downlink(hooks, &id)
-        } else {
-            self.fits_as_core_peer(&id) && {
-                let schemes: Vec<SchemeId> = self
-                    .peering_of(&id)
-                    .map(|peering| peering.schemes().collect())
-                    .unwrap_or_default();
-                hooks.open_core_accounts(self.now_ms, id, &schemes)
-            }
-        };
-        if !fits {
+        let now = self.now_ms;
+        // At most one change of kind per hold: a peer that changes again
+        // while held down, as one that flaps, has its peering ended, so a
+        // peer flipping its URL costs us no more than one that asks anew.
+        let held = self
+            .table
+            .get(&id)
+            .is_some_and(|entry| entry.advertise.hold_until_ms > now);
+        let fits = !held
+            && if downlink {
+                self.fits_as_downlink(hooks, &id)
+            } else {
+                self.fits_as_core_peer(&id) && {
+                    let schemes: Vec<SchemeId> = self
+                        .peering_of(&id)
+                        .map(|peering| peering.schemes().collect())
+                        .unwrap_or_default();
+                    hooks.open_core_accounts(now, id, &schemes)
+                }
+            };
+        // A core peer's place in the table, made only once it is sure.
+        let placed = fits
+            && (downlink
+                || self.table.len() - self.downlinks() < self.config.max_nodes
+                || self.evict_for(Sources::PEER));
+        if !placed {
             self.begin_depeering(id, TerminationReason::Unspecified);
             return;
         }
-        let now = self.now_ms;
         let Some(entry) = self.table.get_mut(&id) else {
             return;
         };
+        let listed = entry.advertise.on && !entry.is_downlink();
         let (from, to) = if downlink {
             (Sources::PEER, Sources::DOWNLINK)
         } else {
@@ -586,12 +600,19 @@ impl PeerNode {
         };
         entry.sources.remove(from);
         entry.sources.insert(to);
-        // A downlink is never listed; a core peer is listed afresh, as a new
-        // peering is, but its withdrawals stay counted, so a peer that
-        // flips its kind is held down as one that flaps.
+        // A change of kind counts as a withdrawal: the peer is held down as
+        // one that flaps, a new core peer listed only once the hold is over
+        // ([`update_advertised`](Self::update_advertised)), a downlink never.
+        let hold = backoff(
+            self.config.advertise_hold_min_ms,
+            self.config.advertise_hold_max_ms,
+            entry.advertise.flaps,
+        );
         entry.advertise = Advertise {
-            on: !downlink && entry.advertise.hold_until_ms <= now,
+            on: false,
             on_since_ms: now,
+            hold_until_ms: now.saturating_add(hold),
+            flaps: entry.advertise.flaps.saturating_add(1),
             ..entry.advertise
         };
         self.dirty.insert(id);
@@ -601,14 +622,16 @@ impl PeerNode {
         }
         // Its channel counts with its kind, and is reached as it is now.
         self.open_channel_from(id, None);
-        self.advertised_changed();
+        if listed {
+            self.advertised_changed();
+        }
         self.gossip.routes_dirty = true;
         self.event(Event::KindChanged { peer: id, downlink });
     }
 
     /// Whether peer `id`, our downlink, fits as a core peer, as a request
     /// of a core node's would ([`check_request`](Self::check_request)).
-    fn fits_as_core_peer(&mut self, id: &NodeId) -> bool {
+    fn fits_as_core_peer(&self, id: &NodeId) -> bool {
         let Some(entry) = self.table.get(id) else {
             return false;
         };
@@ -620,7 +643,7 @@ impl PeerNode {
             && self.core_peers().count() < self.config.max_peers
             && core_channels < self.config.max_channels
             && (self.table.len() - self.downlinks() < self.config.max_nodes
-                || self.evict_for(Sources::PEER))
+                || self.eviction_for(Sources::PEER).is_some())
     }
 
     /// Whether core peer `id` fits as our downlink, as a periphery node's

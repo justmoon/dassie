@@ -2341,6 +2341,9 @@ fn a_downlink_turning_core_keeps_its_peering() {
     );
     core.check_invariants();
 
+    // Once the hold its change of kind started is over.
+    let at = at + Policies::DEFAULT.peer.advertise_hold_max_ms;
+    step_with_list(&mut core, at, &[id]);
     send_link_state(&mut core, &downlink, at + 1_000, None);
     step_with_list(&mut core, at + 2_000, &[id]);
     assert!(core.peer.is_downlink(&id), "a downlink again");

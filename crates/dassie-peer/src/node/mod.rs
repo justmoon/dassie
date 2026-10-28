@@ -1229,17 +1229,20 @@ impl PeerNode {
 
     /// Removes the node with the weakest reason to stay, if weaker than
     /// `source`; of those, the one that came last.
-    fn evict_for(&mut self, source: Sources) -> bool {
-        let victim = self
-            .table
-            .iter()
-            .filter(|(_, entry)| !entry.is_downlink() && entry.sources.rank() < source.rank())
-            .min_by_key(|(_, entry)| (entry.sources.rank(), u64::MAX - entry.first_seen_ms))
-            .map(|(id, _)| *id);
-        victim.is_some_and(|id| {
+    pub(crate) fn evict_for(&mut self, source: Sources) -> bool {
+        self.eviction_for(source).is_some_and(|id| {
             self.remove(&id);
             true
         })
+    }
+
+    /// The node [`evict_for`](Self::evict_for) would remove.
+    pub(crate) fn eviction_for(&self, source: Sources) -> Option<NodeId> {
+        self.table
+            .iter()
+            .filter(|(_, entry)| !entry.is_downlink() && entry.sources.rank() < source.rank())
+            .min_by_key(|(_, entry)| (entry.sources.rank(), u64::MAX - entry.first_seen_ms))
+            .map(|(id, _)| *id)
     }
 
     /// Takes `source` away from `node`; with none left, it is removed
