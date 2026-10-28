@@ -8,7 +8,7 @@ Thresholds counted as a share of the credit fail twice: a node may extend nothin
 
 ## Decision
 
-A node counts every threshold of a link in its largest packet, not in the credit: the trigger to ask for settlement, the least settlement, and the most in flight ([packets-in-flight](packets-in-flight.md)). Even a node that extends nothing then asks while its peer still has room. A node refuses to start with a default credit too small for a request to settle to fund at least the least settlement. [Settlement](../areas/settlement.md) states the numbers and the argument for them.
+A node counts every threshold of a link in its largest packet, not in the credit: the trigger to ask for settlement, the least settlement, and the most in flight ([packets-in-flight](packets-in-flight.md)). Even a node that extends nothing then asks while its peer still has room. A node refuses to start with a default credit too small for a hub link to survive one crash's drift where the asker holds nothing toward the payer, which also has a request to settle fund at least the least settlement. [Settlement](../areas/settlement.md) states the numbers and the argument for them.
 
 ## Accepted
 

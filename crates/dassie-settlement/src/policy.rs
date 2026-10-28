@@ -53,6 +53,24 @@ pub const fn minimum(max_packet: u64) -> u64 {
     max_packet
 }
 
+/// The least default credit (`peer_credit`) a node starts with: what keeps
+/// a link settling after a crash drifted the two sides' books apart by
+/// `drift`, at most what was in flight. Asked at the asker's trigger, a
+/// debtor settles only if its own books leave it its trigger plus twice
+/// the minimum, and a payer over a hub counts the default credit when
+/// asked, whatever its hold: so with this much, a hub link survives that
+/// drift even where the asker holds nothing toward it
+/// (spec/areas/settlement.md#credit). It is above the least that has a
+/// request to a payer with nothing held fund the minimum, by the drift and
+/// a trigger.
+#[must_use]
+pub const fn least_credit(max_packet: u64, drift: u64) -> u64 {
+    trigger(max_packet)
+        .saturating_mul(2)
+        .saturating_add(minimum(max_packet).saturating_mul(2))
+        .saturating_add(drift)
+}
+
 /// What a payee over a settlement hub lets its payer's claims add before
 /// it redeems them: two of the largest packets. Each redeem costs the
 /// hub's fee, so it waits for more than a packet; what it has not taken is
@@ -156,6 +174,28 @@ mod tests {
     fn the_thresholds_follow_the_largest_packet() {
         assert_eq!((T, M), (150_000_000, 100_000_000));
         assert_eq!(redeem_threshold(P), 200_000_000);
+        // Two triggers, twice the minimum, and a crash's drift at the cap
+        // of two and a half packets in flight: 7.5 packets.
+        assert_eq!(least_credit(P, 250_000_000), 750_000_000);
+    }
+
+    // The least credit a node starts with keeps a hub link settling after
+    // a crash's drift, with no hold of the asker's, and so a request to a
+    // payer with nothing held funds at least the minimum; the default is
+    // above it (spec/areas/settlement.md#credit).
+    #[test]
+    fn the_least_credit_survives_a_crash_and_funds_a_request() {
+        let drift = 250_000_000;
+        let least = least_credit(P, drift);
+        assert!(C >= least);
+        // Asked at the asker's trigger, with no hold of the asker's, a payer
+        // stands at the credit less that trigger, and less the drift: its
+        // books leave it its own trigger and twice the minimum, and it
+        // funds the minimum. A little less, and it would fund nothing.
+        let standing = u128::from(least - T - drift);
+        assert_eq!(standing, u128::from(T + 2 * M));
+        assert_eq!(requested_amount(standing, T, M), M);
+        assert_eq!(requested_amount(standing - 1, T, M), 0);
     }
 
     // A peer is asked to settle once our room for it has fallen to our

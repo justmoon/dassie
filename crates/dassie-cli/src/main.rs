@@ -133,7 +133,8 @@ Commands:
                                                 its JSON config; repeatable
                       --no-hub                  join no settlement hub
                       --hub                     join the default hub in
-                                                the live realm too
+                                                the live realm too; fails
+                                                if this build has none
   pair              Print a code that pairs an owner app with the node, for
                     the next five minutes.
   update           Update Dassie to the newest release, once its signature

@@ -49,6 +49,9 @@ pub struct Node {
     pub ledger: String,
     /// The ledger of the owner book that funds the hub.
     pub owner_book: String,
+    /// The settlement scheme over its hub, as its hub's ledger last named
+    /// it; empty until read.
+    hub_scheme: String,
     socket: PathBuf,
     client: Option<Client>,
 }
@@ -113,6 +116,7 @@ impl Node {
             side,
             ledger,
             owner_book,
+            hub_scheme: String::new(),
             socket,
             client: None,
         }
@@ -204,18 +208,44 @@ impl Node {
             book.deposit_address.clone(),
             book.issuer.clone(),
         );
+        let hub_scheme = hub.settlement_scheme.clone();
         let views = Views {
             hub_owner: hub.owner_balance,
             book_owner: book.owner_balance,
             book_pending: book.owner_pending,
             book_on_ledger: book.on_ledger_balance,
         };
+        self.hub_scheme = hub_scheme;
         Ok(LedgerState {
             asset_code,
             holding: holding(&views),
             deposit_address,
             issuer,
         })
+    }
+
+    /// What the node's own move between its hub and its owner book has on
+    /// its way, in its ledgers' units, as `GetHubStatus` says: 0 with none.
+    /// While it is on its way, the holding may read short of it
+    /// ([`holding`]). Its hub is the one whose scheme [`Self::ledger_state`]
+    /// last read; none read yet is none on its way.
+    ///
+    /// # Errors
+    ///
+    /// The call failed.
+    pub async fn moving(&mut self) -> Result<u64, String> {
+        let response::Method::GetHubStatus(status) = self
+            .call(Method::GetHubStatus(proto::GetHubStatusRequest {}))
+            .await?
+        else {
+            return Err("GetHubStatus answered out of turn".into());
+        };
+        Ok(status
+            .hubs
+            .iter()
+            .filter(|hub| !self.hub_scheme.is_empty() && hub.scheme == self.hub_scheme)
+            .filter_map(|hub| hub.moving.as_ref())
+            .fold(0, |sum, moving| sum.saturating_add(moving.amount)))
     }
 
     /// The uplinks the node is confirmed with now: peerings it lists as

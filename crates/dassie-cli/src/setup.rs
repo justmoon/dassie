@@ -345,7 +345,7 @@ async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
 async fn settle_hub(client: &mut Client, options: &Options, realm: Realm) -> Result<(), Failure> {
     let hub = DefaultHub::of(realm);
     if options.joins_hub(realm) {
-        return join_default_hub(client, hub).await;
+        return join_default_hub(client, hub, realm, options.hub).await;
     }
     if !options.no_hub
         && matches!(
@@ -415,16 +415,35 @@ fn hub_plan(hub: DefaultHub, schemes: &[proto::SettlementSchemeInfo]) -> HubPlan
     }
 }
 
-/// Joins the realm's default settlement hub `hub`, if the node offers it:
-/// adds the owner book it funds from, unless active, then its scheme. Each
-/// step prints one line.
-async fn join_default_hub(client: &mut Client, hub: DefaultHub) -> Result<(), Failure> {
+/// What `dassie setup` says when the node offers no default hub of
+/// `realm`: a line, by default, or a failure where the owner asked for
+/// one (`asked`, `--hub`), which this build cannot give.
+fn none_offered(realm: Realm, asked: bool) -> Result<String, Failure> {
+    let realm = realm.as_str();
+    if asked {
+        return Err(Failure::Failed(format!(
+            "This build has no default settlement hub for the {realm} realm yet, so --hub joins \
+             none. The node is set up: add a hub's scheme with the hub's rules as its config to \
+             join one, or run setup again without --hub."
+        )));
+    }
+    Ok(format!(
+        "This build has no default settlement hub for the {realm} realm yet: joining none."
+    ))
+}
+
+/// Joins the default settlement hub `hub` of `realm`, if the node offers
+/// it: adds the owner book it funds from, unless active, then its scheme.
+/// Each step prints one line. With none offered, it fails if the owner
+/// asked for it (`asked`), and says so otherwise.
+async fn join_default_hub(
+    client: &mut Client,
+    hub: DefaultHub,
+    realm: Realm,
+    asked: bool,
+) -> Result<(), Failure> {
     match hub_plan(hub, &list_schemes(client).await?) {
-        HubPlan::NoneOffered => {
-            println!(
-                "This build has no default settlement hub for the node's realm: joining none."
-            );
-        }
+        HubPlan::NoneOffered => println!("{}", none_offered(realm, asked)?),
         HubPlan::Joined => {
             println!("The settlement scheme {} is active already.", hub.scheme);
         }
@@ -968,6 +987,23 @@ mod tests {
             hub_plan(live, &[listed(test.book, true), listed(test.scheme, false)]),
             HubPlan::NoneOffered
         );
+    }
+
+    // spec/areas/node.md#the-dassie-command: a node that offers no default
+    // hub joins none; asked for one with `--hub`, setup fails and says why,
+    // rather than exit 0 as if it joined.
+    #[test]
+    fn no_default_hub_fails_only_where_it_was_asked_for() {
+        for realm in [Realm::Test, Realm::Live] {
+            let said = none_offered(realm, false).unwrap();
+            assert!(said.contains("no default settlement hub"), "{said}");
+            assert!(said.contains(realm.as_str()), "{said}");
+            let Err(Failure::Failed(failed)) = none_offered(realm, true) else {
+                panic!("asked for a hub this build has none of");
+            };
+            assert!(failed.contains("--hub joins none"), "{failed}");
+            assert!(failed.contains(realm.as_str()), "{failed}");
+        }
     }
 
     // The IDs are the node's: the hub's scheme, and the owner book of the

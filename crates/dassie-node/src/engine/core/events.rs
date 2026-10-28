@@ -367,7 +367,8 @@ pub enum SettlementEvent {
     PeerSettled {
         /// The peer.
         from: NodeId,
-        /// How much.
+        /// How much it booked: 0 for a bare notice, which books nothing,
+        /// whatever it states.
         amount: u64,
     },
     /// Our books took a peer's settlement: with its message on the stub,

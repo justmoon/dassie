@@ -1152,6 +1152,47 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
     );
 }
 
+// spec/areas/settlement.md#the-stub-scheme: a peering stored from when the
+// stub without a config settled kept a finite credit; the stub without a
+// config is the one with unlimited trust now, so its start raises every
+// peer's credit on its ledger to the unlimited credit, and none runs short.
+#[test]
+fn a_stored_peering_on_the_stub_without_a_config_takes_the_unlimited_credit() {
+    use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
+    use dassie_settlement::policy::{UNLIMITED_CREDIT, position, trust};
+
+    let peer = Name::new("peeraaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
+    let on = |name| AccountPath::new(LedgerId::StubUsd, name);
+    for config in ["", "{}"] {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        {
+            let mut core = core_on(Arc::clone(&store), 5);
+            add_stub(&mut core, config);
+            // As a peering stored then: a finite credit.
+            core.ledger
+                .open_peer(NOW, LedgerId::StubUsd, peer, 1_000)
+                .unwrap();
+            core.flush();
+        }
+        let core = core_on(Arc::clone(&store), 6);
+        let balance = |name| {
+            core.ledger
+                .account(core.ledger.find(&on(name)).unwrap())
+                .unwrap()
+                .balance()
+        };
+        assert_eq!(
+            trust(balance(AccountName::ContraTrust(peer))),
+            UNLIMITED_CREDIT
+        );
+        assert_eq!(
+            position(balance(AccountName::AssetsInterledger(peer))),
+            u128::from(UNLIMITED_CREDIT)
+        );
+        core.check_invariants();
+    }
+}
+
 // spec/areas/settlement.md#the-stub-scheme: on the stub with unlimited trust,
 // the node never asks a peer to settle on its own account, not even a
 // downlink nothing moved with yet, which stands where one extended no
@@ -5684,8 +5725,10 @@ fn an_owner_book_is_never_asked_for() {
 // spec/areas/xrpl.md#owner-books: a settlement message on an XRPL scheme,
 // as one a channel kept from when the scheme peered, is acknowledged as a
 // bare notice: it books nothing, and the channel moves on to the next.
+// What it states is reported as nothing either.
 #[test]
 fn a_settlement_message_on_an_owner_book_is_applied_and_books_nothing() {
+    use super::{Event, SettlementEvent};
     use dassie_peer::wire::{Content, SchemeId};
 
     let store = Arc::new(Store::open_in_memory().unwrap());
@@ -5728,6 +5771,18 @@ fn a_settlement_message_on_an_owner_book_is_applied_and_books_nothing() {
             String::from_utf8_lossy(&reply.body)
         );
         assert_eq!(core.peer.channel(&id).unwrap().settled_in, sequence);
+        let reported: Vec<u64> = outputs
+            .iter()
+            .filter_map(|output| match output {
+                Output::Event(Event::Settlement(SettlementEvent::PeerSettled { from, amount }))
+                    if *from == id =>
+                {
+                    Some(*amount)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(reported, [0], "taken, stating {amount}");
     }
     assert_eq!(core.ledger.next_transfer_id(), journal, "nothing booked");
     assert!(core.schemes[&xrpl].failed.is_none(), "the scheme runs on");
