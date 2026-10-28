@@ -17,6 +17,16 @@
 //! - [`receiver`]: a subscriber's side, which verifies feeds and keeps only
 //!   newer ones.
 //!
+//! The snapshot replaces the feed (spec/decisions/peer-swaps.md), and is
+//! built beside it until the node serves it
+//! (spec/roadmap.md#peer-swaps):
+//!
+//! - [`snapshot`]: a node's quotes per settlement method, with a ladder for
+//!   each, signed; the request for one; and a reader's side;
+//! - [`number`]: the quotes' and ladders' numbers, each with one encoding;
+//! - [`swap`]: pricing a swap from a snapshot, as a lower bound;
+//! - [`answer`]: whether to answer a request, within a budget per second.
+//!
 //! The crate is deterministic (spec/decisions/tigerstyle.md): time comes in
 //! as `now_ms` (milliseconds since the Unix epoch), the cookie secret is
 //! injected, and every decision is a value the caller carries out against
@@ -26,15 +36,31 @@
 
 extern crate alloc;
 
+pub mod answer;
 pub mod cookie;
+pub mod number;
 pub mod receiver;
 pub mod schedule;
+pub mod snapshot;
+pub mod swap;
 pub mod table;
 pub mod wire;
 
+pub use answer::{
+    ANSWER_BURST, ANSWERS_PER_SECOND, Answer, AnswerLimits, AnswerStats, Answerer, Unanswered,
+    check_request,
+};
 pub use cookie::{COOKIE_EPOCH_MS, Cookie, CookieCheck, CookieSecret};
+pub use number::{LADDER_BYTES, LEVELS, Ladder, Quote};
 pub use receiver::{FeedReceiver, RENEW_INTERVAL_MS, Received, Rejected};
 pub use schedule::{FEED_HEARTBEAT_MS, FEED_MIN_INTERVAL_MS, FEED_VALIDITY_MS, Poll, Schedule};
+pub use snapshot::{
+    DROP_BP_LIMIT, InvalidSnapshot, MAX_SNAPSHOT_BYTES, MAX_SNAPSHOT_METHODS, MethodQuotes,
+    MethodTag, REQUEST_BYTES, SNAPSHOT_VERSION, SignedSnapshot, Snapshot, SnapshotMessage,
+    SnapshotReader, SnapshotRejected, SnapshotWireError, TAG_BYTES, attach_signature,
+    decode_snapshot_datagram, encode_request, method_tag, sign_snapshot, snapshot_signing_message,
+};
+pub use swap::{Ratio, Swap};
 pub use table::{
     Decision, Ignored, Limits, MAX_SUBSCRIBERS, MAX_SUBSCRIBERS_PER_CLIENT, Refused,
     SUBSCRIPTION_TTL_MS, SubscriberTable, TableStats,

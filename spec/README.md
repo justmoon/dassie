@@ -76,7 +76,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Settlement hubs](areas/hubs.md) | A hub's rules and its ledger: accounts, holds, what validators attest, and who gets the fees |
 | [XRPL](areas/xrpl.md) | The XRP Ledger accounts on the testnet and mainnet, the XRP scheme and the token scheme (DSUSD, RLUSD) on them, and the fake ledger |
 | [Payments](areas/payments.md) | Open Payments: wallet addresses, GNAP, incoming and outgoing payments, quotes, the owner's Send |
-| [Rate feed](areas/rate-feed.md) | A core node's signed UDP feed of the rates it converts at: wire format, signing, the subscriber table and its cookies, when to publish |
+| [Rate feed](areas/rate-feed.md) | A core node's signed UDP feed of the rates it converts at: wire format, signing, the subscriber table and its cookies, when to publish; and the snapshots of quotes and ladders that replace it |
 | [Node](areas/node.md) | The daemon: runtime, startup, configuration, environment, CLI, persistence, secrets, logging |
 | [HTTP](areas/http.md) | Listeners, routes, security headers, ACME and TLS, setup, login and sessions, front doors |
 | [RPC](areas/rpc.md) | The owner's RPC contract, its transports and live streams |
