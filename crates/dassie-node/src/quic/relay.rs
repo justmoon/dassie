@@ -39,9 +39,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use super::keys::{self, AnyNodeKey, Keys, PinnedServer, Present};
-use super::{
-    CONNECT_TIMEOUT, Handler, MAX_STREAMS, On, Quic, StreamKind, adopt, exchange, no_room,
-};
+use super::{CONNECT_TIMEOUT, Handler, MAX_STREAMS, On, Quic, StreamKind, adopt, no_room};
 use crate::log::target;
 use crate::node::lock;
 use crate::outbound::Resolver;
@@ -748,35 +746,47 @@ impl Quic {
     }
 
     /// Answers on the connection to the chosen relay, and uses it for
-    /// requests to the relay too: at once, unless another to the relay is
-    /// open; otherwise once it is verified, a request on it answered, the
-    /// relay's own link state, as any second connection to a node must be,
-    /// and then by the rule both nodes judge alike, which keeps it, the
-    /// newer of two we opened (spec/decisions/verified-connections.md).
-    /// Returns once the connection closes.
+    /// requests to the relay too (spec/decisions/verified-connections.md).
+    /// It verifies it with a request of its own, the relay's link state, so
+    /// that the relay adopts it too: at once, if we hold no other open, and
+    /// otherwise then, by the rule both nodes judge alike. One the relay
+    /// does not answer closes, and the node dials again. If the relay keeps
+    /// another connection with us by the rule, one it opened, it reaches us
+    /// over that one: ours closes, and the relay counts as held while that
+    /// one lasts. Returns once the connection the relay reaches us over
+    /// closes.
     async fn hold_relay(self: &Arc<Self>, relay: NodeId, connection: &Connection) {
         self.answer_on(connection);
-        if let Some(place) = self.place(relay) {
-            let link = self.link(connection.clone(), true);
-            let free = {
-                let mut held = place.lock().await;
-                let free = held.as_ref().is_none_or(|kept| !kept.is_open());
-                if free {
-                    *held = Some(link.clone());
-                }
-                free
-            };
-            if !free {
-                let body = dassie_oer::Encode::to_vec(
-                    &dassie_peer::wire::Content::LinkStateRequest(vec![relay]),
-                );
-                let answered = tokio::time::timeout(CONNECT_TIMEOUT, exchange(connection, &body))
+        let Some(place) = self.place(relay) else {
+            let _ = connection.closed().await;
+            return;
+        };
+        let link = self.link(connection.clone(), true);
+        let free = {
+            let mut held = place.lock().await;
+            let free = held.as_ref().is_none_or(|kept| !kept.is_open());
+            if free {
+                *held = Some(link.clone());
+            }
+            free
+        };
+        if !super::answers(connection, relay).await {
+            connection.close(0u32.into(), b"unverified");
+            return;
+        }
+        if !free {
+            let lower = self.keys.current().is_some_and(|(own, _)| own < relay);
+            if !adopt(&place, link, (relay, lower, self.drain)).await {
+                connection.close(0u32.into(), b"");
+                let survivor = place
+                    .lock()
                     .await
-                    .is_ok_and(|result| result.is_ok());
-                if answered {
-                    let lower = self.keys.current().is_some_and(|(own, _)| own < relay);
-                    adopt(&place, link, (lower, self.drain)).await;
+                    .as_ref()
+                    .map(|kept| kept.connection.clone());
+                if let Some(survivor) = survivor {
+                    let _ = survivor.closed().await;
                 }
+                return;
             }
         }
         let _ = connection.closed().await;

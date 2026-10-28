@@ -415,33 +415,49 @@ fn retire(link: Link, drain: Duration) {
     });
 }
 
-/// Takes `link`, verified, into `place`, `lower` if we have the lower node
-/// ID: unless the link held there survives it, it replaces that one, which
-/// is retired; otherwise it is retired itself, each closing `drain` later
-/// at most. Returns whether it holds the place.
+/// Takes `link`, verified, into the place of `peer`'s connection, `lower`
+/// if we have the lower node ID: unless the link held there survives it by
+/// the rule ([`Link::survives`]) and still answers, it replaces that one,
+/// which is retired; otherwise it is retired itself, each closing `drain`
+/// later at most. Returns whether it holds the place.
 async fn adopt(
     place: &tokio::sync::Mutex<Option<Link>>,
     link: Link,
-    (lower, drain): (bool, Duration),
+    (peer, lower, drain): (NodeId, bool, Duration),
 ) -> bool {
-    let mut held = place.lock().await;
-    let keep = held.as_ref().is_some_and(|kept| {
-        kept.is_open()
-            && kept.connection.stable_id() != link.connection.stable_id()
-            && kept.survives(&link, lower)
-    });
-    if keep {
-        drop(held);
-        retire(link, drain);
-        return false;
-    }
     let id = link.connection.stable_id();
+    let kept = place.lock().await.as_ref().and_then(|kept| {
+        let wins =
+            kept.is_open() && kept.connection.stable_id() != id && kept.survives(&link, lower);
+        wins.then(|| kept.connection.clone())
+    });
+    if let Some(kept) = kept {
+        // A connection whose other end crashed and came back reads as open
+        // until something is sent on it, and is reset then: the rule keeps
+        // the one held only if it still answers.
+        if answers(&kept, peer).await {
+            retire(link, drain);
+            return false;
+        }
+        kept.close(0u32.into(), b"");
+    }
+    let mut held = place.lock().await;
     let replaced = held.replace(link);
     drop(held);
     if let Some(old) = replaced.filter(|old| old.is_open() && old.connection.stable_id() != id) {
         retire(old, drain);
     }
     true
+}
+
+/// Whether `connection` to `peer` answers a request now, its link state,
+/// within the time to connect: what verifies a connection.
+async fn answers(connection: &Connection, peer: NodeId) -> bool {
+    let body =
+        dassie_oer::Encode::to_vec(&dassie_peer::wire::Content::LinkStateRequest(vec![peer]));
+    tokio::time::timeout(CONNECT_TIMEOUT, exchange(connection, &body))
+        .await
+        .is_ok_and(|answer| answer.is_ok())
 }
 
 /// Why [`Quic::connection`] has no connection to give.
@@ -852,6 +868,8 @@ impl Quic {
         else {
             return Err(Failure::NotDelivered);
         };
+        // Ordered at its dial, as the node orders it at its handshake.
+        let link = self.link(connection.clone(), true);
         self.answer_on(&connection);
         let result = tokio::time::timeout_at(deadline, exchange(&connection, &request.body))
             .await
@@ -863,7 +881,7 @@ impl Quic {
         // Verified: it takes the place by the rule both nodes judge alike,
         // which the node judges too, once it answered the request on it.
         let lower = self.keys.current().is_some_and(|(own, _)| own < request.to);
-        adopt(&place, self.link(connection, true), (lower, self.drain)).await;
+        adopt(&place, link, (request.to, lower, self.drain)).await;
         result
     }
 
@@ -1117,9 +1135,10 @@ impl Quic {
 
     /// Keeps a connection a node opened to us, for our requests to it too
     /// (spec/decisions/verified-connections.md): at once if we hold none to
-    /// it that is open; otherwise only once it is verified, a request on it
-    /// answered, which `verified` tells, and then by the rule both nodes
-    /// judge alike ([`Link::survives`]). The one that loses is retired.
+    /// it that is open, also once the one held closes while it waits;
+    /// otherwise only once it is verified, a request on it answered, which
+    /// `verified` tells, and then by the rule both nodes judge alike
+    /// ([`Link::survives`]). The one that loses is retired.
     async fn keep_inbound(
         &self,
         peer: NodeId,
@@ -1134,18 +1153,28 @@ impl Quic {
             return;
         };
         let link = self.link(connection, false);
-        {
-            let mut held = place.lock().await;
-            if held.as_ref().is_none_or(|kept| !kept.is_open()) {
-                *held = Some(link);
-                return;
+        let mut verified = verified;
+        loop {
+            // With none held that is open, it is the first, and taken at
+            // once; also once the one held closes while it waits.
+            let kept = {
+                let mut held = place.lock().await;
+                match held.as_ref().filter(|kept| kept.is_open()) {
+                    None => {
+                        *held = Some(link);
+                        return;
+                    }
+                    Some(kept) => kept.connection.clone(),
+                }
+            };
+            tokio::select! {
+                Ok(()) = &mut verified => {
+                    adopt(&place, link, (peer, own < peer, self.drain)).await;
+                    return;
+                }
+                _ = kept.closed() => {}
+                _ = link.connection.closed() => return,
             }
-        }
-        tokio::select! {
-            Ok(()) = verified => {
-                adopt(&place, link, (own < peer, self.drain)).await;
-            }
-            _ = link.connection.closed() => {}
         }
     }
 
