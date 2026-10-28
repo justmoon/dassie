@@ -2,7 +2,105 @@
  * Connected apps and the consent screen.
  */
 
-/* Consent: what sending payments means, under the item that asks. */
-.consent-facts {
+/* Connected apps: each app, what it may do, and its way out. */
+.grants {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.grants > li {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.grants > li:first-child {
+  padding-top: 0;
+}
+
+.grants > li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.grant-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+}
+
+.grant-head strong {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.grant-access,
+.consent-access {
+  overflow-wrap: anywhere;
+}
+
+.grant-access {
   margin: 8px 0 12px;
+  padding-left: 20px;
+}
+
+.grant-access li::marker {
+  color: var(--stone);
+}
+
+/* Consent: one narrow column, as the gate's, under the frame. */
+.consent {
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+/* What the app asks for, each on a stone of its own. */
+.consent-access {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.consent-access > li {
+  padding: 12px 16px;
+  background: var(--stone-3);
+  border-radius: 18px;
+}
+
+.consent-payments {
+  font-weight: 600;
+}
+
+/* Consent: what sending payments means, under the item that asks, each
+   label beside its value. */
+.facts.consent-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px 16px;
+  margin: 8px 0 12px;
+}
+
+.facts.consent-facts dd {
+  margin: 0;
+}
+
+.consent-access .alert:last-child {
+  margin-bottom: 0;
+}
+
+/* Too narrow for a label beside its value: each above it. */
+@media (max-width: 420px) {
+  .facts.consent-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .facts.consent-facts dd {
+    margin-bottom: 8px;
+  }
 }

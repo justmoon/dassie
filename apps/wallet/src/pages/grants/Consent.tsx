@@ -66,8 +66,8 @@ export function Consent(props: RouteProps): JSX.Element {
     setPending(false);
   };
   return (
-    <div class="page stack" data-testid="page-consent">
-      <PageTitle>An App Asks for Access</PageTitle>
+    <div class="consent stack" data-testid="page-consent">
+      <PageTitle>An app asks for access</PageTitle>
       <Show when={page().kind === "loading"}>
         <Spinner label="Loading the request…" />
       </Show>
@@ -132,7 +132,9 @@ function Payments(props: { access: GrantAccess }): JSX.Element {
   const limits = () => props.access.limits;
   return (
     <>
-      <span data-testid="consent-payments">{paymentsTitle(props.access)}</span>
+      <span class="consent-payments" data-testid="consent-payments">
+        {paymentsTitle(props.access)}
+      </span>
       <dl class="facts consent-facts">
         <dt>You send</dt>
         <dd data-testid="consent-send">{sendText(props.access)}</dd>

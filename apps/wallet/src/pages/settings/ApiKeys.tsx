@@ -51,7 +51,7 @@ export function ApiKeys(): JSX.Element {
     return known ? ledgerCurrency(known) : currencyOf("?", 9);
   };
   return (
-    <Card title="API Keys" testid="api-keys">
+    <Card title="API keys" testid="api-keys">
       <p class="muted">Manage BTP access</p>
       <Show
         when={tokens().length > 0}
@@ -267,7 +267,7 @@ function CreateToken(props: {
   };
   return (
     <form class="create-token" onSubmit={create}>
-      <h3>Create BTP Token</h3>
+      <h3>Create BTP token</h3>
       <Field label="Label" for={`${id}-label`}>
         <input
           id={`${id}-label`}
@@ -306,7 +306,7 @@ function CreateToken(props: {
           data-testid="create-token"
           disabled={pending()}
         >
-          Create BTP Token
+          Create BTP token
         </button>
       </div>
       <ErrorText message={error()} testid="create-token-error" />
