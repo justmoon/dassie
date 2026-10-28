@@ -661,6 +661,9 @@ impl Core {
                 .owner_book(scheme)
                 .and_then(|book| self.book_spendable(book)),
             hub_owner: self.owner_available(active.scheme.ledger()) / UNITS_PER_DROP,
+            promised: drops_up(
+                u64::try_from(self.promised_on(active.scheme.ledger())).unwrap_or(u64::MAX),
+            ),
             paying: self.paying(scheme),
         })
     }
@@ -681,6 +684,38 @@ impl Core {
         }
         let funds = self.owner_available(ledger) / UNITS_PER_DROP;
         Some(funds.saturating_sub(book_fee(ledger)))
+    }
+
+    /// What the owner book can still move into the hub that books `ledger`
+    /// for the owner's payments, in the ledger's units: what the book can
+    /// spend, and a deposit on its way, while the node moves funds by
+    /// itself and the hub is available; nothing otherwise, nor for a ledger
+    /// that is no hub's (spec/decisions/one-balance-per-asset.md).
+    pub(super) fn hub_refill(&self, ledger: LedgerId) -> u128 {
+        let Some(scheme) = self
+            .book_on(ledger)
+            .filter(|_| owner_book_ledger(ledger).is_some())
+        else {
+            return 0;
+        };
+        let Some(funding) = self.funding.get(&scheme) else {
+            return 0;
+        };
+        let available = self
+            .hub_account(scheme)
+            .is_some_and(|account| account.frozen().is_none());
+        if !funding.automatic || funding.given_up.is_some() || !available {
+            return 0;
+        }
+        let book = self
+            .owner_book(scheme)
+            .and_then(|book| self.book_spendable(book))
+            .unwrap_or(0);
+        let moving = funding
+            .moving
+            .filter(|moving| moving.direction == Direction::Deposit)
+            .map_or(0, |moving| moving.drops);
+        u128::from(book.saturating_add(moving)) * u128::from(UNITS_PER_DROP)
     }
 
     /// What became of the payment of the move of the hub of `scheme` on

@@ -6851,3 +6851,7 @@ mod swaps;
 // The swap service: with whom, how much and when the node swaps, and the
 // swaps its owner asks for.
 mod swapping;
+
+// The owner's payments over a settlement hub that the hub account alone
+// does not cover: the node deposits the shortfall from the owner book.
+mod deposit_on_demand;
