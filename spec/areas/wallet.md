@@ -23,7 +23,7 @@ The same policy applies in development, so there is no HMR: a change shows after
 
 ## Kopje
 
-The wallet draws in Kopje, Dassie's visual identity ([visual-identity](../decisions/visual-identity.md)), light and at dusk, through the shared components: Daylight cards on Sandstone, Ember for action and nothing else, Kopje's value cube alone to mark value, DM Mono for amounts and addresses. Its frame shows the lockup, and its tab the Silhouette.
+The wallet draws in Kopje, Dassie's visual identity ([visual-identity](../decisions/visual-identity.md)), light and at dusk, through the shared components: Daylight cards on Sandstone, Ember for action and nothing else, Kopje's value cube alone to mark value, DM Mono for amounts and addresses. Its frame shows the lockup, and its tab the Silhouette. The dashboard opens on the balance, on a Terracotta card in veld grass as the brand page draws the wallet, with Send and Receive below it and the last few payments beside it, from the same live lists as Activity.
 
 - The mark and the drawings are the brand page's files. The wallet's build cannot reach the website's, so `packages/ui` and the wallet keep copies, which tests hold identical to the brand page's.
 - The fonts are files of the wallet's own, as the CSP needs; `packages/ui` keeps them for the wallet, the dashboard and the website alike.
