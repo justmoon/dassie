@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Run dassie front-door for a domain of your own, so that nodes without a public address are paid at their node ID under it: DNS, certificates, and what a front door sees."
+    />
+    <title>Run a front door · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Run a front door</h1>
+      <p class="lede">
+        A front door lets ordinary Open Payments clients pay nodes that
+        have no public address, such as a desktop app on a laptop. Each
+        node that picks it is reached at <code>&lt;node ID&gt;.&lt;your
+        domain&gt;</code>. Dassie runs one for <code>dassiepay.net</code>;
+        this page is for running another.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="what-it-does">What it does</h2>
+      <p>
+        A front door is a mode of the <code>dassie</code> binary,
+        <code>dassie front-door</code>, and not a node: it has no ledger, no
+        wallet and no database. Nodes that choose it as their relay keep a
+        connection open to it. When a request comes in for
+        <code>&lt;node ID&gt;.&lt;domain&gt;</code>, it passes the request
+        down that node's connection and the node's answer back.
+      </p>
+      <ul>
+        <li>
+          It passes on Open Payments requests only. Anything else is turned
+          away before it reaches a node.
+        </li>
+        <li>
+          It returns only JSON and only the headers an Open Payments client
+          needs, so no node can put a page, a download or a cookie on your
+          domain.
+        </li>
+        <li>
+          A browser that opens a node's address gets a small page of the
+          front door's own, saying what the address is and whether the node
+          is connected.
+        </li>
+        <li>
+          It also answers at <code>&lt;name&gt;.&lt;domain&gt;</code> for
+          the names nodes hold, which it reads from the registrars' lists on
+          the bootstrap nodes.
+        </li>
+      </ul>
+
+      <h2 id="what-you-need">What you need</h2>
+      <ul>
+        <li>
+          <strong>A Linux server with a public address,</strong> with TCP
+          and UDP port 443 open. Nodes connect over QUIC on UDP, clients
+          over HTTPS on TCP, and nodes whose UDP is blocked carry QUIC over a
+          WebSocket on TCP. A front door takes port 443 for itself, so give
+          it a host of its own, apart from your node.
+        </li>
+        <li>
+          <strong>A domain,</strong> with a wildcard record,
+          <code>*.&lt;domain&gt;</code>, of type <code>A</code> (and
+          <code>AAAA</code> if the server has IPv6) pointing at the server.
+          It covers every node's address, and <code>relay.&lt;domain&gt;</code>,
+          where nodes connect.
+        </li>
+        <li>
+          <strong>A certificate for <code>*.&lt;domain&gt;</code>.</strong> A
+          wildcard certificate needs the DNS-01 challenge, such as certbot's
+          with the plugin for your DNS provider.
+        </li>
+      </ul>
+
+      <h2 id="set-it-up">Set it up</h2>
+      <ol class="steps">
+        <li>
+          <p>Make the front door's user, before anything that needs its group:</p>
+          <pre><code><span class="prompt">$</span>sudo useradd --system --no-create-home --shell /usr/sbin/nologin dassie-front-door</code></pre>
+        </li>
+        <li>
+          <p>
+            Get the certificate. Install
+            <a href="https://github.com/justmoon/dassie/blob/main/resources/front-door/deploy-certificate.sh"><code>deploy-certificate.sh</code></a>
+            as certbot's deploy hook first,
+            <code>/etc/letsencrypt/renewal-hooks/deploy/dassie-front-door.sh</code>:
+            it copies each new certificate to
+            <code>/etc/dassie-front-door/tls/</code>, readable by the front
+            door's user. With Google Cloud DNS, for example:
+          </p>
+          <pre><code><span class="prompt">$</span>sudo certbot certonly --non-interactive --agree-tos -m you@example.com \
+    --dns-google --dns-google-credentials /etc/letsencrypt/dns.json \
+    -d '*.example.com' \
+    --deploy-hook /etc/letsencrypt/renewal-hooks/deploy/dassie-front-door.sh</code></pre>
+          <p>
+            The front door reads the files again every minute, so a renewal
+            takes effect without a restart. Give certbot a DNS credential
+            that can change your front door's zone and nothing else:
+            <a href="https://github.com/justmoon/dassie/blob/main/resources/front-door/README.md">the
+            front door's README</a> shows how on Google Cloud.
+          </p>
+        </li>
+        <li>
+          <p>
+            Install <code>dassie</code> without a node. The installer checks
+            the release's signature, as it does for a node, and
+            <code>--no-service</code> leaves out the node's units:
+          </p>
+          <pre><code><span class="prompt">$</span>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh -s -- --no-service</code></pre>
+        </li>
+        <li>
+          <p>
+            Install the unit,
+            <a href="https://github.com/justmoon/dassie/blob/main/resources/front-door/dassie-front-door.service"><code>dassie-front-door.service</code></a>,
+            as <code>/etc/systemd/system/dassie-front-door.service</code>,
+            from the repository at your release's tag. Set your domain in
+            it:
+          </p>
+          <pre><code>Environment=DASSIE_FRONT_DOOR_DOMAIN=example.com</code></pre>
+          <p>Then start it:</p>
+          <pre><code><span class="prompt">$</span>sudo systemctl enable --now dassie-front-door</code></pre>
+          <p>
+            At its first start, it makes its own key, in
+            <code>/var/lib/dassie-front-door/front-door.key</code>.
+          </p>
+        </li>
+        <li>
+          <p>Read the line that names your front door, which it logs at every start:</p>
+          <pre><code><span class="prompt">$</span>journalctl -u dassie-front-door | grep DASSIE_RELAY
+<span class="output">… nodes name this front door as their relay with DASSIE_RELAY='{"id":"…","url":"https://relay.example.com","publicKey":"…","slhDsaPublicKey":"…"}'</span></code></pre>
+          <p>That is what you hand the owners of nodes, below.</p>
+        </li>
+      </ol>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Back up the key file as you would any
+          secret, and keep it. Nodes name your front door by the ID its key
+          gives it: a new key means telling every node again.
+        </p>
+      </aside>
+
+      <h2 id="settings">Settings</h2>
+      <p>
+        Each setting is an environment variable, and each has a flag of
+        <code>dassie front-door</code> that overrides it.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Variable</th>
+              <th>Flag</th>
+              <th>What it is</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>DASSIE_FRONT_DOOR_DOMAIN</code></td>
+              <td><code>--domain</code></td>
+              <td>
+                The domain it serves nodes under, of at least two labels.
+                <code>dassiepay.net</code> by default.
+              </td>
+            </tr>
+            <tr>
+              <td><code>DASSIE_FRONT_DOOR_HTTPS_LISTEN</code></td>
+              <td><code>--https-listen</code></td>
+              <td>Address and port for HTTPS. <code>[::]:443</code> by default.</td>
+            </tr>
+            <tr>
+              <td><code>DASSIE_FRONT_DOOR_QUIC_LISTEN</code></td>
+              <td><code>--quic-listen</code></td>
+              <td>Address and UDP port for QUIC. <code>[::]:443</code> by default.</td>
+            </tr>
+            <tr>
+              <td><code>DASSIE_FRONT_DOOR_CERTIFICATE</code></td>
+              <td><code>--certificate</code></td>
+              <td>The certificate chain for <code>*.&lt;domain&gt;</code>, PEM, leaf first.</td>
+            </tr>
+            <tr>
+              <td><code>DASSIE_FRONT_DOOR_CERTIFICATE_KEY</code></td>
+              <td><code>--certificate-key</code></td>
+              <td>The certificate's key, PEM.</td>
+            </tr>
+            <tr>
+              <td><code>DASSIE_FRONT_DOOR_KEY_FILE</code></td>
+              <td><code>--key-file</code></td>
+              <td>
+                The front door's own key. By default
+                <code>front-door.key</code> in the unit's state directory.
+              </td>
+            </tr>
+            <tr>
+              <td><code>DASSIE_FRONT_DOOR_RELAY_URL</code></td>
+              <td><code>--relay-url</code></td>
+              <td>
+                Where nodes dial it, for the line it logs.
+                <code>https://relay.&lt;domain&gt;</code> by default.
+              </td>
+            </tr>
+            <tr>
+              <td><code>DASSIE_BOOTSTRAP_NODES</code></td>
+              <td></td>
+              <td>
+                The network's bootstrap nodes, whose name lists it reads, as a
+                node reads them.
+              </td>
+            </tr>
+            <tr>
+              <td><code>DASSIE_LOG</code></td>
+              <td></td>
+              <td>What it logs, as for a node.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <code>dassie front-door --make-key</code> makes the key file if there
+        is none, prints the line that names the front door, and exits. The
+        unit runs it before each start.
+        <a href="/docs/reference/environment/">Environment variables</a> and
+        <a href="/docs/reference/cli/#dassie-front-door">The dassie
+        command</a> have the details.
+      </p>
+
+      <h2 id="naming-it-as-a-relay">Naming it as a node's relay</h2>
+      <p>
+        A node uses your front door once its owner puts your line in
+        <code>DASSIE_RELAY</code>, and its address under your domain in
+        <code>DASSIE_PUBLIC_NAMES</code>. On a server:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo systemctl edit dassie</code></pre>
+      <pre><code>[Service]
+Environment='DASSIE_RELAY={"id":"…","url":"https://relay.example.com","publicKey":"…","slhDsaPublicKey":"…"}'
+Environment=DASSIE_PUBLIC_NAMES=&lt;node ID&gt;.example.com</code></pre>
+      <p>
+        The node then keeps a connection to your front door, and answers at
+        <code>https://&lt;node ID&gt;.example.com</code>. The second variable
+        also lets it answer at <code>&lt;name&gt;.example.com</code> for each
+        name it holds. For the desktop app, see
+        <a href="/docs/desktop/reach/#another-relay-or-none">How others reach
+        you</a>.
+      </p>
+
+      <h2 id="what-a-front-door-sees">What a front door sees</h2>
+      <p>
+        A front door holds the secure connection to each client, so it
+        reads every request it passes on and every answer, including the
+        secret that sets up an incoming payment. It also learns which nodes
+        are online, since when, and from which address. Run it as you would
+        want others to run yours, on a host that runs nothing else. The unit
+        runs it as its own user, sandboxed, with nothing but
+        the right to bind port 443.
+      </p>
+      <p>
+        What it cannot do is change a node's answers unseen: each node signs
+        its answers with its own key, and a Dassie client checks the
+        signature against the node ID.
+        <a href="/docs/build/signed-responses/">Signed responses and
+        names</a> says more.
+      </p>
+      <p>
+        Each node counts every request through your front door as coming
+        from one client, at the rate it allows any one client. Your front
+        door gives each of its clients a share of that, but a few busy
+        clients can still use up a node's whole budget for it.
+      </p>
+
+      <h2 id="updating-it">Updating it</h2>
+      <p>
+        Install the new release as in step 3, take the release's unit file
+        again, keeping your changes such as the domain, and restart:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo systemctl daemon-reload
+<span class="prompt">$</span>sudo systemctl restart dassie-front-door</code></pre>
+      <p>
+        A new release may need more of the unit, such as a higher file
+        limit, so do not skip the unit. Without <code>daemon-reload</code>,
+        systemd keeps the unit it read before.
+      </p>
+
+      <h2 id="not-there-yet">Not there yet</h2>
+      <p class="not-yet">
+        A node owner's own domain pointed at a front door, with a certificate
+        for that name and a DNS record that names the node, is not there
+        yet. Neither is the consent page for owner apps (a front door answers
+        that route with an error that says so), a node telling clients apart
+        behind its front door, or a front door finding nodes that chose
+        another relay. Names under a front door resolve only once the
+        bootstrap nodes are known, and the testnet's are being set up anew
+        with new node IDs. <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/http.md#front-doors">How front doors work</a>,
+        in the spec, and
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/core-and-periphery.md">why
+        nodes without a public address need them</a>.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>
