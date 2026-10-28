@@ -656,8 +656,8 @@ async fn a_peer_back_from_a_crash_ends_our_old_connection_at_once() {
 // endpoint on a connection of its own, never the one the node opened to us.
 // b holds the connection a opened: a request to a at an endpoint nothing
 // serves still reaches a over it, but a fresh one is not delivered; a fresh
-// one at a's own endpoint is answered, on a connection b neither keeps nor
-// puts in place of the one a opened.
+// one at a's own endpoint is answered, and a is still reached after it, on
+// whichever of the two connections both keep.
 #[tokio::test]
 async fn a_fresh_request_dials_its_endpoint() {
     let shutdown = CancellationToken::new();
@@ -692,8 +692,8 @@ async fn a_fresh_request_dials_its_endpoint() {
         .await
         .unwrap();
     assert_eq!(response.body, b"at a");
-    // The connection kept for a is still the one a opened, not the fresh
-    // one: a request at an endpoint nothing serves reaches a over it.
+    // A connection is kept for a, whichever survived: a request at an
+    // endpoint nothing serves reaches a over it.
     let held = Request {
         endpoint: Some(Endpoint::parse("127.0.0.1:9").unwrap()),
         ..request(&a, b"still".to_vec())

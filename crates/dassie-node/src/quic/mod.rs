@@ -760,9 +760,11 @@ impl Quic {
     /// connection we dial, since the node may keep it as its own to us. If
     /// the dial fails, or the request goes unanswered, nothing changes: the
     /// connection kept for the node stays, and the new one closes. Once it
-    /// is answered, the new connection, verified both ways, replaces the
-    /// kept one, and the old one closes once the requests on it are done,
-    /// at most [`DRAIN`] later. It ends no backoff and starts none.
+    /// is answered, verified both ways, one of the two survives, the one the
+    /// node keeps too, and the other closes: the new one at once, which the
+    /// node never switched to, or the kept one, which the node switched from
+    /// as the new one arrived, once what was on it then is done, at most
+    /// [`DRAIN`] later. It ends no backoff and starts none.
     ///
     /// # Errors
     ///
@@ -803,13 +805,29 @@ impl Quic {
             connection.close(0u32.into(), b"");
             return result;
         }
-        let replaced = place.lock().await.replace(Link {
+        // Verified: of it and the kept one, the one the node keeps too
+        // survives, and the other closes. The node keeps the one the lower
+        // node ID opened, and of two the same node opened, the one it holds
+        // ([`keep_inbound`](Self::keep_inbound)): so ours replaces the kept
+        // one only if we have the lower ID and the node opened that one, and
+        // the node has switched to ours already.
+        let lower = self.keys.current().is_some_and(|(own, _)| own < request.to);
+        let mut held = place.lock().await;
+        let keeps_old = held
+            .as_ref()
+            .is_some_and(|kept| kept.is_open() && (kept.ours || !lower));
+        if keeps_old {
+            drop(held);
+            connection.close(0u32.into(), b"");
+            return result;
+        }
+        let replaced = held.replace(Link {
             connection: connection.clone(),
             ours: true,
         });
-        if let Some(old) =
-            replaced.filter(|old| old.connection.stable_id() != connection.stable_id())
-        {
+        drop(held);
+        if let Some(old) = replaced.filter(|old| old.is_open()) {
+            // What the node sent on it before it switched still finishes.
             tokio::spawn(async move {
                 tokio::select! {
                     () = tokio::time::sleep(DRAIN) => old.connection.close(0u32.into(), b""),
