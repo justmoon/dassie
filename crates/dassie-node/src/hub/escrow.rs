@@ -34,7 +34,10 @@
 //!   number of small payments to the escrow makes it skip a deposit.
 //! - **State by state proofs, at a fresh anchor.** The escrow's setup is
 //!   checked, while no quorum has, from proofs of its account root, its
-//!   signer list and a token hub's line at one validated ledger; a token
+//!   signer list and a token hub's line at one validated ledger: as soon
+//!   as one of the escrow's own transactions is proven to apply, as the
+//!   sponsor's setup does, or a founding asks, at most once per anchor,
+//!   and every [`ESCROW_CHECK_EVERY_MS`] besides; a token
 //!   hub's issuer's hold (a freeze of the escrow's line, a global freeze, a
 //!   transfer fee) from proofs of the line and the issuer's account root,
 //!   named by the ledger it last changed in, which the watcher finds by
@@ -128,7 +131,10 @@ pub const RESCAN_LEDGERS: u32 = 1024;
 /// are counted.
 const XRPL_EPOCH_S: u64 = 946_684_800;
 
-/// How often the escrow is checked while no quorum has.
+/// How often the escrow is checked while no quorum has: the fallback. A
+/// check also goes as soon as one of the escrow's own transactions is
+/// proven to apply, and when a founding asks, once the anchor is newer
+/// than the last check's ([`Watcher::check_escrow`]).
 pub const ESCROW_CHECK_EVERY_MS: u64 = 30_000;
 
 /// How often a token hub's issuer's hold on the escrow is proven: every
@@ -556,6 +562,13 @@ pub struct Watcher {
     /// When the verifier was last asked to anchor on the watcher's own.
     anchor_asked_ms: Option<u64>,
     escrow_checked_ms: Option<u64>,
+    /// The anchor the escrow was last checked at, by its ledger: a check
+    /// at it judged every transaction proven up to it.
+    escrow_checked_at: Option<u32>,
+    /// Whether the escrow is to be checked once the anchor is newer than
+    /// the last check's: one of its own transactions applied after it, or
+    /// a founding asked.
+    escrow_check_wanted: bool,
     attested_escrow: Option<u32>,
     issuer_checked_ms: Option<u64>,
     attested_issuer: Option<Issuer>,
@@ -638,6 +651,8 @@ impl Watcher {
             anchored: None,
             anchor_asked_ms: None,
             escrow_checked_ms: None,
+            escrow_checked_at: None,
+            escrow_check_wanted: false,
             attested_escrow: None,
             issuer_checked_ms: None,
             attested_issuer: None,
@@ -1071,6 +1086,19 @@ impl Watcher {
         self.work();
     }
 
+    /// A founding asks whether a quorum checked the escrow, which its
+    /// sponsor set up: the escrow is checked once the anchor is newer than
+    /// the last check's, not at the next [`ESCROW_CHECK_EVERY_MS`]. However
+    /// often it asks, that is at most once per anchor.
+    pub fn check_escrow(&mut self, now_ms: u64, view: &EscrowView) {
+        self.now(now_ms);
+        self.see(view);
+        if !view.checked {
+            self.escrow_check_wanted = true;
+        }
+        self.work();
+    }
+
     /// A fetch of a list publisher's `url` answered with `body`, or failed.
     pub fn fetched(&mut self, now_ms: u64, url: &str, body: Option<&[u8]>) {
         self.now(now_ms);
@@ -1413,6 +1441,8 @@ impl Watcher {
         self.ceiling = None;
         self.anchored = Some((anchor, self.now_ms));
         self.escrow_checked_ms = None;
+        self.escrow_checked_at = None;
+        self.escrow_check_wanted = false;
         self.attested_escrow = None;
         self.issuer_checked_ms = None;
         self.attested_issuer = None;
@@ -1484,7 +1514,9 @@ impl Watcher {
                 }
             }
             (Purpose::HoldBefore, verdict) => self.hold_before(id, verdict),
-            (Purpose::Escrow | Purpose::Issuer | Purpose::Walk, _) => {}
+            // Not proven: checked again at a newer anchor.
+            (Purpose::Escrow, _) => self.escrow_check_wanted = true,
+            (Purpose::Issuer | Purpose::Walk, _) => {}
         }
     }
 
@@ -1514,6 +1546,11 @@ impl Watcher {
         let checked = match self.view.as_ref() {
             Some(view) if !view.checked && self.current(state) => {
                 check_proven_escrow(&view.rules, state)
+            }
+            Some(view) if !view.checked => {
+                // As of an older anchor than the newest: judged at a newer.
+                self.escrow_check_wanted = true;
+                return;
             }
             _ => return,
         };
@@ -1584,16 +1621,20 @@ impl Watcher {
         };
         if !view.checked
             && !self.open(Purpose::Escrow)
-            && self.due(self.escrow_checked_ms, ESCROW_CHECK_EVERY_MS)
+            && (self.due(self.escrow_checked_ms, ESCROW_CHECK_EVERY_MS) || self.escrow_check_due())
         {
             self.escrow_checked_ms = Some(self.now_ms);
-            self.query(
+            let asked = self.query(
                 Purpose::Escrow,
                 Query::State {
                     keys: escrow_keys(&view.rules.terms),
                     at: None,
                 },
             );
+            if asked.is_some() {
+                self.escrow_checked_at = self.anchor().map(|anchor| anchor.index);
+                self.escrow_check_wanted = false;
+            }
         }
         if let Some(keys) = issuer_keys(&view.rules.terms)
             && !self.open(Purpose::Issuer)
@@ -1609,6 +1650,17 @@ impl Watcher {
             );
         }
         self.advance_cursor();
+    }
+
+    /// Whether a check of the escrow is wanted, and the anchor is newer
+    /// than the last check's: one at the same anchor would judge the same
+    /// state again.
+    fn escrow_check_due(&self) -> bool {
+        self.escrow_check_wanted
+            && self.anchor().is_some_and(|anchor| {
+                self.escrow_checked_at
+                    .is_none_or(|checked| anchor.index > checked)
+            })
     }
 
     /// Whether a query for `purpose` is open.
@@ -1682,6 +1734,15 @@ impl Watcher {
         };
         if !record.validated || self.known(&record.hash) {
             return true;
+        }
+        // One of the escrow's own transactions applied while no quorum
+        // checked it, as its sponsor's setup does: checked again as soon
+        // as the anchor is newer than the last check's, unless that check
+        // was at its ledger or later, and saw it.
+        let applied = outcome_of(record, self.escrow).is_some_and(|(_, succeeded)| succeeded);
+        let unseen = (self.escrow_checked_at).is_none_or(|checked| checked < record.ledger_index);
+        if !view.checked && applied && unseen {
+            self.escrow_check_wanted = true;
         }
         let terms = &view.rules.terms;
         if let Some(deposit) = deposit_of(record, terms) {

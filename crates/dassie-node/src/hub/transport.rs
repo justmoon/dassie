@@ -422,6 +422,9 @@ impl Drop for ExchangeSlot {
 pub struct Hubs {
     routes: Mutex<BTreeMap<HubId, Route>>,
     status: Mutex<BTreeMap<HubId, HubStatus>>,
+    /// What wakes each hub's XRPL connection to check the escrow, when a
+    /// founding asks whether a quorum checked it.
+    escrow_checks: Mutex<BTreeMap<HubId, Arc<tokio::sync::Notify>>>,
     /// The node's own exchanges as a member, by account and validator.
     exchanges: InFlight,
     /// Places for requests from members, and from validators.
@@ -439,6 +442,7 @@ impl Default for Hubs {
         Self {
             routes: Mutex::default(),
             status: Mutex::default(),
+            escrow_checks: Mutex::default(),
             exchanges: Arc::default(),
             incoming_members: Arc::new(tokio::sync::Semaphore::new(MAX_MEMBER_REQUESTS)),
             incoming_validators: Arc::new(tokio::sync::Semaphore::new(MAX_VALIDATOR_REQUESTS)),
@@ -543,9 +547,47 @@ impl Hubs {
         }
     }
 
+    /// A founding's asking about `hub`'s escrow wakes `check` from now
+    /// on.
+    pub fn register_escrow_check(&self, hub: HubId, check: Arc<tokio::sync::Notify>) {
+        self.escrow_checks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(hub, check);
+    }
+
+    /// A founding asks whether a quorum checked `hub`'s escrow: whether
+    /// this node's validator saw it checked. If not, its XRPL connection
+    /// checks the escrow at its next anchor, not at its next
+    /// [`ESCROW_CHECK_EVERY_MS`](super::escrow::ESCROW_CHECK_EVERY_MS): the
+    /// sponsor asks once it saw its setup in a validated ledger. A wake that
+    /// comes while one waits counts once.
+    pub fn escrow_checked(&self, hub: &HubId) -> bool {
+        let checked = self
+            .status
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(hub)
+            .is_some_and(|status| status.escrow_checked);
+        if !checked
+            && let Some(check) = self
+                .escrow_checks
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(hub)
+        {
+            check.notify_one();
+        }
+        checked
+    }
+
     /// The node no longer takes messages for `hub`, nor reports it.
     pub fn unregister(&self, hub: &HubId) {
         self.routes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(hub);
+        self.escrow_checks
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(hub);
@@ -932,6 +974,47 @@ mod tests {
             hubs.request_permit(HubAccess::Member, &key(3)).is_none(),
             "all taken"
         );
+    }
+
+    // A founding asking about an escrow the validator has not seen checked
+    // wakes its XRPL connection to check it; one seen checked, or a hub
+    // not run here, wakes nothing.
+    #[test]
+    fn a_founding_asking_about_an_unchecked_escrow_wakes_its_check() {
+        let hubs = Hubs::default();
+        let hub = HubId(Digest([7; 32]));
+        assert!(!hubs.escrow_checked(&hub), "a hub not run here");
+        let check = Arc::new(tokio::sync::Notify::new());
+        hubs.register_escrow_check(hub, Arc::clone(&check));
+        let woken = |check: &tokio::sync::Notify| {
+            let notified = check.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable()
+        };
+        assert!(!woken(&check));
+        assert!(!hubs.escrow_checked(&hub));
+        assert!(woken(&check), "woken once");
+        assert!(!woken(&check), "and once only");
+        hubs.set_status(HubStatus {
+            hub,
+            index: Some(0),
+            validators: 4,
+            height: 1,
+            timestamp_ms: 0,
+            view: 1,
+            phase: Phase::Running,
+            stalled: false,
+            escrow_checked: true,
+            xrpl_connected: true,
+            caught_up: 0,
+            version: dassie_hub::rules::HUB_VERSION,
+            upgrade: None,
+        });
+        assert!(hubs.escrow_checked(&hub));
+        assert!(!woken(&check), "checked: nothing to wake");
+        hubs.unregister(&hub);
+        assert!(!hubs.escrow_checked(&hub));
+        assert!(!woken(&check), "a hub no longer run");
     }
 
     #[tokio::test]

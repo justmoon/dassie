@@ -1309,6 +1309,24 @@ impl Core {
                 definite,
                 status,
             } => self.packet_failed(peer, request_id, definite, status),
+            // A peer names an account in a hub it had none in when it
+            // peered: the method's scheme asks the hub for it at once
+            // (spec/areas/hubs.md#the-members-side).
+            Event::HubAccountAdvertised {
+                peer,
+                scheme,
+                details,
+            } => {
+                let active = Name::new(scheme.as_str())
+                    .ok()
+                    .and_then(|scheme| self.schemes.get_mut(&scheme))
+                    .filter(|active| active.over_hub && active.failed.is_none());
+                if let (Some(active), Some(peer)) = (active, name(peer)) {
+                    active
+                        .scheme
+                        .on_peer_advertised(peer, details.hub_id, details.account);
+                }
+            }
             // The names the node answers to follow its view
             // (spec/areas/payments.md#the-nodes-names).
             Event::Name(NameEvent::HoldersChanged { .. }) => {

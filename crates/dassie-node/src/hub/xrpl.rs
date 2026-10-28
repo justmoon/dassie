@@ -228,6 +228,10 @@ impl Follow {
                     let view = self.links.view.borrow().clone();
                     watcher.tick(clock.now_ms(), &view);
                 }
+                () = self.links.check.notified() => {
+                    let view = self.links.view.borrow().clone();
+                    watcher.check_escrow(clock.now_ms(), &view);
+                }
                 changed = self.links.view.changed() => {
                     if changed.is_err() {
                         return;

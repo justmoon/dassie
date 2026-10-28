@@ -2307,7 +2307,8 @@ fn a_pay_the_payer_never_read_that_failed_is_cancelled() {
 
 /// A payer asks the hub for the account of a peer without one now and
 /// then, so it learns of one the peer's own deposit opened without paying
-/// it in: both ends then promise, and nothing was submitted for it.
+/// it in, though the peer never names it: both ends then promise, and
+/// nothing was submitted for it.
 #[test]
 fn a_payer_learns_a_deposit_opened_its_peers_account() {
     use dassie_hub::member::scheme::LOOK_UP_EVERY_MS;
@@ -2333,6 +2334,47 @@ fn a_payer_learns_a_deposit_opened_its_peers_account() {
     assert!(world.commits_with(a, c));
     assert_eq!(world.opening_minimum(a, c), None);
     assert_eq!(world.ledger_account(a).sequence, sequence, "nothing paid");
+}
+
+/// A peer that names the account its deposit opened, in its link state,
+/// is asked about at once, not at the next lookup of the fallback; and the
+/// number it names is not taken, only the hub's answer. One it names in
+/// another hub, or none, asks nothing.
+#[test]
+fn a_payer_asks_at_once_for_an_account_its_peer_names() {
+    use dassie_hub::member::scheme::LOOK_UP_EVERY_MS;
+    /// A number no hub of the tests gives out.
+    const MADE_UP: u32 = 4_000_000;
+    let mut world = World::new([Fault::Honest; 4]);
+    let a = world.join("alice", 31, 100);
+    let c = world.newcomer("carol", 33);
+    world.run(3_000);
+    world.peer(a, c);
+    world.run(3_000);
+    let name_c = world.members[c].name;
+    let key = world.members[c].key.public_key();
+    world.validators.deposit(&key, 10 * XRP);
+    world.run(3_000);
+    assert!(world.commits_with(c, a), "it knows its own account");
+    let hub = *world.validators.ledger.hub().0.as_bytes();
+    let scheme = &mut world.members[a].scheme;
+    scheme.on_peer_advertised(name_c, [9; 32], MADE_UP);
+    scheme.on_peer_advertised(name_c, hub, 0);
+    world.run(3_000);
+    assert!(!world.commits_with(a, c), "neither asked");
+
+    // It names a number of its own making: the hub's answer is taken.
+    let started = world.now;
+    world.members[a]
+        .scheme
+        .on_peer_advertised(name_c, hub, MADE_UP);
+    world.run(3_000);
+    assert_eq!(
+        world.members[a].scheme.peer_account(name_c),
+        Some(world.number(c))
+    );
+    assert!(world.commits_with(a, c));
+    assert!(world.now - started < LOOK_UP_EVERY_MS / 10);
 }
 
 /// A `pay` that failed is not tried again at once: each try costs the

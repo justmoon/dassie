@@ -33,6 +33,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [hub-named-when-added](hub-named-when-added.md) | A hub scheme names its hub from the moment it is added (moving a scheme to another hub not built) | hubs, settlement, designs/settlement-hubs |
 | [hub-protocol-version](hub-protocol-version.md) | A hub runs one version of the hub protocol at a time, and its validators move it to a newer one | hubs, overview, designs/settlement-hubs |
 | [hub-scheme-names](hub-scheme-names.md) | A hub scheme's ID names its underlying ledger and its asset | hubs, settlement, xrpl |
+| [hub-waits-end-at-the-event](hub-waits-end-at-the-event.md) | A validator checks an escrow, and a member looks up a peer's account, when what it waits for happens; the poll stays as the fallback | hubs, peer-protocol |
 | [hubs-only](hubs-only.md) | Peers settle only over settlement hubs | designs/settlement-hubs, settlement, network, xrpl, testing |
 | [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (transfer fees not built) | xrpl, settlement, connector |
 | [lazy-downlink-accounts](lazy-downlink-accounts.md) | A downlink's accounts open once value first moves with it, in room kept for it while its channel is open | network, settlement, connector, ledger |

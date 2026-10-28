@@ -707,6 +707,15 @@ pub trait SettlementScheme: Send {
         None
     }
 
+    /// Over a settlement hub: `peer`, which peers with us on the scheme,
+    /// names `account` in the hub `hub` in its link state, which it did not
+    /// before. Only the hub says which account a key has: a scheme that
+    /// has none for the peer asks the hub at once rather than at its next
+    /// lookup (spec/areas/hubs.md#the-members-side). Nothing by default.
+    fn on_peer_advertised(&mut self, peer: Name, hub: [u8; 32], account: u32) {
+        let _ = (peer, hub, account);
+    }
+
     /// Over a settlement hub: what deposits had credited the node's own
     /// account in the hub as of the last state its books took, in the hub
     /// asset's smallest unit, the hub's `deposited` counter as the books
