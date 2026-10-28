@@ -9,9 +9,12 @@
 fail-fast = false
 # No retries: a test that passes only sometimes fails CI rather than hide.
 retries = 0
-# The slowest test takes about a minute. One still running after a minute is
-# named, and after five is stopped and fails, so that a hang fails the check
+# Sized from the slowest tests' times in CI's logs (nextest's `PASS [`
+# lines), which stay under half a minute with every test of a crate running
+# at once on a shared machine. A test still running after a minute, over
+# twice the slowest, is named, and after two minutes, over four times the
+# slowest, is stopped and fails, so that a hang fails its check in minutes
 # rather than run until CI's timeout.
-slow-timeout = { period = "60s", terminate-after = 5 }
+slow-timeout = { period = "60s", terminate-after = 2 }
 # A failure's output at once, and again at the end beside the others.
 failure-output = "immediate-final"

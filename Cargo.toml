@@ -96,8 +96,8 @@ inherits = "test"
 
 # The simulation runner, dassie-sim
 # (spec/decisions/random-seed-simulations.md): the test profile's code, so
-# that a run checks every invariant before every commit, as it does in tests,
-# and replays exactly as the test of the same seed.
+# that a campaign's run checks every invariant before every commit, as tests
+# do, and `dassie-sim run` replays a seed exactly as the campaign ran it.
 [profile.sim]
 inherits = "test"
 
