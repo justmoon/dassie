@@ -652,7 +652,9 @@ fn endpoint(id: EndpointId) -> String {
     id.to_string()
 }
 
-fn packet(traced: &TracedPacket) -> proto::Packet {
+/// A packet's record as the contract has it: `SubscribePackets` streams
+/// it, and the event log writes it (`crate::event_log`).
+pub(crate) fn packet(traced: &TracedPacket) -> proto::Packet {
     let record = &traced.record;
     let node = |node: Option<dassie_identity::NodeId>| node.map(|node| node.to_string());
     let ledger =

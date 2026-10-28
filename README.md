@@ -60,6 +60,8 @@ Peers settle over a settlement hub they share: the credit each extends the other
 
 **Logs.** `DASSIE_LOG` sets what the node logs: a level (`trace`, `debug`, `info`, `warn`, `error` or `off`; `info` by default), or directives per target in the form of `tracing`'s `EnvFilter`, such as `info,dassie::peer=debug`. The node's targets are `dassie::*`. The wallet's debug pages show the recent log as well.
 
+**Event log.** To record your own node's traffic, for debugging, a demo or research, set `DASSIE_EVENT_LOG` to a file (a relative path is taken in the state directory, `/var/lib/dassie` under systemd, so `DASSIE_EVENT_LOG=events.jsonl` works with the unit's sandbox). The node then appends every packet it handles and every event of its settlement hubs, one JSON object per line with the node's ID and a Unix-millisecond timestamp `ts`, and a `lost` line counting any it had to drop. The file is renamed to `.1` once it reaches `DASSIE_EVENT_LOG_MAX_BYTES` (64 MiB by default), keeping four older files. It records amounts, addresses and peers of the payments that pass through your node, so it is off unless you set it: no release, installer or `dassie setup` turns it on. The line format is in [the spec](spec/areas/node.md#the-line-contract).
+
 ## Layout
 
 | Path | What |

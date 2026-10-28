@@ -213,6 +213,12 @@ pub struct Settings {
     /// every program and so never stop it: the daemon warns of each at
     /// start. At most three.
     pub tunnel_proxy_problems: Vec<EnvError>,
+    /// Where the node appends its packet trace and hub events, one JSON
+    /// object per line, and how large a file grows before it is rotated
+    /// (`DASSIE_EVENT_LOG` and `DASSIE_EVENT_LOG_MAX_BYTES`;
+    /// spec/areas/node.md#the-event-log). None when unset: recording the
+    /// node's traffic is something an owner turns on.
+    pub event_log: Option<crate::event_log::EventLogConfig>,
 }
 
 impl Settings {
@@ -220,8 +226,10 @@ impl Settings {
     pub fn from_env(env: &Env) -> Result<Self, EnvError> {
         let (tunnel_proxy, tunnel_proxy_problems) = tunnel_proxy(env);
         let live_realm = live_realm(env, cfg!(debug_assertions))?;
+        let data_dir = data_dir(env)?;
         Ok(Self {
-            data_dir: data_dir(env)?,
+            event_log: event_log(env, &data_dir)?,
+            data_dir,
             ipc_socket_path: env.path("DASSIE_IPC_SOCKET_PATH"),
             log_filter: log_filter(env)?,
             dev_wallet_dir: dev_wallet_dir(env)?,
@@ -240,6 +248,42 @@ impl Settings {
             tunnel_proxy_problems,
         })
     }
+}
+
+/// `DASSIE_EVENT_LOG`, a file, relative to the state directory unless
+/// absolute, so a service that may write only there can name one; and
+/// `DASSIE_EVENT_LOG_MAX_BYTES`, the size in bytes past which it is rotated,
+/// [`DEFAULT_MAX_BYTES`](crate::event_log::DEFAULT_MAX_BYTES) when unset.
+/// None when `DASSIE_EVENT_LOG` is unset or empty. Whether the file can be
+/// written is checked when the daemon opens it.
+fn event_log(
+    env: &Env,
+    data_dir: &std::path::Path,
+) -> Result<Option<crate::event_log::EventLogConfig>, EnvError> {
+    use crate::event_log::{DEFAULT_MAX_BYTES, MAX_MAX_BYTES, MIN_MAX_BYTES};
+    const MAX_BYTES: &str = "DASSIE_EVENT_LOG_MAX_BYTES";
+    // Checked even without a file, so a mistake shows before it matters.
+    let max_bytes = match env.get(MAX_BYTES)? {
+        None | Some("") => DEFAULT_MAX_BYTES,
+        Some(text) => match text.trim().parse::<u64>() {
+            Ok(bytes) if (MIN_MAX_BYTES..=MAX_MAX_BYTES).contains(&bytes) => bytes,
+            _ => {
+                return Err(EnvError {
+                    variable: MAX_BYTES,
+                    problem: format!(
+                        "must be a number of bytes from {MIN_MAX_BYTES} to {MAX_MAX_BYTES}"
+                    ),
+                });
+            }
+        },
+    };
+    let Some(path) = env.path("DASSIE_EVENT_LOG") else {
+        return Ok(None);
+    };
+    Ok(Some(crate::event_log::EventLogConfig {
+        path: data_dir.join(path),
+        max_bytes,
+    }))
 }
 
 /// The validator role's file, read and checked now, at most
@@ -747,6 +791,48 @@ mod tests {
             "{}",
             error.problem
         );
+    }
+
+    // spec/areas/node.md#the-event-log: off unless named, relative to the
+    // state directory, with a size cap in bounds.
+    #[test]
+    fn the_event_log_is_opt_in_and_relative_to_the_state_directory() {
+        use crate::event_log::{DEFAULT_MAX_BYTES, EventLogConfig, MAX_MAX_BYTES, MIN_MAX_BYTES};
+        let log = |pairs: &[(&str, &str)]| {
+            let mut all = vec![("DASSIE_STATE_DIRECTORY", "/state")];
+            all.extend_from_slice(pairs);
+            settings(&all).map(|s| s.event_log)
+        };
+        assert_eq!(log(&[]), Ok(None));
+        assert_eq!(log(&[("DASSIE_EVENT_LOG", "")]), Ok(None));
+        assert_eq!(
+            log(&[("DASSIE_EVENT_LOG", "events.jsonl")]),
+            Ok(Some(EventLogConfig {
+                path: "/state/events.jsonl".into(),
+                max_bytes: DEFAULT_MAX_BYTES,
+            }))
+        );
+        let min = MIN_MAX_BYTES.to_string();
+        assert_eq!(
+            log(&[
+                ("DASSIE_EVENT_LOG", "/var/log/dassie/events.jsonl"),
+                ("DASSIE_EVENT_LOG_MAX_BYTES", &min),
+            ]),
+            Ok(Some(EventLogConfig {
+                path: "/var/log/dassie/events.jsonl".into(),
+                max_bytes: MIN_MAX_BYTES,
+            }))
+        );
+        let below = (MIN_MAX_BYTES - 1).to_string();
+        let above = (MAX_MAX_BYTES + 1).to_string();
+        for wrong in ["64MiB", "-1", &below, &above] {
+            let error = log(&[
+                ("DASSIE_EVENT_LOG", "events.jsonl"),
+                ("DASSIE_EVENT_LOG_MAX_BYTES", wrong),
+            ])
+            .unwrap_err();
+            assert_eq!(error.variable, "DASSIE_EVENT_LOG_MAX_BYTES");
+        }
     }
 
     #[test]

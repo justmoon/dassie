@@ -23,6 +23,10 @@ mod payments;
 mod rates;
 mod send;
 
+// The records the event log writes are the live streams' own.
+pub(crate) use hub::hub_event as hub_event_record;
+pub(crate) use ledger::packet as packet_record;
+
 use std::fmt;
 
 use dassie_identity::NodeId;
