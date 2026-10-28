@@ -17,12 +17,9 @@ const DSUSD_HUB: LedgerId = LedgerId::HubXrplTestnetDsusdUsd;
 const DOLLAR: u64 = 1_000_000_000;
 const NOW: u64 = 1_000_000;
 const AGE: u64 = 3_600_000;
-const GRID: &[u32] = &DEFAULT_GRID_PPM;
+const GRID: &[u32; GRID_LEVELS] = &DEFAULT_GRID_PPM;
 
-const _: () = assert!(
-    DEFAULT_GRID_PPM.len() == LEVELS,
-    "a snapshot carries the default grid"
-);
+const _: () = assert!(GRID_LEVELS == LEVELS, "a snapshot carries the grid");
 
 /// The asset a ledger counts toward, as a node names it.
 const fn book_of(ledger: LedgerId) -> LedgerId {
@@ -152,18 +149,24 @@ fn step_ends(snapshot: &Snapshot, from: MethodTag, to: MethodTag) -> Vec<u64> {
     ends
 }
 
+// A grid is what a snapshot carries: as many drops as its levels, each a
+// whole number of basis points below 100%, ascending.
 #[test]
 fn grids() {
     assert!(grid_is_valid(GRID));
-    assert!(grid_is_valid(&[0]));
-    assert!(grid_is_valid(&[999_999]));
-    assert!(!grid_is_valid(&[]));
-    assert!(!grid_is_valid(&[1_000_000]));
-    assert!(!grid_is_valid(&[100, 100]));
-    assert!(!grid_is_valid(&[300, 100]));
-    assert!(!grid_is_valid(&[1; MAX_GRID_LEVELS + 1]));
-    let most: Vec<u32> = (1..=16).collect();
-    assert!(grid_is_valid(&most));
+    let ascending = core::array::from_fn(|level| 100 * u32::try_from(level).unwrap());
+    assert!(grid_is_valid(&ascending));
+    let mut top = ascending;
+    top[GRID_LEVELS - 1] = 999_900;
+    assert!(grid_is_valid(&top));
+    top[GRID_LEVELS - 1] = 1_000_000;
+    assert!(!grid_is_valid(&top), "a drop below 100%");
+    let mut repeated = ascending;
+    repeated[1] = 0;
+    assert!(!grid_is_valid(&repeated), "each larger than the one before");
+    let mut fine = *GRID;
+    fine[0] = 150;
+    assert!(!grid_is_valid(&fine), "in whole basis points");
 }
 
 // Two assets at their targets, a hundred dollars each, k = 5%: each bid
@@ -195,7 +198,6 @@ fn at_target_quotes_are_spot_and_ladders_follow_the_curve() {
     assert!((32 * DOLLAR..34 * DOLLAR).contains(&xrp_out), "{xrp_out}");
     for side in [usd.bid, usd.ask, xrp.bid, xrp.ask] {
         assert!(levels(&side).windows(2).all(|pair| pair[0] <= pair[1]));
-        assert!(side.ladder[GRID.len()..].iter().all(|&most| most == 0));
     }
     // Ten percent down, as much as anyone sends comes in: at a share of
     // one, the weight is 0.975.

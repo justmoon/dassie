@@ -48,14 +48,21 @@ use crate::pricing::{
     mul_div, value_of, value_unit, wide_mul,
 };
 
-/// Most drops a grid has: the levels of every ladder.
-pub const MAX_GRID_LEVELS: usize = 16;
+/// Drops a grid has: the levels of every ladder, exactly as many as a
+/// snapshot carries (`dassie_feed::LEVELS`, which the node checks against
+/// this).
+pub const GRID_LEVELS: usize = 8;
+
+/// What a drop is a whole number of, in parts per million: a basis point,
+/// as a snapshot carries drops.
+pub const GRID_STEP_PPM: u32 = 100;
 
 /// The grid a node quotes on unless it says otherwise, in parts per
 /// million: 0.01%, 0.03%, 0.1%, 0.3%, 1%, 3%, 10% and 30%, each a whole
 /// number of basis points, as a snapshot carries them. The grid travels in
 /// a snapshot's header, so every function here takes it as a parameter.
-pub const DEFAULT_GRID_PPM: [u32; 8] = [100, 300, 1_000, 3_000, 10_000, 30_000, 100_000, 300_000];
+pub const DEFAULT_GRID_PPM: [u32; GRID_LEVELS] =
+    [100, 300, 1_000, 3_000, 10_000, 30_000, 100_000, 300_000];
 
 /// A quote's fixed point: the accounting unit's value of one unit of a
 /// ledger, times 10^`QUOTE_PRECISION`. The accounting unit is a billionth
@@ -78,24 +85,28 @@ const BILLION: u128 = 1_000_000_000;
 /// `1 − k`: 10^12.
 const WEIGHT_PER_PPM: u128 = WEIGHT_ONE / MILLION;
 
-const _: () = assert!(DEFAULT_GRID_PPM.len() <= MAX_GRID_LEVELS);
-const _: () = {
-    let mut rest: &[u32] = &DEFAULT_GRID_PPM;
-    while let [drop, tail @ ..] = rest {
-        assert!(*drop % 100 == 0, "a drop is a whole number of basis points");
-        rest = tail;
-    }
-};
+const _: () = assert!(grid_is_valid(&DEFAULT_GRID_PPM));
 const _: () = assert!(QUOTE_TOLERANCE_PPB < 1_000_000_000);
 
-/// Whether `grid` is one a snapshot can carry: at least one drop, at most
-/// [`MAX_GRID_LEVELS`], each below 100% and larger than the one before.
+/// Whether `grid` is one a snapshot can carry: each drop a whole number of
+/// basis points ([`GRID_STEP_PPM`]), below 100%, and larger than the one
+/// before. Its length, [`GRID_LEVELS`], is a snapshot's by its type.
 #[must_use]
-pub fn grid_is_valid(grid: &[u32]) -> bool {
-    !grid.is_empty()
-        && grid.len() <= MAX_GRID_LEVELS
-        && grid.iter().all(|&drop| u128::from(drop) < MILLION)
-        && grid.windows(2).all(|pair| matches!(pair, [a, b] if a < b))
+pub const fn grid_is_valid(grid: &[u32; GRID_LEVELS]) -> bool {
+    let mut before: Option<u32> = None;
+    let mut rest: &[u32] = grid;
+    while let [drop, tail @ ..] = rest {
+        let ascending = match before {
+            Some(before) => before < *drop,
+            None => true,
+        };
+        if !ascending || *drop % GRID_STEP_PPM != 0 || *drop as u128 >= MILLION {
+            return false;
+        }
+        before = Some(*drop);
+        rest = tail;
+    }
+    true
 }
 
 /// One side of a method's quote: the bid, for what comes in on its ledger,
@@ -113,15 +124,15 @@ pub struct Side {
     /// in times the in method's bid over this ask), while its last unit
     /// still costs at most the ask over one less the drop. Never smaller at
     /// a larger drop; `u64::MAX` for as much as anyone could send. Zero
-    /// past the grid, and everywhere on a closed side.
-    pub ladder: [u64; MAX_GRID_LEVELS],
+    /// everywhere on a closed side.
+    pub ladder: [u64; GRID_LEVELS],
 }
 
 impl Side {
     /// A side that does not convert.
     pub const CLOSED: Self = Self {
         quote: 0,
-        ladder: [0; MAX_GRID_LEVELS],
+        ladder: [0; GRID_LEVELS],
     };
 
     /// Whether it converts.
@@ -225,7 +236,7 @@ impl PriceTable {
         &self,
         methods: &[LedgerId],
         holdings: &Holdings,
-        grid: &[u32],
+        grid: &[u32; GRID_LEVELS],
         now_ms: u64,
         max_rate_age_ms: u64,
     ) -> Quotes {
@@ -253,7 +264,7 @@ impl PriceTable {
                 "one method per asset"
             );
         }
-        let drop_max = grid.last().map_or(0, |&drop| u128::from(drop));
+        let drop_max = u128::from(grid[GRID_LEVELS - 1]);
         let mut bids = [None; MAX_PRICED_LEDGERS];
         for (slot, method) in bids.iter_mut().zip(&priced) {
             *slot = method.and_then(|method| self.bid(&method, &priced, drop_max));
@@ -371,8 +382,8 @@ impl PriceTable {
     /// `method`'s bid side: the quote, and for each drop the most that can
     /// come in while its last unit's weight stays at least the bid's less
     /// the drop.
-    fn bid_side(&self, method: &Method, bid: Bid, grid: &[u32]) -> Side {
-        let mut ladder = [0; MAX_GRID_LEVELS];
+    fn bid_side(&self, method: &Method, bid: Bid, grid: &[u32; GRID_LEVELS]) -> Side {
+        let mut ladder = [0; GRID_LEVELS];
         for (slot, &drop) in ladder.iter_mut().zip(grid) {
             *slot = self.most_in(method, bid.weight, u128::from(drop));
         }
@@ -423,11 +434,16 @@ impl PriceTable {
     /// last unit's weight stays at most the ask's over one less the drop,
     /// from `least_bid` ([`least_bid`]). Closed when the owner holds nothing
     /// of its asset to pay out; with no other bid open, nothing can go out.
-    fn ask_side(&self, method: &Method, least_bid: Option<u128>, grid: &[u32]) -> Side {
+    fn ask_side(
+        &self,
+        method: &Method,
+        least_bid: Option<u128>,
+        grid: &[u32; GRID_LEVELS],
+    ) -> Side {
         let Some(weight) = method.weight_out else {
             return Side::CLOSED;
         };
-        let mut ladder = [0; MAX_GRID_LEVELS];
+        let mut ladder = [0; GRID_LEVELS];
         if let Some(least_bid) = least_bid {
             for (slot, &drop) in ladder.iter_mut().zip(grid) {
                 *slot = self.most_out(method, weight, least_bid, u128::from(drop));

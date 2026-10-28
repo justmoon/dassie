@@ -62,8 +62,8 @@ pub use pricing::{
     BestOutput, Holding, Holdings, Inventory, Price, PriceError, PriceTable, Pricing,
 };
 pub use quotes::{
-    DEFAULT_GRID_PPM, MAX_GRID_LEVELS, QUOTE_PRECISION, QUOTE_TOLERANCE_PPB, Quote, Quotes, Side,
-    grid_is_valid,
+    DEFAULT_GRID_PPM, GRID_LEVELS, GRID_STEP_PPM, QUOTE_PRECISION, QUOTE_TOLERANCE_PPB, Quote,
+    Quotes, Side, grid_is_valid,
 };
 pub use trace::{MAX_TRACED_ADDRESS, PacketRecord, PacketState, TraceEvent};
 
