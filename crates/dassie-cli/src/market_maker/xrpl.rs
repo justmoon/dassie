@@ -513,21 +513,21 @@ mod tests {
         assert_eq!(pool.value, TokenValue::parse("500").unwrap());
         assert_eq!(pool.trading_fee, 300);
 
-        // The token node's account holds DSUSD and pays the XRP node's
-        // account XRP for it, through the pool: a rebalance.
+        // The node's account holds DSUSD and pays itself XRP for it,
+        // through the pool: a rebalance, from one of its owner books to the
+        // other.
         let paying = holder(&server, 1, 100_000_000).await;
-        let paid = holder(&server, 2, 100_000_000).await;
         mint(&client, &server, paying.account(), "20").await;
         let send_max = to_amount(Side::Token, 10_000_000_000, dsusd()).unwrap();
         let deliver = Amount::Xrp(19_000_000);
-        let before = server.ledger().balance(paid.account()).unwrap();
+        let before = server.ledger().balance(paying.account()).unwrap();
         let rebalance = Rebalance {
             from: Side::Token,
             deliver,
             send_max,
         };
         let outcome = xrpl
-            .rebalance(&paying, paid.account(), &rebalance)
+            .rebalance(&paying, paying.account(), &rebalance)
             .await
             .unwrap();
         let Outcome::Validated {
@@ -538,10 +538,9 @@ mod tests {
         };
         assert_eq!(result, "tesSUCCESS");
         assert_eq!(delivered, Some(deliver));
-        assert_eq!(
-            server.ledger().balance(paid.account()),
-            Some(before + 19_000_000)
-        );
+        // What it delivered, less the fee it paid.
+        let after = server.ledger().balance(paying.account()).unwrap();
+        assert!(after < before + 19_000_000 && after >= before + 19_000_000 - MAX_FEE_DROPS);
         let left = server
             .ledger()
             .token_balance(paying.account(), IssuedAsset::DSUSD)
@@ -558,7 +557,7 @@ mod tests {
             send_max: to_amount(Side::Token, 1_000_000_000, dsusd()).unwrap(),
         };
         let outcome = xrpl
-            .rebalance(&paying, paid.account(), &greedy)
+            .rebalance(&paying, paying.account(), &greedy)
             .await
             .unwrap();
         assert!(

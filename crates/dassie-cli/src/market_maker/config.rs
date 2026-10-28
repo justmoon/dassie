@@ -3,21 +3,19 @@
 //!
 //! ```json
 //! {
-//!   "targets": ["https://a.example", { "url": "https://b.example", "feedPort": 7768 }],
+//!   "socket": "/run/dassie-mm-node/dassie.sock",
+//!   "passphraseFile": "/run/dassie-mm/node.phrase",
 //!   "xrpl": {
 //!     "server": "wss://s.altnet.rippletest.net:51233",
 //!     "token": { "currency": "DSUSD", "issuer": "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M" }
 //!   },
 //!   "xrp": {
-//!     "socket": "/run/mm-xrp/dassie.sock",
 //!     "ledger": "hub-xrpl-testnet-xrp+xrp",
 //!     "ownerBook": "xrpl-testnet-xrp+xrp",
-//!     "passphraseFile": "/etc/dassie-mm/xrp.phrase",
 //!     "tradeSize": 10000000000,
 //!     "band": { "low": 20000000000, "high": 200000000000 }
 //!   },
 //!   "token": {
-//!     "socket": "…",
 //!     "ledger": "hub-xrpl-testnet-dsusd+usd",
 //!     "ownerBook": "xrpl-testnet-dsusd+usd",
 //!     "…": "…"
@@ -27,20 +25,20 @@
 //! }
 //! ```
 //!
-//! `targets` lists the core nodes to trade through, at least one and at
-//! most [`MAX_TARGETS`], each once: a URL, or `{ url, feedPort }` for a
-//! target whose discovery document names no feed port. Each node names
-//! two ledgers, each checked whole: `ledger`, the ledger of the settlement
-//! hub of its asset, which its trades are paid on and pay from, and whose
-//! scheme, before the `+`, is the settlement method a target's feed names
-//! it by, and `ownerBook`, the owner book of that asset on its XRP Ledger
+//! `socket` is the IPC socket of the market maker's one node, and
+//! `passphraseFile` the file that holds its passphrase, for its XRPL
+//! account's keys. Each asset names two of the node's ledgers, each checked
+//! whole: `ledger`, the ledger of the settlement hub of the asset, which
+//! its swaps pay on and are paid back on, and whose scheme, before the
+//! `+`, is the settlement method a target's snapshot names it by, and
+//! `ownerBook`, the owner book of the asset on the node's XRP Ledger
 //! account, which funds the hub and which its rebalances spend from
-//! (spec/areas/rate-feed.md#market-maker). Amounts are in the nodes'
-//! ledger units (scale 9). `caFile` adds roots to trust the targets
-//! by, and `allowPrivate` lets the targets and the XRPL server be on
-//! private addresses, and the server on `ws://`: both for dev and tests.
-//! Every problem is a [`ConfigError`]; nothing here panics
-//! on what the file says.
+//! (spec/areas/rate-feed.md#market-maker). The targets are not named here:
+//! they are the node's peers, the uplinks it is pinned to, whose snapshots
+//! it reads. Amounts are in the node's ledger units (scale 9).
+//! `allowPrivate` lets the XRPL server be on a private address, and on
+//! `ws://`: for dev and tests. Every problem is a [`ConfigError`]; nothing
+//! here panics on what the file says.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -52,7 +50,7 @@ use dassie_xrpl::keys::AccountId;
 use dassie_xrpl::network::TESTNET;
 use serde_json::{Map, Value};
 
-use super::strategy::{Band, MAX_MARGIN_PPM, MAX_SLIPPAGE_PPM, NodeParams, Params};
+use super::strategy::{AssetParams, Band, MAX_MARGIN_PPM, MAX_SLIPPAGE_PPM, Params, Side};
 use crate::passphrase::{self, ReadProblem, read_bounded};
 
 /// Most bytes in a config file.
@@ -72,65 +70,53 @@ const MAX_TEXT_BYTES: usize = 1024;
 /// can be.
 pub const MAX_UNITS: u64 = i64::MAX.unsigned_abs();
 
-/// Most targets a config names: no more than a node pins, since both nodes
-/// pin every target (spec/areas/rate-feed.md#market-maker).
-pub const MAX_TARGETS: usize = 128;
-
-const _: () = assert!(MAX_TARGETS <= dassie_node::env::MAX_UPLINKS);
-
-/// A target node, as the config names it.
+/// The node's two ledgers of one asset.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Target {
-    /// Its URL, `https://host[:port]`, without a trailing slash.
-    pub url: String,
-    /// Its host, as the URL names it, without brackets.
-    pub host: String,
-    /// Its port for HTTPS.
-    pub port: u16,
-    /// Its feed's UDP port, for a target whose discovery document names
-    /// none.
-    pub feed_port: Option<u16>,
-}
-
-/// One of the market maker's nodes.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NodeConfig {
-    /// Its IPC socket.
-    pub socket: PathBuf,
-    /// The ledger of the settlement hub of its asset, which its trades are
-    /// paid on and pay from, such as `hub-xrpl-testnet-xrp+xrp`.
+pub struct AssetLedgers {
+    /// The ledger of the settlement hub of the asset, which swaps pay on
+    /// and are paid back on, such as `hub-xrpl-testnet-xrp+xrp`.
     pub ledger: String,
-    /// The settlement method of that hub, as a target's feed names it: the
-    /// ledger's scheme, such as `hub-xrpl-testnet-xrp`.
+    /// The settlement method of that hub, as a target's snapshot names it
+    /// and `SwapWithPeer` takes it: the ledger's scheme, such as
+    /// `hub-xrpl-testnet-xrp`.
     pub method: String,
-    /// The ledger of the owner book of its asset on its XRP Ledger
+    /// The ledger of the owner book of the asset on the node's XRP Ledger
     /// account, which funds the hub and which a rebalance spends from, such
     /// as `xrpl-testnet-xrp+xrp`.
     pub owner_book: String,
-    /// The file that holds its passphrase, for its XRPL account's keys.
-    pub passphrase_file: PathBuf,
 }
 
 /// The whole config, checked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
-    /// The nodes to trade through, in the config's order: at least one, at
-    /// most [`MAX_TARGETS`], none twice.
-    pub targets: Vec<Target>,
+    /// The node's IPC socket.
+    pub socket: PathBuf,
+    /// The file that holds the node's passphrase, for its XRPL account's
+    /// keys.
+    pub passphrase_file: PathBuf,
     /// The XRPL server, `wss://` (or `ws://` with `allow_private`).
     pub xrpl_server: String,
     /// The token the pool pairs with XRP.
     pub token: IssuedAsset,
-    /// The node that holds XRP.
-    pub xrp: NodeConfig,
-    /// The node that holds the token.
-    pub token_node: NodeConfig,
+    /// The node's ledgers of XRP.
+    pub xrp: AssetLedgers,
+    /// The node's ledgers of the token.
+    pub token_ledgers: AssetLedgers,
     /// The strategy's settings.
     pub params: Params,
-    /// Roots to trust the target by, besides the platform's.
-    pub ca_file: Option<PathBuf>,
     /// Whether private addresses, and `ws://`, are allowed.
     pub allow_private: bool,
+}
+
+impl Config {
+    /// The node's ledgers of `side`'s asset.
+    #[must_use]
+    pub const fn ledgers(&self, side: Side) -> &AssetLedgers {
+        match side {
+            Side::Xrp => &self.xrp,
+            Side::Token => &self.token_ledgers,
+        }
+    }
 }
 
 /// Why a config is refused.
@@ -148,9 +134,8 @@ pub enum ConfigError {
     Missing(String),
     /// A field's value is not what it may be.
     Invalid(String),
-    /// Both nodes trade on the same ledger or method, or name the same owner
-    /// book, socket or passphrase.
-    SameNode(&'static str),
+    /// Both assets name the same ledger, method or owner book.
+    SameLedger(&'static str),
 }
 
 impl fmt::Display for ConfigError {
@@ -162,7 +147,7 @@ impl fmt::Display for ConfigError {
             Self::Unknown(field) => write!(f, "the config has an unknown field {field:?}"),
             Self::Missing(field) => write!(f, "the config has no {field:?}"),
             Self::Invalid(field) => write!(f, "the config's {field:?} is not valid"),
-            Self::SameNode(what) => write!(f, "the two nodes have the same {what}"),
+            Self::SameLedger(what) => write!(f, "the two assets have the same {what}"),
         }
     }
 }
@@ -194,13 +179,13 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         &value,
         "",
         &[
-            "targets",
+            "socket",
+            "passphraseFile",
             "xrpl",
             "xrp",
             "token",
             "marginPpm",
             "slippagePpm",
-            "caFile",
             "allowPrivate",
         ],
     )?;
@@ -210,26 +195,21 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
             .as_bool()
             .ok_or_else(|| root.invalid("allowPrivate"))?,
     };
-    let targets = targets(&root)?;
+    let socket = PathBuf::from(root.text("socket")?);
+    let passphrase_file = PathBuf::from(root.text("passphraseFile")?);
     let xrpl = root.object("xrpl", &["server", "token"])?;
     let xrpl_server = websocket_url(&xrpl, "server", allow_private)?;
     let token = token(&xrpl.object("token", &["currency", "issuer"])?)?;
-    let (xrp, xrp_params) = node(&root, "xrp")?;
-    let (token_node, token_params) = node(&root, "token")?;
-    if xrp.ledger == token_node.ledger {
-        return Err(ConfigError::SameNode("ledger"));
+    let (xrp, xrp_params) = asset(&root, "xrp")?;
+    let (token_ledgers, token_params) = asset(&root, "token")?;
+    if xrp.ledger == token_ledgers.ledger {
+        return Err(ConfigError::SameLedger("ledger"));
     }
-    if xrp.method == token_node.method {
-        return Err(ConfigError::SameNode("method"));
+    if xrp.method == token_ledgers.method {
+        return Err(ConfigError::SameLedger("method"));
     }
-    if xrp.owner_book == token_node.owner_book {
-        return Err(ConfigError::SameNode("owner book"));
-    }
-    if xrp.socket == token_node.socket {
-        return Err(ConfigError::SameNode("socket"));
-    }
-    if xrp.passphrase_file == token_node.passphrase_file {
-        return Err(ConfigError::SameNode("passphrase file"));
+    if xrp.owner_book == token_ledgers.owner_book {
+        return Err(ConfigError::SameLedger("owner book"));
     }
     let params = Params {
         margin_ppm: root.ppm("marginPpm", MAX_MARGIN_PPM)?,
@@ -237,18 +217,14 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         xrp: xrp_params,
         token: token_params,
     };
-    let ca_file = match root.get("caFile") {
-        None => None,
-        Some(_) => Some(PathBuf::from(root.text("caFile")?)),
-    };
     Ok(Config {
-        targets,
+        socket,
+        passphrase_file,
         xrpl_server,
         token,
         xrp,
-        token_node,
+        token_ledgers,
         params,
-        ca_file,
         allow_private,
     })
 }
@@ -330,71 +306,6 @@ impl<'a> Fields<'a> {
     }
 }
 
-/// The targets: the list `targets`.
-fn targets(root: &Fields<'_>) -> Result<Vec<Target>, ConfigError> {
-    let entries = root
-        .need("targets")?
-        .as_array()
-        .filter(|entries| !entries.is_empty() && entries.len() <= MAX_TARGETS)
-        .ok_or_else(|| root.invalid("targets"))?;
-    let mut list = Vec::with_capacity(entries.len());
-    for (index, entry) in entries.iter().enumerate() {
-        let path = format!("targets[{index}]");
-        // A bare URL is a target that names nothing else.
-        let wrapped = entry
-            .is_string()
-            .then(|| serde_json::json!({ "url": entry }));
-        let fields = Fields::of(
-            wrapped.as_ref().unwrap_or(entry),
-            &path,
-            &["url", "feedPort"],
-        )?;
-        list.push(target(&fields)?);
-    }
-    // Each once: one host and port twice would subscribe to one feed twice,
-    // and pin one uplink twice.
-    for (index, target) in list.iter().enumerate() {
-        let twice = list.iter().take(index).any(|earlier| {
-            earlier.port == target.port && earlier.host.eq_ignore_ascii_case(&target.host)
-        });
-        if twice {
-            return Err(root.invalid("targets"));
-        }
-    }
-    assert!(
-        !list.is_empty() && list.len() <= MAX_TARGETS,
-        "checked above"
-    );
-    Ok(list)
-}
-
-fn target(fields: &Fields<'_>) -> Result<Target, ConfigError> {
-    let text = fields.text("url")?;
-    let invalid = || fields.invalid("url");
-    let rest = text.strip_prefix("https://").ok_or_else(invalid)?;
-    let rest = rest.strip_suffix('/').unwrap_or(rest);
-    if rest.is_empty() || rest.contains(['/', '?', '#', '@']) {
-        return Err(invalid());
-    }
-    let (host, port) = host_and_port(rest, 443).ok_or_else(invalid)?;
-    let feed_port = match fields.get("feedPort") {
-        None => None,
-        Some(value) => Some(
-            value
-                .as_u64()
-                .and_then(|port| u16::try_from(port).ok())
-                .filter(|port| *port != 0)
-                .ok_or_else(|| fields.invalid("feedPort"))?,
-        ),
-    };
-    Ok(Target {
-        url: format!("https://{rest}"),
-        host: host.to_owned(),
-        port,
-        feed_port,
-    })
-}
-
 /// A WebSocket URL: `wss://`, or `ws://` where private addresses are
 /// allowed, with a host.
 fn websocket_url(
@@ -442,19 +353,10 @@ pub fn parse_currency(text: &str) -> Option<Currency> {
     currency.is_token().then_some(currency)
 }
 
-/// The node `key` names, and its strategy's settings.
-fn node(root: &Fields<'_>, key: &str) -> Result<(NodeConfig, NodeParams), ConfigError> {
-    let fields = root.object(
-        key,
-        &[
-            "socket",
-            "ledger",
-            "ownerBook",
-            "passphraseFile",
-            "tradeSize",
-            "band",
-        ],
-    )?;
+/// The node's ledgers of the asset `key` names, and its strategy's
+/// settings.
+fn asset(root: &Fields<'_>, key: &str) -> Result<(AssetLedgers, AssetParams), ConfigError> {
+    let fields = root.object(key, &["ledger", "ownerBook", "tradeSize", "band"])?;
     let ledger = ledger_id(&fields, "ledger")?;
     let method = method_of(ledger).ok_or_else(|| fields.invalid("ledger"))?;
     let owner_book = ledger_id(&fields, "ownerBook")?;
@@ -474,18 +376,16 @@ fn node(root: &Fields<'_>, key: &str) -> Result<(NodeConfig, NodeParams), Config
     if trade_size == 0 {
         return Err(fields.invalid("tradeSize"));
     }
-    let config = NodeConfig {
-        socket: PathBuf::from(fields.text("socket")?),
+    let ledgers = AssetLedgers {
         ledger: ledger.to_owned(),
         method: method.to_owned(),
         owner_book: owner_book.to_owned(),
-        passphrase_file: PathBuf::from(fields.text("passphraseFile")?),
     };
-    Ok((config, NodeParams { trade_size, band }))
+    Ok((ledgers, AssetParams { trade_size, band }))
 }
 
-/// The settlement method of the ledger `ledger`, as a feed names it: its
-/// scheme, the ID before its one `+`, of at least two and at most
+/// The settlement method of the ledger `ledger`, as a snapshot names it:
+/// its scheme, the ID before its one `+`, of at least two and at most
 /// [`MAX_METHOD_ID_BYTES`] bytes; `None` for an ID that names no scheme
 /// and asset.
 fn method_of(ledger: &str) -> Option<&str> {
@@ -521,7 +421,7 @@ fn ledger_id<'a>(fields: &Fields<'a>, key: &str) -> Result<&'a str, ConfigError>
 /// The file cannot be read, or holds no passphrase of the test realm that
 /// reads as written by a clock that reads `now_ms`.
 pub fn wallet_from_file(path: &Path, now_ms: u64) -> Result<Wallet, String> {
-    // The market maker trades on the testnet only, so its phrases are the
+    // The market maker trades on the testnet only, so its phrase is the
     // test realm's.
     let key = passphrase::node_key_from_file(path, dassie_identity::Realm::Test, now_ms)?;
     let entropy = key.xrpl_account_entropy(TESTNET.id, 0);
@@ -537,24 +437,21 @@ mod tests {
 
     fn valid() -> Value {
         json!({
-            "targets": ["https://node.example/"],
+            "socket": "/run/a.sock",
+            "passphraseFile": "/etc/a",
             "xrpl": {
                 "server": "wss://s.altnet.rippletest.net:51233",
                 "token": { "currency": "DSUSD", "issuer": "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M" },
             },
             "xrp": {
-                "socket": "/run/a.sock",
                 "ledger": "hub-xrpl-testnet-xrp+xrp",
                 "ownerBook": "xrpl-testnet-xrp+xrp",
-                "passphraseFile": "/etc/a",
                 "tradeSize": 1_000_000_000,
                 "band": { "low": 10_000_000_000_u64, "high": 100_000_000_000_u64 },
             },
             "token": {
-                "socket": "/run/b.sock",
                 "ledger": "hub-xrpl-testnet-dsusd+usd",
                 "ownerBook": "xrpl-testnet-dsusd+usd",
-                "passphraseFile": "/etc/b",
                 "tradeSize": 500_000_000,
                 "band": { "low": 5_000_000_000_u64, "high": 50_000_000_000_u64 },
             },
@@ -572,101 +469,44 @@ mod tests {
     #[test]
     fn a_valid_config_reads_whole() {
         let config = parse(&valid().to_string()).unwrap();
-        let [target] = config.targets.as_slice() else {
-            panic!("one target");
-        };
-        assert_eq!(target.url, "https://node.example");
-        assert_eq!(target.host, "node.example");
-        assert_eq!(target.port, 443);
-        assert_eq!(target.feed_port, None);
+        assert_eq!(config.socket, PathBuf::from("/run/a.sock"));
+        assert_eq!(config.passphrase_file, PathBuf::from("/etc/a"));
         assert_eq!(config.token.currency, dassie_xrpl::dsusd::CURRENCY);
         assert_eq!(config.token.issuer, dassie_xrpl::dsusd::ISSUER);
         assert_eq!(config.xrp.ledger, "hub-xrpl-testnet-xrp+xrp");
         assert_eq!(config.xrp.method, "hub-xrpl-testnet-xrp");
         assert_eq!(config.xrp.owner_book, "xrpl-testnet-xrp+xrp");
-        assert_eq!(config.token_node.ledger, "hub-xrpl-testnet-dsusd+usd");
-        assert_eq!(config.token_node.method, "hub-xrpl-testnet-dsusd");
-        assert_eq!(config.token_node.owner_book, "xrpl-testnet-dsusd+usd");
+        assert_eq!(config.token_ledgers.ledger, "hub-xrpl-testnet-dsusd+usd");
+        assert_eq!(config.token_ledgers.method, "hub-xrpl-testnet-dsusd");
+        assert_eq!(config.token_ledgers.owner_book, "xrpl-testnet-dsusd+usd");
+        assert_eq!(config.ledgers(Side::Token), &config.token_ledgers);
         assert_eq!(config.params.margin_ppm, 5_000);
         assert_eq!(config.params.token.trade_size, 500_000_000);
         assert_eq!(config.params.xrp.band.high, 100_000_000_000);
         assert!(!config.allow_private);
-        let config = with(|v| {
-            v["targets"] = json!([
-                "https://a.example",
-                { "url": "https://[::1]:8443", "feedPort": 7768 },
-            ]);
-        })
-        .unwrap();
-        let hosts: Vec<_> = config
-            .targets
-            .iter()
-            .map(|t| (t.host.as_str(), t.port, t.feed_port))
-            .collect();
-        assert_eq!(hosts, [("a.example", 443, None), ("::1", 8443, Some(7768))]);
     }
 
+    // The targets are the node's peers: a config of the market maker's two
+    // nodes, which named its targets, is refused whole rather than half
+    // read.
     #[test]
-    fn the_targets_are_checked() {
-        let invalid = |field: &str| Err(ConfigError::Invalid(field.into()));
-        let targets = |list: Value| with(|v| v["targets"] = list);
+    fn a_config_of_two_nodes_is_refused() {
         assert_eq!(
-            with(|v| {
-                v.as_object_mut().unwrap().remove("targets");
-            }),
-            Err(ConfigError::Missing("targets".into()))
-        );
-        // `targets` is the only form, however many there are.
-        assert_eq!(
-            with(|v| {
-                v.as_object_mut().unwrap().remove("targets");
-                v["target"] = json!({ "url": "https://node.example" });
-            }),
-            Err(ConfigError::Unknown("target".into()))
-        );
-        assert_eq!(targets(json!([])), invalid("targets"));
-        assert_eq!(targets(json!("https://a.example")), invalid("targets"));
-        let most: Vec<String> = (0..MAX_TARGETS)
-            .map(|i| format!("https://n{i}.example"))
-            .collect();
-        assert_eq!(targets(json!(most)).unwrap().targets.len(), MAX_TARGETS);
-        let too_many: Vec<String> = (0..=MAX_TARGETS)
-            .map(|i| format!("https://n{i}.example"))
-            .collect();
-        assert_eq!(targets(json!(too_many)), invalid("targets"));
-        // The same host and port twice, however it is written.
-        assert_eq!(
-            targets(json!(["https://a.example", "https://A.example:443/"])),
-            invalid("targets")
-        );
-        assert!(targets(json!(["https://a.example", "https://a.example:8443"])).is_ok());
-        // Each entry's problem names it.
-        assert_eq!(
-            targets(json!(["https://a.example", "http://b.example"])),
-            invalid("targets[1].url")
+            with(|v| v["targets"] = json!(["https://node.example"])),
+            Err(ConfigError::Unknown("targets".into()))
         );
         assert_eq!(
-            targets(json!(["https://a.example", { "url": "https://b.example/path" }])),
-            invalid("targets[1].url")
+            with(|v| v["caFile"] = json!("/etc/ca.pem")),
+            Err(ConfigError::Unknown("caFile".into()))
         );
         assert_eq!(
-            targets(json!([{ "url": "https://a.example", "feedPort": 0 }])),
-            invalid("targets[0].feedPort")
+            with(|v| v["xrp"]["socket"] = json!("/run/b.sock")),
+            Err(ConfigError::Unknown("xrp.socket".into()))
         );
         assert_eq!(
-            targets(json!([{ "url": "https://a.example", "feedPort": 70_000 }])),
-            invalid("targets[0].feedPort")
+            with(|v| v["token"]["passphraseFile"] = json!("/etc/b")),
+            Err(ConfigError::Unknown("token.passphraseFile".into()))
         );
-        assert_eq!(
-            targets(json!([{ "url": "https://a.example", "port": 1 }])),
-            Err(ConfigError::Unknown("targets[0].port".into()))
-        );
-        assert_eq!(
-            targets(json!([{ "feedPort": 7768 }])),
-            Err(ConfigError::Missing("targets[0].url".into()))
-        );
-        assert_eq!(targets(json!([7])), invalid("targets[0]"));
-        assert_eq!(targets(json!([""])), invalid("targets[0].url"));
     }
 
     #[test]
@@ -684,10 +524,17 @@ mod tests {
         );
         assert_eq!(
             with(|v| {
-                v["xrp"].as_object_mut().unwrap().remove("socket");
+                v.as_object_mut().unwrap().remove("socket");
             }),
-            Err(ConfigError::Missing("xrp.socket".into()))
+            Err(ConfigError::Missing("socket".into()))
         );
+        assert_eq!(
+            with(|v| {
+                v.as_object_mut().unwrap().remove("passphraseFile");
+            }),
+            Err(ConfigError::Missing("passphraseFile".into()))
+        );
+        assert_eq!(with(|v| v["socket"] = json!("")), invalid("socket"));
         assert_eq!(
             with(|v| v["xrpl"]["server"] = json!("ws://localhost:6006")),
             invalid("xrpl.server")
@@ -714,14 +561,14 @@ mod tests {
     }
 
     #[test]
-    fn every_nodes_field_is_checked() {
+    fn every_assets_field_is_checked() {
         let invalid = |field: &str| Err(ConfigError::Invalid(field.into()));
         assert_eq!(
             with(|v| v["xrp"]["ledger"] = json!("XRPL Testnet")),
             invalid("xrp.ledger")
         );
-        // A hub's ledger names the method a feed names it by: its scheme,
-        // and an asset.
+        // A hub's ledger names the method a snapshot names it by: its
+        // scheme, and an asset.
         for ledger in [
             "hub-xrpl-testnet-xrp",
             "hub-xrpl-testnet-xrp+",
@@ -749,7 +596,7 @@ mod tests {
             }),
             Err(ConfigError::Missing("xrp.ownerBook".into()))
         );
-        // A node's hub is funded from a book of its own.
+        // A hub is funded from a book of its own.
         assert_eq!(
             with(|v| v["xrp"]["ownerBook"] = json!("hub-xrpl-testnet-xrp+xrp")),
             invalid("xrp.ownerBook")
@@ -785,26 +632,18 @@ mod tests {
     }
 
     #[test]
-    fn the_two_nodes_are_two() {
+    fn the_two_assets_are_two() {
         assert_eq!(
             with(|v| v["token"]["ledger"] = json!("hub-xrpl-testnet-xrp+xrp")),
-            Err(ConfigError::SameNode("ledger"))
+            Err(ConfigError::SameLedger("ledger"))
         );
         assert_eq!(
             with(|v| v["token"]["ledger"] = json!("hub-xrpl-testnet-xrp+usd")),
-            Err(ConfigError::SameNode("method"))
+            Err(ConfigError::SameLedger("method"))
         );
         assert_eq!(
             with(|v| v["token"]["ownerBook"] = json!("xrpl-testnet-xrp+xrp")),
-            Err(ConfigError::SameNode("owner book"))
-        );
-        assert_eq!(
-            with(|v| v["token"]["socket"] = json!("/run/a.sock")),
-            Err(ConfigError::SameNode("socket"))
-        );
-        assert_eq!(
-            with(|v| v["token"]["passphraseFile"] = json!("/etc/a")),
-            Err(ConfigError::SameNode("passphrase file"))
+            Err(ConfigError::SameLedger("owner book"))
         );
     }
 
