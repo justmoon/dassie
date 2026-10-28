@@ -3,7 +3,8 @@ import { assertEquals } from "@std/assert";
 import { once } from "node:events";
 import { type AddressInfo, connect, createServer, type Server } from "node:net";
 import { connect as connectTls } from "node:tls";
-import { startProxy } from "./proxy.ts";
+import { PassThrough } from "node:stream";
+import { readHello, startProxy } from "./proxy.ts";
 import { upstreamPort } from "./sni.ts";
 
 /** A server on a free loopback port. */
@@ -63,11 +64,7 @@ async function through(port: number, hello: Uint8Array): Promise<string> {
       resolve(new TextDecoder().decode(chunk));
     });
   });
-  // In two pieces, as a ClientHello may arrive.
-  const half = Math.floor(hello.length / 2);
-  socket.write(hello.subarray(0, half));
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  socket.write(hello.subarray(half));
+  socket.write(hello);
   const text = await answer;
   socket.destroy();
   return text;
@@ -99,4 +96,20 @@ test("the proxy passes each name to its upstream, ClientHello and all", async ()
     dashboard.close();
     d2.close();
   }
+});
+
+test("a ClientHello in two pieces is read whole", async () => {
+  const hello = await clientHello("d2.localhost");
+  const half = Math.floor(hello.length / 2);
+  const socket = new PassThrough();
+  let pieces = 0;
+  socket.on("data", () => pieces++);
+  const read = readHello(socket);
+  // Each write comes as a chunk of its own, as a ClientHello may arrive.
+  socket.write(hello.subarray(0, half));
+  socket.write(hello.subarray(half));
+  const first = await read;
+  assertEquals(pieces, 2);
+  assertEquals(first?.name, "d2.localhost");
+  assertEquals(first?.bytes, hello);
 });
