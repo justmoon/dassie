@@ -479,6 +479,18 @@ impl Engine {
         }
     }
 
+    /// The ledger of the active scheme `scheme`.
+    pub async fn method_ledger(
+        &self,
+        scheme: String,
+    ) -> Result<Option<dassie_ledger::LedgerId>, EngineError> {
+        self.call(move |core| {
+            Ok(dassie_peer::wire::SchemeId::parse(&scheme)
+                .and_then(|method| core.method_ledger(method)))
+        })
+        .await
+    }
+
     /// What the swap service did since the node started.
     pub async fn swap_stats(&self) -> Result<SwapStats, EngineError> {
         self.call(|core| Ok(core.swap_stats())).await
@@ -954,6 +966,14 @@ impl Driver<'_> {
     /// callers hear back. A client that does not read, or whose task is
     /// gone, is disconnected, which is another step.
     fn finish(&mut self) {
+        // An owner's swap whose caller went away sends no more.
+        self.swap_replies.retain(|&id, reply| {
+            let gone = reply.is_closed();
+            if gone {
+                self.core.stop_owner_swap(id);
+            }
+            !gone
+        });
         loop {
             self.core.finish_step(&mut self.outputs);
             let failed = self.dispatch();

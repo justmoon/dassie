@@ -10,7 +10,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/network.proto.
  */
 export const file_dassie_owner_v1_network: GenFile = /*@__PURE__*/
-  fileDesc("Ch1kYXNzaWUvb3duZXIvdjEvbmV0d29yay5wcm90bxIPZGFzc2llLm93bmVyLnYxIpcDCgtOZXR3b3JrTm9kZRIKCgJpZBgBIAEoCRILCgN1cmwYAiABKAkSDQoFYWxpYXMYAyABKAkSEAoIc2VxdWVuY2UYBCABKAQSDwoHaXNfc2VsZhgFIAEoCBIRCglib290c3RyYXAYBiABKAgSEAoIbWFqb3JpdHkYByABKAgSEgoKcmVnaXN0ZXJlZBgIIAEoCBIMCgRwZWVyGAkgASgIEiAKGHJlZ2lzdGVyZWRfdW50aWxfdW5peF9tcxgKIAEoAxISCgpmaXJzdF9ob3BzGAsgAygJEhEKCW5laWdoYm9ycxgMIAMoCRIaChJzZXR0bGVtZW50X3NjaGVtZXMYDSADKAkSFQoIZGlzdGFuY2UYDiABKA1IAIgBARIuCgpwZWVyX3N0YXRlGA8gASgOMhouZGFzc2llLm93bmVyLnYxLlBlZXJTdGF0ZRIOCgZiYW5uZWQYECABKAgSLQoHcGVlcmluZxgRIAEoCzIcLmRhc3NpZS5vd25lci52MS5OZXR3b3JrUGVlckILCglfZGlzdGFuY2UiFwoVU3Vic2NyaWJlTm9kZXNSZXF1ZXN0ImAKDk5vZGVUYWJsZUV2ZW50Eg0KBXJlc2V0GAEgASgIEi4KCHVwc2VydGVkGAIgAygLMhwuZGFzc2llLm93bmVyLnYxLk5ldHdvcmtOb2RlEg8KB3JlbW92ZWQYAyADKAkiEgoQTGlzdE5vZGVzUmVxdWVzdCJAChFMaXN0Tm9kZXNSZXNwb25zZRIrCgVub2RlcxgBIAMoCzIcLmRhc3NpZS5vd25lci52MS5OZXR3b3JrTm9kZSLbAQoLTmV0d29ya1BlZXISDAoEbm9kZRgBIAEoCRIVCg1zaW5jZV91bml4X21zGAYgASgDEhkKEWxhc3Rfc2Vlbl91bml4X21zGAcgASgDEg8KB2luYm91bmQYCCABKAgSDQoFc3RhdGUYCSABKAkSGgoSdGVybWluYXRpb25fcmVhc29uGAogASgJEhIKCmFkdmVydGlzZWQYCyABKAgSDgoGb25saW5lGA8gASgIEiwKB21ldGhvZHMYECADKAsyGy5kYXNzaWUub3duZXIudjEuUGVlck1ldGhvZCJnCgpQZWVyTWV0aG9kEg4KBnNjaGVtZRgBIAEoCRISCgpjcmVkaXRfb3V0GAIgASgEEgwKBG93ZWQYAyABKAMSEQoJd2l0aGRyYXduGAQgASgIEhQKDHdpbmRpbmdfZG93bhgFIAEoCCISChBMaXN0UGVlcnNSZXF1ZXN0IkAKEUxpc3RQZWVyc1Jlc3BvbnNlEisKBXBlZXJzGAEgAygLMhwuZGFzc2llLm93bmVyLnYxLk5ldHdvcmtQZWVyIlIKDE5ldHdvcmtSb3V0ZRIMCgRub2RlGAEgASgJEg4KBnByZWZpeBgCIAEoCRISCgpmaXJzdF9ob3BzGAMgAygJEhAKCGRpc3RhbmNlGAQgASgNIj4KCkxvY2FsUm91dGUSDgoGcHJlZml4GAEgASgJEhAKCGVuZHBvaW50GAIgASgJEg4KBmxlZGdlchgDIAEoCSITChFMaXN0Um91dGVzUmVxdWVzdCJ2ChJMaXN0Um91dGVzUmVzcG9uc2USLQoGcm91dGVzGAEgAygLMh0uZGFzc2llLm93bmVyLnYxLk5ldHdvcmtSb3V0ZRIxCgxsb2NhbF9yb3V0ZXMYAiADKAsyGy5kYXNzaWUub3duZXIudjEuTG9jYWxSb3V0ZSIYChZTdWJzY3JpYmVSb3V0ZXNSZXF1ZXN0ImwKD0Jvb3RzdHJhcFN0YXR1cxIMCgRub2RlGAEgASgJEg4KBmxpc3RlZBgCIAEoCBIdChVyZWdpc3RlcmVkX2F0X3VuaXhfbXMYAyABKAMSHAoUbGlzdF9mZXRjaGVkX3VuaXhfbXMYBCABKAMiHgocR2V0UmVnaXN0cmF0aW9uU3RhdHVzUmVxdWVzdCJyCh1HZXRSZWdpc3RyYXRpb25TdGF0dXNSZXNwb25zZRIMCgRub2RlGAEgASgJEjMKCWJvb3RzdHJhcBgCIAMoCzIgLmRhc3NpZS5vd25lci52MS5Cb290c3RyYXBTdGF0dXMSDgoGbWVtYmVyGAMgASgIIh4KHFN1YnNjcmliZVJlZ2lzdHJhdGlvblJlcXVlc3QiLAocUmVnaXN0ZXJXaXRoQm9vdHN0cmFwUmVxdWVzdBIMCgRub2RlGAEgASgJIh8KHVJlZ2lzdGVyV2l0aEJvb3RzdHJhcFJlc3BvbnNlIicKF1Rlcm1pbmF0ZVBlZXJpbmdSZXF1ZXN0EgwKBG5vZGUYASABKAkiGgoYVGVybWluYXRlUGVlcmluZ1Jlc3BvbnNlIh4KDkJhbk5vZGVSZXF1ZXN0EgwKBG5vZGUYASABKAkiEQoPQmFuTm9kZVJlc3BvbnNlIiAKEFVuYmFuTm9kZVJlcXVlc3QSDAoEbm9kZRgBIAEoCSITChFVbmJhbk5vZGVSZXNwb25zZSIRCg9MaXN0QmFuc1JlcXVlc3QiIQoQTGlzdEJhbnNSZXNwb25zZRINCgVub2RlcxgBIAMoCSJXCgxQZWVyU2V0dGluZ3MSGQoRY29ubmVjdG9yX2ZlZV9wcG0YAiABKA0SFQoNZnhfc3ByZWFkX3BwbRgDIAEoDRIVCg1yZWJhbGFuY2VfcHBtGAQgASgNIhgKFkdldFBlZXJTZXR0aW5nc1JlcXVlc3QiSgoXR2V0UGVlclNldHRpbmdzUmVzcG9uc2USLwoIc2V0dGluZ3MYASABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlclNldHRpbmdzIkkKFlNldFBlZXJTZXR0aW5nc1JlcXVlc3QSLwoIc2V0dGluZ3MYASABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlclNldHRpbmdzIkoKF1NldFBlZXJTZXR0aW5nc1Jlc3BvbnNlEi8KCHNldHRpbmdzGAEgASgLMh0uZGFzc2llLm93bmVyLnYxLlBlZXJTZXR0aW5ncyKNAQoRU2V0dGxlbWVudENoYW5uZWwSDAoEbm9kZRgBIAEoCRISCgpzZXR0bGVkX2luGAIgASgEEhMKC3NldHRsZWRfb3V0GAMgASgEEg8KB3NlbmRpbmcYBCABKAgSFgoOc2VuZGluZ19hbW91bnQYBSABKAQSGAoQc2VuZGluZ19hdHRlbXB0cxgGIAEoDSIfCh1MaXN0U2V0dGxlbWVudENoYW5uZWxzUmVxdWVzdCJWCh5MaXN0U2V0dGxlbWVudENoYW5uZWxzUmVzcG9uc2USNAoIY2hhbm5lbHMYASADKAsyIi5kYXNzaWUub3duZXIudjEuU2V0dGxlbWVudENoYW5uZWwqigEKCVBlZXJTdGF0ZRIaChZQRUVSX1NUQVRFX1VOU1BFQ0lGSUVEEAASEwoPUEVFUl9TVEFURV9OT05FEAESGQoVUEVFUl9TVEFURV9SRVFVRVNUSU5HEAISFQoRUEVFUl9TVEFURV9QRUVSRUQQAxIaChZQRUVSX1NUQVRFX1RFUk1JTkFUSU5HEARiBnByb3RvMw");
+  fileDesc("Ch1kYXNzaWUvb3duZXIvdjEvbmV0d29yay5wcm90bxIPZGFzc2llLm93bmVyLnYxIpcDCgtOZXR3b3JrTm9kZRIKCgJpZBgBIAEoCRILCgN1cmwYAiABKAkSDQoFYWxpYXMYAyABKAkSEAoIc2VxdWVuY2UYBCABKAQSDwoHaXNfc2VsZhgFIAEoCBIRCglib290c3RyYXAYBiABKAgSEAoIbWFqb3JpdHkYByABKAgSEgoKcmVnaXN0ZXJlZBgIIAEoCBIMCgRwZWVyGAkgASgIEiAKGHJlZ2lzdGVyZWRfdW50aWxfdW5peF9tcxgKIAEoAxISCgpmaXJzdF9ob3BzGAsgAygJEhEKCW5laWdoYm9ycxgMIAMoCRIaChJzZXR0bGVtZW50X3NjaGVtZXMYDSADKAkSFQoIZGlzdGFuY2UYDiABKA1IAIgBARIuCgpwZWVyX3N0YXRlGA8gASgOMhouZGFzc2llLm93bmVyLnYxLlBlZXJTdGF0ZRIOCgZiYW5uZWQYECABKAgSLQoHcGVlcmluZxgRIAEoCzIcLmRhc3NpZS5vd25lci52MS5OZXR3b3JrUGVlckILCglfZGlzdGFuY2UiFwoVU3Vic2NyaWJlTm9kZXNSZXF1ZXN0ImAKDk5vZGVUYWJsZUV2ZW50Eg0KBXJlc2V0GAEgASgIEi4KCHVwc2VydGVkGAIgAygLMhwuZGFzc2llLm93bmVyLnYxLk5ldHdvcmtOb2RlEg8KB3JlbW92ZWQYAyADKAkiEgoQTGlzdE5vZGVzUmVxdWVzdCJAChFMaXN0Tm9kZXNSZXNwb25zZRIrCgVub2RlcxgBIAMoCzIcLmRhc3NpZS5vd25lci52MS5OZXR3b3JrTm9kZSLbAQoLTmV0d29ya1BlZXISDAoEbm9kZRgBIAEoCRIVCg1zaW5jZV91bml4X21zGAYgASgDEhkKEWxhc3Rfc2Vlbl91bml4X21zGAcgASgDEg8KB2luYm91bmQYCCABKAgSDQoFc3RhdGUYCSABKAkSGgoSdGVybWluYXRpb25fcmVhc29uGAogASgJEhIKCmFkdmVydGlzZWQYCyABKAgSDgoGb25saW5lGA8gASgIEiwKB21ldGhvZHMYECADKAsyGy5kYXNzaWUub3duZXIudjEuUGVlck1ldGhvZCJnCgpQZWVyTWV0aG9kEg4KBnNjaGVtZRgBIAEoCRISCgpjcmVkaXRfb3V0GAIgASgEEgwKBG93ZWQYAyABKAMSEQoJd2l0aGRyYXduGAQgASgIEhQKDHdpbmRpbmdfZG93bhgFIAEoCCISChBMaXN0UGVlcnNSZXF1ZXN0IkAKEUxpc3RQZWVyc1Jlc3BvbnNlEisKBXBlZXJzGAEgAygLMhwuZGFzc2llLm93bmVyLnYxLk5ldHdvcmtQZWVyIlIKDE5ldHdvcmtSb3V0ZRIMCgRub2RlGAEgASgJEg4KBnByZWZpeBgCIAEoCRISCgpmaXJzdF9ob3BzGAMgAygJEhAKCGRpc3RhbmNlGAQgASgNIj4KCkxvY2FsUm91dGUSDgoGcHJlZml4GAEgASgJEhAKCGVuZHBvaW50GAIgASgJEg4KBmxlZGdlchgDIAEoCSITChFMaXN0Um91dGVzUmVxdWVzdCJ2ChJMaXN0Um91dGVzUmVzcG9uc2USLQoGcm91dGVzGAEgAygLMh0uZGFzc2llLm93bmVyLnYxLk5ldHdvcmtSb3V0ZRIxCgxsb2NhbF9yb3V0ZXMYAiADKAsyGy5kYXNzaWUub3duZXIudjEuTG9jYWxSb3V0ZSIYChZTdWJzY3JpYmVSb3V0ZXNSZXF1ZXN0ImwKD0Jvb3RzdHJhcFN0YXR1cxIMCgRub2RlGAEgASgJEg4KBmxpc3RlZBgCIAEoCBIdChVyZWdpc3RlcmVkX2F0X3VuaXhfbXMYAyABKAMSHAoUbGlzdF9mZXRjaGVkX3VuaXhfbXMYBCABKAMiHgocR2V0UmVnaXN0cmF0aW9uU3RhdHVzUmVxdWVzdCJyCh1HZXRSZWdpc3RyYXRpb25TdGF0dXNSZXNwb25zZRIMCgRub2RlGAEgASgJEjMKCWJvb3RzdHJhcBgCIAMoCzIgLmRhc3NpZS5vd25lci52MS5Cb290c3RyYXBTdGF0dXMSDgoGbWVtYmVyGAMgASgIIh4KHFN1YnNjcmliZVJlZ2lzdHJhdGlvblJlcXVlc3QiLAocUmVnaXN0ZXJXaXRoQm9vdHN0cmFwUmVxdWVzdBIMCgRub2RlGAEgASgJIh8KHVJlZ2lzdGVyV2l0aEJvb3RzdHJhcFJlc3BvbnNlIicKF1Rlcm1pbmF0ZVBlZXJpbmdSZXF1ZXN0EgwKBG5vZGUYASABKAkiGgoYVGVybWluYXRlUGVlcmluZ1Jlc3BvbnNlIh4KDkJhbk5vZGVSZXF1ZXN0EgwKBG5vZGUYASABKAkiEQoPQmFuTm9kZVJlc3BvbnNlIiAKEFVuYmFuTm9kZVJlcXVlc3QSDAoEbm9kZRgBIAEoCSITChFVbmJhbk5vZGVSZXNwb25zZSIRCg9MaXN0QmFuc1JlcXVlc3QiIQoQTGlzdEJhbnNSZXNwb25zZRINCgVub2RlcxgBIAMoCSKxAQoMUGVlclNldHRpbmdzEhkKEWNvbm5lY3Rvcl9mZWVfcHBtGAIgASgNEhUKDWZ4X3NwcmVhZF9wcG0YAyABKA0SFQoNcmViYWxhbmNlX3BwbRgEIAEoDRITCgtvZmZlcl9zd2FwcxgFIAEoCBIQCghzd2FwcGluZxgGIAEoCBIxCgxzd2FwX3RhcmdldHMYByADKAsyGy5kYXNzaWUub3duZXIudjEuU3dhcFRhcmdldCIwCgpTd2FwVGFyZ2V0Eg4KBmxlZGdlchgBIAEoCRISCgp0YXJnZXRfcHBtGAIgASgNIhgKFkdldFBlZXJTZXR0aW5nc1JlcXVlc3QiSgoXR2V0UGVlclNldHRpbmdzUmVzcG9uc2USLwoIc2V0dGluZ3MYASABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlclNldHRpbmdzIkkKFlNldFBlZXJTZXR0aW5nc1JlcXVlc3QSLwoIc2V0dGluZ3MYASABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlclNldHRpbmdzIkoKF1NldFBlZXJTZXR0aW5nc1Jlc3BvbnNlEi8KCHNldHRpbmdzGAEgASgLMh0uZGFzc2llLm93bmVyLnYxLlBlZXJTZXR0aW5ncyI8CgpTd2Fwc01vdmVkEg4KBmxlZGdlchgBIAEoCRIMCgRwYWlkGAIgASgEEhAKCHJlY2VpdmVkGAMgASgEIhYKFEdldFN3YXBTdGF0dXNSZXF1ZXN0IqcCChVHZXRTd2FwU3RhdHVzUmVzcG9uc2USEQoJYnlfaXRzZWxmGAEgASgIEg0KBXBlZXJzGAIgASgEEhEKCWluX2ZsaWdodBgDIAEoBBIMCgRzZW50GAQgASgEEhEKCWZ1bGZpbGxlZBgFIAEoBBIQCghyZWplY3RlZBgGIAEoBBIcChRwYWlkX3Rob3VnaF9yZWplY3RlZBgHIAEoBBIQCghiYWNrb2ZmcxgIIAEoBBIPCgdyZWZ1c2VkGAkgASgEEhUKDWJlbG93X21pbmltdW0YCiABKAQSEQoJdG9vX2xhcmdlGAsgASgEEg8KB2Ryb3BwZWQYDCABKAQSKgoFbW92ZWQYDSADKAsyGy5kYXNzaWUub3duZXIudjEuU3dhcHNNb3ZlZCKGAQoTU3dhcFdpdGhQZWVyUmVxdWVzdBIMCgRub2RlGAEgASgJEg4KBnBheV9vbhgCIAEoCRIPCgdiYWNrX29uGAMgASgJEg4KBmFtb3VudBgEIAEoBBIWCg5yYXRlX251bWVyYXRvchgFIAEoBBIYChByYXRlX2Rlbm9taW5hdG9yGAYgASgEIoQBChRTd2FwV2l0aFBlZXJSZXNwb25zZRIMCgRwYWlkGAEgASgEEhAKCHJlY2VpdmVkGAIgASgEEhEKCWZ1bGZpbGxlZBgDIAEoBBIQCghyZWplY3RlZBgEIAEoBBInCgVlbmRlZBgFIAEoDjIYLmRhc3NpZS5vd25lci52MS5Td2FwRW5kIo0BChFTZXR0bGVtZW50Q2hhbm5lbBIMCgRub2RlGAEgASgJEhIKCnNldHRsZWRfaW4YAiABKAQSEwoLc2V0dGxlZF9vdXQYAyABKAQSDwoHc2VuZGluZxgEIAEoCBIWCg5zZW5kaW5nX2Ftb3VudBgFIAEoBBIYChBzZW5kaW5nX2F0dGVtcHRzGAYgASgNIh8KHUxpc3RTZXR0bGVtZW50Q2hhbm5lbHNSZXF1ZXN0IlYKHkxpc3RTZXR0bGVtZW50Q2hhbm5lbHNSZXNwb25zZRI0CghjaGFubmVscxgBIAMoCzIiLmRhc3NpZS5vd25lci52MS5TZXR0bGVtZW50Q2hhbm5lbCqKAQoJUGVlclN0YXRlEhoKFlBFRVJfU1RBVEVfVU5TUEVDSUZJRUQQABITCg9QRUVSX1NUQVRFX05PTkUQARIZChVQRUVSX1NUQVRFX1JFUVVFU1RJTkcQAhIVChFQRUVSX1NUQVRFX1BFRVJFRBADEhoKFlBFRVJfU1RBVEVfVEVSTUlOQVRJTkcQBCp8CgdTd2FwRW5kEhgKFFNXQVBfRU5EX1VOU1BFQ0lGSUVEEAASEQoNU1dBUF9FTkRfRE9ORRABEhYKElNXQVBfRU5EX0VYSEFVU1RFRBACEhQKEFNXQVBfRU5EX1JFRlVTRUQQAxIWChJTV0FQX0VORF9USU1FRF9PVVQQBGIGcHJvdG8z");
 
 /**
  * A node in the node table (spec/areas/network.md#node-table): what its link
@@ -784,7 +784,7 @@ export const ListBansResponseSchema: GenMessage<ListBansResponse> = /*@__PURE__*
 
 /**
  * The owner's settings for peers (spec/decisions/exchange-rates.md,
- * spec/decisions/passive-rebalancing.md).
+ * spec/decisions/passive-rebalancing.md, spec/decisions/peer-swaps.md).
  *
  * @generated from message dassie.owner.v1.PeerSettings
  */
@@ -812,6 +812,34 @@ export type PeerSettings = Message<"dassie.owner.v1.PeerSettings"> & {
    * @generated from field: uint32 rebalance_ppm = 4;
    */
   rebalancePpm: number;
+
+  /**
+   * Whether the node offers swaps to its peers: it publishes snapshots of
+   * its quotes to them, and converts their swaps. A periphery node offers
+   * none, whatever this says. On for a new node.
+   *
+   * @generated from field: bool offer_swaps = 5;
+   */
+  offerSwaps: boolean;
+
+  /**
+   * Whether the node swaps with its peers: it reads their snapshots, and a
+   * core node swaps by itself toward its curve's targets, a periphery node
+   * only toward swap_targets. On for a new node.
+   *
+   * @generated from field: bool swapping = 6;
+   */
+  swapping: boolean;
+
+  /**
+   * What a periphery node's own swaps aim for, each asset at most once:
+   * none for a new node, and then it swaps only when its owner asks
+   * (SwapWithPeer). A core node aims for its curve's targets, whatever
+   * these say.
+   *
+   * @generated from field: repeated dassie.owner.v1.SwapTarget swap_targets = 7;
+   */
+  swapTargets: SwapTarget[];
 };
 
 /**
@@ -820,6 +848,38 @@ export type PeerSettings = Message<"dassie.owner.v1.PeerSettings"> & {
  */
 export const PeerSettingsSchema: GenMessage<PeerSettings> = /*@__PURE__*/
   messageDesc(file_dassie_owner_v1_network, 28);
+
+/**
+ * A target of a periphery node's own swaps.
+ *
+ * @generated from message dassie.owner.v1.SwapTarget
+ */
+export type SwapTarget = Message<"dassie.owner.v1.SwapTarget"> & {
+  /**
+   * The asset, by the ledger its holding counts toward: an owner book's,
+   * or one of its own, never a settlement hub's, which counts with the
+   * owner book that funds it. For example "xrpl-testnet-xrp+xrp".
+   *
+   * @generated from field: string ledger = 1;
+   */
+  ledger: string;
+
+  /**
+   * Its share of what the node holds in the assets with a target, as a
+   * weight in parts per million: 1 to 1 000 000. The weights count against
+   * their sum, so they need not add up to a million.
+   *
+   * @generated from field: uint32 target_ppm = 2;
+   */
+  targetPpm: number;
+};
+
+/**
+ * Describes the message dassie.owner.v1.SwapTarget.
+ * Use `create(SwapTargetSchema)` to create a new message.
+ */
+export const SwapTargetSchema: GenMessage<SwapTarget> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_network, 29);
 
 /**
  * @generated from message dassie.owner.v1.GetPeerSettingsRequest
@@ -832,7 +892,7 @@ export type GetPeerSettingsRequest = Message<"dassie.owner.v1.GetPeerSettingsReq
  * Use `create(GetPeerSettingsRequestSchema)` to create a new message.
  */
 export const GetPeerSettingsRequestSchema: GenMessage<GetPeerSettingsRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_network, 29);
+  messageDesc(file_dassie_owner_v1_network, 30);
 
 /**
  * @generated from message dassie.owner.v1.GetPeerSettingsResponse
@@ -849,10 +909,11 @@ export type GetPeerSettingsResponse = Message<"dassie.owner.v1.GetPeerSettingsRe
  * Use `create(GetPeerSettingsResponseSchema)` to create a new message.
  */
 export const GetPeerSettingsResponseSchema: GenMessage<GetPeerSettingsResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_network, 30);
+  messageDesc(file_dassie_owner_v1_network, 31);
 
 /**
- * INVALID_ARGUMENT when out of range.
+ * Every setting at once. INVALID_ARGUMENT when one is out of range, or a
+ * target names no asset, or one twice.
  *
  * @generated from message dassie.owner.v1.SetPeerSettingsRequest
  */
@@ -868,7 +929,7 @@ export type SetPeerSettingsRequest = Message<"dassie.owner.v1.SetPeerSettingsReq
  * Use `create(SetPeerSettingsRequestSchema)` to create a new message.
  */
 export const SetPeerSettingsRequestSchema: GenMessage<SetPeerSettingsRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_network, 31);
+  messageDesc(file_dassie_owner_v1_network, 32);
 
 /**
  * @generated from message dassie.owner.v1.SetPeerSettingsResponse
@@ -885,7 +946,269 @@ export type SetPeerSettingsResponse = Message<"dassie.owner.v1.SetPeerSettingsRe
  * Use `create(SetPeerSettingsResponseSchema)` to create a new message.
  */
 export const SetPeerSettingsResponseSchema: GenMessage<SetPeerSettingsResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_network, 32);
+  messageDesc(file_dassie_owner_v1_network, 33);
+
+/**
+ * What the node moved by swaps on one ledger since it started.
+ *
+ * @generated from message dassie.owner.v1.SwapsMoved
+ */
+export type SwapsMoved = Message<"dassie.owner.v1.SwapsMoved"> & {
+  /**
+   * For example "stub+usd".
+   *
+   * @generated from field: string ledger = 1;
+   */
+  ledger: string;
+
+  /**
+   * What the node paid there and its peers fulfilled.
+   *
+   * @generated from field: uint64 paid = 2;
+   */
+  paid: bigint;
+
+  /**
+   * What came back there: what the node's swap endpoint fulfilled.
+   *
+   * @generated from field: uint64 received = 3;
+   */
+  received: bigint;
+};
+
+/**
+ * Describes the message dassie.owner.v1.SwapsMoved.
+ * Use `create(SwapsMovedSchema)` to create a new message.
+ */
+export const SwapsMovedSchema: GenMessage<SwapsMoved> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_network, 34);
+
+/**
+ * What the swap service did since the node started
+ * (spec/areas/connector.md#the-swap-service), counted.
+ *
+ * @generated from message dassie.owner.v1.GetSwapStatusRequest
+ */
+export type GetSwapStatusRequest = Message<"dassie.owner.v1.GetSwapStatusRequest"> & {
+};
+
+/**
+ * Describes the message dassie.owner.v1.GetSwapStatusRequest.
+ * Use `create(GetSwapStatusRequestSchema)` to create a new message.
+ */
+export const GetSwapStatusRequestSchema: GenMessage<GetSwapStatusRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_network, 35);
+
+/**
+ * @generated from message dassie.owner.v1.GetSwapStatusResponse
+ */
+export type GetSwapStatusResponse = Message<"dassie.owner.v1.GetSwapStatusResponse"> & {
+  /**
+   * Whether the node swaps by itself: a core node with swapping on, or a
+   * periphery node with swap_targets too.
+   *
+   * @generated from field: bool by_itself = 1;
+   */
+  byItself: boolean;
+
+  /**
+   * Peers whose snapshots it reads.
+   *
+   * @generated from field: uint64 peers = 2;
+   */
+  peers: bigint;
+
+  /**
+   * Swaps in flight, its own and the owner's.
+   *
+   * @generated from field: uint64 in_flight = 3;
+   */
+  inFlight: bigint;
+
+  /**
+   * Swaps sent.
+   *
+   * @generated from field: uint64 sent = 4;
+   */
+  sent: bigint;
+
+  /**
+   * Swaps the peer fulfilled.
+   *
+   * @generated from field: uint64 fulfilled = 5;
+   */
+  fulfilled: bigint;
+
+  /**
+   * Swaps rejected.
+   *
+   * @generated from field: uint64 rejected = 6;
+   */
+  rejected: bigint;
+
+  /**
+   * Swaps rejected whose way back the node had fulfilled: it was paid all
+   * the same.
+   *
+   * @generated from field: uint64 paid_though_rejected = 7;
+   */
+  paidThoughRejected: bigint;
+
+  /**
+   * Times it backed off from a peer (T04, T05 and other temporary errors).
+   *
+   * @generated from field: uint64 backoffs = 8;
+   */
+  backoffs: bigint;
+
+  /**
+   * Times a peer refused swaps (F02 and other final errors).
+   *
+   * @generated from field: uint64 refused = 9;
+   */
+  refused: bigint;
+
+  /**
+   * Swaps that came back below their minimum.
+   *
+   * @generated from field: uint64 below_minimum = 10;
+   */
+  belowMinimum: bigint;
+
+  /**
+   * Swaps above a peer's largest packet (F08).
+   *
+   * @generated from field: uint64 too_large = 11;
+   */
+  tooLarge: bigint;
+
+  /**
+   * Outcomes dropped unread, for want of room.
+   *
+   * @generated from field: uint64 dropped = 12;
+   */
+  dropped: bigint;
+
+  /**
+   * By ledger.
+   *
+   * @generated from field: repeated dassie.owner.v1.SwapsMoved moved = 13;
+   */
+  moved: SwapsMoved[];
+};
+
+/**
+ * Describes the message dassie.owner.v1.GetSwapStatusResponse.
+ * Use `create(GetSwapStatusResponseSchema)` to create a new message.
+ */
+export const GetSwapStatusResponseSchema: GenMessage<GetSwapStatusResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_network, 36);
+
+/**
+ * Swaps with a peer for the owner, as the node's own swaps go: from one
+ * method of the peering to another, priced by the peer's snapshot, which
+ * the node reads while swapping is on. Answers once it is done: it sends
+ * for a minute at most, and waits for what it has in flight, so a caller
+ * gives it a timeout of a few minutes. Cancelled, it sends no more; what
+ * it has in flight still resolves. INVALID_ARGUMENT when it is not a swap; NOT_FOUND when the
+ * peering has no available method on either scheme; FAILED_PRECONDITION
+ * when no snapshot of the peer prices the pair; RESOURCE_EXHAUSTED while
+ * too many of the owner's swaps run.
+ *
+ * @generated from message dassie.owner.v1.SwapWithPeerRequest
+ */
+export type SwapWithPeerRequest = Message<"dassie.owner.v1.SwapWithPeerRequest"> & {
+  /**
+   * The peer, by node ID.
+   *
+   * @generated from field: string node = 1;
+   */
+  node: string;
+
+  /**
+   * The scheme of the method it pays on, for example "stub".
+   *
+   * @generated from field: string pay_on = 2;
+   */
+  payOn: string;
+
+  /**
+   * The scheme of the method it is paid back on.
+   *
+   * @generated from field: string back_on = 3;
+   */
+  backOn: string;
+
+  /**
+   * The most it pays, in the units of pay_on's ledger.
+   *
+   * @generated from field: uint64 amount = 4;
+   */
+  amount: bigint;
+
+  /**
+   * The least it takes per unit it pays, in units of back_on's ledger:
+   * rate_numerator / rate_denominator, not 0.
+   *
+   * @generated from field: uint64 rate_numerator = 5;
+   */
+  rateNumerator: bigint;
+
+  /**
+   * @generated from field: uint64 rate_denominator = 6;
+   */
+  rateDenominator: bigint;
+};
+
+/**
+ * Describes the message dassie.owner.v1.SwapWithPeerRequest.
+ * Use `create(SwapWithPeerRequestSchema)` to create a new message.
+ */
+export const SwapWithPeerRequestSchema: GenMessage<SwapWithPeerRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_network, 37);
+
+/**
+ * @generated from message dassie.owner.v1.SwapWithPeerResponse
+ */
+export type SwapWithPeerResponse = Message<"dassie.owner.v1.SwapWithPeerResponse"> & {
+  /**
+   * What the peer took of what the node paid, on pay_on's ledger.
+   *
+   * @generated from field: uint64 paid = 1;
+   */
+  paid: bigint;
+
+  /**
+   * What came back, on back_on's ledger.
+   *
+   * @generated from field: uint64 received = 2;
+   */
+  received: bigint;
+
+  /**
+   * Its packets fulfilled and rejected.
+   *
+   * @generated from field: uint64 fulfilled = 3;
+   */
+  fulfilled: bigint;
+
+  /**
+   * @generated from field: uint64 rejected = 4;
+   */
+  rejected: bigint;
+
+  /**
+   * @generated from field: dassie.owner.v1.SwapEnd ended = 5;
+   */
+  ended: SwapEnd;
+};
+
+/**
+ * Describes the message dassie.owner.v1.SwapWithPeerResponse.
+ * Use `create(SwapWithPeerResponseSchema)` to create a new message.
+ */
+export const SwapWithPeerResponseSchema: GenMessage<SwapWithPeerResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_network, 38);
 
 /**
  * Settlement with one node, both ways
@@ -941,7 +1264,7 @@ export type SettlementChannel = Message<"dassie.owner.v1.SettlementChannel"> & {
  * Use `create(SettlementChannelSchema)` to create a new message.
  */
 export const SettlementChannelSchema: GenMessage<SettlementChannel> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_network, 33);
+  messageDesc(file_dassie_owner_v1_network, 39);
 
 /**
  * @generated from message dassie.owner.v1.ListSettlementChannelsRequest
@@ -954,7 +1277,7 @@ export type ListSettlementChannelsRequest = Message<"dassie.owner.v1.ListSettlem
  * Use `create(ListSettlementChannelsRequestSchema)` to create a new message.
  */
 export const ListSettlementChannelsRequestSchema: GenMessage<ListSettlementChannelsRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_network, 34);
+  messageDesc(file_dassie_owner_v1_network, 40);
 
 /**
  * @generated from message dassie.owner.v1.ListSettlementChannelsResponse
@@ -973,7 +1296,7 @@ export type ListSettlementChannelsResponse = Message<"dassie.owner.v1.ListSettle
  * Use `create(ListSettlementChannelsResponseSchema)` to create a new message.
  */
 export const ListSettlementChannelsResponseSchema: GenMessage<ListSettlementChannelsResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_network, 35);
+  messageDesc(file_dassie_owner_v1_network, 41);
 
 /**
  * @generated from enum dassie.owner.v1.PeerState
@@ -1017,4 +1340,57 @@ export type PeerState = (typeof PeerState)[keyof typeof PeerState] | UnknownEnum
  */
 export const PeerStateSchema: GenEnum<PeerState> = /*@__PURE__*/
   enumDesc(file_dassie_owner_v1_network, 0);
+
+/**
+ * Why a swap the owner asked for ended.
+ *
+ * @generated from enum dassie.owner.v1.SwapEnd
+ */
+export const SwapEnd = {
+  /**
+   * @generated from enum value: SWAP_END_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED: 0,
+
+  /**
+   * All of it was paid.
+   *
+   * @generated from enum value: SWAP_END_DONE = 1;
+   */
+  DONE: 1,
+
+  /**
+   * The peer's snapshot promises no more at the rate asked.
+   *
+   * @generated from enum value: SWAP_END_EXHAUSTED = 2;
+   */
+  EXHAUSTED: 2,
+
+  /**
+   * The peer refused it (F02 or another final error).
+   *
+   * @generated from enum value: SWAP_END_REFUSED = 3;
+   */
+  REFUSED: 3,
+
+  /**
+   * Its time ran out, while it backed off or waited for a snapshot.
+   *
+   * @generated from enum value: SWAP_END_TIMED_OUT = 4;
+   */
+  TIMED_OUT: 4,
+} as const;
+
+/**
+ * Why a swap the owner asked for ended.
+ *
+ * @generated from enum dassie.owner.v1.SwapEnd
+ */
+export type SwapEnd = (typeof SwapEnd)[keyof typeof SwapEnd] | UnknownEnum;
+
+/**
+ * Describes the enum dassie.owner.v1.SwapEnd.
+ */
+export const SwapEndSchema: GenEnum<SwapEnd> = /*@__PURE__*/
+  enumDesc(file_dassie_owner_v1_network, 1);
 

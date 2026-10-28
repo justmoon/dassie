@@ -225,7 +225,7 @@ message ListBansResponse {
 }
 
 // The owner's settings for peers (spec/decisions/exchange-rates.md,
-// spec/decisions/passive-rebalancing.md).
+// spec/decisions/passive-rebalancing.md, spec/decisions/peer-swaps.md).
 message PeerSettings {
   // The fee on what passes from one peer to another, in parts per million
   // of what comes in, rounded down: 0 to 100 000 (10%).
@@ -236,6 +236,31 @@ message PeerSettings {
   // k, how far the owner's inventory moves the rate such a packet converts
   // at from spot, in parts per million: 0 (spot) to 100 000.
   uint32 rebalance_ppm = 4;
+  // Whether the node offers swaps to its peers: it publishes snapshots of
+  // its quotes to them, and converts their swaps. A periphery node offers
+  // none, whatever this says. On for a new node.
+  bool offer_swaps = 5;
+  // Whether the node swaps with its peers: it reads their snapshots, and a
+  // core node swaps by itself toward its curve's targets, a periphery node
+  // only toward swap_targets. On for a new node.
+  bool swapping = 6;
+  // What a periphery node's own swaps aim for, each asset at most once:
+  // none for a new node, and then it swaps only when its owner asks
+  // (SwapWithPeer). A core node aims for its curve's targets, whatever
+  // these say.
+  repeated SwapTarget swap_targets = 7;
+}
+
+// A target of a periphery node's own swaps.
+message SwapTarget {
+  // The asset, by the ledger its holding counts toward: an owner book's,
+  // or one of its own, never a settlement hub's, which counts with the
+  // owner book that funds it. For example "xrpl-testnet-xrp+xrp".
+  string ledger = 1;
+  // Its share of what the node holds in the assets with a target, as a
+  // weight in parts per million: 1 to 1 000 000. The weights count against
+  // their sum, so they need not add up to a million.
+  uint32 target_ppm = 2;
 }
 
 message GetPeerSettingsRequest {}
@@ -244,13 +269,107 @@ message GetPeerSettingsResponse {
   PeerSettings settings = 1;
 }
 
-// INVALID_ARGUMENT when out of range.
+// Every setting at once. INVALID_ARGUMENT when one is out of range, or a
+// target names no asset, or one twice.
 message SetPeerSettingsRequest {
   PeerSettings settings = 1;
 }
 
 message SetPeerSettingsResponse {
   PeerSettings settings = 1;
+}
+
+// What the node moved by swaps on one ledger since it started.
+message SwapsMoved {
+  // For example "stub+usd".
+  string ledger = 1;
+  // What the node paid there and its peers fulfilled.
+  uint64 paid = 2;
+  // What came back there: what the node's swap endpoint fulfilled.
+  uint64 received = 3;
+}
+
+// What the swap service did since the node started
+// (spec/areas/connector.md#the-swap-service), counted.
+message GetSwapStatusRequest {}
+
+message GetSwapStatusResponse {
+  // Whether the node swaps by itself: a core node with swapping on, or a
+  // periphery node with swap_targets too.
+  bool by_itself = 1;
+  // Peers whose snapshots it reads.
+  uint64 peers = 2;
+  // Swaps in flight, its own and the owner's.
+  uint64 in_flight = 3;
+  // Swaps sent.
+  uint64 sent = 4;
+  // Swaps the peer fulfilled.
+  uint64 fulfilled = 5;
+  // Swaps rejected.
+  uint64 rejected = 6;
+  // Swaps rejected whose way back the node had fulfilled: it was paid all
+  // the same.
+  uint64 paid_though_rejected = 7;
+  // Times it backed off from a peer (T04, T05 and other temporary errors).
+  uint64 backoffs = 8;
+  // Times a peer refused swaps (F02 and other final errors).
+  uint64 refused = 9;
+  // Swaps that came back below their minimum.
+  uint64 below_minimum = 10;
+  // Swaps above a peer's largest packet (F08).
+  uint64 too_large = 11;
+  // Outcomes dropped unread, for want of room.
+  uint64 dropped = 12;
+  // By ledger.
+  repeated SwapsMoved moved = 13;
+}
+
+// Swaps with a peer for the owner, as the node's own swaps go: from one
+// method of the peering to another, priced by the peer's snapshot, which
+// the node reads while swapping is on. Answers once it is done: it sends
+// for a minute at most, and waits for what it has in flight, so a caller
+// gives it a timeout of a few minutes. Cancelled, it sends no more; what
+// it has in flight still resolves. INVALID_ARGUMENT when it is not a swap; NOT_FOUND when the
+// peering has no available method on either scheme; FAILED_PRECONDITION
+// when no snapshot of the peer prices the pair; RESOURCE_EXHAUSTED while
+// too many of the owner's swaps run.
+message SwapWithPeerRequest {
+  // The peer, by node ID.
+  string node = 1;
+  // The scheme of the method it pays on, for example "stub".
+  string pay_on = 2;
+  // The scheme of the method it is paid back on.
+  string back_on = 3;
+  // The most it pays, in the units of pay_on's ledger.
+  uint64 amount = 4;
+  // The least it takes per unit it pays, in units of back_on's ledger:
+  // rate_numerator / rate_denominator, not 0.
+  uint64 rate_numerator = 5;
+  uint64 rate_denominator = 6;
+}
+
+// Why a swap the owner asked for ended.
+enum SwapEnd {
+  SWAP_END_UNSPECIFIED = 0;
+  // All of it was paid.
+  SWAP_END_DONE = 1;
+  // The peer's snapshot promises no more at the rate asked.
+  SWAP_END_EXHAUSTED = 2;
+  // The peer refused it (F02 or another final error).
+  SWAP_END_REFUSED = 3;
+  // Its time ran out, while it backed off or waited for a snapshot.
+  SWAP_END_TIMED_OUT = 4;
+}
+
+message SwapWithPeerResponse {
+  // What the peer took of what the node paid, on pay_on's ledger.
+  uint64 paid = 1;
+  // What came back, on back_on's ledger.
+  uint64 received = 2;
+  // Its packets fulfilled and rejected.
+  uint64 fulfilled = 3;
+  uint64 rejected = 4;
+  SwapEnd ended = 5;
 }
 
 // Settlement with one node, both ways

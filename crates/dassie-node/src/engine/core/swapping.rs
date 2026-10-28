@@ -425,6 +425,16 @@ impl Core {
         method_tag(scheme)
     }
 
+    /// Stops the owner's swap `id` sending, as when its time runs out:
+    /// what it has in flight still resolves, and then it ends. Its caller
+    /// went away.
+    pub fn stop_owner_swap(&mut self, id: u64) {
+        let now = self.now_ms();
+        if let Some(job) = self.swapping.owner.get_mut(&id) {
+            job.deadline_ms = job.deadline_ms.min(now);
+        }
+    }
+
     /// Whether the node swaps by itself (spec/decisions/peer-swaps.md): a
     /// core node while its owner lets it swap, toward its curve's targets;
     /// a periphery node only toward targets its owner set.
