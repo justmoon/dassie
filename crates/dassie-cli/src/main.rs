@@ -70,7 +70,8 @@ Commands:
                     certificate, setup, network, ledgers and updates.
   setup-url         Print the link that completes setup in a browser.
   hub [status]      Show the node's account in each settlement hub it is
-                    in, and the floor and ceiling the node keeps it between.
+                    in, and the floor and ceiling the node keeps it between,
+                    a step either side of its target.
                     The commands below name a hub by its <scheme>, the
                     settlement scheme over it that this shows, such as
                     hub-xrpl-testnet-xrp.

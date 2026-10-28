@@ -188,26 +188,30 @@
       <h2 id="your-funds">Your funds in a hub</h2>
       <p>
         Your node moves money between its own account on the XRP Ledger and
-        the hub by itself, to keep the hub account between two marks, both
-        counted in largest packets:
+        the hub by itself. It keeps a generous amount in the hub: a thousand
+        of the largest packets, more than its holds for its peers are likely
+        ever to need. What counts is what your node put in, its holds for
+        peers included. If you have less than that, your node keeps all of it
+        in the hub, apart from a little XRP for a token hub's fees if it is
+        in one. It always keeps enough spendable to answer a request to
+        settle from each peer at once.
       </p>
       <ul>
         <li>
-          <strong>The floor</strong> is what its holds need: enough to answer
-          a request to settle from each peer at once. Below it, your node
-          deposits back up to halfway.
+          <strong>The floor</strong> is a tenth below that amount. Below it,
+          your node deposits from your own account back up to it.
         </li>
         <li>
-          <strong>The ceiling</strong> bounds what it keeps in the hub. What
-          you receive arrives in the hub, and once it takes the account above
-          the ceiling, your node withdraws the excess to your own account,
-          back down to halfway.
+          <strong>The ceiling</strong> is a tenth above it. What you receive
+          arrives in the hub, and once it takes the account above the
+          ceiling, your node withdraws the excess to your own account, back
+          down to it.
         </li>
       </ul>
       <p>
         A payment larger than what the hub holds still goes. Your node first
         moves the difference into the hub from your own account, with enough
-        to bring the hub back to halfway, and the payment starts once the
+        to bring the hub back to that amount, and the payment starts once the
         hub credits it, a few seconds later. It counts what payments still
         have to send as already gone, so it never withdraws what they need.
       </p>
@@ -221,7 +225,7 @@
       </p>
       <pre><code><span class="prompt">$</span>dassie hub status</code></pre>
       <p class="not-yet">
-        Setting the floor and the ceiling yourself, closing your account in
+        Setting how much your node keeps in a hub, closing your account in
         a hub, and being in more than one hub of an asset are not there yet.
         <a href="/docs/project/roadmap/">What's next</a>
       </p>

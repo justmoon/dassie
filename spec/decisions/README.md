@@ -28,6 +28,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [finality-after-any-outage](finality-after-any-outage.md) | A hub finalizes again after any outage, in bounded memory | hubs |
 | [free-receivers-half](free-receivers-half.md) | Free receivers take at most half of the downlinks' places, and a downlink is free until its first settlement | network, settlement, designs/periphery |
 | [full-or-stopped-short](full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
+| [generous-hub-target](generous-hub-target.md) | A node keeps a generous target in its hub, counting what it put in | hubs, settlement, payments |
 | [granite-rocks](granite-rocks.md) | Kopje's rocks are granite: gray blocks with hard edges, stacked, bigger than the dassies, and the brand page says why | website |
 | [headless-setup](headless-setup.md) | An owner who keeps the passphrase on the node's host sets the node up with `dassie setup`, through the node's own setup route | node, http, identity, overview |
 | [hub-founding](hub-founding.md) | The sponsor founds a hub over a stream of its own, and a quorum's signatures of the genesis found it | hubs, peer-protocol, designs/settlement-hubs |
