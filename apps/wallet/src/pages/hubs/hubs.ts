@@ -83,6 +83,36 @@ export function hubIssuerText(
   return undefined;
 }
 
+/**
+ * The newcomers the node refuses over the hub for want of pool, for people
+ * (spec/decisions/slots-by-liquidity.md): its pool, the balance and its
+ * holds toward its peers, covers too few of its peerings over the hub at a
+ * largest packet each, or no more than it has. A short pool says when the
+ * node ends peerings, if it stays short. Nothing while it takes newcomers.
+ */
+export function hubLiquidityText(
+  status: Pick<HubStatus, "liquidity">,
+  nowMs: number,
+): string | undefined {
+  const liquidity = status.liquidity;
+  if (!liquidity) return undefined;
+  const { refusingCorePeers, refusingDownlinks } = liquidity;
+  if (!refusingCorePeers && !refusingDownlinks) return undefined;
+  const whom = refusingCorePeers ? "new peers" : "new downlinks";
+  const peerings = liquidity.peerings === 1 ? "peering" : "peerings";
+  const covers =
+    `Your node's funds in this hub cover ${liquidity.covered} of its ${liquidity.peerings} ${peerings} here at one largest packet each`;
+  if (liquidity.shortSinceUnixMs === undefined) {
+    return `${covers}, and no more, so it takes no ${whom} over this hub until more funds reach it.`;
+  }
+  const ends = liquidity.endsFromUnixMs === undefined
+    ? ""
+    : ` If it is still short ${
+      relativeTime(liquidity.endsFromUnixMs, nowMs)
+    }, your node ends as many peerings as bring it back to a packet each, the downlinks first.`;
+  return `${covers}, so it takes no ${whom} over this hub, and your own account cannot add to them.${ends} Fund your own account, or let your node move funds, to keep them.`;
+}
+
 /** How the node's account stands with the hub, for people, with the
  * issuer's freeze first: a frozen hub's account follows the hub all the
  * same, but takes on nothing until the thaw, which the freeze's own text

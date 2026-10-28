@@ -1825,6 +1825,9 @@ impl Sim {
                 dassie_peer::wire::TerminationReason::ShortOfRoom => {
                     self.count("peerings ended for room")
                 }
+                dassie_peer::wire::TerminationReason::ShortOfLiquidity => {
+                    self.count("peerings ended for liquidity")
+                }
                 _ => {}
             }
         }

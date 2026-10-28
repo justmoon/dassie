@@ -22,6 +22,7 @@ mod hubs;
 mod incoming;
 mod invariants;
 mod ledgers;
+mod liquidity;
 mod names;
 mod own_snapshot;
 mod owner_payments;
@@ -66,7 +67,7 @@ pub use hub_funding::{Direction, Move};
 /// mapping from a hub to its owner book.
 #[cfg(feature = "testing")]
 pub(crate) use hub_moves::owner_book_ledger;
-pub use hub_moves::{HubHold, HubStatus};
+pub use hub_moves::{HubHold, HubLiquidity, HubStatus};
 
 /// The owner book a settlement hub's ledger counts with, as one holding of
 /// its asset, or `None` for a ledger that is no hub's: every other ledger
@@ -472,6 +473,9 @@ pub struct Core {
     /// owner book of its asset, by the scheme over the hub: at most
     /// `dassie_peer::MAX_OWN_HUBS`.
     funding: BTreeMap<Name, hub_funding::Funding>,
+    /// Each hub's pool against its peerings: the newcomers the node
+    /// refuses, and whom it ends (spec/decisions/slots-by-liquidity.md).
+    liquidity: liquidity::Liquidity,
     /// Pushing the node's snapshots to the peers subscribed to them
     /// (spec/areas/network.md#snapshot-subscriptions).
     publishing: snapshots::Publishing,
@@ -628,6 +632,7 @@ impl Core {
             sweeps: Sweeps::DUE,
             events: Events::new(),
             funding: BTreeMap::new(),
+            liquidity: liquidity::Liquidity::default(),
             publishing: snapshots::Publishing::new(),
             feed_port,
         };
@@ -734,6 +739,7 @@ impl Core {
             self.schemes_deadline(),
             self.removals_deadline(),
             self.funding_deadline(),
+            self.liquidity_deadline(),
             self.snapshot_deadline(),
             self.swap_deadline(),
             self.work_left(),
@@ -776,6 +782,7 @@ impl Core {
         // channel, funds the requests we could not fund in full.
         self.answer_late();
         self.fund_hub();
+        self.review_liquidity();
         self.expire(self.now_ms);
         self.hub_waits(self.now_ms);
         self.drain_local(self.now_ms);

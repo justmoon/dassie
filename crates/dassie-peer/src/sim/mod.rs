@@ -95,6 +95,10 @@ pub struct StubHooks {
     /// Whether the node refuses every further method of a peering, as a
     /// node does whose accounts for one do not fit.
     pub refuse_methods: bool,
+    /// The schemes the node takes no newcomer on, each with whether of
+    /// downlinks (`true`) or of core nodes, as a node whose pool in a hub
+    /// covers no more peers (spec/decisions/slots-by-liquidity.md).
+    pub shut: BTreeSet<(SchemeId, bool)>,
     /// Whether the node offers swaps, and swaps: it takes subscriptions to
     /// its snapshots, and subscribes to those of every peering with two
     /// methods or more, each scheme standing for a ledger of its own
@@ -190,6 +194,10 @@ impl PeeringHooks for StubHooks {
 
     fn wants_method(&self, _: NodeId, _: bool, _: SchemeId) -> bool {
         !self.refuse_methods
+    }
+
+    fn takes_newcomer(&self, scheme: SchemeId, downlink: bool) -> bool {
+        !self.shut.contains(&(scheme, downlink))
     }
 
     fn drained(&self, peer: NodeId) -> bool {

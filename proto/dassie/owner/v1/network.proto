@@ -89,8 +89,8 @@ message NetworkPeer {
   // (spec/decisions/peering-lifecycle.md).
   string state = 9;
   // Why it is being ended, if it is: "owner", "unresponsive", "not-peered",
-  // "short-of-room"
-  // or "unspecified".
+  // "short-of-room", "short-of-liquidity" (this node's own pool in a hub,
+  // spec/decisions/slots-by-liquidity.md) or "unspecified".
   string termination_reason = 10;
   // Whether this node lists the peer as a neighbor in its link state, so
   // others route through it: it is confirmed, and not held down.

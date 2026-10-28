@@ -93,6 +93,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [settlement-methods](settlement-methods.md) | A peering settles over every hub both nodes are in, and a packet keeps its ledger where it can | network, settlement, connector, peer-protocol |
 | [settlement-offers](settlement-offers.md) | A link state offers the schemes a node takes peers on in one list, each with its scheme's own details | peer-protocol, network, designs/settlement-hubs |
 | [signed-rejects](signed-rejects.md) | A payee signs a release with every Reject over a hub, and a payer disputes a claim of what it released | hubs, designs/settlement-hubs, peer-protocol, connector |
+| [slots-by-liquidity](slots-by-liquidity.md) | A node funds a largest packet per peer in each hub, and takes no more peers than its pool covers once it cannot, ending downlinks first | network, hubs, settlement |
 | [stub-in-debug-builds](stub-in-debug-builds.md) | The stub scheme runs only in builds with debug assertions | settlement, node, wallet, testing |
 | [synced-before-peering](synced-before-peering.md) | A node peers on a scheme only once it has seen its ledger | settlement, network, xrpl |
 | [thresholds-in-packets](thresholds-in-packets.md) | A link's thresholds are counted in its largest packet | settlement, connector |

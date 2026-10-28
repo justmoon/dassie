@@ -361,11 +361,21 @@
           Fewer validators answering than the hub has: some are unreachable.
           A hub works on as long as a quorum answers.
         </li>
+        <li>
+          <samp>takes no new downlinks</samp> or <samp>takes no new peers</samp>,
+          with how many of its peerings the pool covers: your node's funds in
+          the hub would not cover one more peer at a largest packet each, and
+          your own account cannot add to them. Fund your own account, or
+          deposit into the hub. If the pool stays short of its peerings,
+          <code>dassie hub</code> says from when the node ends some:
+          <a href="/docs/concepts/peers/#as-many-peers-as-funds">As many peers as your funds cover</a>.
+        </li>
       </ul>
       <p>
         <code>dassie hub</code> shows each hub in full: the balance and
-        reserve, what was deposited and withdrawn, and the floor and ceiling
-        the node keeps its account between.
+        reserve, what was deposited and withdrawn, the floor and ceiling
+        the node keeps its account between, and the pool against the
+        peerings over the hub.
       </p>
 
       <h3 id="hint-rate-feed">Rate feed</h3>

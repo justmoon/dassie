@@ -363,6 +363,15 @@ fn settlements_and_terminations_are_pinned() {
         Content::decode_exact(&[0x89, 0x63]).unwrap(),
         Content::PeeringTermination(TerminationReason::Unspecified)
     );
+    // spec/decisions/slots-by-liquidity.md: an end for the sender's own
+    // liquidity says no reason, and the code its store keeps it under
+    // means nothing on the wire.
+    let liquidity = Content::PeeringTermination(TerminationReason::ShortOfLiquidity);
+    assert_eq!(to_hex(&liquidity.to_vec()), "8900");
+    assert_eq!(
+        Content::decode_exact(&[0x89, 0x05]).unwrap(),
+        Content::PeeringTermination(TerminationReason::Unspecified)
+    );
     assert_eq!(Kind::from_tag(9), Some(Kind::PeeringTermination));
     // spec/decisions/own-fulfills.md: a settlement request names its scheme
     // alone.

@@ -5,6 +5,7 @@ import {
   ErrorCode,
   GetHubPayoutResponseSchema,
   HubHoldSchema,
+  HubLiquiditySchema,
   HubMove_Direction as Direction,
   HubMoveSchema,
   HubPayoutBundleSchema,
@@ -26,6 +27,7 @@ import {
   hubConnectionText,
   hubCurrency,
   hubIssuerText,
+  hubLiquidityText,
   hubStandingText,
   isGasCheck,
   moveText,
@@ -101,6 +103,39 @@ test("a hub its token's issuer froze says so, and since when", () => {
   assertMatch(
     hubIssuerText({ escrowHeld: true }, NOW)!,
     /pays out nothing until the issuer lets go/,
+  );
+});
+
+test("a pool that covers no more peerings says whom it refuses", () => {
+  assertEquals(hubLiquidityText({}, NOW), undefined);
+  const covering = create(HubLiquiditySchema, {
+    pool: 300_000_000n,
+    peerings: 3,
+    covered: 4n,
+  });
+  assertEquals(hubLiquidityText({ liquidity: covering }, NOW), undefined);
+  const full = { ...covering, covered: 3n, refusingDownlinks: true };
+  assertMatch(
+    hubLiquidityText({ liquidity: full }, NOW)!,
+    /cover 3 of its 3 peerings here at one largest packet each, and no more, so it takes no new downlinks/,
+  );
+  const short = {
+    ...full,
+    covered: 1n,
+    refusingCorePeers: true,
+    shortSinceUnixMs: BigInt(NOW - 60_000),
+    endsFromUnixMs: BigInt(NOW + 540_000),
+  };
+  const text = hubLiquidityText({ liquidity: short }, NOW)!;
+  assertMatch(text, /takes no new peers over this hub/);
+  assertMatch(text, /still short in 9 min, your node ends/);
+  // A node outside the core, without downlinks, ends none.
+  assertEquals(
+    hubLiquidityText(
+      { liquidity: { ...short, endsFromUnixMs: undefined } },
+      NOW,
+    )!.includes("ends"),
+    false,
   );
 });
 

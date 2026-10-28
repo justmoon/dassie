@@ -228,7 +228,11 @@
         <li>you end it, or ban the peer;</li>
         <li>the peer has not been heard from for a day;</li>
         <li>its room has stayed short for a day while it could be reached;</li>
-        <li>or the two of you no longer share a hub to settle over.</li>
+        <li>the two of you no longer share a hub to settle over;</li>
+        <li>
+          or your node's funds in a hub have stayed too short for its peers
+          there, as below.
+        </li>
       </ul>
       <p>
         Before your node tells the peer, it waits for its own settlements to
@@ -254,6 +258,59 @@
       </p>
       <p
         class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peering-lifecycle.md">Why it works this way</a>, and how <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/ending-a-peering.md">a peering ends</a>.</p>
+
+      <h2 id="as-many-peers-as-funds">As many peers as your funds cover</h2>
+      <p>
+        A hold below one largest packet carries no payment. So over each hub,
+        your node keeps at least one largest packet for each peer: your
+        balance in the hub and what it holds for your peers. A peer that
+        settles over two hubs counts toward each.
+      </p>
+      <ul>
+        <li>
+          <strong>Funds first.</strong> When the hub holds less than that,
+          and one packet more to take a newcomer, your node deposits the
+          rest from your own account, even past the hub's ceiling, and never
+          withdraws it. While your own account can pay, nothing below
+          happens.
+        </li>
+        <li>
+          <strong>Newcomers next.</strong> When the funds would not cover
+          one more peer, your node takes no new one over that hub, and asks
+          none. It refuses nodes that use yours as their uplink first, and
+          other core nodes only once the funds no longer cover even the core
+          nodes it has. A node with no core peer over the hub still takes
+          one.
+        </li>
+        <li>
+          <strong>Back with room to spare.</strong> Your node takes
+          newcomers again only once the funds cover them with a few packets
+          to spare, so one settlement either way does not flip it.
+        </li>
+        <li>
+          <strong>Ending last.</strong> Only if the funds stay short of a
+          packet for every peer while no deposit can come (your own account
+          is empty, or the node's own moves are off, paused or backing off)
+          for about ten minutes, long enough for a deposit of yours to land,
+          does your node end as many
+          peerings as bring it back to a packet each. Nodes that use yours
+          as their uplink go first, those that never paid it before those
+          that did, the newest first; other core nodes only once none of
+          those is left, those that asked yours first, and never the last.
+          A peer you also share another hub with loses only its link over
+          this one. Your node collects first, as always, and the peer is not
+          kept away. A node outside the core ends none of its uplinks.
+        </li>
+      </ul>
+      <p>
+        Who goes is decided by what nobody can fake: how long a peering has
+        lasted, who asked, and whether the peer ever paid. It matters only
+        once your own account cannot refill the hub. The wallet's Hubs page and
+        <code>dassie hub</code> show where each hub stands (see
+        <a href="/docs/wallet/hubs/#short-of-funds">Your hubs</a>).
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/slots-by-liquidity.md">Why it works this way</a>, and what it accepts in return.</p>
     </main>
     <!-- footer -->
   </body>
