@@ -15,7 +15,10 @@ use crate::sim::checks::{check_held, check_hub_credit};
 use crate::sim::{START, Settling, Sim, key};
 
 /// The ledgers of the second and third stubs, in that order.
-const LEDGERS: [LedgerId; 2] = [LedgerId::HubXrplTestnetXrp, LedgerId::HubXrplTestnetDsusdUsd];
+const LEDGERS: [LedgerId; 2] = [
+    LedgerId::HubXrplTestnetXrp,
+    LedgerId::HubXrplTestnetDsusdUsd,
+];
 
 /// Two nodes that share three pretend hubs, the stub's and the second and
 /// third stubs', whose messages book nothing if `bare`. Node 0 is held off
@@ -103,6 +106,7 @@ fn a_settlement_executed_behind_another_message_survives_a_restart() {
     let before = held(&sim);
     let settled = settle_on_both(&mut sim);
     assert!(settled.iter().all(|amount| *amount > 0), "{settled:?}");
+    assert_eq!(sim.core(0).settle.notices.len(), 1, "no notice waits");
     sim.crash(0);
     sim.start(0);
     sim.run_until(sim.now + 10_000);
@@ -127,10 +131,7 @@ fn a_settlement_executed_behind_another_message_survives_a_restart() {
         "the message on its way never arrived"
     );
     let sent = sim.core(0).peer.channel(&one).unwrap().settled_out;
-    assert_eq!(
-        sim.core(1).peer.channel(&zero).unwrap().settled_in,
-        sent
-    );
+    assert_eq!(sim.core(1).peer.channel(&zero).unwrap().settled_in, sent);
     check_hub_credit(&sim).unwrap();
 }
 
@@ -145,6 +146,7 @@ fn a_notice_behind_another_message_follows_it_in_order() {
     let first = sim.core(0).peer.channel(&one).unwrap().settled_out + 1;
     let settled = settle_on_both(&mut sim);
     assert!(settled.iter().all(|amount| *amount > 0), "{settled:?}");
+    assert_eq!(sim.core(0).settle.notices.len(), 1, "no notice waits");
     // Node 0 settles nothing more meanwhile.
     sim.step(0, |core| {
         for scheme in [STUB_TWO, STUB_THREE] {

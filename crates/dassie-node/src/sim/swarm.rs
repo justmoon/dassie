@@ -864,10 +864,25 @@ fn paid_on(settling: Settling, rng: &mut SeededRng) -> LedgerId {
     }
 }
 
-/// Crashes a running node: half the time one at either end of a payment
-/// still under way, if there is one.
+/// Crashes a running node: half the time one whose settlement's notice
+/// waits behind an earlier message to its peer, if there is one, a moment
+/// a restart must not undo the settlement in
+/// (spec/areas/settlement.md#outgoing-settlements); otherwise half the time
+/// one at either end of a payment still under way, if there is one.
 fn crash(sim: &mut Sim, rng: &mut SeededRng) {
     let running: Vec<usize> = (0..sim.nodes.len()).filter(|i| up(sim, *i)).collect();
+    let noticing: Vec<usize> = running
+        .iter()
+        .copied()
+        .filter(|index| sim.core(*index).notices_waiting())
+        .collect();
+    if !noticing.is_empty() && rng.below(2) == 0 {
+        if let Some(&victim) = choose(&noticing, rng) {
+            sim.count("crashes with a notice waiting");
+            sim.crash(victim);
+        }
+        return;
+    }
     let paying: Vec<usize> = sim
         .payments
         .iter()
