@@ -6,12 +6,18 @@
 
 use dassie_hub::member::SCHEME_ID;
 use dassie_ledger::LedgerId;
+use dassie_node_core::config::Realm;
 use dassie_settlement::policy;
 use dassie_xrpl::UNITS_PER_DROP;
 
 use super::super::payers::NewOutgoing;
 use super::super::{Core, EngineError, NewIncoming};
-use super::{Policies, Validators, deposits, funded_ledger, funding_core, wait_and_close};
+use std::sync::Arc;
+
+use super::{
+    Policies, Store, Validators, core_taking_downlinks, deposits, follow_xrpl, funded_ledger,
+    funding_core, holding_core, wait_and_close,
+};
 use crate::store::{ForeignAmount, OutgoingState, PaymentId};
 
 /// What the owner holds on the hub's ledger, in its units.
@@ -194,4 +200,53 @@ fn a_hub_with_no_progress_lately_draws_no_deposit_for_payments() {
     hub.account(&mut core, balance, opening);
     wait_and_close(&mut core, &mut ledger, 1_000);
     assert_eq!(deposits(&mut ledger, escrow).len(), 2, "the hub goes on");
+}
+
+// A restart forgets what each validator named, so a hub that stopped looks
+// fresh to an account that only started to hear it: a payment left waiting
+// across the restart draws no deposit while the validators name the block
+// they named before it, and does once the account hears the hub go on.
+#[test]
+fn after_a_restart_a_quiet_hub_draws_no_deposit_for_payments() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut ledger, _) = funded_ledger();
+    let (mut core, mut hub) = holding_core(&store, &mut ledger);
+    let escrow = hub.escrow();
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let floor = policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0) / UNITS_PER_DROP;
+    let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
+    let balance = floor.midpoint(ceiling);
+    hub.account(&mut core, balance, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let debit = in_hub(&core) + 2 * ceiling * UNITS_PER_DROP;
+    let id = pay_self(&mut core, debit).unwrap();
+    wait_and_close(&mut core, &mut ledger, 6 * 60 * 1_000);
+    assert_eq!(deposits(&mut ledger, escrow).len(), 1, "quiet: no deposit");
+    core.flush();
+    let now = core.now_ms() + 1_000;
+    drop(core);
+
+    let refused = dassie_node_core::config::LiveRealm::Refused;
+    let mut core = core_taking_downlinks(Arc::clone(&store), Realm::Test, refused, now);
+    follow_xrpl(&mut core, &mut ledger);
+    assert!(core.store.outgoing_payment(id).unwrap().is_some());
+    hub.height -= 1;
+    hub.account(&mut core, balance, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    assert_eq!(core.hub_refill(LedgerId::HubXrplTestnetXrp), 0);
+    assert_eq!(
+        deposits(&mut ledger, escrow).len(),
+        1,
+        "the block it named before"
+    );
+
+    // A rise the account saw itself: two higher blocks, as a hub that goes
+    // on names within seconds.
+    for _ in 0..2 {
+        hub.account(&mut core, balance, opening);
+        wait_and_close(&mut core, &mut ledger, 1_000);
+    }
+    assert_eq!(deposits(&mut ledger, escrow).len(), 2, "a higher one");
 }

@@ -342,6 +342,10 @@ struct Tip {
     height: u64,
     first_ms: u64,
     last_ms: u64,
+    /// Whether the account heard the validator name a lower block before
+    /// it, since it started: the hub went on as it listened. The first tip
+    /// a validator names after a start may be one it named for an hour.
+    rose: bool,
 }
 
 /// The last expiry a commitment claimed on a hub frozen since the block
@@ -747,17 +751,19 @@ impl HubAccount {
     }
 
     /// Whether the hub made progress lately: f + 1 of its validators, one
-    /// of them honest, named a newer final block within `within_ms` of
-    /// now, as the account heard them. A hub that has stopped is not, long
-    /// before it is judged [stalled](Self::stalled), so the node can tell
-    /// whether money it puts in now would be credited.
+    /// of them honest, named a higher final block than before within
+    /// `within_ms` of now, as the account heard them since it started. A
+    /// hub that has stopped is not, long before it is judged
+    /// [stalled](Self::stalled), so the node can tell whether money it puts
+    /// in now would be credited; nor is one the account only started to
+    /// hear, whose tips may be an hour old.
     #[must_use]
     pub fn progressing(&self, within_ms: u64) -> bool {
         let lately = self
             .tips
             .iter()
             .flatten()
-            .filter(|tip| self.now_ms.saturating_sub(tip.first_ms) < within_ms)
+            .filter(|tip| tip.rose && self.now_ms.saturating_sub(tip.first_ms) < within_ms)
             .count();
         lately >= self.set.one_honest()
     }
@@ -1296,6 +1302,7 @@ impl HubAccount {
                     height,
                     first_ms: now,
                     last_ms: now,
+                    rose: tip.is_some(),
                 });
             }
         }
