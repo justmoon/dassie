@@ -1,7 +1,8 @@
 //! The peer node never panics on what other nodes send it
 //! (spec/decisions/tigerstyle.md): requests and the responses to its own,
-//! arbitrary or broken from valid ones, on a small simulated network that
-//! checks the nodes' invariants after every step.
+//! arbitrary or broken from valid ones, handed to one node of a small
+//! network, fresh or formed. The node checks its invariants after each
+//! request it takes, and after each round of responses.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -11,9 +12,11 @@ use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
 use dassie_oer::Decode;
-use dassie_peer::Config;
 use dassie_peer::sim::{Arriving, Network, forger, key, url};
-use dassie_peer::wire::{Content, Entry, NodeInfo, SchemeId, TerminationReason, sign_node_info};
+use dassie_peer::wire::{
+    Content, Entry, NodeInfo, SchemeId, SignedNodeInfo, TerminationReason, sign_node_info,
+};
+use dassie_peer::{Config, Failure, InboundId, Output, PeerNode, Request, Response};
 use proptest::prelude::*;
 use support::inputs::{KINDS, Mutation, content, mutate, mutations};
 
@@ -131,57 +134,129 @@ proptest! {
     }
 }
 
+/// The nodes of the network.
+const COUNT: usize = 3;
+
+/// The rounds a node's requests are answered in, each a second of its own
+/// clock.
+const ROUNDS: u64 = 8;
+
+/// The most timers a round fires: a bound, never reached.
+const MAX_TIMERS: usize = 1_000;
+
+/// Takes the requests `node` put out before the network carries them; its
+/// deferred replies are dropped.
+fn take_requests(node: &mut PeerNode, out: &mut Vec<Request>) {
+    while let Some(output) = node.poll_output() {
+        if let Output::Request(request) = output {
+            out.push(request);
+        }
+    }
+}
+
+/// Node `from`'s `request`, answered at once by the node it went to, as
+/// that node answers it: a deferred answer, or one to a node outside the
+/// network, as a request that may have arrived.
+fn answer_of(network: &mut Network, from: usize, request: &Request) -> Result<Response, Failure> {
+    let Some(to) = (0..COUNT).find(|index| key(*index).node_id() == request.to) else {
+        return Err(Failure::Unknown);
+    };
+    let reply = network.inbound(to, &Arriving::of(&key(from), request.body.clone()));
+    if reply.status == 0 {
+        return Err(Failure::Unknown);
+    }
+    Ok(Response {
+        status: reply.status,
+        body: reply.body,
+    })
+}
+
 proptest! {
-    // Each case runs three nodes for two minutes: fewer cases than the
-    // default.
+    // Each case runs the network's forming for up to 30 s first: fewer
+    // cases than the default.
     #![proptest_config(ProptestConfig::with_cases(64))]
 
-    // Every response with status 200, or every second or third, carries a
-    // body of the responder's choosing, which the connection takes as the
-    // responder's. From the start,
-    // registrations, list polls, peering and probes get them; after the
-    // network formed, gossip, packets, settlements and the end
-    // of a peering.
+    // The response handler alone, from a node of the network as it forms
+    // on one seed: at its start, part way, or formed. Node `index` asks
+    // what its timers ask over a few seconds of its own clock; the
+    // bootstrap node also takes the others' registrations, and a node with
+    // peers sends them packets, responses and settlements and ends a
+    // peering. Each request is answered at once by the node it went to, as
+    // that node answers it, and the body of every response with status
+    // 200, or of every second or third, is one of the responder's choosing,
+    // which the connection takes as the responder's: registrations, list
+    // polls, peering, probes, gossip, packets, settlements and the end of a
+    // peering get them. The node checks its invariants once a round, after
+    // it took the round's responses and fired its timers.
     #[test]
     fn responses_never_panic(
-        seed in any::<u64>(),
-        from_start in any::<bool>(),
+        index in 0..COUNT,
+        settled in prop_oneof![Just(0u64), 0..30_000u64, Just(30_000u64)],
         every in 1..=3usize,
         answers in proptest::collection::vec(answer(), 1..=8),
     ) {
-        let mut network = Network::new(seed, 3, 1, Config::DEV);
-        if !from_start {
-            settle(&mut network, 30_000);
-        }
-        let mut count = 0usize;
-        network.tamper = Some(Box::new(move |body: &mut Vec<u8>| {
-            count += 1;
-            if !count.is_multiple_of(every) {
-                return;
+        let mut network = Network::new(1, COUNT, 1, Config::DEV);
+        settle(&mut network, settled);
+        let start = network.clock(index);
+        // Each registration new to the bootstrap node starts a probe.
+        let registrations: Vec<Arriving> = (1..COUNT)
+            .filter(|_| index == 0)
+            .map(|from| {
+                let signed = Sender::new(key(from), url(from)).link_state(&network);
+                let info = SignedNodeInfo::decode_exact(&signed).unwrap();
+                Arriving::new(&key(from), &Content::Registration(info))
+            })
+            .collect();
+        let mut pending = Vec::new();
+        network.act_with_hooks(index, |node, hooks, now| {
+            for (id, registration) in (u64::MAX - 10..).zip(&registrations) {
+                let from = registration.from;
+                node.handle_inbound(now, hooks, InboundId(id), from, &registration.body, None);
             }
-            *body = match &answers[(count / every) % answers.len()] {
-                Answer::Arbitrary(bytes) => bytes.clone(),
-                Answer::Broken(mutations) => mutate(body, mutations),
-            };
-        }));
-        settle(&mut network, 30_000);
-        for index in 0..3 {
-            network.act(index, |node, now| {
-                let peers: Vec<NodeId> = node.peers().map(|(peer, _)| *peer).collect();
-                for peer in &peers {
-                    let _ = node.send_packet(now, peer, 1, &[12, 0], 10_000);
-                    node.send_response(now, peer, 2, &[13, 0]);
-                    node.send_response(now, peer, 4, &[14, 0]);
-                    let _ = node.send_settlement(now, peer, stub(), 1, Vec::new());
+            let peers: Vec<NodeId> = node.peers().map(|(peer, _)| *peer).collect();
+            for peer in &peers {
+                let _ = node.send_packet(now, peer, 1, &[12, 0], 10_000);
+                node.send_response(now, peer, 2, &[13, 0]);
+                node.send_response(now, peer, 4, &[14, 0]);
+                let _ = node.send_settlement(now, peer, stub(), 1, Vec::new());
+            }
+            if let Some(peer) = peers.first() {
+                node.terminate(now, peer, TerminationReason::Owner);
+            }
+            take_requests(node, &mut pending);
+        });
+        let mut count = 0usize;
+        for round in 1..=ROUNDS {
+            let mut answered = Vec::new();
+            for request in pending.drain(..) {
+                let mut result = answer_of(&mut network, index, &request);
+                if let Ok(response) = &mut result
+                    && response.status == 200
+                {
+                    count += 1;
+                    if count.is_multiple_of(every) {
+                        response.body = match &answers[(count / every) % answers.len()] {
+                            Answer::Arbitrary(bytes) => bytes.clone(),
+                            Answer::Broken(mutations) => mutate(&response.body, mutations),
+                        };
+                    }
                 }
-                if let Some(peer) = peers.first() {
-                    node.terminate(now, peer, TerminationReason::Owner);
+                answered.push((request.id, result));
+            }
+            let until = start + round * 1_000;
+            network.act_with_hooks(index, |node, hooks, now| {
+                for (id, result) in answered {
+                    node.handle_response(now, hooks, id, result);
                 }
+                for _ in 0..MAX_TIMERS {
+                    match node.poll_timeout() {
+                        Some(at) if at <= until => node.handle_timeout(at, hooks),
+                        _ => break,
+                    }
+                }
+                take_requests(node, &mut pending);
             });
         }
-        settle(&mut network, 60_000);
-        for index in 0..3 {
-            network.node(index).check_invariants();
-        }
+        network.node(index).check_invariants();
     }
 }

@@ -1328,6 +1328,72 @@ mod tests {
         assert_eq!(registrar.granted().count(), 0);
     }
 
+    /// A registrar that granted `alice` to node 1, and the name's expiry.
+    fn granted_to_one() -> (Registrar, u64) {
+        let mut registrar = registrar();
+        let won = commit(&mut registrar, 1, &alice(), START);
+        unseal(&mut registrar, 1, &alice(), START + 1).unwrap();
+        run(&mut registrar, won.window_end_ms);
+        let expires = registrar.granted().next().unwrap().expires_ms;
+        (registrar, expires)
+    }
+
+    // spec/designs/names.md#5-holding-a-name: each deadline turns at its
+    // millisecond, by the registrar's clock. A renewal extends the name
+    // from `renew_before_ms` before its expiry, not a millisecond earlier;
+    // the name is listed until its expiry, then held for its holder alone
+    // through its grace, and freed at the grace's end, when its holder can
+    // no longer renew it and another node's commitment may win it.
+    #[test]
+    fn expiry_renewal_and_grace_turn_at_their_deadlines() {
+        let (mut registrar, expires) = granted_to_one();
+        let due = expires - CONFIG.renew_before_ms;
+        let renewal = |expires_ms, extended| {
+            Ok(Renewal {
+                expires_ms,
+                extended,
+            })
+        };
+        assert_eq!(
+            registrar.renew(&node(1), &alice(), due - 1),
+            renewal(expires, false)
+        );
+        let (mut renewed, _) = granted_to_one();
+        assert_eq!(
+            renewed.renew(&node(1), &alice(), due),
+            renewal(expires + CONFIG.ttl_ms, true)
+        );
+        // Listed until its expiry.
+        assert!(run(&mut registrar, expires - 1).is_empty());
+        assert_eq!(holder(&mut registrar, &alice(), expires - 1), Some(node(1)));
+        assert!(run(&mut registrar, expires).is_empty());
+        assert_eq!(holder(&mut registrar, &alice(), expires), None);
+        // Held through its grace: another node is no holder of it.
+        let free_at = expires + CONFIG.grace_ms;
+        assert!(run(&mut registrar, free_at - 1).is_empty());
+        assert_eq!(
+            registrar.renew(&node(2), &alice(), free_at - 1),
+            Err(RenewError::NotHolder)
+        );
+        // Freed at its end.
+        let freed = Happened::Freed {
+            name: alice(),
+            holder: node(1),
+        };
+        assert_eq!(run(&mut registrar, free_at), vec![freed]);
+        assert_eq!(
+            registrar.renew(&node(1), &alice(), free_at),
+            Err(RenewError::NotHeld)
+        );
+        let later = commit(&mut registrar, 2, &alice(), free_at);
+        unseal(&mut registrar, 2, &alice(), free_at + 1).unwrap();
+        run(&mut registrar, later.window_end_ms);
+        assert_eq!(
+            holder(&mut registrar, &alice(), later.window_end_ms),
+            Some(node(2))
+        );
+    }
+
     // The log's positions and times only rise, whatever the clock says.
     #[test]
     fn positions_and_times_only_rise() {

@@ -258,16 +258,12 @@ pub const fn anyone_may_send(kind: Kind) -> bool {
     kind.is_read_only() || matches!(kind, Kind::LinkStateUpdate | Kind::NameCommit)
 }
 
-/// Rewrites a response's body.
-pub type Tamper = Box<dyn FnMut(&mut Vec<u8>)>;
-
 /// Rewrites the body of a response from one node to another, as a faulty
 /// node would that tells each asker something else: given the node that
 /// answers, the node that asked and the kind of request.
 pub type Forge = Box<dyn FnMut(usize, usize, Kind, &mut Vec<u8>)>;
 
-/// A request sent while tampering or forging: the node it went to and its
-/// kind.
+/// A request sent while forging: the node it went to and its kind.
 type Sent = (usize, Kind);
 
 /// What a simulated registrar does, a bootstrap node faulty in one of the
@@ -475,15 +471,11 @@ pub struct Network {
     /// that is overloaded (503) or finds the request malformed (400).
     pub refuse_settlement_requests: BTreeMap<usize, u16>,
     /// Rewrites the body of every response with status 200 before it
-    /// arrives, as a node would that answers anything it likes: the
-    /// connection proves only who answered, so the body gets to what reads
-    /// it.
-    pub tamper: Option<Tamper>,
-    /// Rewrites the body of every response with status 200 after
-    /// `tamper`, knowing who answers whom and what: a faulty node, say,
-    /// that shows each node a list of its own.
+    /// arrives, knowing who answers whom and what: a faulty node, say, that
+    /// shows each node a list of its own. The connection proves only who
+    /// answered, so the body gets to what reads it.
     pub forge: Option<Forge>,
-    /// While tampering or forging, each request's node and kind, by who
+    /// While forging, each request's node and kind, by who
     /// sent it, in which generation, with which ID; while a registrar is
     /// faulty, each name list request's.
     sent: BTreeMap<(usize, u64, RequestId), Sent>,
@@ -608,7 +600,6 @@ impl Network {
             refuse_settlement_requests: BTreeMap::new(),
             promise: BTreeMap::new(),
             settlements_refused: 0,
-            tamper: None,
             forge: None,
             sent: BTreeMap::new(),
             forgeries: 0,
@@ -1052,7 +1043,7 @@ impl Network {
             request.kind,
             Kind::NameListRequest | Kind::NameListHashRequest
         );
-        if self.tamper.is_some() || self.forge.is_some() || (listing && !self.roles.is_empty()) {
+        if self.forge.is_some() || (listing && !self.roles.is_empty()) {
             self.sent
                 .insert((from, generation, request.id), (to, request.kind));
         }
@@ -1123,7 +1114,7 @@ impl Network {
                 if self.nodes[to].generation != generation {
                     return;
                 }
-                let result = self.tampered(to, generation, request, result);
+                let result = self.forged_result(to, generation, request, result);
                 let now = self.local_now(to);
                 let sim = &mut self.nodes[to];
                 if let Some(node) = sim.node.as_mut() {
@@ -1166,8 +1157,8 @@ impl Network {
         self.drain(to);
     }
 
-    /// `result`, its body rewritten if tampering or forging.
-    fn tampered(
+    /// `result`, its body rewritten if forging.
+    fn forged_result(
         &mut self,
         to: usize,
         generation: u64,
@@ -1184,9 +1175,6 @@ impl Network {
             return result;
         }
         let mut body = response.body.clone();
-        if let Some(tamper) = self.tamper.as_mut() {
-            tamper(&mut body);
-        }
         if let Some(forge) = self.forge.as_mut() {
             forge(responder, to, kind, &mut body);
         }

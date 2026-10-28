@@ -1717,4 +1717,87 @@ mod tests {
         assert!(requests(&mut registrant, &view, due + 1_999).is_empty());
         assert_eq!(requests(&mut registrant, &view, due + 2_000).len(), 3);
     }
+
+    /// Node 9 holds `alice` at registrars 1 and 2 until `expires`, and its
+    /// renewals to both, sent when due, never arrive: by `expires`, both
+    /// lists lack the name. Returns the time it is renewed at, past its
+    /// expiry.
+    fn cut_off_past_expiry(registrant: &mut Registrant, view: &mut Holders, expires: u64) -> u64 {
+        let alice = name("alice");
+        show(view, &alice, &[Some(9), Some(9)], expires, START);
+        let due = expires - CONFIG.renew_before_ms;
+        show(view, &alice, &[Some(9), Some(9)], expires, due - 1);
+        assert!(
+            requests(registrant, view, due - 1).is_empty(),
+            "not yet due"
+        );
+        let mut at = due;
+        let mut failures = 0;
+        while at < expires {
+            show(view, &alice, &[Some(9), Some(9)], expires, at);
+            let sent = requests(registrant, view, at);
+            assert_eq!(sent.len(), 2, "at {at}");
+            for request in &sent {
+                assert_eq!(request.message, Message::Renew(alice));
+                registrant.not_sent(request, at);
+            }
+            failures += 1;
+            let wait = backoff(CONFIG.min_backoff_ms, CONFIG.max_backoff_ms, failures);
+            assert!(requests(registrant, view, at + wait - 1).is_empty());
+            at += wait;
+        }
+        show(view, &alice, &[None, None], expires, at);
+        at
+    }
+
+    // spec/designs/names.md#5-holding-a-name: a renewal falls due
+    // `renew_before_ms` before the name's expiry, and one that never
+    // arrives is sent again after a backoff. Past the expiry, with no list
+    // naming the node any more, it is still sent, to be taken in the
+    // registrars' grace periods, until the grace after the expiry ends to
+    // the millisecond; then the name is ours no more. A registrar that
+    // takes it late lists the name again, and it is ours again.
+    #[test]
+    fn a_renewal_cut_off_is_sent_until_the_grace_after_the_expiry_ends() {
+        let alice = name("alice");
+        let expires = START + 1_000_000;
+        let last = expires + CONFIG.grace_ms - 1;
+        let gone = last + 1;
+        {
+            let (mut registrant, mut view) = (registrant(2), view(2));
+            let at = cut_off_past_expiry(&mut registrant, &mut view, expires);
+            assert_eq!(state(&registrant, &view, &alice, at), State::Lapsing);
+            for request in requests(&mut registrant, &view, at) {
+                registrant.not_sent(&request, at);
+            }
+            show(&mut view, &alice, &[None, None], expires, last);
+            assert_eq!(requests(&mut registrant, &view, last).len(), 2);
+            assert_eq!(state(&registrant, &view, &alice, last), State::Lapsing);
+            show(&mut view, &alice, &[None, None], expires, gone);
+            let mut progress = Vec::new();
+            registrant.on_time(&view, gone, &mut progress);
+            assert!(registrant.statuses(&view, gone).is_empty());
+            assert!(requests(&mut registrant, &view, gone).is_empty());
+            assert_eq!(
+                registrant.renew_now(&alice, &view),
+                Err(RenewError::NotHeld)
+            );
+        }
+        {
+            // Taken late, in the last millisecond of a grace period.
+            let (mut registrant, mut view) = (registrant(2), view(2));
+            cut_off_past_expiry(&mut registrant, &mut view, expires);
+            show(&mut view, &alice, &[None, None], expires, last);
+            let sent = requests(&mut registrant, &view, last);
+            assert_eq!(sent.len(), 2);
+            let renewed = last + 1_000_000;
+            let mut progress = Vec::new();
+            for request in &sent {
+                registrant.on_renew(&request.to, &alice, Ok(renewed), last, &mut progress);
+            }
+            show(&mut view, &alice, &[Some(9), Some(9)], renewed, gone);
+            assert!(requests(&mut registrant, &view, gone).is_empty());
+            assert_eq!(state(&registrant, &view, &alice, gone), State::Held);
+        }
+    }
 }

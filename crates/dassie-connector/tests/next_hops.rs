@@ -231,6 +231,35 @@ fn a_hop_short_of_room_keeps_its_weight() {
     assert_eq!(h.connector.earnings(TWO, USD, NOW), Some(1_000));
 }
 
+// A T04 from a hop short of room passes upstream as it came, and leaves
+// nothing against the hop: its packet's money is no longer in flight, and
+// its weight is what it was. Once it has room again, its next packet goes
+// to it, is fulfilled, and earns on it as before.
+#[test]
+fn a_hop_carries_packets_again_once_its_room_is_restored() {
+    let mut h = harness(Config {
+        explore_ppm: 0,
+        ..Config::DEFAULT
+    });
+    route(&mut h, &[ONE, TWO]);
+    earn(&mut h, TWO, "test.das.dtwo", 1_000, 1);
+    let (to, sent) = send(&mut h, (SOURCE, 2), FAR, 1_000, 0).unwrap();
+    assert_eq!(to, TWO);
+    let back = reject(ErrorCode::T04_INSUFFICIENT_LIQUIDITY);
+    let upstream = h.respond(NOW, TWO, sent, &back).unwrap();
+    assert_eq!((upstream.to, upstream.request_id), (SOURCE, 2));
+    let (code, _) = h.reject_written(upstream.length);
+    assert_eq!(code, ErrorCode::T04_INSUFFICIENT_LIQUIDITY);
+    let slot = h.connector.slots(TWO).find(|slot| slot.ledger == USD);
+    assert_eq!(slot.unwrap().money_to, 0);
+    assert_eq!(h.connector.earnings(TWO, USD, NOW), Some(1_000));
+    // Its room restored.
+    let (to, sent) = send(&mut h, (SOURCE, 3), FAR, 1_000, 0).unwrap();
+    assert_eq!(to, TWO);
+    h.respond(NOW, TWO, sent, &fulfill([1; 32])).unwrap();
+    assert_eq!(h.connector.earnings(TWO, USD, NOW), Some(1_010));
+}
+
 // The same draws send packets the same way.
 #[test]
 fn a_draw_decides_alone() {

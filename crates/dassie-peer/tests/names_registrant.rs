@@ -14,7 +14,7 @@
 use std::collections::BTreeSet;
 
 use dassie_identity::NodeId;
-use dassie_peer::names::registrant::{RegisterError, State};
+use dassie_peer::names::registrant::{RegisterError, RenewError, State};
 use dassie_peer::names::{Name, NameStatus, Stage};
 use dassie_peer::sim::{Faults, Network, key};
 use dassie_peer::{Config, Event, NameEvent};
@@ -240,40 +240,80 @@ fn a_rival_that_commits_after_the_unsealing_never_holds_the_name() {
     assert_eq!(status(&network, 5, &alice).state, State::Lost);
 }
 
-// spec/designs/names.md#5-holding-a-name: the holder renews its name at
-// every registrar before it expires, by itself; a renewal that comes late
-// to a registrar, cut off past the name's expiry there, is taken in its
-// grace period, and the name stays the holder's.
+// spec/designs/names.md#5-holding-a-name: renewals go out from the node
+// and their answers come back to its registrant: the owner's renewal goes
+// to every registrar, each answers with the expiry it gives the name, and
+// the name stays the node's. When a renewal falls due, and how one cut off
+// is sent again in the registrars' grace periods, is the registrant's unit
+// tests'; when a registrar extends a name, the registrar's.
 #[test]
-fn a_name_is_renewed_before_it_expires() {
+fn a_renewal_reaches_every_registrar_and_its_answer_comes_back() {
     let mut network = start(37, 3, 2);
     let alice = name("alice");
     register(&mut network, 2, &alice);
     windows(&mut network);
-    let first = network.node(2).holders().holder(&alice).unwrap().expires_ms;
-    // Registrar 1 is out of reach from before the renewal until after the
-    // name expired there.
-    let renew_at = first - CONFIG.names.renew_before_ms;
-    let wait = renew_at - network.clock(0) - 60_000;
-    settle(&mut network, wait);
-    network.cut.insert((2, 1));
-    settle(&mut network, CONFIG.names.renew_before_ms + 120_000);
-    let renewed = reported(
-        &network,
-        |event| matches!(event, NameEvent::Renewed { name, .. } if *name == alice),
-    );
-    assert_eq!(renewed, [0], "only registrar 0 took the renewal in time");
-    network.cut.clear();
-    settle(&mut network, 120_000);
-    let renewed = reported(
-        &network,
-        |event| matches!(event, NameEvent::Renewed { name, .. } if *name == alice),
-    );
-    assert_eq!(renewed, [0, 1], "registrar 1 took it in its grace period");
-    for index in 0..3 {
-        let held = network.node(index).holders().holder(&alice).unwrap();
-        assert_eq!(held.holder, id(2), "{index}");
-        assert!(held.expires_ms > first + CONFIG.names.grace_ms, "{index}");
-    }
+    let mut renewed = Err(RenewError::NotHeld);
+    network.act(2, |node, now| renewed = node.renew_name(now, &alice));
+    assert_eq!(renewed, Ok(()));
+    settle(&mut network, 2_000);
+    let answered: BTreeSet<(NodeId, u64)> = network
+        .events
+        .iter()
+        .filter_map(|(index, event)| match event {
+            Event::Name(NameEvent::RenewedAt {
+                name,
+                registrar,
+                expires_ms,
+            }) if *index == 2 && *name == alice => Some((*registrar, *expires_ms)),
+            _ => None,
+        })
+        .collect();
+    // Early, so each registrar answers with the expiry it gave.
+    let expected: BTreeSet<(NodeId, u64)> = (0..2)
+        .map(|registrar| {
+            (
+                id(registrar),
+                network.listed(registrar)[&alice].expires_at_ms,
+            )
+        })
+        .collect();
+    assert_eq!(answered, expected);
+    let extended = reported(&network, |event| matches!(event, NameEvent::Renewed { .. }));
+    assert!(extended.is_empty(), "extended at {extended:?}");
+    assert_eq!(network.node(2).stats().renewals_sent, 2);
     assert_eq!(status(&network, 2, &alice).state, State::Held);
+    // A name the node does not hold is renewed nowhere.
+    network.act(2, |node, now| renewed = node.renew_name(now, &name("bob")));
+    assert_eq!(renewed, Err(RenewError::NotHeld));
+}
+
+// spec/designs/names.md#5-holding-a-name: the holder renews its name by
+// itself: the node's next timer is no later than the renewal at each
+// registrar, `renew_before_ms` before the expiry that registrar gave, and
+// firing it then, and not a millisecond before, sends the renewal there.
+// The node's clock jumps to the deadline, as a node's timer would wake it.
+#[test]
+fn a_node_renews_its_name_on_its_own_timer() {
+    let mut network = start(38, 3, 2);
+    let alice = name("alice");
+    register(&mut network, 2, &alice);
+    windows(&mut network);
+    let dues: Vec<u64> = (0..2)
+        .map(|registrar| {
+            let expires = network.listed(registrar)[&alice].expires_at_ms;
+            expires - CONFIG.names.renew_before_ms
+        })
+        .collect();
+    let (first, last) = (dues[0].min(dues[1]), dues[0].max(dues[1]));
+    let node = network.node(2);
+    let now = network.clock(2);
+    let next = node.registrant().next_due(node.holders(), now);
+    assert_eq!(next, Some(first));
+    assert!(node.poll_timeout().is_some_and(|at| at <= first));
+    let sent = node.stats().renewals_sent;
+    network.act_with_hooks(2, |node, hooks, _| node.handle_timeout(first - 1, hooks));
+    assert_eq!(network.node(2).stats().renewals_sent, sent, "not yet due");
+    assert_eq!(network.node(2).poll_timeout(), Some(first), "woken for it");
+    network.act_with_hooks(2, |node, hooks, _| node.handle_timeout(last, hooks));
+    assert_eq!(network.node(2).stats().renewals_sent, sent + 2);
 }
