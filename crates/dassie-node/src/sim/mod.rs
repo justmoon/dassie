@@ -714,6 +714,14 @@ enum Delivery {
         epoch: u64,
         event: LedgerEvent,
     },
+    /// How a node's check of a downlink's URL over HTTPS went.
+    HttpsChecked {
+        to: usize,
+        generation: u64,
+        node: dassie_identity::NodeId,
+        url: String,
+        answered: bool,
+    },
     /// A member's hub account asks a hub's validator.
     HubRequest {
         member: usize,
@@ -2006,6 +2014,28 @@ impl Sim {
                     },
                 );
             }
+            // A node answers at its own URL while it runs, with its own ID:
+            // every node's certificate is good here.
+            Output::CheckHttps { node, url } => {
+                self.count("URLs checked over HTTPS");
+                let answered = (0..self.nodes.len()).any(|i| {
+                    crate::sim::url(i) == url
+                        && key(i).node_id() == node
+                        && self.nodes[i].core.is_some()
+                });
+                let generation = self.nodes[index].generation;
+                let delay = self.latency();
+                self.schedule(
+                    delay,
+                    Delivery::HttpsChecked {
+                        to: index,
+                        generation,
+                        node,
+                        url,
+                        answered,
+                    },
+                );
+            }
         }
     }
 
@@ -2407,6 +2437,17 @@ impl Sim {
                 if self.nodes[to].generation == generation {
                     let asset = self.xrpl_asset();
                     self.step(to, |core| core.ledger_event(&asset, epoch, &event));
+                }
+            }
+            Delivery::HttpsChecked {
+                to,
+                generation,
+                node,
+                url,
+                answered,
+            } => {
+                if self.nodes[to].generation == generation {
+                    self.step(to, |core| core.https_checked(&node, &url, answered));
                 }
             }
             Delivery::HubRequest {

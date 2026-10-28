@@ -67,6 +67,9 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         }
         Event::RoutesChanged => emit!(severity, target: target::ROUTING, "routes changed"),
         Event::CoreChanged => emit!(severity, target: target::ROUTING, "the core changed"),
+        Event::CheckHttps { peer, url } => {
+            emit!(severity, target: target::PEER, %peer, %url, "checking a downlink's URL over HTTPS");
+        }
         Event::NodeAdded(node) => emit!(severity, target: target::PEER, %node, "node added"),
         Event::NodeRemoved(node) => emit!(severity, target: target::PEER, %node, "node removed"),
         Event::Registered(node) => emit!(severity, target: target::PEER, %node, "registration"),

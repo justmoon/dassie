@@ -784,6 +784,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         swap_replies: BTreeMap::new(),
         next_swap: 0,
         versions,
+        https_checks: Arc::new(tokio::sync::Semaphore::new(links::MAX_HTTPS_CHECKS)),
     };
     driver.run(receiver, config, &shutdown).await;
     // Without an engine, the node has no snapshot to answer with.
@@ -817,9 +818,24 @@ struct Driver<'a> {
     next_swap: u64,
     /// What changed, counted, for live views.
     versions: watch::Sender<Versions>,
+    /// The places of downlinks' URL checks over HTTPS in flight, apart
+    /// from those the node's other fetches need
+    /// ([`links::MAX_HTTPS_CHECKS`]).
+    https_checks: Arc<tokio::sync::Semaphore>,
 }
 
 impl Driver<'_> {
+    /// Checks a downlink's URL over HTTPS, in one of the checks' own few
+    /// places: past them, the check is left for the next time, so it never
+    /// takes the room of the node's other fetches.
+    fn check_https(&self, node: dassie_identity::NodeId, url: String) {
+        let client = self.node.outbound().cloned();
+        let place = Arc::clone(&self.https_checks).try_acquire_owned().ok();
+        if let (Some(client), Some(place)) = (client, place) {
+            links::check_https(client, place, self.commands.clone(), (node, url));
+        }
+    }
+
     async fn run(
         &mut self,
         mut receiver: mpsc::Receiver<Command>,
@@ -1054,6 +1070,10 @@ impl Driver<'_> {
                 | Output::Fund { .. }
                 | Output::Fetch { .. } => {
                     self.ledger_output(output);
+                    continue;
+                }
+                Output::CheckHttps { node, url } => {
+                    self.check_https(node, url);
                     continue;
                 }
                 Output::Btp { link, message } => (link, message),

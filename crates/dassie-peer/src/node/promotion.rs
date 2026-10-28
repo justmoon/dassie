@@ -9,6 +9,7 @@ use dassie_identity::NodeId;
 
 use super::{PeerNode, Problem, Purpose};
 use crate::config::Config;
+use crate::io::Event;
 use crate::table::{Beats, Entry, Sources};
 use crate::wire::{Content, Endpoint, SchemeId};
 
@@ -36,6 +37,9 @@ pub enum PromotionCheck {
     /// Answered at its URL, with its own link state, the last time we
     /// checked.
     Url,
+    /// Answered at its URL over HTTPS, with a certificate a public
+    /// authority issued and its own node ID, the last time we checked.
+    Https,
     /// Not banned.
     NotBanned,
 }
@@ -62,6 +66,9 @@ pub struct Promotion {
     pub banned: bool,
     /// Whether it answered at its URL the last time we checked, if we did.
     pub url_answered: Option<bool>,
+    /// Whether it answered at its URL over HTTPS, with a publicly issued
+    /// certificate, the last time we checked, if we did.
+    pub https_answered: Option<bool>,
 }
 
 impl Promotion {
@@ -90,6 +97,7 @@ impl Promotion {
             (self.paid_us, PromotionCheck::Settled),
             (clock, PromotionCheck::Clock),
             (self.url_answered == Some(true), PromotionCheck::Url),
+            (self.https_answered == Some(true), PromotionCheck::Https),
             (!self.banned, PromotionCheck::NotBanned),
         ]
         .into_iter()
@@ -132,6 +140,7 @@ impl PeerNode {
             skew_ms: entry.standing.skew_ms,
             banned: self.bans.contains(peer),
             url_answered: entry.standing.url_answered,
+            https_answered: entry.standing.https_answered,
         })
     }
 
@@ -188,6 +197,35 @@ impl PeerNode {
             if let Some(entry) = self.table.get_mut(&node) {
                 entry.standing.url_check_at_ms = now.saturating_add(bucket);
             }
+            // And over HTTPS, by the node, under the same bucket.
+            let url = self
+                .table
+                .get(&node)
+                .and_then(|entry| entry.link.as_ref())
+                .and_then(|link| link.endpoint.as_ref())
+                .map(Endpoint::url);
+            if let Some(url) = url {
+                self.event(Event::CheckHttps { peer: node, url });
+            }
+        }
+    }
+
+    /// How a check of `peer`'s URL over HTTPS went, which
+    /// [`Event::CheckHttps`] asked for: it answered at `url` with a
+    /// certificate a public authority issued, and its own node ID, if
+    /// `answered`. An answer for a URL it no longer has says nothing.
+    pub fn https_checked(&mut self, now_ms: u64, peer: &NodeId, url: &str, answered: bool) {
+        self.advance(now_ms);
+        let Some(entry) = self.table.get_mut(peer) else {
+            return;
+        };
+        let current = entry
+            .link
+            .as_ref()
+            .and_then(|link| link.endpoint.as_ref())
+            .is_some_and(|endpoint| endpoint.url() == url);
+        if current {
+            entry.standing.https_answered = Some(answered);
         }
     }
 
@@ -255,6 +293,7 @@ mod tests {
             skew_ms: Some(-i64::try_from(Config::DEFAULT.max_future_ms).unwrap()),
             banned: false,
             url_answered: Some(true),
+            https_answered: Some(true),
         }
     }
 
@@ -296,6 +335,11 @@ mod tests {
             (with(|p| p.skew_ms = None), PromotionCheck::Clock),
             (with(|p| p.url_answered = Some(false)), PromotionCheck::Url),
             (with(|p| p.url_answered = None), PromotionCheck::Url),
+            (
+                with(|p| p.https_answered = Some(false)),
+                PromotionCheck::Https,
+            ),
+            (with(|p| p.https_answered = None), PromotionCheck::Https),
             (with(|p| p.banned = true), PromotionCheck::NotBanned),
         ];
         for (promotion, check) in failing {

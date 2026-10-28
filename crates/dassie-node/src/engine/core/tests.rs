@@ -2332,6 +2332,53 @@ fn the_owner_sees_a_downlinks_promotion() {
     assert!(!pending.contains(&PromotionCheck::NotBanned));
 }
 
+// spec/decisions/promotion-to-core.md: once a downlink with a URL has paid
+// us, the node checks its URL over HTTPS too, by its client; what comes
+// back for that URL is what the owner sees.
+#[test]
+fn a_paying_candidates_url_is_checked_over_https() {
+    use dassie_peer::PromotionCheck;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_with_bootstrap(store);
+    let downlink = Arc::new(IdentityKey::from_bytes(&[12; 32]));
+    let id = downlink.node_id();
+    peer_as_downlink(&mut core, &downlink, NOW + 1_000);
+    let url = "https://d.example:4443";
+    send_link_state(&mut core, &downlink, NOW + 2_000, Some(url));
+    core.begin_step(NOW + 3_000);
+    core.with_peer(|peer, hooks, now| peer.paid_by(now, hooks, &id));
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    core.begin_step(NOW + 4_000);
+    core.finish_step(&mut outputs);
+    let asked = outputs.iter().any(|output| {
+        matches!(output, Output::CheckHttps { node, url: asked } if *node == id && asked == url)
+    });
+    assert!(asked, "the node checks its URL over HTTPS");
+    let pending = |core: &Core| {
+        let network = core.network();
+        let peer = network
+            .peers
+            .into_iter()
+            .find(|peer| peer.id == id)
+            .unwrap();
+        peer.promotion.unwrap().1
+    };
+    assert!(pending(&core).contains(&PromotionCheck::Https));
+    core.begin_step(NOW + 5_000);
+    core.https_checked(&id, "https://other.example", true);
+    core.finish_step(&mut Vec::new());
+    assert!(
+        pending(&core).contains(&PromotionCheck::Https),
+        "another URL's"
+    );
+    core.begin_step(NOW + 5_000);
+    core.https_checked(&id, url, true);
+    core.finish_step(&mut Vec::new());
+    assert!(!pending(&core).contains(&PromotionCheck::Https));
+}
+
 // spec/decisions/promotion-to-core.md: a peering's kind follows the peer's
 // status in place. A downlink that turns core, for now by a URL in its link
 // state, stays a downlink until it is registered, whose URL the bootstrap

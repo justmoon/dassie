@@ -420,6 +420,7 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
                 paid_us: promotion.paid_us,
                 clock_skew_ms: promotion.skew_ms,
                 url_answered: promotion.url_answered,
+                https_answered: promotion.https_answered,
             }),
     }
 }
@@ -435,6 +436,7 @@ const fn promotion_check(check: dassie_peer::PromotionCheck) -> &'static str {
         PromotionCheck::Settled => "settled",
         PromotionCheck::Clock => "clock",
         PromotionCheck::Url => "url",
+        PromotionCheck::Https => "https",
         PromotionCheck::NotBanned => "not-banned",
     }
 }
