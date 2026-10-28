@@ -279,6 +279,9 @@ fn a_fresh_node_refuses_a_live_phrase(dir: &Path, ipc: &Path) {
 
 /// `dassie setup --asset` sets an account's config apart from its schemes,
 /// checked as the account reads it, and the same again changes nothing.
+/// The node joined the default XRP hub at its first setup, whose scheme
+/// settles through the account, so the node takes the config at its next
+/// start.
 fn sets_an_accounts_config(owner: &str, ipc: &Path) {
     let account = r#"xrpl-testnet-account/0={"server":"wss://ledger.example","faucet":null}"#;
     for _ in 0..2 {
@@ -289,7 +292,9 @@ fn sets_an_accounts_config(owner: &str, ipc: &Path) {
         let text = describe(&asset);
         assert!(asset.status.success(), "{text}");
         assert!(
-            text.contains("Set the config of xrpl-testnet-account/0."),
+            text.contains(
+                "Set the config of xrpl-testnet-account/0; the node takes it at its next start"
+            ),
             "{text}"
         );
     }
