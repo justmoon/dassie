@@ -19,7 +19,7 @@
 ## Accepted
 
 - **The testnet's hubs end,** the default hub among them, and are founded again with their keys at these paths. Until the testnet's default hub is, none is built in, and the wallet does not offer the hub scheme.
-- **A sponsor still founds on the testnet only,** funding the escrow from its testnet XRP, until mainnet hubs are funded from the owner's mainnet book ([roadmap](../roadmap.md)).
+- **A sponsor founds only on its realm's network,** funding the escrow from its XRP there: the testnet in the test realm, mainnet in the live realm, which runs only where it may ([Settlement hubs](../areas/hubs.md#founding-a-hub), [real-money](real-money.md)).
 
 ## Rejected
 

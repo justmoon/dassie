@@ -6,11 +6,12 @@ import "dassie/owner/v1/ledger.proto";
 
 // The node's account in each settlement hub it is in, one per asset, and
 // moving the owner's funds between it and the owner book of the hub's
-// asset on the node's XRP Ledger testnet account: XRP for the XRP hub,
-// DSUSD for the DSUSD hub (spec/areas/hubs.md#in-the-node). The contract has no services: these
-// methods are numbered in `Request` and `Response` (transport.proto) with
-// the rest: GetHubStatus, HubDeposit, HubWithdraw, SetHubAutomatic and
-// HubGiveUp.
+// asset on the node's XRP Ledger account on the hub's network: XRP for an
+// XRP hub, the token for a token hub, DSUSD on the testnet and RLUSD on
+// mainnet (spec/areas/hubs.md#in-the-node). The contract has no services:
+// these methods are numbered in `Request` and `Response`
+// (transport.proto) with the rest: GetHubStatus, HubDeposit, HubWithdraw,
+// SetHubAutomatic and HubGiveUp.
 //
 // Each method but GetHubStatus acts on one hub, which its request names by
 // `scheme`, the settlement scheme over it, as `HubStatus.scheme` gives it:
