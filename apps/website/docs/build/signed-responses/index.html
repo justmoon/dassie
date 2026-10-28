@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Check that an Open Payments answer came from the node it names, whoever passed it on."
+    />
+    <title>Signed responses and names · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Signed responses and names</h1>
+      <p class="lede">
+        A node signs every Open Payments answer with its node key. This page
+        shows how your client checks that an answer came from the node it
+        meant to reach, even when a front door passed it on.
+      </p>
+
+      <h2 id="why-check">Why check</h2>
+      <p>
+        A node without a hostname, such as the desktop app, is reached at
+        <code>&lt;node ID&gt;.dassiepay.net</code> through a front door. The
+        front door ends the TLS connection, so it reads every request and
+        answer, and a client that takes answers as they come trusts it as
+        much as the node. The node's signature takes that trust away: a front
+        door, or anyone else in the middle, cannot make up an answer the node
+        would sign. It can still read the answers, STREAM secrets included,
+        and it can still refuse to pass them on.
+      </p>
+      <p>
+        Checking is up to your client. Other Open Payments clients ignore the
+        signature, and work as before.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/core-and-periphery.md">Why it works this way</a>
+      </p>
+
+      <h2 id="the-nodes-names">The names a node answers to</h2>
+      <ul>
+        <li>
+          <strong>A node with a hostname</strong> answers under that name
+          alone, such as <code>node.example.com</code>.
+        </li>
+        <li>
+          <strong>A node without one</strong> answers first under
+          <code>&lt;node ID&gt;.dassiepay.net</code>, its name at the default
+          front door, which comes from its node ID. Its owner may add names,
+          another front door's or a domain of their own, with
+          <code>DASSIE_PUBLIC_NAMES</code>
+          (<a href="/docs/reference/environment/">Environment variables</a>).
+          It also answers under <code>&lt;name&gt;.dassiepay.net</code> for
+          each name it holds, once the network's registrars list the name for
+          it. <a href="/docs/concepts/names/">Names and addresses</a> explains
+          names, which run on the testnet only.
+        </li>
+      </ul>
+      <p>
+        A node signs its answers under every one of these names, errors
+        included. A node without a hostname refuses a name it does not answer
+        to with <code>421 misdirected_request</code>, unsigned, since that is
+        no answer under one of its names; a node with a hostname answers
+        under it whatever <code>Host</code> says. CORS preflights go unsigned too, and
+        so does every answer of a node that is not set up yet.
+      </p>
+      <p>
+        A node ID is 39 characters of <code>a</code> to <code>z</code> and
+        <code>2</code> to <code>7</code>. A name is shorter, so no host is
+        both.
+      </p>
+
+      <h2 id="the-dassie-field">The <code>dassie</code> field</h2>
+      <p>
+        A Dassie node's wallet address carries the node's ID, in a field the
+        Open Payments schema lets other clients ignore:
+      </p>
+      <pre><code>{
+  "id": "https://hauavng4okp6d55tghlsiqvnn6j5v6mpmktgnfq.dassiepay.net/pay/xrp",
+  "assetCode": "XRP",
+  "assetScale": 9,
+  "authServer": "https://hauavng4okp6d55tghlsiqvnn6j5v6mpmktgnfq.dassiepay.net/gnap",
+  "resourceServer": "https://hauavng4okp6d55tghlsiqvnn6j5v6mpmktgnfq.dassiepay.net",
+  "dassie": { "nodeId": "hauavng4okp6d55tghlsiqvnn6j5v6mpmktgnfq" }
+}</code></pre>
+      <p>
+        It tells you which node should sign the answers. It is a hint, not
+        proof: it comes from whoever answered. Check it as below before you
+        rely on it. Another server may use a field called
+        <code>dassie</code> for something of its own, so read it leniently:
+        treat a <code>dassie</code> in any other shape as absent, and the
+        wallet as payable all the same.
+      </p>
+
+      <h2 id="what-the-signature-covers">What the signature covers</h2>
+      <p>
+        Send a fresh random value in the <code>Dassie-Nonce</code> header with
+        each request. The node's answer then carries an
+        <a href="https://www.rfc-editor.org/rfc/rfc9421">RFC 9421</a>
+        signature, labeled <code>sig1</code>, tagged <code>dassie</code>, with
+        <code>alg="ed25519"</code>, over:
+      </p>
+      <ul>
+        <li><code>"@status"</code>, the answer's status;</li>
+        <li>
+          <code>"content-digest"</code>, the SHA-512 of the body, whenever
+          there is one;
+        </li>
+        <li>
+          <code>"@method";req</code> and <code>"@target-uri";req</code>, your
+          request's method and URL, at the name it was answered under;
+        </li>
+        <li>
+          <code>"dassie-nonce";req</code>, your nonce, so that an old answer
+          cannot pass for a new one.
+        </li>
+      </ul>
+      <p>
+        Its <code>keyid</code> is the node's two public keys, 64 bytes in
+        base64url: the Ed25519 key that signs, then the SLH-DSA key. The node
+        ID is a hash of the two, so you check them against the ID, then the
+        signature against the Ed25519 key.
+      </p>
+
+      <h2 id="check-an-answer">Check an answer</h2>
+      <ol class="steps">
+        <li>
+          <p>
+            Know which node you mean. For
+            <code>&lt;node ID&gt;.dassiepay.net</code>, it is the first label
+            of the host, the URL you fetch. For a name, see
+            <a href="#answers-under-a-name">below</a>. A node with a hostname
+            of its own signs as well, though there its TLS certificate already
+            vouches for the name; Dassie's own client checks signatures only
+            under <code>dassiepay.net</code>.
+          </p>
+        </li>
+        <li>
+          <p>Send the request with a fresh <code>Dassie-Nonce</code>.</p>
+        </li>
+        <li>
+          <p>
+            Refuse an answer whose signature leaves out the nonce, or the
+            digest of its body, or is not tagged <code>dassie</code>.
+          </p>
+        </li>
+        <li>
+          <p>
+            Hash the two keys in <code>keyid</code> to a node ID, and refuse
+            the answer unless it is the node you meant.
+          </p>
+        </li>
+        <li>
+          <p>
+            Check the body against <code>Content-Digest</code>, and the
+            signature under the Ed25519 key.
+          </p>
+        </li>
+      </ol>
+      <p>
+        In Node.js, with nothing but <code>node:crypto</code>, that looks like
+        this. It is checked against a signature made by the node's own code:
+      </p>
+      <figure class="file">
+        <figcaption>check-node.mjs</figcaption>
+        <pre><code>import { createHash, createPublicKey, randomBytes, verify } from "node:crypto";
+
+// A node ID hashes this, then the node's two public keys, each after its length.
+const ID_PREFIX = Buffer.from("0d2b0601040183a878058a770202", "hex");
+const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
+
+/** The node ID of an Ed25519 key and an SLH-DSA key, 32 bytes each. */
+export function nodeIdOf(ed25519, slhDsa) {
+  const input = Buffer.concat([ID_PREFIX, Buffer.of(32), ed25519, Buffer.of(32), slhDsa]);
+  const bytes = createHash("sha256").update(input).digest().subarray(0, 24);
+  let id = "";
+  let bits = 0;
+  let value = 0;
+  for (const byte of bytes) {
+    value = ((value &lt;&lt; 8) | byte) &amp; 0xfff;
+    bits += 8;
+    while (bits &gt;= 5) {
+      bits -= 5;
+      id += BASE32[(value &gt;&gt; bits) &amp; 31];
+    }
+  }
+  return bits &gt; 0 ? id + BASE32[(value &lt;&lt; (5 - bits)) &amp; 31] : id;
+}
+
+/**
+ * GETs `url` and returns the response once it is checked to come from the
+ * node `nodeId`: by default the node whose ID is the first label of the host.
+ */
+export async function fetchFromNode(url, nodeId = new URL(url).hostname.split(".")[0]) {
+  const target = new URL(url);
+  const nonce = randomBytes(16).toString("base64url");
+  const response = await fetch(target, { headers: { "dassie-nonce": nonce } });
+  const body = Buffer.from(await response.arrayBuffer());
+  const input = response.headers.get("signature-input") ?? "";
+  const signature = /^sig1=:([A-Za-z0-9+/]+=*):$/.exec(response.headers.get("signature") ?? "");
+  const params = /^sig1=(\(([^)]*)\)((?:;[a-z]+=(?:\d+|"[^"]*"))*))$/.exec(input);
+  const covered = (body.length &gt; 0 ? ['"@status"', '"content-digest"'] : ['"@status"'])
+    .concat(['"@method";req', '"@target-uri";req', '"dassie-nonce";req'])
+    .join(" ");
+  if (!signature || !params || params[2] !== covered) throw new Error("not signed as a node signs");
+  const fields = Object.fromEntries(
+    params[3].slice(1).split(";").map((field) =&gt; field.replaceAll('"', "").split("=")),
+  );
+  if (fields.tag !== "dassie" || fields.alg !== "ed25519") throw new Error("not a node's signature");
+  if (Math.abs(Date.now() / 1000 - Number(fields.created)) &gt; 300) throw new Error("signed too long ago");
+  const keys = Buffer.from(fields.keyid ?? "", "base64url");
+  if (keys.length !== 64 || nodeIdOf(keys.subarray(0, 32), keys.subarray(32)) !== nodeId) {
+    throw new Error("signed by another node");
+  }
+  const digest = response.headers.get("content-digest");
+  const sha512 = createHash("sha512").update(body).digest("base64");
+  if (body.length &gt; 0 &amp;&amp; digest !== `sha-512=:${sha512}:`) throw new Error("the body is not the one signed");
+  const base = [
+    `"@status": ${response.status}`,
+    ...(body.length &gt; 0 ? [`"content-digest": ${digest}`] : []),
+    `"@method";req: GET`,
+    `"@target-uri";req: ${target.origin}${target.pathname}${target.search}`,
+    `"dassie-nonce";req: ${nonce}`,
+    `"@signature-params": ${params[1]}`,
+  ].join("\n");
+  const key = createPublicKey({
+    key: { kty: "OKP", crv: "Ed25519", x: keys.subarray(0, 32).toString("base64url") },
+    format: "jwk",
+  });
+  if (!verify(null, Buffer.from(base), key, Buffer.from(signature[1], "base64"))) {
+    throw new Error("the signature does not verify");
+  }
+  return { status: response.status, body };
+}</code></pre>
+      </figure>
+      <pre><code>const { status, body } = await fetchFromNode(
+  "https://hauavng4okp6d55tghlsiqvnn6j5v6mpmktgnfq.dassiepay.net/pay/xrp",
+);</code></pre>
+      <p>
+        The node sends <code>Access-Control-Expose-Headers</code> for
+        <code>Signature</code>, <code>Signature-Input</code> and
+        <code>Content-Digest</code>, and takes <code>Dassie-Nonce</code> from
+        any origin, so a client in a browser can check too, with Web Crypto in
+        place of <code>node:crypto</code>.
+      </p>
+      <p>
+        Dassie's own check is <code>check_node_response</code> in
+        <a href="https://github.com/justmoon/dassie/blob/main/crates/dassie-payments/src/httpsig.rs"><code>crates/dassie-payments/src/httpsig.rs</code></a>.
+        It is stricter than the sketch above where that matters to Dassie: it
+        reads the signature fields as structured fields, and accepts
+        a SHA-256 digest beside SHA-512.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/payments.md#signed-responses">Why it works this way</a>
+      </p>
+
+      <h2 id="answers-under-a-name">Answers under a name</h2>
+      <p>
+        A name like <code>alice.dassiepay.net</code> says nothing about the
+        node by itself. The node that holds it is the one that more than two
+        thirds of the network's registrars list for it. A Dassie node keeps its own view of
+        those lists, and takes an answer under a name only from the holder in
+        that view. A front door does the same before it passes a request on.
+      </p>
+      <p>
+        A client outside Dassie has no such view. The
+        <code>dassie</code> field tells you who the holder claims to be, but
+        it comes from whoever answered. If you need the guarantee, check the
+        answer against a node ID you know by other means: one you kept from
+        before, or the one your user gave you. Or pay at the node's ID name,
+        <code>&lt;node ID&gt;.dassiepay.net</code>, whose host names the
+        node.
+      </p>
+      <p>
+        Names change hands when they lapse, and the testnet's may be reset,
+        so a name can lead to another node later. The node ID never does.
+      </p>
+      <p class="not-yet">
+        A DNS record that names the node behind an owner's own domain is not
+        there yet, nor is an owner's domain pointed at a front door.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

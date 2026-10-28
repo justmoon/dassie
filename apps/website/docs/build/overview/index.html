@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Which way into a node fits which job, and which of them stay stable."
+    />
+    <title>Integration overview · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Integration overview</h1>
+      <p class="lede">
+        A Dassie node speaks the standard Interledger protocols, so you build
+        on it with tools you may already know. This page helps you pick the
+        right way in, and tells you which ones you can count on to stay put.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="choosing-a-way-in">Choosing a way in</h2>
+      <p>
+        Each node serves a few doors to the outside. Most apps need only the
+        first one.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>You want to</th>
+              <th>Use</th>
+              <th>Read</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                Take payments in your app, or pay from someone's node once
+                they agree
+              </td>
+              <td>Open Payments over HTTPS, with GNAP grants</td>
+              <td>
+                <a href="/docs/build/open-payments/">Accept payments with Open Payments</a>,
+                <a href="/docs/build/grants/">Grants and limits</a>
+              </td>
+            </tr>
+            <tr>
+              <td>Know that an answer really came from the node you meant</td>
+              <td>The node's signature on every Open Payments answer</td>
+              <td>
+                <a href="/docs/build/signed-responses/">Signed responses and names</a>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                Run Interledger software, such as a STREAM client, with a node
+                as its parent
+              </td>
+              <td>BTP 2.0 with an API key, and ILDCP for your address</td>
+              <td>
+                <a href="/docs/build/btp/">Connect an ILP client over BTP</a>
+              </td>
+            </tr>
+            <tr>
+              <td>Send or receive money in code, once you hold credentials</td>
+              <td>STREAM, RFC 29</td>
+              <td><a href="/docs/build/stream/">STREAM on Dassie</a></td>
+            </tr>
+            <tr>
+              <td>Watch what a node converts at</td>
+              <td>The rate feed: signed datagrams over UDP</td>
+              <td><a href="/docs/build/rate-feed/">Read a rate feed</a></td>
+            </tr>
+            <tr>
+              <td>Try all of this without the testnet</td>
+              <td>Several nodes on your own machine</td>
+              <td><a href="/docs/build/dev-network/">Local dev network</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Open Payments</h3>
+      <p>
+        Open Payments is how other wallets and apps reach a node. The node
+        serves all three of its parts as
+        <a href="https://openpayments.dev">the specs</a> define them: wallet
+        addresses, an authorization server and a resource server. The
+        reference client, <code>@interledger/open-payments</code>, runs
+        against a real node in Dassie's tests.
+      </p>
+      <p>
+        A node has one wallet address for each asset it holds, at
+        <code>https://&lt;name&gt;/pay/&lt;asset&gt;</code>. On the testnet
+        the asset is <code>xrp</code> or <code>dsusd</code>. In the local dev
+        network it may also be <code>usd</code>, the play money that only a
+        development build runs. The payment pointer
+        <code>$&lt;name&gt;</code> stands for
+        <code>https://&lt;name&gt;/.well-known/pay</code>, the asset the owner
+        picked as the default. The name is the node's hostname, such as
+        <code>node.example.com</code>. A node without one, such as the desktop
+        app, is reached at <code>&lt;node ID&gt;.dassiepay.net</code> through
+        a front door.
+      </p>
+      <p>
+        A node does not speak SPSP: Open Payments replaced it, so a wallet
+        that knows only SPSP cannot pay a Dassie node. It issues no STREAM
+        receipts either.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/open-payments.md">Why it works this way</a>
+      </p>
+
+      <h3>BTP and ILDCP</h3>
+      <p>
+        An ILP client connects to a node over a WebSocket, with a URL like
+        <code>btp+wss://:&lt;token&gt;@node.example.com/btp</code>. The token
+        is an API key the owner makes in the wallet. The client learns its
+        address and asset through ILDCP, then sends and receives ILP packets.
+        It spends the owner's money on one ledger, so the owner can cap what
+        each key spends.
+      </p>
+
+      <h3>STREAM</h3>
+      <p>
+        Every payment in Dassie moves over STREAM. An incoming payment hands
+        out STREAM credentials, an ILP address and a shared secret, and any
+        STREAM sender can pay them. Dassie's STREAM is tested against
+        <code>ilp-protocol-stream</code>, and the
+        <a href="/tools/stream-toy/">STREAM Toy</a> runs Dassie's own code in
+        your browser.
+      </p>
+
+      <h3>The rate feed</h3>
+      <p>
+        A node with a hostname publishes what it converts at, between the
+        settlement methods its peers pay it on, as signed datagrams over UDP.
+        Market makers read them. The node's discovery document,
+        <code>/.well-known/dassie/node</code>, names its ID, its two public
+        keys and the feed's port, so a tool that knows only the node's URL can
+        find and check the feed.
+      </p>
+
+      <h2 id="what-stays-stable">What stays stable</h2>
+      <p>
+        Some of what a node speaks is held by software outside its release:
+        other wallets, your app, the ledgers. Those parts are frozen: no
+        release changes them.
+      </p>
+      <ul>
+        <li>
+          <strong>The Interledger wire formats:</strong> ILPv4, ILDCP,
+          BTP 2.0, STREAM and Open Payments. Build on these freely.
+        </li>
+        <li>
+          <strong>The rate feed's wire format,</strong> within its version. A
+          new layout comes as a new version.
+        </li>
+        <li>
+          <strong>The public domains,</strong>
+          <a href="#public-domains">below</a>.
+        </li>
+      </ul>
+      <p>Other parts change with each release, on purpose:</p>
+      <ul>
+        <li>
+          <strong>The owner's RPC</strong>, which the wallet and the
+          <code>dassie</code> command use, over the WebSocket at
+          <code>/rpc</code> and over a local socket. Its two ends ship in one
+          binary, so it changes whenever the node needs it to. It is not a
+          public API: please do not build on it yet.
+        </li>
+        <li>
+          <strong>The discovery document</strong> is public, but not among the
+          frozen surfaces.
+        </li>
+      </ul>
+      <p class="not-yet">
+        Apps that pair with a node and act as its owner are not there yet: the
+        node pairs them, but the contract they would rely on is not frozen.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p class="not-yet">
+        ILP over HTTP (RFC 35) is not there yet: a node serves no
+        <code>/ilp</code> route.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/overview.md#frozen-surfaces">Why it works this way</a>:
+        the full list, and what pins each surface.
+      </p>
+
+      <h2 id="public-domains">Public domains</h2>
+      <p>
+        A few names leave the release and are kept by others. The project
+        keeps them for good, with one exception for the testnet, below.
+      </p>
+      <ul>
+        <li>
+          <strong><code>dassiepay.net</code></strong> holds payment names. A
+          node without a hostname is paid at
+          <code>&lt;node ID&gt;.dassiepay.net</code>, and a node that holds a
+          name at <code>&lt;name&gt;.dassiepay.net</code>. Wallets and apps
+          store these as wallet addresses, so once the live realm opens, its
+          names here are kept for good. <code>relay</code>
+          and <code>test</code> are reserved there; every other name belongs
+          to someone's node, and its answers are that node's.
+        </li>
+        <li>
+          <strong><code>dassie.land</code></strong> is the project's site. Its
+          URIs also name the memo types on the ledgers, such as
+          <code>https://dassie.land/hub/open/v1</code> on the deposit that
+          opens a hub account. Nothing fetches them.
+        </li>
+        <li>
+          <strong><code>get.dassie.land</code></strong> holds the releases,
+          and <strong><code>sh.dassie.land</code></strong> serves the
+          installer.
+        </li>
+      </ul>
+      <p class="not-yet">
+        The testnet's own payment domain, <code>test.dassiepay.net</code>, is
+        not there yet. Testnet nodes are paid under
+        <code>dassiepay.net</code> today. Those names move once, to
+        <code>test.dassiepay.net</code>, when the testnet gets its own
+        domain, and they may be reset with the testnet, so don't store them
+        for good. <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p>
+        <a href="/docs/reference/domains/">Public domains</a> lists every
+        name, and <a href="/docs/concepts/names/">Names and addresses</a>
+        explains how a node comes to hold one.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/public-domains.md">Why it works this way</a>
+      </p>
+
+      <h2 id="a-node-to-build-against">A node to build against</h2>
+      <p>
+        You need a node whose owner you are, or one whose owner agrees to
+        your app. The quickest is your own:
+      </p>
+      <ul>
+        <li>
+          A server node with a hostname, from the
+          <a href="/docs/start/quick-start/">Quick Start</a>. It serves every
+          door above, and its wallet addresses carry its own name.
+        </li>
+        <li>
+          The <a href="/docs/desktop/install/">desktop app</a>. It is reached
+          through the <code>dassiepay.net</code> front door, which carries
+          Open Payments and nothing else.
+        </li>
+        <li>
+          The <a href="/docs/build/dev-network/">local dev network</a>, which
+          runs several nodes on your machine, with play money or a stand-in
+          for the XRP Ledger.
+        </li>
+      </ul>
+      <p>
+        On the testnet, your node holds test money in a settlement hub once
+        you fund it. <a href="/docs/wallet/ledgers/">Add and fund a ledger</a>
+        shows how.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

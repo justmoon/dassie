@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Subscribe to a core node's signed rate feed over UDP, check each datagram, and read what the node converts at."
+    />
+    <title>Read a rate feed · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Read a rate feed</h1>
+      <p class="lede">
+        A core node tells anyone who asks what it converts at, in a small
+        signed UDP datagram. This page shows how to subscribe to one, check
+        every datagram before you believe it, and read the rates.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="what-a-feed-says">What a feed says</h2>
+      <p>
+        A feed lists the settlement methods the node's peers pay it on, each
+        by its scheme's ID, such as <code>hub-xrpl-testnet-xrp</code>, with
+        the largest packet the node takes on it. For each pair of methods it
+        converts between, it gives a rate, and it gives the fee it takes on
+        everything it passes on. The node signs the feed with its node key and
+        sends it to every subscriber: at most once a second while its rates
+        move, and every thirty seconds otherwise, so you know it is still
+        there. Each feed says until when it counts.
+      </p>
+      <p>
+        Market makers read feeds to find nodes whose rates make a trade
+        worth it, which nudges those nodes' holdings back toward balance.
+        <code>dassie market-maker</code> is one such reader; see
+        <a href="/docs/services/market-maker/">Run a market maker</a>. How
+        a node sets its rates is on
+        <a href="/docs/concepts/rates/">Exchange rates</a>, and every byte of
+        the format is on
+        <a href="/docs/reference/feed-format/">Rate feed wire format</a>.
+      </p>
+      <p>
+        Only a core node, one with a domain name, publishes a feed. A node
+        without one has nowhere to be found at, so it publishes nothing.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/passive-rebalancing.md">Why a signed UDP feed</a>:
+        cheap for the node, and checkable by anyone.
+      </p>
+
+      <h2 id="subscribing-and-the-cookie">Subscribing and the cookie</h2>
+      <p>
+        UDP lets anyone write any sender address, so a node sends its feed
+        only to an address that has shown it receives there. That proof is a
+        cookie: a short value the node hands you, made from your address, that
+        you send back.
+      </p>
+      <ol class="steps">
+        <li>
+          <p>
+            <strong>Find the node.</strong> Fetch its discovery document,
+            <code>https://&lt;host&gt;/.well-known/dassie/node</code>. It
+            names the node's <code>id</code>, its two public keys,
+            <code>publicKey</code> and <code>slhDsaPublicKey</code> in
+            base64url, and the feed's UDP port as <code>feedPort</code>.
+          </p>
+          <pre><code><span class="prompt">$</span>curl https://node.example/.well-known/dassie/node
+<span class="output">{"id":"…","publicKey":"…","slhDsaPublicKey":"…","feedPort":7768}</span></code></pre>
+          <p>
+            Check that the ID is the hash of the two keys before you trust
+            either (the reader <a href="#a-small-reader">below</a> shows how).
+            No <code>feedPort</code> means the node publishes no feed.
+            Programs that read the network's link states find the port there
+            too, in the node's own entry.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Ask for the feed.</strong> Send a Subscribe without a
+            cookie to that port on the node's host, from the socket you will
+            read on. It is 64 bytes: version <code>02</code>, tag
+            <code>80</code>, <code>80</code> for "no cookie", then zeros.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Take the cookie.</strong> The node answers with a
+            Challenge, 18 bytes: <code>02 81</code> and a 16-byte cookie.
+            Send a Subscribe at once with that cookie in it:
+            <code>02 80 81</code>, the cookie, then zeros to 64 bytes.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Read feeds.</strong> The node sends you its latest feed
+            right away, then every new one. Take datagrams only from the
+            node's address and port.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Renew every minute.</strong> Send the Subscribe with your
+            latest cookie once a minute. Whenever a Challenge comes, take its
+            cookie and send a Subscribe at once. A subscription you stop
+            renewing lapses after a few minutes, and a node that restarts
+            forgets every cookie, so it challenges you again.
+          </p>
+        </li>
+      </ol>
+      <p>
+        A node never answers an address it has not proven with more bytes
+        than it got, which is why a Subscribe is padded. It keeps a bounded
+        list of subscribers, and only a few per IPv4 address or IPv6 /56. When
+        the list is full, a newcomer gets nothing and tries again at its next
+        renewal.
+      </p>
+
+      <h2 id="checking-the-signature">Checking each datagram</h2>
+      <p>
+        A Feed datagram is <code>02 82</code>, the length of the feed, the
+        feed's bytes, and a 64-byte Ed25519 signature over exactly those
+        bytes. Take a feed only if all of these hold:
+      </p>
+      <ul>
+        <li>
+          <strong>It decodes.</strong> The version byte is <code>02</code>,
+          and nothing follows the signature. The feed is canonical OER, every
+          value with one encoding; refuse anything else.
+        </li>
+        <li>
+          <strong>It is a feed.</strong> Its bytes start with the feed's
+          object identifier, <code>0d 2b 06 01 04 01 83 a8 78 05 8a 77 03
+          02</code>, so a feed's signature never passes for anything else the
+          node signs.
+        </li>
+        <li>
+          <strong>It is this node's.</strong> The 32-byte key that follows is
+          the <code>publicKey</code> of the node you subscribed to.
+        </li>
+        <li>
+          <strong>The signature verifies</strong> under that key, over the
+          feed's bytes as received. Dassie verifies by the ZIP-215 rules and
+          refuses small-order keys; a key a node derives from its phrase is
+          never one.
+        </li>
+        <li>
+          <strong>It is newer.</strong> Its sequence, in milliseconds, is
+          larger than the last feed you took, so a replayed or late datagram
+          never sets the rates back.
+        </li>
+        <li>
+          <strong>It still counts.</strong> Now is before its
+          <code>validUntil</code>. With no feed that counts, assume nothing
+          about the node's rates.
+        </li>
+      </ul>
+      <p>
+        A feed is signed, not encrypted: it says nothing a node's packets
+        would not.
+      </p>
+
+      <h2 id="reading-the-rates">Reading the rates</h2>
+      <p>
+        Methods come in ascending order of their IDs, and each rate names
+        two of them by their place in that list: the method a packet comes
+        in on, and the one it leaves on. A rate is what one unit in gets out,
+        in the units of each method's ledger, times 10<sup>15</sup>, the
+        node's spread included. A packet that comes in with
+        <code>amount</code> goes out with at most:
+      </p>
+      <pre><code>fee = floor(amount × feePpm / 1,000,000)
+out = floor((amount − fee) × rate / 10^15)</code></pre>
+      <p>
+        "At most", because the rate is what a vanishingly small packet gets.
+        A real packet also pays for its own effect on the node's holdings,
+        so the larger it is against the node's value, the less it gets. A
+        pair the node does not convert right now is left out, and a rate is
+        never zero.
+      </p>
+      <p>
+        So a feed is a reason to ask, not a price to count on. Before you
+        trade, quote the payment through the node, and pay only if the quote
+        still works for you.
+      </p>
+
+      <h2 id="a-small-reader">A small reader</h2>
+      <p>
+        This Node.js script fetches a node's discovery document, checks its
+        ID, subscribes, and prints every feed that passes the checks above.
+        It uses only Node's own modules. Run it with
+        <code>node feed.mjs https://node.example</code>.
+      </p>
+      <figure class="file">
+        <figcaption>feed.mjs</figcaption>
+        <pre><code>import { createHash, createPublicKey, verify } from "node:crypto";
+import dgram from "node:dgram";
+import { lookup } from "node:dns/promises";
+
+const FEED_OID = Buffer.from("0d2b0601040183a878058a770302", "hex");
+const ID_OID = Buffer.from("0d2b0601040183a878058a770202", "hex");
+
+// The node's ID is the hash of its two keys: check it before trusting either.
+function nodeId(key, slhDsaKey) {
+  const input = Buffer.concat([ID_OID, Buffer.of(32), key, Buffer.of(32), slhDsaKey]);
+  const bytes = createHash("sha256").update(input).digest().subarray(0, 24);
+  const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+  let bits = 0, value = 0, text = "";
+  for (const byte of bytes) {
+    value = (value &lt;&lt; 8) | byte;
+    bits += 8;
+    while (bits &gt;= 5) text += alphabet[(value &gt;&gt;&gt; (bits -= 5)) &amp; 31];
+  }
+  return text + alphabet[(value &lt;&lt; (5 - bits)) &amp; 31];
+}
+
+// A Subscribe: version 2, tag 0, the cookie if there is one, zeros to 64 bytes.
+function subscribe(cookie) {
+  const datagram = Buffer.alloc(64);
+  datagram.set([2, 0x80, cookie ? 0x81 : 0x80]);
+  if (cookie) cookie.copy(datagram, 3);
+  return datagram;
+}
+
+// Reads canonical OER from `bytes`, refusing anything short.
+function reader(bytes) {
+  let at = 0;
+  const take = (n) =&gt; {
+    if (at + n &gt; bytes.length) throw new Error("too short");
+    return bytes.subarray(at, (at += n));
+  };
+  const length = () =&gt; {
+    const first = take(1)[0];
+    if (first &lt; 0x80) return first;
+    return take(first &amp; 0x7f).reduce((n, byte) =&gt; n * 256 + byte, 0);
+  };
+  return {
+    take,
+    length,
+    count: () =&gt; take(length()).reduce((n, byte) =&gt; n * 256 + byte, 0),
+    u64: () =&gt; take(8).readBigUInt64BE(0),
+    done: () =&gt; at === bytes.length,
+  };
+}
+
+// A Feed datagram: version 2, tag 2, the signed feed, its 64-byte signature.
+function readFeed(datagram, key) {
+  const outer = reader(datagram);
+  const [version, tag] = outer.take(2);
+  if (version !== 2 || tag !== 0x82) return undefined;
+  const signed = outer.take(outer.length());
+  const signature = outer.take(64);
+  if (!outer.done()) throw new Error("bytes after the signature");
+  if (!verify(null, signed, key, signature)) throw new Error("bad signature");
+  const r = reader(signed);
+  if (!r.take(FEED_OID.length).equals(FEED_OID)) throw new Error("not a feed");
+  const publicKey = r.take(32);
+  const feed = { publicKey, sequence: r.u64(), validUntil: r.u64() };
+  feed.feePpm = r.take(4).readUInt32BE(0);
+  feed.methods = [];
+  for (let n = r.count(); n &gt; 0; n--) {
+    feed.methods.push({ id: r.take(r.length()).toString("ascii"), maxPacket: r.u64() });
+  }
+  feed.rates = [];
+  for (let n = r.count(); n &gt; 0; n--) {
+    const [from, to] = r.take(2);
+    feed.rates.push({ from: feed.methods[from].id, to: feed.methods[to].id, rateE15: r.u64() });
+  }
+  if (!r.done()) throw new Error("bytes after the feed");
+  return feed;
+}
+
+const url = new URL(process.argv[2]);
+const node = await (await fetch(new URL("/.well-known/dassie/node", url))).json();
+const key = Buffer.from(node.publicKey, "base64url");
+const slhDsaKey = Buffer.from(node.slhDsaPublicKey, "base64url");
+if (nodeId(key, slhDsaKey) !== node.id) throw new Error("the ID is not the keys'");
+if (node.feedPort === undefined) throw new Error("this node publishes no feed");
+const verifyKey = createPublicKey({
+  key: { kty: "OKP", crv: "Ed25519", x: node.publicKey },
+  format: "jwk",
+});
+
+const { address, family } = await lookup(url.hostname);
+const socket = dgram.createSocket(family === 6 ? "udp6" : "udp4");
+let cookie;
+let last = -1n;
+const send = () =&gt; socket.send(subscribe(cookie), node.feedPort, address);
+socket.on("message", (datagram, from) =&gt; {
+  if (from.address !== address || from.port !== node.feedPort) return;
+  if (datagram.length === 18 &amp;&amp; datagram[0] === 2 &amp;&amp; datagram[1] === 0x81) {
+    cookie = Buffer.from(datagram.subarray(2));
+    return send();
+  }
+  try {
+    const feed = readFeed(datagram, verifyKey);
+    if (!feed || !feed.publicKey.equals(key)) return;
+    if (feed.sequence &lt;= last || BigInt(Date.now()) &gt;= feed.validUntil) return;
+    last = feed.sequence;
+    console.log(feed.feePpm, feed.methods, feed.rates);
+  } catch (error) {
+    console.error(`refused a datagram: ${error.message}`);
+  }
+});
+send();
+setInterval(send, 60_000);</code></pre>
+      </figure>
+      <p>
+        Node's Ed25519 follows RFC 8032 rather than ZIP-215. The two agree on
+        every signature a node makes; they differ only on odd signatures no
+        node writes. In Rust, the
+        <a href="https://github.com/justmoon/dassie/tree/main/crates/dassie-feed"><code>dassie-feed</code></a>
+        crate has a subscriber's side, <code>FeedReceiver</code>, that does
+        every check. It lives in the repository and is not on crates.io.
+      </p>
+
+      <h2 id="test-vectors">Test vectors</h2>
+      <p>
+        <a href="https://github.com/justmoon/dassie/blob/main/testdata/feed/vectors.json"><code>testdata/feed/vectors.json</code></a>
+        pins the format. All its datagrams are signed with one fixed key,
+        whose <code>publicKey</code>, <code>slhDsaPublicKey</code> and
+        <code>nodeId</code> it gives, so you can check your ID code too. It
+        holds:
+      </p>
+      <ul>
+        <li>two Subscribes, with and without a cookie, and a Challenge;</li>
+        <li>
+          three feeds your reader must take, with their decoded fields: a
+          heartbeat with no methods, one with two methods, and the largest the
+          format allows, eight methods and a rate for every pair;
+        </li>
+        <li>
+          four it must refuse, each with the reason: a tampered signature, a
+          feed signed by another key, a small-order key, and a datagram of
+          version 1.
+        </li>
+      </ul>
+      <p>
+        The heartbeat and two-method feeds have expired, and the largest is
+        valid until the largest u64, so test your decoding and signature
+        check with the vectors, and your clock check apart. Dassie's own code makes the vectors, since no other
+        implementation exists yet; running its generator again gives the same
+        file. A changed vector would mean a new feed version.
+      </p>
+
+      <h2 id="when-nothing-arrives">When nothing arrives</h2>
+      <ul>
+        <li>
+          <strong>No <code>feedPort</code> in the discovery document:</strong>
+          the node has no domain name, or no UDP socket for its feed.
+        </li>
+        <li>
+          <strong>No Challenge comes back:</strong> a firewall drops UDP to the
+          port, on the node's side or yours. The default port is 7768.
+        </li>
+        <li>
+          <strong>Challenges, but no feed:</strong> check that your Subscribe
+          carries the cookie and comes from the same address and port the
+          Challenge went to. If it does, the node's list may be full, or your
+          address may hold its share already; renew and wait.
+        </li>
+        <li>
+          <strong>Feeds with no methods:</strong> the node is alive, but
+          has no fresh exchange rates right now, or offers its peers no
+          settlement method yet.
+        </li>
+      </ul>
+      <p>
+        If you run the node, <code>sudo dassie status</code> has a line for
+        its feed: where it serves, to how many subscribers, and what it sent
+        and took. Under systemd the feed's socket is
+        <code>dassie-feed.socket</code>, on UDP port 7768; open it in your
+        firewall. See <a href="/docs/node/status/">Check on your node</a> and
+        <a href="/docs/reference/files-and-ports/">Files, ports and sockets</a>.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

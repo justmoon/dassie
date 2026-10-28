@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Every ILP error code a Dassie node sends, what made it, and whether your client should try again, change the packet or stop."
+    />
+    <title>Error codes · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Error codes</h1>
+      <p class="lede">
+        When a Dassie node refuses an ILP packet, it answers with a Reject that
+        carries a three-character code and a short message. This page lists
+        every code a node sends, what made it, and what your client does next.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="retry-or-stop">Retry or stop</h2>
+      <p>
+        The first letter of a code tells you how to react, as
+        <a href="https://interledger.org/developers/rfcs/interledger-protocol/">ILPv4</a>
+        defines it:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Class</th>
+              <th>Means</th>
+              <th>Your client</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>T</code>, temporary</td>
+              <td>Something on the way is short for the moment: liquidity, room, a route still settling in.</td>
+              <td>Waits a little, then sends again. Back off further each time.</td>
+            </tr>
+            <tr>
+              <td><code>R</code>, relative</td>
+              <td>The packet's expiry did not fit the path.</td>
+              <td>Sends a new packet with a fresh, longer expiry.</td>
+            </tr>
+            <tr>
+              <td><code>F</code>, final</td>
+              <td>Sending this same packet again will not help.</td>
+              <td>Changes the packet, or stops.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Two more things help you read a Reject. Its <code>triggeredBy</code>
+        names the node that refused, and the message says why in a few words.
+        Neither is proof: any node on the path can write any code and any
+        address. Only the receiver can put an encrypted STREAM reply in a
+        Reject, so a Reject that carries a reply your connection can decrypt
+        came from the receiver. One without may come from any node on the
+        path, the receiver included, and a sender treats it as the path's.
+      </p>
+      <p>
+        That matters because the packets of one payment can take different
+        paths: each node draws a next hop for every packet. A final error from
+        one node on one path says little about the next packet. Dassie's own
+        STREAM sender therefore sends the money again after a final error from
+        the path, without backing off, and stops only after a run of such
+        failures with no packet getting through. A simpler client may stop at
+        the first one. Both are fine; the second just gives up sooner.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/path-failures-retried.md">Why it works this way</a>:
+        a failure on one path should not end a payment another path can carry.
+      </p>
+
+      <h2 id="each-code">Each code here</h2>
+      <p>
+        The codes below are the ones a Dassie node sends today. The message
+        text is quoted as the node writes it, so you can search your logs for
+        it. A code from a node that is not Dassie may mean something a little
+        different.
+      </p>
+
+      <h3 id="T00">T00 Internal Error</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Message</th>
+              <th>What happened</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>exchange rates are stale</code></td>
+              <td>The packet converts between currencies, and the node's rates are too old. Rates come back once its rate sources answer.</td>
+            </tr>
+            <tr>
+              <td><code>no exchange rate</code></td>
+              <td>The node has no usable rate for this pair, or the result does not fit.</td>
+            </tr>
+            <tr>
+              <td><code>internal error</code></td>
+              <td>Something inside the node went wrong. Its log has the details.</td>
+            </tr>
+            <tr>
+              <td><code>invalid response from the next hop</code></td>
+              <td>The next node's answer to the packet was not a valid Fulfill or Reject.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <strong>Your client:</strong> back off and try again later. When the
+        node sends a packet to a BTP client and the client answers with a BTP
+        error, the node rejects that packet toward its sender with the
+        error's code (<code>the BTP client answered with an error</code>), or
+        T00 when the code is not a valid one.
+      </p>
+
+      <h3 id="T01">T01 Peer Unreachable</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Message</th>
+              <th>What happened</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>the peer could not be reached</code></td>
+              <td>The packet surely did not reach the next node: the connection was refused, or the peer answered that it did not take it.</td>
+            </tr>
+            <tr>
+              <td><code>next hop went away</code></td>
+              <td>The next node was removed while the packet waited for it.</td>
+            </tr>
+            <tr>
+              <td><code>the only route leads back</code></td>
+              <td>The only way on is back to the node the packet came from. Two neighbors see the network a little differently for a moment, right after a new peering; it passes when they next recompute their routes.</td>
+            </tr>
+            <tr>
+              <td><code>the peering is ending</code></td>
+              <td>The packet came from a peer whose peering with this node is winding down.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <strong>Your client:</strong> wait a moment and send again. The next
+        packet may take another path.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/route-back-is-temporary.md">Why a route that leads back is T01, not F02</a>
+      </p>
+
+      <h3 id="T03">T03 Connector Busy</h3>
+      <p>
+        The node is holding as many packets as it allows, or its books have no
+        room for another pending transfer (<code>connector busy</code>). A
+        node's STREAM receiver sends T03 too, with no message, when its table
+        of connections is full and it cannot make room.
+      </p>
+      <p><strong>Your client:</strong> back off and try again.</p>
+
+      <h3 id="T04">T04 Insufficient Liquidity</h3>
+      <p>
+        A node on the way has no room to pass the packet on right now. Room
+        comes back as peers settle what they owe each other, so this is the
+        most common temporary error in a busy network.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Message</th>
+              <th>What happened</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>insufficient liquidity</code></td>
+              <td>The credit between two peers is used up, or the node holds too little of the asset the packet would leave on. A node also answers this while it collects from a peer it decided to stop peering with.</td>
+            </tr>
+            <tr>
+              <td><code>no settlement method available</code></td>
+              <td>The route exists, but none of its next hops has a way to settle with this node right now.</td>
+            </tr>
+            <tr>
+              <td><code>the settlement method is not open</code></td>
+              <td>The packet came on a settlement method that is not open between this node and its sender.</td>
+            </tr>
+            <tr>
+              <td><code>the method is being wound down</code></td>
+              <td>The packet came on a settlement method the two peers are closing.</td>
+            </tr>
+            <tr>
+              <td><code>the hold does not cover the packet</code></td>
+              <td>Over a settlement hub, a hold does not cover the packet: the sending peer's toward this node, or this node's toward the next.</td>
+            </tr>
+            <tr>
+              <td><code>no room for the peer's accounts</code></td>
+              <td>The packet would open accounts for a new downstream node, and the node's books have no room for them.</td>
+            </tr>
+            <tr>
+              <td><code>cannot answer the peer</code></td>
+              <td>The node's own messages to that peer are not getting through, so it takes nothing new from it until the peer answers again.</td>
+            </tr>
+            <tr>
+              <td><code>the spending cap is reached</code></td>
+              <td>The BTP token has spent all its spending cap allows for now. The cap refills over time.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <strong>Your client:</strong> back off and try again. Do not route
+        around it by hand: the node never moves a packet to another hop or
+        method because one is short of room.
+      </p>
+
+      <h3 id="T05">T05 Rate Limited</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Message</th>
+              <th>What happened</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>too many packets in flight</code></td>
+              <td>You have more packets waiting at this node than it takes from one source.</td>
+            </tr>
+            <tr>
+              <td><code>too much money in flight</code></td>
+              <td>The packets in flight with one peer already carry as much money as the node lets them carry at once.</td>
+            </tr>
+            <tr>
+              <td><code>the peer refused the packet for its rate</code></td>
+              <td>The next node said it was getting too many requests.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A node's STREAM receiver also sends T05, with no message, while its
+        queue of events is full.
+      </p>
+      <p>
+        <strong>Your client:</strong> send fewer packets at once and back off.
+        A STREAM sender with congestion control does this by itself.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/packets-in-flight.md">Why money in flight is capped</a>
+      </p>
+
+      <h3 id="R00">R00 Transfer Timed Out</h3>
+      <p>
+        The packet expired before an answer came back
+        (<code>packet timed out</code>). A node waits for the full expiry,
+        never less, so a late Fulfill is not lost. A STREAM receiver that gets
+        a packet that has already expired answers R00 too.
+      </p>
+      <p>
+        <strong>Your client:</strong> send the money again in a new packet.
+        If it keeps happening, the path is slow or a node on it is not
+        answering.
+      </p>
+
+      <h3 id="R02">R02 Insufficient Timeout</h3>
+      <p>
+        The packet leaves too little time. Each node takes a little off the
+        expiry, so the answer has time to travel back, and refuses a packet
+        that would arrive at the next hop with too little left
+        (<code>insufficient timeout</code>; <code>expired</code> for an ILDCP
+        request that already expired).
+      </p>
+      <p>
+        <strong>Your client:</strong> give packets a longer expiry. Thirty
+        seconds, as STREAM senders use, is plenty.
+      </p>
+
+      <h3 id="F00">F00 Bad Request</h3>
+      <p>
+        The BTP token your client connected with has been revoked
+        (<code>the token is revoked</code>). It will never work again.
+      </p>
+      <p>
+        <strong>Your client:</strong> stop, and ask the node's owner for a new
+        token. See <a href="/docs/build/btp/">Connect an ILP client over BTP</a>.
+      </p>
+
+      <h3 id="F01">F01 Invalid Packet</h3>
+      <p>
+        The bytes are not a valid ILP Prepare (<code>invalid packet</code>),
+        or a packet to the ILDCP address is not an ILDCP request
+        (<code>not an ILDCP request</code>). Dassie reads packets strictly:
+        an address must follow the ILP address grammar, for example.
+      </p>
+      <p><strong>Your client:</strong> stop; this is a bug to fix in it.</p>
+
+      <h3 id="F02">F02 Unreachable</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Message</th>
+              <th>What happened</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>no route found</code></td>
+              <td>The node knows no route to the destination. A node without a domain name (a periphery node) also answers this to anything not meant for it, since it forwards nothing.</td>
+            </tr>
+            <tr>
+              <td><code>amount too small</code></td>
+              <td>After conversion, nothing of the packet's amount would arrive.</td>
+            </tr>
+            <tr>
+              <td><code>pay from the route's ledger</code></td>
+              <td>The owner's own packets never convert, and this one would have to.</td>
+            </tr>
+            <tr>
+              <td><code>a payer takes no packets</code></td>
+              <td>The address is one of the node's payers, which only send.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A STREAM receiver answers F02, with no message, to an address below
+        it whose credentials it cannot read: this receiver did not issue
+        them, or the address was changed on the way.
+      </p>
+      <p>
+        <strong>Your client:</strong> stop, for most clients. Check the
+        destination address and the credentials. A STREAM sender that keeps
+        going after errors from the path, as Dassie's does, may try a few more
+        packets first, since another path may lead there.
+      </p>
+
+      <h3 id="F05">F05 Wrong Condition</h3>
+      <p>
+        A BTP client or one of the node's own endpoints answered with a
+        Fulfill whose fulfillment does not match the packet's condition
+        (<code>invalid fulfillment</code>). The node refuses the packet at
+        once. A peer's Fulfill that does not match is taken for a stale
+        resend and dropped: the packet waits for its own answer or its
+        expiry, and no F05 goes out.
+      </p>
+      <p><strong>Your client:</strong> stop for this packet; someone on the path is broken.</p>
+
+      <h3 id="F06">F06 Unexpected Payment</h3>
+      <p>
+        A STREAM receiver could not decrypt the packet's data. The shared
+        secret does not belong to this address, or the data was damaged.
+      </p>
+      <p><strong>Your client:</strong> stop, and fetch fresh credentials.</p>
+
+      <h3 id="F08">F08 Amount Too Large</h3>
+      <p>
+        The packet carries more than a node takes in one packet
+        (<code>packet amount exceeds maximum allowed amount</code>), or more
+        than a token's spending cap could ever allow at once
+        (<code>packet amount exceeds the spending cap</code>). A packet that a
+        conversion would make too large on the way out gets F08 too.
+      </p>
+      <p>
+        Dassie's F08 always carries data: the amount that arrived and the most
+        the node takes, both in the packet's own units. Scale your packets by
+        that ratio. A Reject from other software may have no data; then halve
+        the packet and try again.
+      </p>
+      <p>
+        <strong>Your client:</strong> send smaller packets. F08 means only
+        that: a node never sends it for want of liquidity.
+      </p>
+
+      <h3 id="F99">F99 Application Error</h3>
+      <p>
+        The receiver refused the packet. A Dassie node's receiver sends F99 in
+        two ways:
+      </p>
+      <ul>
+        <li>
+          <strong>Without a STREAM reply,</strong> when it does not take the
+          connection at all: the incoming payment it pays is unknown, or
+          ended so long ago that the node forgot it, has expired, is on
+          another ledger, or has every connection place taken.
+        </li>
+        <li>
+          <strong>With a STREAM reply,</strong> when it will not fulfill this
+          packet. Most often less arrived than the packet's minimum: the
+          path's rate is too low. A rate probe is refused this way on
+          purpose, so a sender can measure the rate. A packet that is more
+          than the receiver told its streams they may receive, beyond the
+          tolerance, and money for a stream that is closed, are refused this
+          way too. The reply says what arrived, in its prepare amount, and
+          how much the receiver takes, in each stream's
+          <code>StreamMaxMoney</code>. Read what arrived, and send what fits.
+        </li>
+      </ul>
+      <p>
+        When the incoming payment has nothing left, or a packet fits what its
+        streams were told but not what is left, the receiver instead closes
+        the connection, with STREAM's <code>NoError</code> when the payment
+        got all it asked for, and <code>ApplicationError</code> when it was
+        stopped short. A payment that ended a short while ago is answered the
+        same way.
+      </p>
+      <p>
+        <strong>Your client:</strong> with a reply, follow it. Without one,
+        stop and check the incoming payment. More on how a receiver talks to
+        senders is on <a href="/docs/build/stream/">STREAM on Dassie</a>.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/stream.md#money-limit">How a receiver's money limit works</a>
+      </p>
+
+      <p>
+        Every code ILP defines, with its name, is in
+        <a href="https://github.com/justmoon/dassie/blob/main/crates/dassie-ilp/src/error_code.rs"><code>crates/dassie-ilp/src/error_code.rs</code></a>.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

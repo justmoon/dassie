@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How an app on another device pairs with a node and acts as its owner, over a relayed stream. The node's side is built; the apps are still to come."
+    />
+    <title>Owner apps · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Owner apps</h1>
+      <p class="lede">
+        An owner app runs your node from another device, such as your phone,
+        with everything the wallet can do. The node's side is there: it pairs
+        apps and answers them on an encrypted stream. This page shows how that
+        works, for the day you build one.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+      <p class="not-yet">
+        No owner app exists yet, and the contract an app speaks is not frozen:
+        it can change in any release, since today every client ships with the
+        node. <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+
+      <h2 id="pairing">Pairing</h2>
+      <p>
+        An app pairs with a key of its own, its device key, and from then on
+        acts as the owner until the owner revokes it. So only the owner, on
+        the node's own machine, can start a pairing:
+      </p>
+      <ul>
+        <li>
+          <strong>On the command line,</strong> with
+          <code>dassie pair</code>, which prints a pairing code.
+        </li>
+        <li>
+          <strong>In the wallet,</strong> in the Paired devices card of its
+          settings, which shows the
+          code as a QR code. The node starts a pairing for a browser only when
+          the browser reached it from the same machine, at
+          <code>localhost</code>. See <a href="/docs/wallet/devices/">Paired devices</a>.
+        </li>
+      </ul>
+      <pre><code><span class="prompt">$</span>dassie pair
+<span class="output">dassie-pair:&lt;node ID&gt;?v=1&amp;secret=&lt;hex&gt;&amp;direct=https%3A%2F%2Fnode.example
+Enter this code in the app within five minutes. It works once, and `dassie pair` again replaces it. The wallet on localhost shows it as a QR code.</span></code></pre>
+      <p>
+        A code works for five minutes, once. Starting another replaces it,
+        and a restart of the node forgets it. The node keeps it in memory
+        only.
+      </p>
+      <p>The code is a URI with these parts:</p>
+      <dl class="ref">
+        <dt id="code-node-id"><code>dassie-pair:&lt;node ID&gt;</code></dt>
+        <dd>
+          <p>The node to pair with. The app pins the node's key to this ID.</p>
+        </dd>
+        <dt id="code-v"><code>v</code></dt>
+        <dd>
+          <p>
+            The code's version, <code>1</code> today. An app refuses a version
+            it does not know, and ignores parameters it does not know, so a
+            version can gain parameters without a new number.
+          </p>
+        </dd>
+        <dt id="code-secret"><code>secret</code></dt>
+        <dd>
+          <p>The pairing's secret, in hex. The app claims the pairing with it.</p>
+        </dd>
+        <dt id="code-direct"><code>direct</code></dt>
+        <dd>
+          <p>
+            The node's own URL, percent-encoded, when it has a domain name.
+            Its QUIC endpoint answers at that host and port, over UDP.
+          </p>
+        </dd>
+        <dt id="code-relay"><code>relay</code></dt>
+        <dd>
+          <p>
+            For a node without a domain name: <code>&lt;node ID&gt;@&lt;URL&gt;</code>
+            of a node it keeps a connection to, which relays to it. A code
+            names a few at most.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        The owner sees every paired device in the wallet, with when it was
+        paired and last seen, and revokes one there. Revoking closes its
+        streams at once. A node keeps a bounded list of devices; when it is
+        full, a new device is refused until the owner revokes one.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/device-pairing.md">Why only the owner on the node's machine can pair</a>:
+        a stolen browser session must not become a device that outlives it.
+      </p>
+
+      <h2 id="relayed-streams">Relayed streams</h2>
+      <p>
+        An app talks to its node on a stream with the purpose
+        <code>owner</code>, over QUIC, one of two ways:
+      </p>
+      <ul>
+        <li>
+          <strong>Directly,</strong> to the node's QUIC endpoint, at the
+          <code>direct</code> URL's host and port.
+        </li>
+        <li>
+          <strong>Through a relay,</strong> one of the
+          <code>relay</code> entries: the app asks it to join a stream to the
+          node by its ID. A relay reaches only nodes that hold a connection to
+          it, so a node behind a router is reached through the nodes it is
+          connected to.
+        </li>
+      </ul>
+      <p>
+        Inside the stream, the app runs TLS 1.3 with the node itself, with
+        the ALPN <code>dassie-owner/1</code>. The app pins the node's key, and
+        proves its device key, an Ed25519 key it makes, with the SLH-DSA key
+        it derives from it, just as a node proves its own. The device is
+        known by the ID of those two keys. A relay sees only ciphertext, and
+        cannot pass its own stream off as the app's.
+      </p>
+      <p>
+        On that stream, the app speaks the same RPC as the wallet and the
+        <code>dassie</code> command: the
+        <a href="https://github.com/justmoon/dassie/tree/main/proto/dassie/owner/v1"><code>dassie.owner.v1</code></a>
+        protobuf contract, framed as on the IPC socket, each message with a
+        4-byte big-endian length in front, at most 1 MiB.
+        <a href="https://github.com/justmoon/dassie/blob/main/proto/dassie/owner/v1/transport.proto"><code>transport.proto</code></a>
+        describes the envelopes, calls and errors.
+      </p>
+      <ol class="steps">
+        <li>
+          <p>
+            <strong>Claim the pairing.</strong> On the first stream, call
+            <code>ClaimPairing</code> with the code's secret and the name the
+            owner will see, 1 to 64 bytes. A device that is not paired may
+            call only that and <code>GetBasicState</code>.
+            <code>NOT_FOUND</code> means the secret is wrong, expired or used;
+            <code>RESOURCE_EXHAUSTED</code> means the device list is full.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Connect again.</strong> A stream opened before the pairing
+            ends after a short while, even once the claim succeeds. Open a new
+            one: it is the paired device's.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Call as the owner.</strong> Every method is open to the
+            device now, the live <code>Subscribe*</code> streams included,
+            except starting a pairing: a device cannot pair another. The
+            node checks the device on every call, so a revoked device is out
+            at once.
+          </p>
+        </li>
+      </ol>
+      <p>
+        In Rust, <code>dassie_node::owner_app::connect</code> opens such a
+        stream, directly or through a relay, from a QUIC endpoint whose key
+        is the device key.
+        <a href="https://github.com/justmoon/dassie/blob/main/crates/dassie-node/tests/owner_app.rs"><code>crates/dassie-node/tests/owner_app.rs</code></a>
+        pairs a device and calls the node through both routes. The crate is
+        part of the node and is not published on its own.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rpc.md#paired-devices">The full rules for paired devices</a>,
+        and
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/peer-protocol.md#relayed-streams">how relays carry streams</a>.
+      </p>
+
+      <h2 id="not-there-yet">What is not there yet</h2>
+      <p>
+        The node pairs apps and serves them. What an app needs beyond that is
+        still to come:
+      </p>
+      <ul>
+        <li>the apps themselves: a remote mode of the desktop app, and a mobile app;</li>
+        <li>approving an app's grant inside the owner app as it connects;</li>
+        <li>finding the node on the local network;</li>
+        <li>finding the relays that reach a node from its ID alone, without a pairing code;</li>
+        <li>
+          a frozen contract: once the first app ships apart from the node,
+          the owner contract and the pairing code become surfaces that stay
+          compatible across releases.
+        </li>
+      </ul>
+      <p class="not-yet">
+        Until then, build against the contract of the release you run, and
+        expect it to change. <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>
