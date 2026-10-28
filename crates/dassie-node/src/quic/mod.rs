@@ -749,11 +749,14 @@ impl Quic {
     }
 
     /// Sends `request` on a connection of its own, dialled at its
-    /// endpoint, never the one kept for the node, and closed once
-    /// answered: what shows that the node answers at that endpoint, where
-    /// the connection it opened to us would answer as well
-    /// (spec/decisions/promotion-to-core.md). It ends no backoff and starts
-    /// none: it says nothing of the connection we keep with the node.
+    /// endpoint, never the one kept for the node, nor kept after: what
+    /// shows that the node answers at that endpoint, where the connection
+    /// it opened to us would answer as well
+    /// (spec/decisions/promotion-to-core.md). The node may keep it as its
+    /// own connection to us, as it may any we dial, so we answer what it
+    /// sends on it, and leave it to idle out rather than close it under
+    /// requests of the node's. It ends no backoff and starts none: it says
+    /// nothing of the connection we keep with the node.
     ///
     /// # Errors
     ///
@@ -782,11 +785,10 @@ impl Quic {
         else {
             return Err(Failure::NotDelivered);
         };
-        let result = tokio::time::timeout_at(deadline, exchange(&connection, &request.body))
+        self.answer_on(&connection);
+        tokio::time::timeout_at(deadline, exchange(&connection, &request.body))
             .await
-            .unwrap_or(Err(Failure::Unknown));
-        connection.close(0u32.into(), b"");
-        result
+            .unwrap_or(Err(Failure::Unknown))
     }
 
     /// Sends `request` and reads its response within the request's time,
