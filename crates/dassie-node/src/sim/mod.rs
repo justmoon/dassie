@@ -110,7 +110,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::{Arc, Once};
 
 use dassie_connector::SpendingCap;
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_ilp::{Address, Prepare, Timestamp};
 use dassie_kit::sim::SeededRng;
 use dassie_ledger::LedgerId;
@@ -175,8 +175,19 @@ pub const FORGERY_WITHIN_MS: u64 = 90_000;
 /// The key of the forger, who saw requests between nodes and sends them
 /// again under the only key it can prove, its own: no node of the network
 /// (spec/areas/peer-protocol.md#authentication).
-pub fn forger() -> Arc<NodeKey> {
-    Arc::new(NodeKey::from_bytes(&[0xf0; 32]))
+pub fn forger() -> Arc<IdentityKey> {
+    key_of(0xf0)
+}
+
+/// The node key of the seed `seed` repeated, with its identity, made once
+/// per seed and kept: its SLH-DSA key takes a key generation, and a
+/// simulation asks for its nodes' keys all the time.
+pub(crate) fn key_of(seed: u8) -> Arc<IdentityKey> {
+    static KEYS: [std::sync::OnceLock<Arc<IdentityKey>>; 256] =
+        [const { std::sync::OnceLock::new() }; 256];
+    Arc::clone(
+        KEYS[usize::from(seed)].get_or_init(|| Arc::new(IdentityKey::from_bytes(&[seed; 32]))),
+    )
 }
 
 /// Whether a request of `kind` may be taken from anyone, the forger
@@ -610,10 +621,8 @@ struct LedgerLink {
 }
 
 /// Node `index`'s key, the same in every run.
-pub fn key(index: usize) -> Arc<NodeKey> {
-    Arc::new(NodeKey::from_bytes(
-        &[u8::try_from(index + 40).unwrap(); 32],
-    ))
+pub fn key(index: usize) -> Arc<IdentityKey> {
+    key_of(u8::try_from(index + 40).unwrap())
 }
 
 /// The ILP packet a peer message carries, with its request ID, if it
@@ -2295,7 +2304,7 @@ impl Sim {
                 if let Some(key) = fulfill {
                     node.fulfills.insert(inbound, key);
                 }
-                let sender = key(from).public_key();
+                let sender = key(from).identity();
                 self.step(to, |core| core.peer_inbound(inbound, sender, &body, None));
             }
             Delivery::Forged {
@@ -2317,7 +2326,7 @@ impl Sim {
                 let inbound = InboundId(node.next_inbound);
                 node.next_inbound += 1;
                 node.forged.insert(inbound, kind);
-                let sender = forger().public_key();
+                let sender = forger().identity();
                 self.step(to, |core| core.peer_inbound(inbound, sender, &body, None));
             }
             Delivery::LedgerRequest {

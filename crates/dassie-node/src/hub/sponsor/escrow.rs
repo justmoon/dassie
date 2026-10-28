@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use dassie_hub::Rules;
 use dassie_hub::escrow::{EscrowSeen, SetupStep, escrow_master, setup_step};
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_settlement::{OwnerPaymentState, PaymentFailure};
 use dassie_xrpl::{AccountId, Wallet, api};
 use tokio::sync::mpsc;
@@ -54,7 +54,7 @@ pub struct Setup {
     /// The node.
     pub node: Arc<Node>,
     /// Its key, from which the escrow's master key derives.
-    pub key: Arc<NodeKey>,
+    pub key: Arc<IdentityKey>,
     /// The hub's rules.
     pub rules: Rules,
     /// The XRPL server.

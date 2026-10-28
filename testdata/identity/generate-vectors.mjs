@@ -6,6 +6,9 @@
 // @scure/bip39 for the English wordlist and for BIP-39 phrases a reader
 // refuses; @noble/hashes for the HMAC tree of seed paths and the node ID's
 // digest, @scure/base for its base32, @noble/curves for Ed25519,
+// @noble/post-quantum for the SLH-DSA key the node ID commits to (an
+// implementation of FIPS 205 apart from the `slh-dsa` crate Dassie's code
+// uses, itself checked here against NIST's known-answer vectors),
 // @scure/bip32 for a hub's payout key, and xrpl.js for the XRP Ledger
 // wallets.
 //
@@ -18,18 +21,19 @@
 //   every length, kind and realm, and made more than a day after the
 //   reader's clock;
 // - chain.json: phrases of both realms, each from its secret to its
-//   master seed, node key, public key, node ID, login secret, and the
-//   entropy and wallet of the node's first XRP Ledger account on the
-//   testnet and on mainnet;
-// - keys.json: two node keys with a signature, and the node ID's hash
-//   input;
+//   master seed, node key, public key, SLH-DSA public key, node ID, login
+//   secret, and the entropy and wallet of the node's first XRP Ledger
+//   account on the testnet and on mainnet;
+// - keys.json: two node keys with their SLH-DSA keys and a signature, and
+//   the node ID's hash input;
 // - paths.json: every seed path below the node key, with its text and its
 //   secret, and for a hub's keys what the hub's rules name of them.
 //
 // Run from the repository root, with the libraries installed somewhere:
 //
 //   npm install --prefix "$TMP" @scure/bip39@2.4.0 @scure/bip32@2.4.0 \
-//     @scure/base@2.4.0 @noble/hashes@2.4.0 @noble/curves@2.4.0 xrpl@3.1.0
+//     @scure/base@2.4.0 @noble/hashes@2.4.0 @noble/curves@2.4.0 xrpl@3.1.0 \
+//     @noble/post-quantum@0.7.1
 //   NODE_PATH="$TMP/node_modules" node testdata/identity/generate-vectors.mjs
 //
 // Then regenerate testdata/xrpl's vectors, which sign with chain.json's
@@ -37,7 +41,7 @@
 // the files.
 
 import { createRequire } from "node:module";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import * as phrase from "./phrase.mjs";
 
 const require = createRequire(`${process.env.NODE_PATH}/`);
@@ -48,6 +52,7 @@ const { base32nopad } = require("@scure/base");
 const { sha256 } = require("@noble/hashes/sha2.js");
 const { hmac } = require("@noble/hashes/hmac.js");
 const { ed25519 } = require("@noble/curves/ed25519.js");
+const { slh_dsa_sha2_128s } = require("@noble/post-quantum/slh-dsa.js");
 const { Wallet, encodeSeed } = require("xrpl");
 
 const OUT = "crates/dassie-identity/tests/data";
@@ -72,15 +77,38 @@ const derive = (nodeKey, path) => {
   return fold(nodeKey, rest);
 };
 
-// The node ID: the OER of the fingerprint OID 1.3.6.1.4.1.54392.5.1399.2.1
-// and the key, hashed; the first 24 bytes of the digest in lowercase
-// base32, without padding.
+// The node's SLH-DSA key (SLH-DSA-SHA2-128s): FIPS 205's key generation
+// from three seeds of n = 16 bytes, SK.seed, SK.prf and PK.seed, each the
+// first 16 bytes of the secret at its path below the node key.
+const SLH_DSA_SEEDS = ["sk-seed", "sk-prf", "pk-seed"];
+const slhDsaKeygen = (skSeed, skPrf, pkSeed) =>
+  slh_dsa_sha2_128s.keygen(Uint8Array.from([...skSeed, ...skPrf, ...pkSeed])).publicKey;
+const slhDsaPublicKey = (nodeKey) => {
+  const [skSeed, skPrf, pkSeed] = SLH_DSA_SEEDS.map((seed) =>
+    derive(nodeKey, `node/slh-dsa-sha2-128s/${seed}`).subarray(0, 16)
+  );
+  return slhDsaKeygen(skSeed, skPrf, pkSeed);
+};
+
+// The library must give NIST's known-answer vectors of the parameter set
+// (dassie-identity's tests/data/slh_dsa_keygen.json, taken from ACVP).
+const known = JSON.parse(readFileSync(`${OUT}/slh_dsa_keygen.json`, "utf8"));
+for (const test of known.tests) {
+  const unhex = (text) => Uint8Array.from(Buffer.from(text, "hex"));
+  const key = slhDsaKeygen(unhex(test.skSeed), unhex(test.skPrf), unhex(test.pkSeed));
+  if (hex(key) !== test.pk) throw new Error(`SLH-DSA known answer ${test.tcId} differs`);
+}
+
+// The node ID: the OER of the fingerprint OID 1.3.6.1.4.1.54392.5.1399.2.2,
+// the Ed25519 public key and the SLH-DSA public key, hashed; the first 24
+// bytes of the digest in lowercase base32, without padding.
 const FINGERPRINT_OID = Uint8Array.from([
-  0x0d, 0x2b, 0x06, 0x01, 0x04, 0x01, 0x83, 0xa8, 0x78, 0x05, 0x8a, 0x77, 0x02, 0x01,
+  0x0d, 0x2b, 0x06, 0x01, 0x04, 0x01, 0x83, 0xa8, 0x78, 0x05, 0x8a, 0x77, 0x02, 0x02,
 ]);
-const hashInput = (publicKey) => Uint8Array.from([...FINGERPRINT_OID, 0x20, ...publicKey]);
-const nodeId = (publicKey) => {
-  const digest = sha256(hashInput(publicKey)).subarray(0, 24);
+const hashInput = (publicKey, slhDsa) =>
+  Uint8Array.from([...FINGERPRINT_OID, 0x20, ...publicKey, 0x20, ...slhDsa]);
+const nodeId = (publicKey, slhDsa) => {
+  const digest = sha256(hashInput(publicKey, slhDsa)).subarray(0, 24);
   return base32nopad.encode(digest).toLowerCase();
 };
 
@@ -113,6 +141,7 @@ const chain = Array.from({ length: 64 }, (_, index) => {
   const masterSeed = phrase.masterSeed(secret, realm);
   const nodeKey = fold(masterSeed, ["node"]);
   const publicKey = ed25519.getPublicKey(nodeKey);
+  const slhDsa = slhDsaPublicKey(nodeKey);
   const entry = {
     index,
     kind,
@@ -123,7 +152,8 @@ const chain = Array.from({ length: 64 }, (_, index) => {
     masterSeed: hex(masterSeed),
     nodeKey: hex(nodeKey),
     publicKey: hex(publicKey),
-    nodeId: nodeId(publicKey),
+    slhDsaPublicKey: hex(slhDsa),
+    nodeId: nodeId(publicKey, slhDsa),
     loginSecret: hex(derive(nodeKey, "node/login")),
   };
   for (const [name, path] of XRPL_ACCOUNTS) {
@@ -477,10 +507,12 @@ write("phrase.json", { made: madePhrases, clocks, reading });
 const message = utf8("dassie test message");
 const keys = [fill(1), fill(3)].map((seed) => {
   const publicKey = ed25519.getPublicKey(seed);
+  const slhDsa = slhDsaPublicKey(seed);
   return {
     seed: hex(seed),
     publicKey: hex(publicKey),
-    nodeId: nodeId(publicKey),
+    slhDsaPublicKey: hex(slhDsa),
+    nodeId: nodeId(publicKey, slhDsa),
     message: hex(message),
     signature: hex(ed25519.sign(message, seed)),
   };
@@ -488,9 +520,10 @@ const keys = [fill(1), fill(3)].map((seed) => {
 write("keys.json", {
   keys,
   nodeIdHashInput: {
-    oid: "1.3.6.1.4.1.54392.5.1399.2.1",
+    oid: "1.3.6.1.4.1.54392.5.1399.2.2",
     publicKey: hex(ed25519.getPublicKey(fill(1))),
-    encoded: hex(FINGERPRINT_OID),
+    slhDsaPublicKey: hex(slhDsaPublicKey(fill(1))),
+    encoded: hex(hashInput(ed25519.getPublicKey(fill(1)), slhDsaPublicKey(fill(1)))),
   },
 });
 
@@ -529,6 +562,11 @@ const paths = [
     { name: "quicConnectionIds", endpoint, path: `node/quic/${ids}` },
   ]),
   { name: "routing", path: "node/routing" },
+  ...SLH_DSA_SEEDS.map((seed) => ({
+    name: "slhDsa",
+    seed,
+    path: `node/slh-dsa-sha2-128s/${seed}`,
+  })),
   ...[1, 0].flatMap((network) =>
     HUB_KEYS.map((key) => ({
       name: "hub",
@@ -570,6 +608,7 @@ const named = (entry, secret) => {
 const nodeKey = fill(1);
 write("paths.json", {
   nodeKey: hex(nodeKey),
+  slhDsaPublicKey: hex(slhDsaPublicKey(nodeKey)),
   paths: paths.map((entry) => {
     const secret = derive(nodeKey, entry.path);
     return { ...entry, secret: hex(secret), ...named(entry, secret) };

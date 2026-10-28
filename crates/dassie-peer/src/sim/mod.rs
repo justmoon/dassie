@@ -33,7 +33,7 @@ use crate::{
     Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, NameEvent, Output,
     OwnInfo, PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
 };
-use dassie_identity::{NodeId, NodeKey, PublicKey};
+use dassie_identity::{IdentityKey, NodeId, NodeIdentity};
 use dassie_kit::sim::SeededRng;
 use dassie_oer::Encode;
 use sha2::{Digest, Sha256};
@@ -199,9 +199,14 @@ impl PeeringHooks for StubHooks {
     }
 }
 
-/// Node `index`'s key, the same in every run.
-pub fn key(index: usize) -> Arc<NodeKey> {
-    Arc::new(NodeKey::from_bytes(&[u8::try_from(index + 1).unwrap(); 32]))
+/// Node `index`'s key, with its identity, the same in every run. Each is
+/// made once and kept, since its SLH-DSA key takes a key generation, and
+/// the simulation asks for keys by index all the time.
+pub fn key(index: usize) -> Arc<IdentityKey> {
+    static KEYS: [std::sync::OnceLock<Arc<IdentityKey>>; 255] =
+        [const { std::sync::OnceLock::new() }; 255];
+    let seed = u8::try_from(index + 1).unwrap();
+    Arc::clone(KEYS[index].get_or_init(|| Arc::new(IdentityKey::from_bytes(&[seed; 32]))))
 }
 
 /// Node `index`'s URL.
@@ -218,8 +223,8 @@ pub fn endpoint(index: usize) -> crate::wire::Endpoint {
 /// connection it came on proved (spec/areas/peer-protocol.md#authentication).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Arriving {
-    /// The key the connection proved.
-    pub from: PublicKey,
+    /// The identity the connection proved.
+    pub from: NodeIdentity,
     /// The body: the content.
     pub body: Vec<u8>,
 }
@@ -227,15 +232,15 @@ pub struct Arriving {
 impl Arriving {
     /// `content` from the node of `from`.
     #[must_use]
-    pub fn new(from: &NodeKey, content: &crate::wire::Content<'_>) -> Self {
+    pub fn new(from: &IdentityKey, content: &crate::wire::Content<'_>) -> Self {
         Self::of(from, content.to_vec())
     }
 
     /// `body` as it is, from the node of `from`.
     #[must_use]
-    pub fn of(from: &NodeKey, body: Vec<u8>) -> Self {
+    pub fn of(from: &IdentityKey, body: Vec<u8>) -> Self {
         Self {
-            from: from.public_key(),
+            from: from.identity(),
             body,
         }
     }
@@ -244,8 +249,9 @@ impl Arriving {
 /// The key of someone who sees requests between nodes and sends them again
 /// as its own: no node of the network, and the only key it can prove
 /// (spec/areas/peer-protocol.md#authentication).
-pub fn forger() -> Arc<NodeKey> {
-    Arc::new(NodeKey::from_bytes(&[0xf0; 32]))
+pub fn forger() -> Arc<IdentityKey> {
+    static FORGER: std::sync::OnceLock<Arc<IdentityKey>> = std::sync::OnceLock::new();
+    Arc::clone(FORGER.get_or_init(|| Arc::new(IdentityKey::from_bytes(&[0xf0; 32]))))
 }
 
 /// Whether a request of `kind` may be taken from anyone, a node it holds
@@ -1138,7 +1144,7 @@ impl Network {
         self.forgeries += 1;
         let inbound = InboundId(sim.next_inbound);
         sim.next_inbound += 1;
-        let from = forger().public_key();
+        let from = forger().identity();
         let taken = match node.handle_inbound(now, &mut sim.hooks, inbound, from, body, None) {
             Inbound::Reply(reply) => reply.is_ok() && !anyone_may_send(kind),
             Inbound::Deferred
@@ -1209,7 +1215,7 @@ impl Network {
         let inbound = InboundId(sim.next_inbound);
         sim.next_inbound += 1;
         let source = self.sources.get(&from).copied();
-        let sender = key(from).public_key();
+        let sender = key(from).identity();
         let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, sender, body, source) {
             Inbound::Reply(reply) => Some(reply),
             Inbound::Deferred => {

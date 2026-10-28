@@ -12,7 +12,7 @@
 
 mod support;
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_node::log::LogFilter;
 use dassie_node::rpc::proto::{
     self, client_message, request::Method, response, server_message, stream_item,
@@ -23,8 +23,8 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 type Owner = RpcClient<Framed<UnixStream, LengthDelimitedCodec>>;
 
-fn key() -> NodeKey {
-    NodeKey::from_bytes(&[11; 32])
+fn key() -> IdentityKey {
+    IdentityKey::from_bytes(&[11; 32])
 }
 
 /// Sets the node up, waits for its ledger and activates the stub.
@@ -240,7 +240,7 @@ async fn the_inspectors_show_the_node_without_its_secrets() {
             .all(|s| s.state() == proto::ServiceState::Running)
     );
     assert!(services.cells.iter().any(|cell| cell.name == "ledger"));
-    let stranger = NodeKey::from_bytes(&[12; 32]).node_id().to_string();
+    let stranger = IdentityKey::from_bytes(&[12; 32]).node_id().to_string();
     let refused = owner
         .call(Method::RegisterWithBootstrap(
             proto::RegisterWithBootstrapRequest { node: stranger },
@@ -339,14 +339,18 @@ async fn the_discovery_document_names_the_node_once_set_up() {
     assert_eq!(reply.status, hyper::StatusCode::OK);
     assert_eq!(reply.header("content-type"), Some("application/json"));
     let document: serde_json::Value = serde_json::from_str(&reply.text()).unwrap();
-    let public_key = key().public_key();
-    let mut encoded = [0u8; 43];
-    let length = dassie_base64url::encode(public_key.as_bytes(), &mut encoded);
+    let identity = key().identity();
+    let base64url = |key: &[u8; 32]| {
+        let mut encoded = [0u8; 43];
+        let length = dassie_base64url::encode(key, &mut encoded);
+        std::str::from_utf8(&encoded[..length]).unwrap().to_owned()
+    };
     assert_eq!(
         document,
         serde_json::json!({
-            "id": public_key.node_id().as_str(),
-            "publicKey": std::str::from_utf8(&encoded[..length]).unwrap(),
+            "id": identity.node_id().as_str(),
+            "publicKey": base64url(identity.key().as_bytes()),
+            "slhDsaPublicKey": base64url(identity.slh_dsa().as_bytes()),
         })
     );
 }

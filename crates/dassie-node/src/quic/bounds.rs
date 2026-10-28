@@ -101,7 +101,7 @@ mod tests {
     fn request(seed: u8, url: &str) -> Request {
         Request {
             id: dassie_peer::RequestId(0),
-            to: dassie_identity::NodeKey::from_bytes(&[seed; 32]).node_id(),
+            to: dassie_identity::NodeId::from_bytes(&[seed; 24]),
             endpoint: dassie_peer::wire::Endpoint::of_url(url),
             kind: dassie_peer::wire::Kind::LinkStateUpdate,
             body: Vec::new(),

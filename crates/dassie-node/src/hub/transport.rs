@@ -50,7 +50,7 @@ use dassie_hub::digest::Digest;
 use dassie_hub::ledger::Phase;
 use dassie_hub::service::MAX_SINCE_ANSWER_BYTES;
 use dassie_hub::service::wire::{ENVELOPE, MAX_MEMBER_MESSAGE, MAX_MESSAGE, Message};
-use dassie_identity::{NodeId, PublicKey};
+use dassie_identity::{NodeId, NodeIdentity};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::{mpsc, oneshot};
 
@@ -275,9 +275,9 @@ pub enum HubAccess {
     Validator,
 }
 
-/// Who sent a message: the node whose key the QUIC connection proved.
+/// Who sent a message: the node whose identity the QUIC connection proved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Sender(pub PublicKey);
+pub struct Sender(pub NodeIdentity);
 
 impl Sender {
     /// Its handle for the validator: the same for every message from the
@@ -301,9 +301,9 @@ impl Sender {
 pub struct Inbound {
     /// Who sent it.
     pub from: PeerId,
-    /// The node key the transport proved it by, if any: only a validator
+    /// The identity the transport proved it by, if any: only a validator
     /// is served catch-up.
-    pub node: Option<PublicKey>,
+    pub node: Option<NodeIdentity>,
     /// The message.
     pub message: Vec<u8>,
     /// Where the reply goes.
@@ -468,7 +468,7 @@ impl Hubs {
     /// Who `from` is to the hub named `hub`: whether the node validates it,
     /// and whether `from` is one of its validators.
     #[must_use]
-    pub fn access(&self, from: Option<&PublicKey>, hub: &[u8; 32]) -> HubAccess {
+    pub fn access(&self, from: Option<&NodeIdentity>, hub: &[u8; 32]) -> HubAccess {
         let routes = self.routes.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(route) = routes.get(&HubId(Digest(*hub))) else {
             return HubAccess::Unknown;
@@ -623,7 +623,7 @@ impl Hubs {
     pub async fn answer_state(
         &self,
         store: Arc<Store>,
-        from: &PublicKey,
+        from: &NodeIdentity,
         request: &[u8],
     ) -> StateReply {
         let status = |status: StateStatus| StateReply {
@@ -904,7 +904,7 @@ mod tests {
     #[test]
     fn a_sender_holds_only_its_share_of_members_places() {
         let hubs = Hubs::default();
-        let key = |seed| Sender(dassie_identity::NodeKey::from_bytes(&[seed; 32]).public_key());
+        let key = |seed| Sender(dassie_identity::IdentityKey::from_bytes(&[seed; 32]).identity());
         let share = MAX_MEMBER_REQUESTS_PER_SENDER as usize;
         let one = key(1);
         let held: Vec<HubPermit> = (0..share)
@@ -936,12 +936,12 @@ mod tests {
         let key = dassie_identity::NodeKey::from_bytes(&[1; 32]).public_key();
         let request = dassie_hub::client::Request::Account(key);
         let message = dassie_oer::Encode::to_vec(&Message::Request(request));
-        let from = Sender(dassie_identity::NodeKey::from_bytes(&[3; 32]).public_key());
+        let from = Sender(dassie_identity::IdentityKey::from_bytes(&[3; 32]).identity());
         let unknown = hubs.answer(from, &encode_request(&hub, &message)).await;
         assert_eq!(unknown, HubAnswer::UnknownHub);
         let (members, mut queue) = mpsc::channel(1);
         let (validators, mut theirs) = mpsc::channel(1);
-        let co_key = dassie_identity::NodeKey::from_bytes(&[2; 32]).public_key();
+        let co_key = dassie_identity::IdentityKey::from_bytes(&[2; 32]).identity();
         let co_validator = co_key.node_id();
         let route = Route {
             validators,
@@ -981,8 +981,8 @@ mod tests {
             boundaries: &[],
         };
         store.save_hub_step(hub.0.as_bytes(), 1, step).unwrap();
-        let co = dassie_identity::NodeKey::from_bytes(&[2; 32]).public_key();
-        let stranger = dassie_identity::NodeKey::from_bytes(&[3; 32]).public_key();
+        let co = dassie_identity::IdentityKey::from_bytes(&[2; 32]).identity();
+        let stranger = dassie_identity::IdentityKey::from_bytes(&[3; 32]).identity();
         let request = encode_state_request(&hub, 5);
         let ask = |from, request: Vec<u8>| {
             let (hubs, store) = (&hubs, Arc::clone(&store));

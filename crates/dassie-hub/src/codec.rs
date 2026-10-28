@@ -5,7 +5,9 @@
 
 use core::fmt;
 
-use dassie_identity::{PublicKey, Signature};
+use dassie_identity::{
+    NodeIdentity, PublicKey, SLH_DSA_PUBLIC_KEY_BYTES, Signature, SlhDsaPublicKey,
+};
 use dassie_oer::{DecodeError, Reader, Writer};
 
 use crate::Digest;
@@ -62,6 +64,25 @@ pub fn read_key(reader: &mut Reader<'_>) -> Result<PublicKey, HubDecodeError> {
         return Err(HubDecodeError::InvalidKey);
     }
     Ok(key)
+}
+
+/// Encoded size of a node's identity: its Ed25519 key, then its SLH-DSA
+/// key, which the rules name a node by, so that its node ID follows from
+/// them (spec/areas/identity.md#node-id).
+pub const NODE_LEN: usize = KEY_LEN + SLH_DSA_PUBLIC_KEY_BYTES;
+
+/// Writes a node's identity.
+pub fn write_node(writer: &mut Writer<'_>, node: &NodeIdentity) {
+    write_key(writer, &node.key());
+    writer.write_bytes(node.slh_dsa().as_bytes());
+}
+
+/// Reads a node's identity, refusing a weak Ed25519 key as [`read_key`]
+/// does. Every 32 bytes are an SLH-DSA key.
+pub fn read_node(reader: &mut Reader<'_>) -> Result<NodeIdentity, HubDecodeError> {
+    let key = read_key(reader)?;
+    let slh_dsa = SlhDsaPublicKey::from_bytes(*reader.read_array::<SLH_DSA_PUBLIC_KEY_BYTES>()?);
+    Ok(NodeIdentity::new(key, slh_dsa))
 }
 
 /// Writes a signature.

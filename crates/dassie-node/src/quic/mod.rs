@@ -46,7 +46,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use dassie_identity::{NodeId, NodeKey, NodeSecret, PublicKey, QuicEndpoint};
+use dassie_identity::{IdentityKey, NodeId, NodeIdentity, NodeSecret, QuicEndpoint};
 use dassie_kit::ClientKey;
 use dassie_node_core::address::is_public;
 use dassie_node_core::connections::ConnectionLimits;
@@ -74,8 +74,10 @@ use crate::tls;
 /// first (spec/decisions/protocol-upgrades.md). Each names the layouts of
 /// the messages. A server speaks the first of these its client offers, so
 /// two nodes speak the newest they share, and nodes that share none fail
-/// the handshake, before a message is read. A change to the layouts puts
-/// its version first and keeps the one before for a release cycle.
+/// the handshake, before a message is read. A change to the layouts of a
+/// released version puts a new version first and keeps the one before for
+/// a release cycle; the layouts of a version no release speaks yet still
+/// move under its name (spec/areas/peer-protocol.md#versions).
 pub const VERSIONS: [&[u8]; 1] = [b"dassie/2"];
 
 /// The ALPN list of `versions`.
@@ -222,13 +224,13 @@ pub trait Handler: Send + Sync + 'static {
         None
     }
 
-    /// Answers a request from `client`, by the node whose key `from` its
+    /// Answers a request from `client`, by the node whose identity `from` its
     /// connection proved, whose body `body` reads: the request is that
     /// node's, and no other's (spec/areas/peer-protocol.md#authentication).
     fn answer<'a>(
         &'a self,
         client: IpAddr,
-        from: PublicKey,
+        from: NodeIdentity,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>>;
 
@@ -237,7 +239,7 @@ pub trait Handler: Send + Sync + 'static {
     /// validates the hub, and only a validator of it is read up to the
     /// largest message ([`crate::hub::transport`]). No hub, unless a
     /// handler says otherwise.
-    fn hub_access(&self, _from: &PublicKey, _hub: &[u8; 32]) -> crate::hub::HubAccess {
+    fn hub_access(&self, _from: &NodeIdentity, _hub: &[u8; 32]) -> crate::hub::HubAccess {
         crate::hub::HubAccess::Unknown
     }
 
@@ -247,19 +249,19 @@ pub trait Handler: Send + Sync + 'static {
     /// answered busy.
     fn hub_permit(
         &self,
-        _from: &PublicKey,
+        _from: &NodeIdentity,
         _access: crate::hub::HubAccess,
     ) -> Option<crate::hub::transport::HubPermit> {
         None
     }
 
     /// Answers `request` on a settlement hub's stream from the node `from`,
-    /// whose key the connection proved ([`crate::hub::transport`]). `None`
+    /// whose identity the connection proved ([`crate::hub::transport`]). `None`
     /// resets the stream: a node that validates no hub, unless a handler
     /// says otherwise.
     fn hub<'a>(
         &'a self,
-        _from: PublicKey,
+        _from: NodeIdentity,
         _request: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Option<crate::hub::HubAnswer>> + Send + 'a>> {
         Box::pin(async { None })
@@ -270,7 +272,7 @@ pub trait Handler: Send + Sync + 'static {
     /// `None` resets the stream, unless a handler says otherwise.
     fn hub_state<'a>(
         &'a self,
-        _from: PublicKey,
+        _from: NodeIdentity,
         _request: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Option<crate::hub::transport::StateReply>> + Send + 'a>> {
         Box::pin(async { None })
@@ -280,7 +282,7 @@ pub trait Handler: Send + Sync + 'static {
     /// is read, decided before anything of it is: the node founds nothing
     /// with anyone, unless a handler says otherwise, and the stream is
     /// reset unread.
-    fn hub_founding_access(&self, _from: &PublicKey) -> crate::hub::founding::FoundingAccess {
+    fn hub_founding_access(&self, _from: &NodeIdentity) -> crate::hub::founding::FoundingAccess {
         crate::hub::founding::FoundingAccess::NotListed
     }
 
@@ -289,7 +291,7 @@ pub trait Handler: Send + Sync + 'static {
     /// bytes. `None` resets the stream, unless a handler says otherwise.
     fn hub_founding<'a>(
         &'a self,
-        _from: PublicKey,
+        _from: NodeIdentity,
         _request: Vec<u8>,
         _place: crate::hub::founding::FoundingPlace,
     ) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'a>> {
@@ -500,7 +502,7 @@ impl Quic {
     /// The socket cannot be adopted, or there is no async runtime.
     pub fn new(
         socket: std::net::UdpSocket,
-        identity: watch::Receiver<Option<Arc<NodeKey>>>,
+        identity: watch::Receiver<Option<Arc<IdentityKey>>>,
         allow_private: bool,
     ) -> io::Result<Self> {
         let config = endpoint_config(identity.borrow().as_deref(), QuicEndpoint::Udp);
@@ -1224,7 +1226,7 @@ impl Quic {
         // The key the handshake proved, read once: it is the connection's
         // for its whole life, and reading it takes parsing the certificate
         // and decompressing the key.
-        let proved = keys::peer_key(connection);
+        let proved = keys::peer_identity(connection);
         loop {
             let stream = tokio::select! {
                 stream = connection.accept_bi() => stream,
@@ -1252,9 +1254,9 @@ impl Quic {
 struct On {
     quic: Arc<Quic>,
     connection: Connection,
-    /// The node key the connection's handshake proved: every client proves
+    /// The identity the connection's handshake proved: every client proves
     /// one, so `None` only for a connection that never gets this far.
-    proved: Option<PublicKey>,
+    proved: Option<NodeIdentity>,
     client: IpAddr,
     handler: Arc<dyn Handler>,
     shutdown: CancellationToken,
@@ -1391,7 +1393,7 @@ async fn exchange(connection: &Connection, body: &[u8]) -> Result<Response, Fail
 /// takes the other's IDs for its own, nor can give away the reset tokens of
 /// the other's connections (RFC 9000, section 21.11). A node not set up yet
 /// has no peers, and random keys.
-fn endpoint_config(key: Option<&NodeKey>, endpoint: QuicEndpoint) -> EndpointConfig {
+fn endpoint_config(key: Option<&IdentityKey>, endpoint: QuicEndpoint) -> EndpointConfig {
     let Some(key) = key else {
         return EndpointConfig::default();
     };
@@ -1488,7 +1490,7 @@ mod tests {
 
     /// The generator of connection IDs `endpoint` of the node with `key`
     /// has.
-    fn generator(key: &NodeKey, endpoint: QuicEndpoint) -> ids::SignedIds {
+    fn generator(key: &IdentityKey, endpoint: QuicEndpoint) -> ids::SignedIds {
         ids::SignedIds::new(
             key.secret(NodeSecret::QuicConnectionIds(endpoint))
                 .as_bytes(),
@@ -1501,7 +1503,10 @@ mod tests {
     #[test]
     fn connection_ids_are_known_after_a_restart_and_only_there() {
         use quinn_proto::ConnectionIdGenerator;
-        let (key, other) = (NodeKey::from_bytes(&[1; 32]), NodeKey::from_bytes(&[2; 32]));
+        let (key, other) = (
+            IdentityKey::from_bytes(&[1; 32]),
+            IdentityKey::from_bytes(&[2; 32]),
+        );
         let mut before = generator(&key, QuicEndpoint::Udp);
         let ids: Vec<_> = (0..64).map(|_| before.generate_cid()).collect();
         let after = generator(&key, QuicEndpoint::Udp);
@@ -1532,7 +1537,7 @@ mod tests {
         fn answer<'a>(
             &'a self,
             _client: IpAddr,
-            _from: dassie_identity::PublicKey,
+            _from: dassie_identity::NodeIdentity,
             body: Body<'a>,
         ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
             Box::pin(async move {
@@ -1604,7 +1609,7 @@ mod tests {
     #[tokio::test]
     async fn a_request_sent_again_before_it_is_read_is_answered() {
         let shutdown = CancellationToken::new();
-        let key = Arc::new(NodeKey::from_bytes(&[1; 32]));
+        let key = Arc::new(IdentityKey::from_bytes(&[1; 32]));
         let server_id = key.node_id();
         let (_server_key, receiver) = watch::channel(Some(key));
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -1613,7 +1618,8 @@ mod tests {
         let armed = Arc::new(AtomicBool::new(false));
         let relay = delaying(server.local_addr().unwrap(), Arc::clone(&armed));
 
-        let (_client_key, receiver) = watch::channel(Some(Arc::new(NodeKey::from_bytes(&[2; 32]))));
+        let (_client_key, receiver) =
+            watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[2; 32]))));
         let keys = Arc::new(Keys::new(receiver));
         // Datagrams of the initial size only, so that only the request's
         // reach the relay's threshold.
@@ -1653,7 +1659,7 @@ mod tests {
     // (spec/areas/peer-protocol.md#outbound-requests).
     #[tokio::test]
     async fn an_answer_too_short_for_a_status_is_an_unknown_outcome() {
-        let key = Arc::new(NodeKey::from_bytes(&[1; 32]));
+        let key = Arc::new(IdentityKey::from_bytes(&[1; 32]));
         let server_id = key.node_id();
         let (_server_key, receiver) = watch::channel(Some(key));
         let keys = Arc::new(Keys::new(receiver));
@@ -1676,7 +1682,8 @@ mod tests {
             connection.closed().await;
         });
 
-        let (_client_key, receiver) = watch::channel(Some(Arc::new(NodeKey::from_bytes(&[2; 32]))));
+        let (_client_key, receiver) =
+            watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[2; 32]))));
         let keys = Arc::new(Keys::new(receiver));
         let config = client_config(&keys, server_id, transport_config(IDLE_TIMEOUT)).unwrap();
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -1698,7 +1705,8 @@ mod tests {
     /// The version a client offering `versions` speaks with `server`, or
     /// `None` if it fails the handshake.
     async fn speaks(server: &Quic, server_id: NodeId, versions: &[&[u8]]) -> Option<Vec<u8>> {
-        let (_client_key, receiver) = watch::channel(Some(Arc::new(NodeKey::from_bytes(&[2; 32]))));
+        let (_client_key, receiver) =
+            watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[2; 32]))));
         let keys = Arc::new(Keys::new(receiver));
         let config =
             client_offering(&keys, server_id, transport_config(IDLE_TIMEOUT), versions).unwrap();
@@ -1742,8 +1750,8 @@ mod tests {
 
     /// An endpoint on loopback with the key of `seed`, its node's ID, and
     /// what holds its key.
-    fn endpoint_of(seed: u8) -> (Arc<Quic>, NodeId, watch::Sender<Option<Arc<NodeKey>>>) {
-        let key = Arc::new(NodeKey::from_bytes(&[seed; 32]));
+    fn endpoint_of(seed: u8) -> (Arc<Quic>, NodeId, watch::Sender<Option<Arc<IdentityKey>>>) {
+        let key = Arc::new(IdentityKey::from_bytes(&[seed; 32]));
         let id = key.node_id();
         let (identity, receiver) = watch::channel(Some(key));
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();

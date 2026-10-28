@@ -10,7 +10,7 @@
 use dassie_hub::escrow::{escrow_master, setup};
 use dassie_hub::ledger::TESTNET_NETWORK;
 use dassie_hub::operation::ValidatorOperation;
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_xrpl::Wallet;
 use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::api::{TRANSFER_RATE_PAR, account_flags};
@@ -118,9 +118,14 @@ impl Setup {
     fn of(token: Option<IssuedAsset>) -> Self {
         let mut xrpl = FakeLedger::new();
         xrpl.sign_validations_with(SECRET);
-        let sponsor = NodeKey::from_bytes(&[100; 32]);
-        let nodes: Vec<(NodeKey, String)> = (1..=4)
-            .map(|i| (NodeKey::from_bytes(&[i; 32]), format!("v{i}.example:443")))
+        let sponsor = IdentityKey::from_bytes(&[100; 32]);
+        let nodes: Vec<(IdentityKey, String)> = (1..=4)
+            .map(|i| {
+                (
+                    IdentityKey::from_bytes(&[i; 32]),
+                    format!("v{i}.example:443"),
+                )
+            })
             .collect();
         let mut rules = rules(&sponsor, &nodes);
         if let Some(token) = token {

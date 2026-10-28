@@ -37,7 +37,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_kit::ClientKey;
 use dassie_node::outbound::Resolver;
 use dassie_node::peer_server::Answer;
@@ -105,7 +105,7 @@ impl Handler for Echo {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
-        _from: dassie_identity::PublicKey,
+        _from: dassie_identity::NodeIdentity,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(async move {
@@ -144,7 +144,7 @@ struct Side {
     id: NodeId,
     /// Its QUIC endpoint's own address, over UDP.
     udp_url: String,
-    _identity: watch::Sender<Option<Arc<NodeKey>>>,
+    _identity: watch::Sender<Option<Arc<IdentityKey>>>,
 }
 
 fn side_on(seed: u8, socket: UdpSocket, handler: Echo, shutdown: &CancellationToken) -> Side {
@@ -159,7 +159,7 @@ fn side_behind(
     proxy: Option<Proxy>,
     shutdown: &CancellationToken,
 ) -> Side {
-    let key = Arc::new(NodeKey::from_bytes(&[seed; 32]));
+    let key = Arc::new(IdentityKey::from_bytes(&[seed; 32]));
     let id = key.node_id();
     let (identity, receiver) = watch::channel(Some(key));
     let quic = Quic::new(socket, receiver, true)

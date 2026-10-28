@@ -51,6 +51,10 @@ fn the_keys_and_version_are_the_ones_the_vectors_name() {
             unhex(file[name]["publicKey"].as_str().unwrap()),
             key.public_key().as_bytes()
         );
+        assert_eq!(
+            unhex(file[name]["slhDsaPublicKey"].as_str().unwrap()),
+            key.identity().slh_dsa().as_bytes()
+        );
         assert_eq!(file[name]["nodeId"], key.node_id().as_str());
     }
 }
@@ -60,7 +64,7 @@ fn the_link_state_is_pinned_and_verifies() {
     let bytes = unhex(file()["linkState"].as_str().unwrap());
     assert_eq!(bytes, vectors::link_state());
     let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
-    assert_eq!(signed.verify().unwrap(), vectors::node_a().public_key());
+    assert_eq!(signed.verify().unwrap(), vectors::node_a().identity());
     assert_eq!(signed.node_id, vectors::node_a().node_id());
 }
 

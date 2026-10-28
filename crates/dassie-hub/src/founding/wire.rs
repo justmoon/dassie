@@ -10,7 +10,8 @@ use dassie_oer::{Decode, Encode, Reader, Writer, size};
 
 use super::genesis_digest;
 use crate::codec::{
-    HubDecodeError, SIGNATURE_LEN, read_digest, read_signature, write_digest, write_signature,
+    HubDecodeError, KEY_LEN, NODE_LEN, SIGNATURE_LEN, read_digest, read_signature, write_digest,
+    write_signature,
 };
 use crate::rules::{Acceptance, HubId, MAX_ENDPOINT_LEN, Millis, Rules, Terms};
 use crate::validators::{MAX_VALIDATORS, ValidatorIndex};
@@ -19,7 +20,11 @@ use crate::validators::{MAX_VALIDATORS, ValidatorIndex};
 /// validators, each with the longest endpoint, and a signature of each.
 pub const MAX_FOUNDING_MESSAGE_BYTES: usize = 16 * 1024;
 
-const MAX_ACCEPTANCE_BYTES: usize = 32 * 2 + 33 * 2 + 32 + 2 + MAX_ENDPOINT_LEN + SIGNATURE_LEN;
+/// An acceptance at its largest: the node's two keys, its consensus key,
+/// its escrow and payout keys, the payout chain code, the endpoint with its
+/// length, and the signature.
+const MAX_ACCEPTANCE_BYTES: usize =
+    NODE_LEN + KEY_LEN + 33 * 2 + 32 + 2 + MAX_ENDPOINT_LEN + SIGNATURE_LEN;
 const MAX_TERMS_BYTES: usize = 512;
 const _: () = assert!(
     1 + MAX_TERMS_BYTES

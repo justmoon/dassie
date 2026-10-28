@@ -350,7 +350,7 @@ fn node_key(options: &Options) -> Result<(Realm, NodeKey), String> {
 
 async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
     let (realm, key) = node_key(options)?;
-    let id = key.node_id();
+    let id = key.identity().node_id();
     println!(
         "The passphrase in {} is node {id}, of the {} realm.",
         options.passphrase_file.display(),

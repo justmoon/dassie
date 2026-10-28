@@ -22,6 +22,7 @@ import {
   publicKey,
   readPhrase,
   sign,
+  slhDsaPublicKey,
 } from "@dassie/wasm";
 
 const crates = new URL("../../crates/", import.meta.url);
@@ -61,7 +62,11 @@ test("the passphrase chain matches the vectors", async () => {
     );
     assertEquals(nodeKey.toHex(), entry.nodeKey);
     assertEquals(publicKey(nodeKey).toHex(), entry.publicKey);
-    assertEquals(nodeId(publicKey(nodeKey)), entry.nodeId);
+    assertEquals(slhDsaPublicKey(nodeKey).toHex(), entry.slhDsaPublicKey);
+    assertEquals(
+      nodeId(publicKey(nodeKey), slhDsaPublicKey(nodeKey)),
+      entry.nodeId,
+    );
     assertEquals(loginSecret(nodeKey).toHex(), entry.loginSecret);
   }
 });
@@ -170,7 +175,8 @@ test("keys and node IDs match the vectors", async () => {
   for (const key of keys) {
     const seed = Uint8Array.fromHex(key.seed);
     assertEquals(publicKey(seed).toHex(), key.publicKey);
-    assertEquals(nodeId(publicKey(seed)), key.nodeId);
+    assertEquals(slhDsaPublicKey(seed).toHex(), key.slhDsaPublicKey);
+    assertEquals(nodeId(publicKey(seed), slhDsaPublicKey(seed)), key.nodeId);
     assertEquals(
       sign(seed, Uint8Array.fromHex(key.message)).toHex(),
       key.signature,

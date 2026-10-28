@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_kit::ClientKey;
 use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::env::Env;
@@ -175,7 +175,7 @@ impl Door {
         let dir = tempfile::tempdir().unwrap();
         let (certificate, roots) = wildcard(dir.path());
         let address = https.local_addr().unwrap();
-        let door_key = NodeKey::from_bytes(&[90; 32]);
+        let door_key = IdentityKey::from_bytes(&[90; 32]);
         let id = door_key.node_id();
         let entry = key::relay_entry(&door_key, &url);
         let parts = Parts {
@@ -353,8 +353,8 @@ fn name_of(id: &NodeId) -> String {
 
 /// A node without a hostname that names `door` as its relay, with the
 /// stub ledger.
-async fn node_behind(door: &Door, seed: u8) -> (TestNode, NodeKey) {
-    let key = NodeKey::from_bytes(&[seed; 32]);
+async fn node_behind(door: &Door, seed: u8) -> (TestNode, IdentityKey) {
+    let key = IdentityKey::from_bytes(&[seed; 32]);
     let env = [
         ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
@@ -678,7 +678,7 @@ async fn the_front_door_serves_only_its_names_and_open_payments() {
         StatusCode::NOT_FOUND
     );
     // Names under the domain that are no node's label find nothing.
-    let other = NodeKey::from_bytes(&[63; 32]).node_id();
+    let other = IdentityKey::from_bytes(&[63; 32]).node_id();
     let deeper = format!("x.{name}");
     // Their roots show no page either.
     for (host, path) in hosts_and_paths(&["nope.dassiepay.net", DOMAIN, deeper.as_str()]) {
@@ -800,7 +800,7 @@ async fn the_root_of_a_name_is_a_page_the_front_door_writes() {
     );
     assert!(reply.body.is_empty());
     // A node that never connected has its page too, which says so.
-    let other = NodeKey::from_bytes(&[69; 32]).node_id();
+    let other = IdentityKey::from_bytes(&[69; 32]).node_id();
     page_of(&door.get(&name_of(&other), "/").await, &other, false);
     // And so does one that stopped, once the front door has seen it go.
     node.stop().await;
@@ -880,7 +880,7 @@ async fn an_incoming_payment_made_through_the_front_door_reads_back() {
 /// keys of `seeds`, on `clock`; not started yet, so that a front door can
 /// be told where they will be. Returns their listeners and keys, and
 /// `DASSIE_BOOTSTRAP_NODES` naming them.
-fn registrars(seeds: [u8; 4]) -> (Vec<Bound>, [NodeKey; 4], String) {
+fn registrars(seeds: [u8; 4]) -> (Vec<Bound>, [IdentityKey; 4], String) {
     let keys = seeds.map(pair::key);
     let bounds: Vec<Bound> = (0..4).map(|_| Bound::new()).collect();
     let entries: Vec<String> = keys
@@ -1149,7 +1149,7 @@ impl Handler for Misbehaving {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
-        _from: dassie_identity::PublicKey,
+        _from: dassie_identity::NodeIdentity,
         _body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(async {
@@ -1239,7 +1239,7 @@ async fn misbehave(
 async fn the_front_door_passes_back_only_json_without_cookies() {
     let shutdown = CancellationToken::new();
     let door = Door::start(&shutdown).await;
-    let key = Arc::new(NodeKey::from_bytes(&[65; 32]));
+    let key = Arc::new(IdentityKey::from_bytes(&[65; 32]));
     let id = key.node_id();
     let (_identity, keys) = watch::channel(Some(key));
     let quic = Arc::new(Quic::new(UdpSocket::bind("127.0.0.1:0").unwrap(), keys, true).unwrap());
@@ -1328,7 +1328,7 @@ async fn the_front_door_passes_back_only_json_without_cookies() {
     }
     // The front door carries no relay requests: it is no node's relay but
     // its own.
-    let (_other, other_keys) = watch::channel(Some(Arc::new(NodeKey::from_bytes(&[66; 32]))));
+    let (_other, other_keys) = watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[66; 32]))));
     let client =
         Arc::new(Quic::new(UdpSocket::bind("127.0.0.1:0").unwrap(), other_keys, true).unwrap());
     tokio::spawn(Arc::clone(&client).serve(Arc::new(Misbehaving::default()), shutdown.clone()));

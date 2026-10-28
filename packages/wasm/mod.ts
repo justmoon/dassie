@@ -35,6 +35,7 @@ export {
   publicKey,
   readPhrase,
   sign,
+  slhDsaPublicKey,
 } from "./gen/web/dassie_identity.js";
 
 export {

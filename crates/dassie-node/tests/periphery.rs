@@ -13,7 +13,7 @@
 
 mod support;
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_ledger::LedgerId;
 use dassie_node::clock::ManualClock;
 use dassie_node::engine::NewIncoming;
@@ -32,7 +32,7 @@ const BACK: u64 = 200_000_000;
 
 /// Sets a node up with the stub with unlimited trust and no hostname: a
 /// periphery node.
-async fn prepare_periphery(node: &TestNode, key: &NodeKey) {
+async fn prepare_periphery(node: &TestNode, key: &IdentityKey) {
     set_up(node, key).await;
     node.engine_started().await;
     let added = node
@@ -371,7 +371,7 @@ async fn create(
 
 /// Waits until `downlink`'s connection holds a downlink's place at its
 /// uplink, apart from anyone else's (spec/areas/peer-protocol.md#quic).
-async fn holds_a_downlinks_place(uplink: &TestNode, downlink: &NodeKey) {
+async fn holds_a_downlinks_place(uplink: &TestNode, downlink: &IdentityKey) {
     let node = uplink.node.upgrade().unwrap();
     assert!(
         node.peerings()
@@ -409,7 +409,7 @@ async fn incoming(node: &TestNode) -> dassie_node::store::IncomingRow {
 /// What the packets between `node` and its peer `peer` moved net, by
 /// `node`'s own books: what it owes the peer for them, negative when the
 /// peer owes it. Only packets count.
-async fn carried(node: &TestNode, peer: &NodeKey) -> i128 {
+async fn carried(node: &TestNode, peer: &IdentityKey) -> i128 {
     let path = format!("stub+usd:assets/interledger/{}", peer.node_id());
     let mut owner = node.ipc().await;
     let mut after = None;

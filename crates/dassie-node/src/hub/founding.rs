@@ -16,7 +16,7 @@ use dassie_hub::HubId;
 use dassie_hub::founding::validator::{self, Policy, Record};
 use dassie_hub::founding::{FoundingAnswer, FoundingRequest, Refusal};
 use dassie_hub::rules::Rules;
-use dassie_identity::{NodeId, NodeKey, PublicKey};
+use dassie_identity::{IdentityKey, NodeId, NodeIdentity};
 use dassie_oer::{Decode, Encode, Reader};
 use tokio::sync::{Semaphore, watch};
 
@@ -127,7 +127,7 @@ impl Founding {
     /// proved, is read: only a listed sponsor's, and only in one of the
     /// places for them, so nobody else makes the node buffer a request.
     #[must_use]
-    pub fn access(&self, from: &PublicKey) -> FoundingAccess {
+    pub fn access(&self, from: &NodeIdentity) -> FoundingAccess {
         if !self.sponsors.contains(&from.node_id()) {
             return FoundingAccess::NotListed;
         }
@@ -143,7 +143,7 @@ impl Founding {
     pub async fn answer(
         &self,
         node: &Node,
-        from: &PublicKey,
+        from: &NodeIdentity,
         request: &[u8],
         place: FoundingPlace,
     ) -> Option<Vec<u8>> {
@@ -192,7 +192,7 @@ impl Founding {
 impl Founding {
     /// What a decision at `now` needs, as the node of `key` reached at
     /// `endpoint`.
-    fn decision(&self, key: Arc<NodeKey>, endpoint: Option<String>, now: u64) -> Decision {
+    fn decision(&self, key: Arc<IdentityKey>, endpoint: Option<String>, now: u64) -> Decision {
         Decision {
             sponsors: self.sponsors.clone(),
             network: self.network,
@@ -211,7 +211,7 @@ impl Founding {
         &self,
         decision: Decision,
         store: Arc<Store>,
-        from: PublicKey,
+        from: NodeIdentity,
         request: FoundingRequest,
     ) -> Result<FoundingAnswer, StoreError> {
         let _deciding = self.deciding.lock().await;
@@ -252,7 +252,7 @@ struct Decision {
     sponsors: Vec<NodeId>,
     network: u32,
     configured: Vec<HubId>,
-    key: Arc<NodeKey>,
+    key: Arc<IdentityKey>,
     endpoint: Option<String>,
     now: u64,
 }
@@ -262,7 +262,7 @@ impl Decision {
     fn decide(
         &self,
         store: &Store,
-        from: &PublicKey,
+        from: &NodeIdentity,
         request: &FoundingRequest,
     ) -> Result<(FoundingAnswer, Changed), StoreError> {
         let rows = store.hub_founding_records()?;
@@ -338,7 +338,7 @@ impl Decision {
 
 /// How the validator stands with the hub `hub`, to its sponsor: whether it
 /// runs it; the host adds whether a quorum checked its escrow.
-fn status(records: &[Record], from: &PublicKey, hub: &HubId) -> FoundingAnswer {
+fn status(records: &[Record], from: &NodeIdentity, hub: &HubId) -> FoundingAnswer {
     let runs = records
         .iter()
         .any(|r| r.running && r.sponsor == *from && r.hub().as_ref() == Some(hub));
@@ -362,8 +362,16 @@ fn rules_of(bytes: &[u8]) -> Result<Rules, StoreError> {
 }
 
 fn record_of(row: &FoundingRecordRow) -> Result<Record, StoreError> {
-    let sponsor = PublicKey::from_bytes(&row.sponsor)
+    let (key, slh_dsa) = row.sponsor.split_at(32);
+    let key: &[u8; 32] = key
+        .try_into()
         .map_err(|_| StoreError::Corrupt("a hub founding's sponsor"))?;
+    let slh_dsa: [u8; 32] = slh_dsa
+        .try_into()
+        .map_err(|_| StoreError::Corrupt("a hub founding's sponsor"))?;
+    let key = dassie_identity::PublicKey::from_bytes(key)
+        .map_err(|_| StoreError::Corrupt("a hub founding's sponsor"))?;
+    let sponsor = NodeIdentity::new(key, dassie_identity::SlhDsaPublicKey::from_bytes(slh_dsa));
     let genesis = match &row.genesis {
         Some((rules, at)) => Some((rules_of(rules)?, *at)),
         None => None,
@@ -381,7 +389,13 @@ fn record_of(row: &FoundingRecordRow) -> Result<Record, StoreError> {
 fn row_of(record: &Record) -> FoundingRecordRow {
     FoundingRecordRow {
         nonce: record.nonce,
-        sponsor: *record.sponsor.as_bytes(),
+        sponsor: {
+            let mut sponsor = [0; 64];
+            let (key, slh_dsa) = sponsor.split_at_mut(32);
+            key.copy_from_slice(record.sponsor.key().as_bytes());
+            slh_dsa.copy_from_slice(record.sponsor.slh_dsa().as_bytes());
+            sponsor
+        },
         terms: record.terms.0,
         accepted_at_ms: record.accepted_ms,
         genesis: record
@@ -404,7 +418,7 @@ mod tests {
 
     const NOW: u64 = 1_800_000_000_000;
 
-    fn config(sponsor: &NodeKey) -> ValidatorConfig {
+    fn config(sponsor: &IdentityKey) -> ValidatorConfig {
         ValidatorConfig {
             sponsors: vec![sponsor.node_id()],
             hubs: Vec::new(),
@@ -415,13 +429,23 @@ mod tests {
     }
 
     /// What `founding` answers `request` from `from`, as the node of `key`.
+    /// The node key of the seed `seed` repeated, made once per seed: its
+    /// SLH-DSA key takes a key generation.
+    fn node_key(seed: u8) -> Arc<IdentityKey> {
+        static KEYS: [std::sync::OnceLock<Arc<IdentityKey>>; 256] =
+            [const { std::sync::OnceLock::new() }; 256];
+        Arc::clone(
+            KEYS[usize::from(seed)].get_or_init(|| Arc::new(IdentityKey::from_bytes(&[seed; 32]))),
+        )
+    }
+
     async fn decide(
         founding: &Founding,
         store: &Arc<Store>,
-        (key, from): (&NodeKey, &PublicKey),
+        (key, from): (&Arc<IdentityKey>, &NodeIdentity),
         request: &FoundingRequest,
     ) -> FoundingAnswer {
-        let key = Arc::new(NodeKey::from_bytes(key.as_bytes()));
+        let key = Arc::clone(key);
         let decision = founding.decision(key, Some("v.example:443".into()), NOW);
         founding
             .decide(decision, Arc::clone(store), *from, request.clone())
@@ -435,12 +459,12 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::too_many_lines)]
     async fn a_founded_hub_is_kept_and_run() {
-        let sponsor = NodeKey::from_bytes(&[100; 32]);
+        let sponsor = node_key(100);
         let store = Arc::new(Store::open_in_memory().unwrap());
         let founding = Founding::new(&config(&sponsor));
-        let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
+        let nodes: Vec<Arc<IdentityKey>> = (1..=4).map(node_key).collect();
         let terms = terms(&sponsor);
-        let from = sponsor.public_key();
+        let from = sponsor.identity();
         let ours = (&nodes[0], &from);
         let propose = FoundingRequest::Propose(terms.clone());
         let FoundingAnswer::Accepted(accepted) = decide(&founding, &store, ours, &propose).await
@@ -509,7 +533,7 @@ mod tests {
         let unknown = decide(&founding, &store, ours, &unknown).await;
         assert_eq!(unknown, FoundingAnswer::Refused(Refusal::UnknownHub));
         // Another sponsor is not answered.
-        let stranger = NodeKey::from_bytes(&[55; 32]).public_key();
+        let stranger = IdentityKey::from_bytes(&[55; 32]).identity();
         let refused = decide(&founding, &store, (&nodes[0], &stranger), &propose).await;
         assert_eq!(refused, FoundingAnswer::Refused(Refusal::NotAllowed));
     }
@@ -517,12 +541,13 @@ mod tests {
     // The validator accepts terms only on its file's network.
     #[tokio::test]
     async fn terms_on_another_network_are_refused() {
-        let sponsor = NodeKey::from_bytes(&[100; 32]);
+        let sponsor = node_key(100);
         let store = Arc::new(Store::open_in_memory().unwrap());
         let mut on_mainnet = terms(&sponsor);
         on_mainnet.network = dassie_xrpl::network::MAINNET.id;
-        let from = sponsor.public_key();
-        let ours = (&NodeKey::from_bytes(&[1; 32]), &from);
+        let from = sponsor.identity();
+        let node = node_key(1);
+        let ours = (&node, &from);
         let propose = FoundingRequest::Propose(on_mainnet);
         let founding = Founding::new(&config(&sponsor));
         let refused = decide(&founding, &store, ours, &propose).await;
@@ -537,7 +562,7 @@ mod tests {
     fn deciding_leaves_the_runtime_free() {
         use std::sync::atomic::{AtomicU64, Ordering};
 
-        let sponsor = NodeKey::from_bytes(&[100; 32]);
+        let sponsor = node_key(100);
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(dir.path()).unwrap());
         let other =
@@ -548,6 +573,10 @@ mod tests {
             other.execute_batch("COMMIT").unwrap();
         });
         let founding = Founding::new(&config(&sponsor));
+        // Made ahead, as the node makes its own once at its start: the
+        // runtime is to be free while it decides, not while a test makes
+        // keys.
+        let node = node_key(1);
         let ticks = Arc::new(AtomicU64::new(0));
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -562,9 +591,8 @@ mod tests {
                 }
             });
             tokio::task::yield_now().await;
-            let node = NodeKey::from_bytes(&[1; 32]);
             let propose = FoundingRequest::Propose(terms(&sponsor));
-            decide(&founding, &store, (&node, &sponsor.public_key()), &propose).await
+            decide(&founding, &store, (&node, &sponsor.identity()), &propose).await
         });
         release.join().unwrap();
         assert!(matches!(answer, FoundingAnswer::Accepted(_)), "{answer:?}");

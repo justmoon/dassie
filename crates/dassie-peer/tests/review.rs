@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_kit::sim::SeededRng;
 use dassie_oer::Decode;
 use dassie_peer::sim::{Arriving, Network, START, key, url};
@@ -25,10 +25,10 @@ fn stub() -> SchemeId {
 }
 
 /// A sender outside the network, over a connection that proves its key.
-struct Sender(Arc<NodeKey>);
+struct Sender(Arc<IdentityKey>);
 
 impl Sender {
-    fn new(key: &Arc<NodeKey>) -> Self {
+    fn new(key: &Arc<IdentityKey>) -> Self {
         Self(Arc::clone(key))
     }
 
@@ -39,22 +39,23 @@ impl Sender {
 }
 
 /// `from`'s request to node `to`.
-fn request(_: &Network, from: &Arc<NodeKey>, _: usize, content: &Content<'_>) -> Arriving {
+fn request(_: &Network, from: &Arc<IdentityKey>, _: usize, content: &Content<'_>) -> Arriving {
     Arriving::new(from, content)
 }
 
-fn state(key: &NodeKey, sequence: u64, url: &str) -> Vec<u8> {
+fn state(key: &IdentityKey, sequence: u64, url: &str) -> Vec<u8> {
     let info = NodeInfo {
         sequence,
         url,
         alias: "",
         public_key: *key.public_key().as_bytes(),
+        slh_dsa_public_key: *key.identity().slh_dsa().as_bytes(),
         entries: vec![Entry::Scheme(stub())],
     };
     sign_node_info(key, &info)
 }
 
-fn held(network: &Network, at: usize, of: &NodeKey) -> Option<u64> {
+fn held(network: &Network, at: usize, of: &IdentityKey) -> Option<u64> {
     let views = network.node(at).nodes();
     views
         .into_iter()
@@ -68,7 +69,7 @@ fn held(network: &Network, at: usize, of: &NodeKey) -> Option<u64> {
 fn forged_link_states_do_not_use_up_the_real_nodes_allowance() {
     let mut network = Network::new(11, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let (victim, mallory) = (key(1), Arc::new(NodeKey::from_bytes(&[90; 32])));
+    let (victim, mallory) = (key(1), Arc::new(IdentityKey::from_bytes(&[90; 32])));
     let base = network.clock(0);
     let mut sender = Sender::new(&mallory);
     for offset in 1..20u64 {
@@ -169,7 +170,7 @@ fn a_peer_our_packets_do_not_reach_is_reported_until_it_answers() {
 fn only_bootstrap_nodes_take_registrations() {
     let mut network = Network::new(13, 3, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let stranger = Arc::new(NodeKey::from_bytes(&[91; 32]));
+    let stranger = Arc::new(IdentityKey::from_bytes(&[91; 32]));
     let own = state(&stranger, network.clock(2), "https://stranger.test");
     let info = SignedNodeInfo::decode_exact(&own).unwrap();
     let body = request(&network, &stranger, 2, &Content::Registration(info));
@@ -196,7 +197,7 @@ fn a_registration_from_a_new_url_is_probed_again() {
 fn one_probe_per_sender_at_a_time() {
     let mut network = Network::new(15, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let stranger = Arc::new(NodeKey::from_bytes(&[92; 32]));
+    let stranger = Arc::new(IdentityKey::from_bytes(&[92; 32]));
     let own = state(&stranger, network.clock(0), "https://stranger.test");
     let info = SignedNodeInfo::decode_exact(&own).unwrap();
     let mut sender = Sender::new(&stranger);
@@ -206,7 +207,12 @@ fn one_probe_per_sender_at_a_time() {
     assert_eq!(network.inbound(0, &second).status, 429);
 }
 
-fn peering_request(network: &Network, from: &Arc<NodeKey>, to: usize, sequence: u64) -> Arriving {
+fn peering_request(
+    network: &Network,
+    from: &Arc<IdentityKey>,
+    to: usize,
+    sequence: u64,
+) -> Arriving {
     let own = state(from, sequence, &url(1));
     let info = SignedNodeInfo::decode_exact(&own).unwrap();
     let content = Content::PeeringRequest(PeeringRequest {

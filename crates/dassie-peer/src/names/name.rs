@@ -271,7 +271,7 @@ mod tests {
     // No name is as long as a node ID, so neither is read as the other.
     #[test]
     fn no_name_is_a_node_id() {
-        let id = dassie_identity::NodeKey::from_bytes(&[1; 32]).node_id();
+        let id = dassie_identity::NodeId::from_bytes(&[1; 24]);
         assert_eq!(Name::parse(id.as_str()), Err(NameError::Length));
     }
 

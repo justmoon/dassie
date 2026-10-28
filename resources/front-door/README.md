@@ -17,7 +17,7 @@ A front door lets ordinary Open Payments clients reach Dassie nodes that have no
   ```
 
   `deploy-certificate.sh` is that hook: it copies the certificate where the front door reads it, readable by its user, so that user must exist before the first certificate. certbot runs the hook at the first issuance too, and at every renewal. The front door reads the files again every minute, so a renewal takes effect without a restart. Without an email address Let's Encrypt has no one to write to, which it no longer does about expiry anyway; give one with `-m` if you want its notices.
-- **Its own key,** an Ed25519 key in `/var/lib/dassie-front-door/front-door.key`, as 32 bytes of seed or PKCS#8. The unit makes one on its first start (`dassie front-door --make-key`). Keep it: nodes name the front door by it, and a new key means every node must be told again. `dassiepay.net`'s key is built into the `dassie` binary as every node's default relay (`DEFAULT_RELAY` in `crates/dassie-node/src/env.rs`), so a new one takes a release. Back it up like any secret.
+- **Its own key,** an Ed25519 key in `/var/lib/dassie-front-door/front-door.key`, as 32 bytes of seed or PKCS#8. The unit makes one on its first start (`dassie front-door --make-key`), and the front door derives its SLH-DSA key from it, which its node ID commits to as well. Keep it: nodes name the front door by its ID, and a new key means every node must be told again. `dassiepay.net`'s entry is every node's default relay (`DEFAULT_RELAY` in `crates/dassie-node/src/env.rs`), so a new key takes a release; the default is empty until the testnet's reset builds in the entry this key gives. Back it up like any secret.
 
 ## A DNS credential for one zone alone
 
@@ -81,7 +81,7 @@ To keep another front door instead, name it as the node's relay with the entry t
 ```sh
 systemctl edit dassie
 # [Service]
-# Environment='DASSIE_RELAY={"id":"<node ID>","url":"https://relay.example.com","publicKey":"…"}'
+# Environment='DASSIE_RELAY={"id":"<node ID>","url":"https://relay.example.com","publicKey":"…","slhDsaPublicKey":"…"}'
 ```
 
 and list its name for the node: `DASSIE_PUBLIC_NAMES=<node ID>.<domain>` ([spec/areas/payments.md](../../spec/areas/payments.md#the-nodes-names)). That name is also what makes the node answer at `<name>.<domain>` for each name it holds; a node not named there answers 421 to them. A node keeps a relay it is told whether or not it has a hostname. `Environment=DASSIE_RELAY=` (empty) keeps no relay at all.

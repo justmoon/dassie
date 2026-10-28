@@ -18,7 +18,7 @@ use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use dassie_identity::{NodeKey, PublicKey};
+use dassie_identity::{NodeIdentity, NodeKey, PublicKey};
 use dassie_oer::Encode;
 use dassie_xrpl::codec::{Signer, Transact};
 
@@ -484,9 +484,9 @@ impl Validator {
     }
 
     /// Takes a message from `from`, a validator or a member. `node` is the
-    /// node key the transport authenticated the sender by, if any: only a
+    /// identity the transport authenticated the sender by, if any: only a
     /// validator of a set we know is served catch-up.
-    pub fn handle(&mut self, now: Millis, from: PeerId, node: Option<&PublicKey>, bytes: &[u8]) {
+    pub fn handle(&mut self, now: Millis, from: PeerId, node: Option<&NodeIdentity>, bytes: &[u8]) {
         match Message::decode_exact(bytes) {
             Ok(Message::Consensus(inner)) => {
                 if is_fetch(&inner) && !node.is_some_and(|node| self.is_validator(node)) {
@@ -508,7 +508,7 @@ impl Validator {
 
     /// Whether `node` is a validator of the set in force or of the one
     /// scheduled to take over.
-    fn is_validator(&self, node: &PublicKey) -> bool {
+    fn is_validator(&self, node: &NodeIdentity) -> bool {
         let ledger = &self.chain.ledger;
         let pending = ledger.pending_rules.as_ref().map(|p| &p.rules);
         core::iter::once(ledger.rules())

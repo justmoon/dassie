@@ -36,7 +36,14 @@ fn the_key_is_the_one_the_vectors_name() {
         vectors["publicKey"].as_str().unwrap(),
         hex(key.public_key().as_bytes())
     );
-    assert_eq!(vectors["nodeId"].as_str().unwrap(), key.node_id().as_str());
+    assert_eq!(
+        vectors["slhDsaPublicKey"].as_str().unwrap(),
+        hex(key.slh_dsa_public_key().as_bytes())
+    );
+    assert_eq!(
+        vectors["nodeId"].as_str().unwrap(),
+        key.identity().node_id().as_str()
+    );
 }
 
 #[test]

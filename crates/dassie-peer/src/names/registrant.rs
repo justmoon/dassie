@@ -1166,8 +1166,6 @@ impl Registrant {
 mod tests {
     use alloc::vec;
 
-    use dassie_identity::NodeKey;
-
     use super::*;
     use crate::names::HoldersConfig;
     use crate::wire::NameListResponse;
@@ -1191,7 +1189,7 @@ mod tests {
     };
 
     fn node(seed: u8) -> NodeId {
-        NodeKey::from_bytes(&[seed; 32]).node_id()
+        NodeId::from_bytes(&[seed; 24])
     }
 
     fn name(text: &str) -> Name {

@@ -4,7 +4,7 @@
 #![allow(clippy::panic)]
 
 use bytes::Bytes;
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
@@ -45,17 +45,17 @@ impl Client {
 
 /// A node with a hostname, a certificate its own HTTPS client trusts, and
 /// the stub ledger: an Open Payments server.
-pub async fn start() -> (TestNode, NodeKey) {
+pub async fn start() -> (TestNode, IdentityKey) {
     start_with(Policies::DEV).await
 }
 
-pub async fn start_with(policies: Policies) -> (TestNode, NodeKey) {
+pub async fn start_with(policies: Policies) -> (TestNode, IdentityKey) {
     start_keyed(policies, 31).await
 }
 
 /// As [`start`], with the node key made from `seed`: for a second node.
-pub async fn start_keyed(policies: Policies, seed: u8) -> (TestNode, NodeKey) {
-    let key = NodeKey::from_bytes(&[seed; 32]);
+pub async fn start_keyed(policies: Policies, seed: u8) -> (TestNode, IdentityKey) {
+    let key = IdentityKey::from_bytes(&[seed; 32]);
     let env = [
         ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
@@ -83,8 +83,8 @@ pub async fn start_keyed(policies: Policies, seed: u8) -> (TestNode, NodeKey) {
 /// A node without a hostname, with the node key made from `seed`, the
 /// stub ledger, and `names` added to its default one: an Open Payments
 /// server that clients reach through front doors.
-pub async fn start_unnamed(seed: u8, names: &str) -> (TestNode, NodeKey) {
-    let key = NodeKey::from_bytes(&[seed; 32]);
+pub async fn start_unnamed(seed: u8, names: &str) -> (TestNode, IdentityKey) {
+    let key = IdentityKey::from_bytes(&[seed; 32]);
     let env = [
         ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
@@ -100,7 +100,7 @@ pub async fn start_unnamed(seed: u8, names: &str) -> (TestNode, NodeKey) {
 
 /// `<node ID>.dassiepay.net`: the name of the node with `key` at the default
 /// front door.
-pub fn default_name(key: &NodeKey) -> String {
+pub fn default_name(key: &IdentityKey) -> String {
     format!("{}.dassiepay.net", key.node_id())
 }
 

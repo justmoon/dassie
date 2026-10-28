@@ -239,7 +239,7 @@ impl PeerNode {
         // peering made as the old kind ends, and it may ask anew
         // (spec/areas/network.md#downlinks).
         let switched = entry.peering().is_some() && entry.is_downlink() != link.periphery;
-        entry.key = Some(key);
+        entry.key = Some(key.key());
         entry.link = Some(link);
         entry.refresh_failures = 0;
         self.dirty.insert(id);
@@ -312,6 +312,7 @@ impl PeerNode {
             url: &url,
             alias: &self.own_info.alias,
             public_key: *self.key.public_key().as_bytes(),
+            slh_dsa_public_key: *self.key.identity().slh_dsa().as_bytes(),
             entries,
         };
         let bytes = sign_node_info(&self.key, &info);

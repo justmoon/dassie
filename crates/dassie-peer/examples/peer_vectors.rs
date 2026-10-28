@@ -49,11 +49,13 @@ fn main() {
         "nodeA": {
             "seed": hex(&[1; 32]),
             "publicKey": hex(vectors::node_a().public_key().as_bytes()),
+            "slhDsaPublicKey": hex(vectors::node_a().identity().slh_dsa().as_bytes()),
             "nodeId": vectors::node_a().node_id().as_str(),
         },
         "nodeB": {
             "seed": hex(&[3; 32]),
             "publicKey": hex(vectors::node_b().public_key().as_bytes()),
+            "slhDsaPublicKey": hex(vectors::node_b().identity().slh_dsa().as_bytes()),
             "nodeId": vectors::node_b().node_id().as_str(),
         },
         "linkState": hex(&vectors::link_state()),

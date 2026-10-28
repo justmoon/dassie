@@ -82,9 +82,9 @@ Every response carries a `Date` header from the host's clock, as the HTTP server
 
 ## The node's discovery document
 
-`GET /.well-known/dassie/node` says who the node is, for anyone, without authentication, once it is set up: its ID, its key, and the port of its [rate feed](rate-feed.md#finding-a-feed) on a core node that has one (`http/discovery.rs`). It is what a tool needs to reach a node it knows only by its URL, as the market maker and its VM do, and nothing else: no version, which would tell an attacker which nodes run a release with a known flaw, and no peers, which a node's link state already publishes ([Network](network.md)).
+`GET /.well-known/dassie/node` says who the node is, for anyone, without authentication, once it is set up: its ID, its two keys, the Ed25519 key and the SLH-DSA key the ID commits to, and the port of its [rate feed](rate-feed.md#finding-a-feed) on a core node that has one (`http/discovery.rs`). It is what a tool needs to reach a node it knows only by its URL, as the market maker and its VM do, and nothing else: no version, which would tell an attacker which nodes run a release with a known flaw, and no peers, which a node's link state already publishes ([Network](network.md)).
 
-- **It is not signed.** The client fetched it over HTTPS from the name it trusts, so the certificate already vouches for it, and a signature by the key the document itself names would add nothing. A reader checks that the ID is the key's, so whatever key it then holds the node to is the one the ID names.
+- **It is not signed.** The client fetched it over HTTPS from the name it trusts, so the certificate already vouches for it, and a signature by the key the document itself names would add nothing. A reader checks that the ID is the two keys', so whatever key it then holds the node to is one the ID names.
 - **It costs what a static file does.** Everything in it is known without the engine, so unauthenticated requests never wait on it, and nothing is cached.
 - **A path under `/.well-known/`** ([RFC 8615](https://www.rfc-editor.org/rfc/rfc8615)), named for its purpose, so it never collides with a path the wallet or Open Payments takes.
 

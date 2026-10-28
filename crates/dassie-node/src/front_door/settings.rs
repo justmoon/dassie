@@ -192,9 +192,12 @@ mod tests {
         assert_eq!(settings.quic_listen.port(), 443);
         assert_eq!(settings.key_file, None);
         assert_eq!(settings.relay_url(), "https://relay.dassiepay.net");
-        // The public testnet's registrars, on production timers.
+        // The public testnet's registrars, on production timers: none until
+        // the testnet's reset fills the default list.
         let registrars = settings.registrars();
-        assert_eq!(registrars.nodes.len(), 4);
+        let listed: Vec<serde_json::Value> =
+            serde_json::from_str(crate::env::DEFAULT_BOOTSTRAP_NODES).unwrap();
+        assert_eq!(registrars.nodes.len(), listed.len());
         assert_eq!(registrars.config, dassie_peer::Config::DEFAULT);
         assert!(!settings.peer_allow_private);
     }

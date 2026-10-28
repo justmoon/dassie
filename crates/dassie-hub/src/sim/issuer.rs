@@ -32,7 +32,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use dassie_identity::NodeKey;
+use dassie_identity::{IdentityKey, NodeKey};
 use dassie_kit::sim::{Outcome as SimOutcome, SeededRng};
 use sha2::{Digest as _, Sha256};
 
@@ -117,9 +117,9 @@ pub fn describe(seed: u64) -> String {
 /// `token`, with the margin `validators` call for.
 fn rules(token: bool, validators: usize) -> (Rules, Vec<NodeKey>) {
     let nonce = [0x5a; 32];
-    let sponsor = NodeKey::from_bytes(&[0x50; 32]);
+    let sponsor = IdentityKey::from_bytes(&[0x50; 32]);
     let escrow = escrow_master(&sponsor, NETWORK, &nonce);
-    let mut terms = starting_terms(nonce, sponsor.public_key(), NETWORK, escrow.account().0);
+    let mut terms = starting_terms(nonce, sponsor.identity(), NETWORK, escrow.account().0);
     terms.timers.margin = least_margin_ms(validators);
     if token {
         terms.asset = Asset::Token {
@@ -133,7 +133,7 @@ fn rules(token: bool, validators: usize) -> (Rules, Vec<NodeKey>) {
     let mut consensus = Vec::new();
     let mut acceptances = Vec::new();
     for index in 0..validators {
-        let node = NodeKey::from_bytes(&[0x60 + u8::try_from(index).unwrap(); 32]);
+        let node = IdentityKey::from_bytes(&[0x60 + u8::try_from(index).unwrap(); 32]);
         let keys = ValidatorKeys::derive(&node, NETWORK, &nonce).unwrap();
         acceptances.push(
             keys.accept(&node, &terms, format!("v{index}.example:443"))

@@ -90,7 +90,7 @@ mod tests {
     use super::*;
 
     fn holder() -> NodeId {
-        dassie_identity::NodeKey::from_bytes(&[1; 32]).node_id()
+        NodeId::from_bytes(&[1; 24])
     }
 
     fn alice() -> Name {
@@ -121,7 +121,7 @@ mod tests {
         assert!(commitment.is_opened_by(&alice(), &holder(), &salt));
         let bob = Name::parse("bob").unwrap();
         assert!(!commitment.is_opened_by(&bob, &holder(), &salt));
-        let other = dassie_identity::NodeKey::from_bytes(&[3; 32]).node_id();
+        let other = NodeId::from_bytes(&[3; 24]);
         assert!(!commitment.is_opened_by(&alice(), &other, &salt));
         assert!(!commitment.is_opened_by(&alice(), &holder(), &Salt([8; SALT_BYTES])));
     }

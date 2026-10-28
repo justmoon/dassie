@@ -14,7 +14,13 @@
  * @module
  */
 
-import { loginSecret, nodeId, phraseFromSecret, publicKey } from "@dassie/wasm";
+import {
+  loginSecret,
+  nodeId,
+  phraseFromSecret,
+  publicKey,
+  slhDsaPublicKey,
+} from "@dassie/wasm";
 import table from "../vanity.json" with { type: "json" };
 import { MAX_NODES } from "./scenario/scenarios.ts";
 
@@ -51,6 +57,8 @@ export interface Identity {
   readonly phrase: string;
   readonly key: Uint8Array;
   readonly publicKey: Uint8Array;
+  /** Its SLH-DSA public key, which its ID commits to with `publicKey`. */
+  readonly slhDsaPublicKey: Uint8Array;
   /** The login proof, as the node's HTTP API takes it. */
   readonly loginProofHex: string;
 }
@@ -111,7 +119,8 @@ function phraseOf(
 
 /** The node ID `secret` gives in `realm`. */
 export function idOf(secret: string, realm: Realm): string {
-  return nodeId(publicKey(phraseOf(secret, realm).key));
+  const { key } = phraseOf(secret, realm);
+  return nodeId(publicKey(key), slhDsaPublicKey(key));
 }
 
 /** The ID an entry holds for `realm`. */
@@ -132,7 +141,8 @@ export function derive(
   const id = idIn(entry, realm);
   const { phrase, key } = phraseOf(secret, realm);
   const pub = publicKey(key);
-  const derived = nodeId(pub);
+  const slh = slhDsaPublicKey(key);
+  const derived = nodeId(pub, slh);
   const name = `d${index + 1}`;
   if (derived !== id) {
     throw new Error(
@@ -147,6 +157,7 @@ export function derive(
     phrase,
     key,
     publicKey: pub,
+    slhDsaPublicKey: slh,
     loginProofHex: loginSecret(key).toHex(),
   };
 }

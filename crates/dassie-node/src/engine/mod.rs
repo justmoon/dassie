@@ -83,7 +83,7 @@ enum Command {
     /// A peer's request, from the node whose key its connection proved;
     /// the reply comes once the batch is persisted.
     PeerInbound {
-        from: Box<dassie_identity::PublicKey>,
+        from: Box<dassie_identity::NodeIdentity>,
         body: Vec<u8>,
         source: Option<std::net::IpAddr>,
         reply: oneshot::Sender<dassie_peer::Reply>,
@@ -626,7 +626,7 @@ impl Engine {
     /// request changed is on disk.
     pub async fn peer_inbound(
         &self,
-        from: dassie_identity::PublicKey,
+        from: dassie_identity::NodeIdentity,
         body: Vec<u8>,
         source: Option<std::net::IpAddr>,
     ) -> Result<dassie_peer::Reply, EngineError> {

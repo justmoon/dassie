@@ -35,7 +35,7 @@ pub mod settings;
 use std::fmt;
 use std::sync::Arc;
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_node_core::config::Hostname;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -68,7 +68,7 @@ pub struct Parts {
     /// The domain whose names it serves.
     pub domain: Hostname,
     /// Its own key.
-    pub key: NodeKey,
+    pub key: IdentityKey,
     /// Its certificate for `*.<domain>`.
     pub certificate: CertificateFiles,
     /// The URL nodes dial its QUIC endpoint at, `https://host[:port]`:
@@ -194,7 +194,8 @@ pub async fn run(
             .clone()
             .ok_or_else(|| missing("certificate key", "DASSIE_FRONT_DOOR_CERTIFICATE_KEY"))?,
     };
-    let key = key::read(key_file).map_err(StartError)?;
+    // With its identity, whose SLH-DSA key takes a key generation once.
+    let key = IdentityKey::new(key::read(key_file).map_err(StartError)?);
     let relay_url = settings.relay_url();
     let entry = key::relay_entry(&key, &relay_url);
     tracing::info!(target: target::FRONT_DOOR, "nodes name this front door as their relay with DASSIE_RELAY='{entry}'");

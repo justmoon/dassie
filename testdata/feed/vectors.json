@@ -369,7 +369,7 @@
       "validUntilMs": 18446744073709551615
     }
   ],
-  "nodeId": "bpnitg5h2jubimimn4rfyff4hrrw45l7hlk2yni",
+  "nodeId": "wiop5lp4s3tu7iw7alxuye36is4qty6c5wd2ila",
   "publicKey": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
   "refused": [
     {
@@ -394,6 +394,7 @@
     }
   ],
   "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "slhDsaPublicKey": "b83183d86338cb50d066a1f7514ff8784b86e76ae167869e4ce02f7b04fc5e34",
   "subscribe": [
     {
       "cookie": null,

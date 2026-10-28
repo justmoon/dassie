@@ -1,0 +1,86 @@
+{
+  "source": "NIST ACVP-Server, gen-val/json-files/SLH-DSA-keyGen-FIPS205/internalProjection.json (vsId 53), test group 1",
+  "parameterSet": "SLH-DSA-SHA2-128s",
+  "tests": [
+    {
+      "tcId": 1,
+      "skSeed": "173d04c938c1c36bf289c3c022d04b14",
+      "skPrf": "63ae23c41aa546da589774ac20b745c4",
+      "pkSeed": "0d794777914c99766827f0f09ca972be",
+      "sk": "173d04c938c1c36bf289c3c022d04b1463ae23c41aa546da589774ac20b745c40d794777914c99766827f0f09ca972be0162c10219d422adba1359e6aa65299c",
+      "pk": "0d794777914c99766827f0f09ca972be0162c10219d422adba1359e6aa65299c"
+    },
+    {
+      "tcId": 2,
+      "skSeed": "91c7f86881416d5d3e0ec46aa9c35047",
+      "skPrf": "506332adcbded3f2836dd7edc30aea0c",
+      "pkSeed": "bbbfeed9ad96af5d8cb4e876bbeb07d1",
+      "sk": "91c7f86881416d5d3e0ec46aa9c35047506332adcbded3f2836dd7edc30aea0cbbbfeed9ad96af5d8cb4e876bbeb07d11b4ea0a9eb42b9e7d2dbc2365f39e1dc",
+      "pk": "bbbfeed9ad96af5d8cb4e876bbeb07d11b4ea0a9eb42b9e7d2dbc2365f39e1dc"
+    },
+    {
+      "tcId": 3,
+      "skSeed": "fcc9eefd4c2cc975e8e5c341b0bd8f89",
+      "skPrf": "152f1d461e5287d9bd83f48e0d70a47f",
+      "pkSeed": "72c9655c012ca033c81ee260e5a7cbea",
+      "sk": "fcc9eefd4c2cc975e8e5c341b0bd8f89152f1d461e5287d9bd83f48e0d70a47f72c9655c012ca033c81ee260e5a7cbea672854e720695ece0cfdf751015b6a68",
+      "pk": "72c9655c012ca033c81ee260e5a7cbea672854e720695ece0cfdf751015b6a68"
+    },
+    {
+      "tcId": 4,
+      "skSeed": "a46a3e70e2c10c4d8564897ab43cf0dd",
+      "skPrf": "46a38c84afed1b36da3fe6ab0d6e9d16",
+      "pkSeed": "c2fce7b1404a8b4c03028ba16b367db9",
+      "sk": "a46a3e70e2c10c4d8564897ab43cf0dd46a38c84afed1b36da3fe6ab0d6e9d16c2fce7b1404a8b4c03028ba16b367db9bdf27760c4b0da6fd4247972363e2f96",
+      "pk": "c2fce7b1404a8b4c03028ba16b367db9bdf27760c4b0da6fd4247972363e2f96"
+    },
+    {
+      "tcId": 5,
+      "skSeed": "222efc862c761467c0ae5e3ee8a36b1e",
+      "skPrf": "18f1e3339092cb4a522f6644c382b394",
+      "pkSeed": "d15e7a41e7c23e74b5c4c21bd51f4bd7",
+      "sk": "222efc862c761467c0ae5e3ee8a36b1e18f1e3339092cb4a522f6644c382b394d15e7a41e7c23e74b5c4c21bd51f4bd7ccd233fa3a6d12e620f0281593de7b8a",
+      "pk": "d15e7a41e7c23e74b5c4c21bd51f4bd7ccd233fa3a6d12e620f0281593de7b8a"
+    },
+    {
+      "tcId": 6,
+      "skSeed": "5cfaa1db6d3a8f19407ff54c95bf0b20",
+      "skPrf": "eaafcb61b0f15d354fb4788c2da734d1",
+      "pkSeed": "91e748d27cc0c8729b909b7632f51cd0",
+      "sk": "5cfaa1db6d3a8f19407ff54c95bf0b20eaafcb61b0f15d354fb4788c2da734d191e748d27cc0c8729b909b7632f51cd0419a9b9db1e3336f5727d73b4a19cace",
+      "pk": "91e748d27cc0c8729b909b7632f51cd0419a9b9db1e3336f5727d73b4a19cace"
+    },
+    {
+      "tcId": 7,
+      "skSeed": "100f290d2c7e8e93314d60e35cb4e545",
+      "skPrf": "9331d2dfb840aa4ab1530c88562e21ce",
+      "pkSeed": "4f196c801ccd72e7be379823a059e90d",
+      "sk": "100f290d2c7e8e93314d60e35cb4e5459331d2dfb840aa4ab1530c88562e21ce4f196c801ccd72e7be379823a059e90d84a85aa21b62c7592df663e0bbdcad01",
+      "pk": "4f196c801ccd72e7be379823a059e90d84a85aa21b62c7592df663e0bbdcad01"
+    },
+    {
+      "tcId": 8,
+      "skSeed": "566ff2d45836c8117ec25c788118e30c",
+      "skPrf": "092db66617132a6c1094f3aeceb6f602",
+      "pkSeed": "25116bf80429a000f844ac58be7475d7",
+      "sk": "566ff2d45836c8117ec25c788118e30c092db66617132a6c1094f3aeceb6f60225116bf80429a000f844ac58be7475d7adf83c1ecd2c5cb5022cb5843ed7693c",
+      "pk": "25116bf80429a000f844ac58be7475d7adf83c1ecd2c5cb5022cb5843ed7693c"
+    },
+    {
+      "tcId": 9,
+      "skSeed": "a6d63a144bf9a05f6733ebfeafa03d88",
+      "skPrf": "aa3d3967bc538615a174de070c798c11",
+      "pkSeed": "3207cedcf1958b6d03f2e5902af1a3ed",
+      "sk": "a6d63a144bf9a05f6733ebfeafa03d88aa3d3967bc538615a174de070c798c113207cedcf1958b6d03f2e5902af1a3ed643f09faff5dc6a07a9a79428a45d775",
+      "pk": "3207cedcf1958b6d03f2e5902af1a3ed643f09faff5dc6a07a9a79428a45d775"
+    },
+    {
+      "tcId": 10,
+      "skSeed": "e80ffe26c876f57a0b4973f05e1a9d5f",
+      "skPrf": "13a65293d545cba3916233ff88b01f1f",
+      "pkSeed": "6c30b899483504984f36fa92c6ff3a5a",
+      "sk": "e80ffe26c876f57a0b4973f05e1a9d5f13a65293d545cba3916233ff88b01f1f6c30b899483504984f36fa92c6ff3a5a25d54de6c718b61eed5109cf61fd961d",
+      "pk": "6c30b899483504984f36fa92c6ff3a5a25d54de6c718b61eed5109cf61fd961d"
+    }
+  ]
+}

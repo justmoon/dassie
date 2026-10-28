@@ -19,7 +19,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use dassie_identity::{NodeId, NodeKey, PublicKey};
+use dassie_identity::{IdentityKey, NodeId, PublicKey};
 use dassie_oer::Encode;
 use rand_core::CryptoRng;
 
@@ -130,11 +130,11 @@ impl OwnInfo {
 /// A configured bootstrap node (spec/areas/network.md#bootstrap-nodes).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bootstrap {
-    /// Its ID, checked against its key.
+    /// Its ID, checked against its two keys where it is configured.
     pub id: NodeId,
     /// Where it takes QUIC, from its configured URL.
     pub endpoint: Endpoint,
-    /// Its key.
+    /// Its Ed25519 key.
     pub key: PublicKey,
 }
 
@@ -243,8 +243,8 @@ pub(crate) struct Outstanding {
 /// The peer protocol's state machine.
 pub struct PeerNode {
     pub(crate) config: Config,
-    /// Our node key, which signs our link state.
-    pub(crate) key: Arc<NodeKey>,
+    /// Our node key, which signs our link state, with our identity.
+    pub(crate) key: Arc<IdentityKey>,
     pub(crate) own: NodeId,
     pub(crate) own_info: OwnInfo,
     /// The hubs our link state lists, each with its scheme, at most
@@ -345,7 +345,7 @@ impl PeerNode {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Config,
-        key: Arc<NodeKey>,
+        key: Arc<IdentityKey>,
         own_info: OwnInfo,
         bootstrap: Vec<Bootstrap>,
         mut stored: crate::persist::Stored,

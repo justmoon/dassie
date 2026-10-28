@@ -15,7 +15,7 @@ mod registrant;
 
 use std::net::IpAddr;
 
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::Name;
 use dassie_peer::sim::{Arriving, Network};
@@ -32,7 +32,7 @@ fn settle(network: &mut Network, ms: u64) {
 
 /// Node 0's name list, as anyone reads it: a node it holds nothing with.
 fn list(network: &mut Network) -> NameListResponse {
-    let stranger = NodeKey::from_bytes(&[99; 32]);
+    let stranger = IdentityKey::from_bytes(&[99; 32]);
     let request = Arriving::new(&stranger, &Content::NameListRequest);
     let list = NameListResponse::decode_exact(&body(&network.inbound(0, &request))).unwrap();
     let request = Arriving::new(&stranger, &Content::NameListHashRequest);
@@ -252,7 +252,7 @@ fn a_node_with_names_off_refuses_every_name_message() {
     assert_eq!(alice.commit(&mut network, &alice_name).status, 409);
     assert_eq!(alice.unseal(&mut network, &alice_name).status, 409);
     assert_eq!(alice.renew(&mut network, &alice_name).status, 409);
-    let stranger = NodeKey::from_bytes(&[99; 32]);
+    let stranger = IdentityKey::from_bytes(&[99; 32]);
     for content in [Content::NameListRequest, Content::NameListHashRequest] {
         let request = Arriving::new(&stranger, &content);
         assert_eq!(network.inbound(0, &request).status, 409, "{content:?}");

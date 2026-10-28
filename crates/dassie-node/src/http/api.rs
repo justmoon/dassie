@@ -116,7 +116,10 @@ pub async fn setup(node: &Node, peer: SocketAddr, request: Request<Incoming>) ->
         Ok(realm) => realm.unwrap_or_default(),
         Err(error) => return response::text(StatusCode::BAD_REQUEST, error.to_string()),
     };
-    signed_in(node.setup(&body, realm, ClientKey::from_ip(peer.ip()), &user_agent))
+    signed_in(
+        node.setup(&body, realm, ClientKey::from_ip(peer.ip()), &user_agent)
+            .await,
+    )
 }
 
 /// `POST /api/login`.
@@ -165,6 +168,10 @@ fn signed_in(result: Result<NewSession, AuthError>) -> Response<Body> {
             tracing::error!(target: target::AUTH, %error, "database failure during login");
             response::text(StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error")
         }
+        Err(AuthError::Interrupted) => response::text(
+            StatusCode::SERVICE_UNAVAILABLE,
+            AuthError::Interrupted.to_string(),
+        ),
         Err(error) => response::text(StatusCode::UNAUTHORIZED, error.to_string()),
     }
 }

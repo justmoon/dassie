@@ -8,21 +8,24 @@
 //! is on the list ([`check_default_hub`]). A test runs the check on each
 //! one built in, and on a hub it builds itself while none is.
 
-use dassie_identity::{NodeId, PublicKey};
+use dassie_identity::{NodeId, NodeIdentity, PublicKey, SlhDsaPublicKey};
 
 use super::scheme::{MAINNET_SCHEME_ID, RLUSD_SCHEME_ID, scheme_of};
 use crate::rules::{Asset, Rules, RulesError};
 
 /// A validator on Dassie's default list of mainnet validators: a node, the
-/// key its acceptances are signed with, its operator and the operator's
-/// jurisdiction. An operator has one entry, and an operator's testnet
-/// entry vouches for nothing on mainnet.
+/// key its acceptances are signed with and its SLH-DSA key, its operator
+/// and the operator's jurisdiction. An operator has one entry, and an
+/// operator's testnet entry vouches for nothing on mainnet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ListedValidator {
     /// The node's ID, as its text.
     pub node: &'static str,
-    /// The node's public key, as 64 hex digits, whose ID [`Self::node`] is.
+    /// The node's public key, as 64 hex digits.
     pub key: &'static str,
+    /// The node's SLH-DSA public key, as 64 hex digits: with [`Self::key`],
+    /// the keys whose ID [`Self::node`] is.
+    pub slh_dsa: &'static str,
     /// Who runs it.
     pub operator: &'static str,
     /// Where its operator answers for it.
@@ -35,30 +38,30 @@ pub struct ListedValidator {
 /// until then it is kept here, beside the default hubs it vouches for.
 ///
 /// Empty until the project's mainnet validators run: an operator's step,
-/// which adds an entry for each, by its node ID, key, operator and
+/// which adds an entry for each, by its node ID, its two keys, operator and
 /// jurisdiction.
 pub const DEFAULT_MAINNET_VALIDATORS: &[ListedValidator] = &[];
 
 /// Why a list of validators is refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ListError {
-    /// Entry `i`'s key is no node key, or its ID is not the key's.
+    /// Entry `i`'s keys are no node's, or its ID is not the keys'.
     Entry(usize),
     /// Entry `i` names a node or an operator an earlier entry names.
     Repeated(usize),
 }
 
-/// Checks a list of validators: each key is a node key whose ID the entry
-/// names, and no node or operator is named twice.
+/// Checks a list of validators: each pair of keys is a node's whose ID the
+/// entry names, and no node or operator is named twice.
 ///
 /// # Errors
 ///
 /// See [`ListError`].
 pub fn check_list(list: &[ListedValidator]) -> Result<(), ListError> {
     for (index, entry) in list.iter().enumerate() {
-        let key = listed_key(entry).ok_or(ListError::Entry(index))?;
+        let node = listed_node(entry).ok_or(ListError::Entry(index))?;
         let id = NodeId::parse(entry.node).map_err(|_| ListError::Entry(index))?;
-        if key.node_id() != id {
+        if node.node_id() != id {
             return Err(ListError::Entry(index));
         }
         let repeated = list.iter().take(index).any(|earlier| {
@@ -72,10 +75,12 @@ pub fn check_list(list: &[ListedValidator]) -> Result<(), ListError> {
     Ok(())
 }
 
-/// The node key of a listed validator, if its hex is one.
-fn listed_key(entry: &ListedValidator) -> Option<PublicKey> {
+/// The identity of a listed validator, if its hex is a pair of keys.
+fn listed_node(entry: &ListedValidator) -> Option<NodeIdentity> {
     let bytes: [u8; 32] = dassie_xrpl::from_hex(entry.key)?.try_into().ok()?;
-    PublicKey::from_bytes(&bytes).ok()
+    let slh_dsa: [u8; 32] = dassie_xrpl::from_hex(entry.slh_dsa)?.try_into().ok()?;
+    let key = PublicKey::from_bytes(&bytes).ok()?;
+    Some(NodeIdentity::new(key, SlhDsaPublicKey::from_bytes(slh_dsa)))
 }
 
 /// Why a default mainnet hub is refused.
@@ -99,7 +104,7 @@ pub enum DefaultHubError {
 /// terms are on mainnet and hold the scheme's asset, XRP for
 /// [`MAINNET_SCHEME_ID`] and RLUSD of [`dassie_xrpl::rlusd::ISSUER`] for
 /// [`RLUSD_SCHEME_ID`], and each of their validators is on the list by its
-/// node key. The rules, if so.
+/// identity, both its keys. The rules, if so.
 ///
 /// # Errors
 ///
@@ -132,7 +137,7 @@ pub fn check_default_hub(
     for (index, acceptance) in rules.validators.iter().enumerate() {
         let listed = validators
             .iter()
-            .any(|entry| listed_key(entry).is_some_and(|key| key == acceptance.node));
+            .any(|entry| listed_node(entry).is_some_and(|node| node == acceptance.node));
         if !listed {
             return Err(DefaultHubError::Unlisted(index));
         }
@@ -145,7 +150,7 @@ mod tests {
     use alloc::string::String;
     use alloc::vec::Vec;
 
-    use dassie_identity::NodeKey;
+    use dassie_identity::IdentityKey;
     use dassie_oer::Encode;
 
     use super::*;
@@ -170,7 +175,7 @@ mod tests {
         }
         rules.terms.asset = asset;
         let terms = rules.terms.clone();
-        let keys: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
+        let keys: Vec<&IdentityKey> = (1..=4).map(crate::rules::tests::node_key).collect();
         for (acceptance, key) in rules.validators.iter_mut().zip(&keys) {
             *acceptance = acceptance.clone().sign(key, &terms);
         }
@@ -179,10 +184,12 @@ mod tests {
             .iter()
             .map(|key| {
                 let node: &'static str = String::from(key.node_id().as_str()).leak();
+                let slh_dsa: &'static str = hex(key.identity().slh_dsa().as_bytes()).leak();
                 let key: &'static str = hex(key.public_key().as_bytes()).leak();
                 ListedValidator {
                     node,
                     key,
+                    slh_dsa,
                     operator: node,
                     jurisdiction: "CH",
                 }

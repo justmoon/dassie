@@ -11,7 +11,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_kit::ClientKey;
 use dassie_node::outbound::Resolver;
 use dassie_node::peer_server::{Answer, BodyError};
@@ -44,7 +44,7 @@ impl Handler for Echo {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
-        _from: dassie_identity::PublicKey,
+        _from: dassie_identity::NodeIdentity,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(echo(body))
@@ -87,7 +87,7 @@ impl Handler for Classed {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
-        _from: dassie_identity::PublicKey,
+        _from: dassie_identity::NodeIdentity,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(echo(body))
@@ -118,7 +118,7 @@ impl Handler for Together {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
-        _from: dassie_identity::PublicKey,
+        _from: dassie_identity::NodeIdentity,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(async move {
@@ -149,7 +149,7 @@ impl Handler for Held {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
-        _from: dassie_identity::PublicKey,
+        _from: dassie_identity::NodeIdentity,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(async move {
@@ -166,7 +166,7 @@ struct Side {
     id: NodeId,
     endpoint: Endpoint,
     // Kept alive: the endpoint presents the key it holds.
-    _identity: watch::Sender<Option<Arc<NodeKey>>>,
+    _identity: watch::Sender<Option<Arc<IdentityKey>>>,
 }
 
 fn side(seed: u8, shutdown: &CancellationToken) -> Side {
@@ -175,7 +175,7 @@ fn side(seed: u8, shutdown: &CancellationToken) -> Side {
 
 fn side_with(seed: u8, shutdown: &CancellationToken, handler: Arc<dyn Handler>) -> Side {
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-    let key = Arc::new(NodeKey::from_bytes(&[seed; 32]));
+    let key = Arc::new(IdentityKey::from_bytes(&[seed; 32]));
     let id = key.node_id();
     let (identity, receiver) = watch::channel(Some(key));
     let quic = Arc::new(Quic::new(socket, receiver, true).unwrap());
@@ -226,7 +226,7 @@ async fn a_request_gets_its_answer() {
 async fn a_server_with_another_key_is_not_reached() {
     let shutdown = CancellationToken::new();
     let (a, b) = (side(1, &shutdown), side(2, &shutdown));
-    let impostor = NodeKey::from_bytes(&[3; 32]).node_id();
+    let impostor = IdentityKey::from_bytes(&[3; 32]).node_id();
     let mut wrong = request(&b, b"hello".to_vec());
     wrong.to = impostor;
     let result = a.quic.send(&wrong, &client()).await;
@@ -349,7 +349,7 @@ async fn a_node_out_of_reach_is_not_dialled_again_for_a_while() {
     let a = side(1, &shutdown);
     let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
     let port = silent.local_addr().unwrap().port();
-    let target = NodeKey::from_bytes(&[9; 32]).node_id();
+    let target = IdentityKey::from_bytes(&[9; 32]).node_id();
     let request = Request {
         id: RequestId(7),
         to: target,

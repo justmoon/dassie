@@ -26,10 +26,12 @@ pub use response::{
 pub use scheme::{MAX_SCHEME_ID, SchemeId};
 pub use url::{Endpoint, is_valid_url};
 
-/// The OID that starts a `PeerNodeInfo`. v0 used `…1399.1.2`, and the
-/// layout with the node ID beside the key `…1399.1.3`; a new one keeps node
-/// info signed under either from passing as a link state of this layout.
-pub const NODE_INFO_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 1, 5]);
+/// The OID that starts a `PeerNodeInfo`. v0 used `…1399.1.2`, the layout
+/// with the node ID beside the key `…1399.1.3`, and the layout with the
+/// Ed25519 key alone `…1399.1.5`; a new one keeps node info signed under
+/// any of them from passing as a link state of this layout, which carries
+/// the SLH-DSA key beside the Ed25519 key.
+pub const NODE_INFO_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 1, 6]);
 
 /// Most bytes in a request body.
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
@@ -53,7 +55,9 @@ pub const MAX_EXTENSION_BYTES: usize = 2048;
 /// no URL, dials out to its uplinks and is reached only over the
 /// connections it opened (spec/areas/peer-protocol.md#link-states). Its
 /// value is empty. Only with it may a link state's URL be empty. Type 1 is
-/// kept for a post-quantum key, and types 2 and 6 are reserved: no
+/// kept for a post-quantum signing key that the node's SLH-DSA key vouches
+/// for (spec/decisions/post-quantum-node-id.md), and types 2 and 6 are
+/// reserved: no
 /// extension has them, so that no node reads either as one. Type 6 was
 /// to say that a node has settlement methods, which every node of this
 /// version has (spec/areas/peer-protocol.md#versions).

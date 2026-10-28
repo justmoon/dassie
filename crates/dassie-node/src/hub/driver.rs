@@ -24,7 +24,7 @@ use dassie_hub::service::payload::Payload;
 use dassie_hub::service::wire::Message;
 use dassie_hub::service::{Action, CatchUpError, MAX_WAITING_DEPOSITS, Validator, genesis_block};
 use dassie_hub::{HubId, Millis};
-use dassie_identity::{NodeId, NodeKey, PublicKey};
+use dassie_identity::{IdentityKey, NodeId, NodeIdentity};
 use dassie_oer::{Decode, Encode};
 use dassie_xrpl::codec::Signer;
 
@@ -35,8 +35,8 @@ use crate::store::{HubStep, Store, StoreError};
 /// A validator to send to: its node, and where it is reached.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Peer {
-    /// Its node key, which the connection is pinned to.
-    pub key: PublicKey,
+    /// Its identity, whose node ID the connection is pinned to.
+    pub key: NodeIdentity,
     /// Its node.
     pub node: NodeId,
     /// Its endpoint, `host:port`.
@@ -195,7 +195,7 @@ impl Driver {
         store: Arc<Store>,
         rules: &Rules,
         genesis_ms: Millis,
-        node_key: &NodeKey,
+        node_key: &IdentityKey,
         now: Millis,
     ) -> Result<Self, DriverError> {
         let keys = ValidatorKeys::derive(node_key, rules.terms.network, &rules.terms.nonce)
@@ -288,7 +288,7 @@ impl Driver {
         &mut self,
         now: Millis,
         from: PeerId,
-        node: Option<&PublicKey>,
+        node: Option<&NodeIdentity>,
         message: &[u8],
     ) -> Result<Step, StoreError> {
         self.validator.handle(now, from, node, message);
@@ -645,7 +645,7 @@ mod tests {
 
     struct Net {
         dirs: Vec<tempfile::TempDir>,
-        nodes: Vec<NodeKey>,
+        nodes: Vec<IdentityKey>,
         rules: Rules,
         drivers: Vec<Driver>,
         queue: VecDeque<(usize, usize, Vec<u8>)>,
@@ -670,18 +670,19 @@ mod tests {
         /// A network of a hub whose terms `adjust` changes, each validator
         /// accepting them.
         fn with_terms(adjust: impl FnOnce(&mut dassie_hub::rules::Terms)) -> Self {
-            let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
-            let endpoints: Vec<(NodeKey, String)> = nodes
+            let nodes: Vec<IdentityKey> =
+                (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
+            let endpoints: Vec<(IdentityKey, String)> = nodes
                 .iter()
                 .enumerate()
                 .map(|(i, key)| {
                     (
-                        NodeKey::from_bytes(key.as_bytes()),
+                        IdentityKey::from_bytes(key.as_bytes()),
                         format!("v{i}.example:443"),
                     )
                 })
                 .collect();
-            let mut rules = rules(&NodeKey::from_bytes(&[100; 32]), &endpoints);
+            let mut rules = rules(&IdentityKey::from_bytes(&[100; 32]), &endpoints);
             adjust(&mut rules.terms);
             let terms = rules.terms.clone();
             for ((node, endpoint), acceptance) in endpoints.iter().zip(&mut rules.validators) {
@@ -760,7 +761,7 @@ mod tests {
                 }
                 while let Some((to, from, message)) = self.queue.pop_front() {
                     let peer = PeerId(u64::try_from(from).unwrap());
-                    let node = self.nodes[from].public_key();
+                    let node = self.nodes[from].identity();
                     let step = self.drivers[to]
                         .handle(self.now, peer, Some(&node), &message)
                         .unwrap();
@@ -858,7 +859,7 @@ mod tests {
         });
         attest_all(&mut net, &ValidatorOperation::AttestEscrow { sequence: 5 });
         net.run(1_000);
-        let member = NodeKey::from_bytes(&[31; 32]);
+        let member = IdentityKey::from_bytes(&[31; 32]);
         let deposit = Deposit {
             transaction: Digest([1; 32]),
             ledger: 10,
@@ -1091,7 +1092,7 @@ mod tests {
             amount: 50_000_000,
             sender: [3; 20],
             tag: 0,
-            key: Some(NodeKey::from_bytes(&[n; 32]).public_key()),
+            key: Some(IdentityKey::from_bytes(&[n; 32]).public_key()),
         };
         for n in 1..=5 {
             attest_all(&mut net, &ValidatorOperation::AttestDeposit(deposit(n)));
@@ -1139,7 +1140,7 @@ mod tests {
                 amount: 50_000_000,
                 sender: [3; 20],
                 tag: 0,
-                key: Some(NodeKey::from_bytes(&[n; 32]).public_key()),
+                key: Some(IdentityKey::from_bytes(&[n; 32]).public_key()),
             };
             attest_all(&mut net, &ValidatorOperation::AttestDeposit(deposit));
             net.run(1_000);

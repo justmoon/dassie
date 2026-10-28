@@ -17,7 +17,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::path::PathBuf;
 
-use dassie_identity::{NodeId, PublicKey};
+use dassie_identity::{NodeId, NodeIdentity, PublicKey, SlhDsaPublicKey};
 use dassie_node_core::config::{Hostname, LiveRealm};
 use dassie_peer::wire::Endpoint;
 use serde::Deserialize;
@@ -28,23 +28,30 @@ use crate::quic::proxy::{NoProxy, Proxy};
 /// The public testnet's bootstrap nodes
 /// (spec/decisions/bootstrap-network.md), in one region, us-east1, so that
 /// they can validate the testnet's settlement hub: boot1 and boot4 in zone
-/// b, boot2 in c, boot3 in d. Each ID is checked against its key at
-/// startup, like any entry.
-/// `DASSIE_BOOTSTRAP_NODES=[]` makes a node run alone.
-pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
-  {"id":"br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},
-  {"id":"cnayj52pxvacichpys3p4hsqnbxtliup3rkkz5i","url":"https://boot2.dassie.xyz","publicKey":"s9xgWff_UZ26HQwHT_aPd0q0SwyKPGXS74fd2xQjh14"},
-  {"id":"wu3lfwpoqblye7pdjhcspl6whzcux6j4vnkkdfq","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"},
-  {"id":"ywpqifdgvbalxycja2oiu4lg5ogogwpagqdtk7q","url":"https://boot4.dassie.xyz","publicKey":"qNW0ZwnIvaca6f54gIG-YFLQSefzC6JA4h3Oh1QJU6I"}
-]"#;
+/// b, boot2 in c, boot3 in d. Each entry names a node's ID, URL and its two
+/// keys, Ed25519 and SLH-DSA, and each ID is checked against its keys at
+/// startup, like any entry. `DASSIE_BOOTSTRAP_NODES=[]` makes a node run
+/// alone.
+///
+/// Empty until the testnet's reset: a node ID commits to the node's
+/// SLH-DSA key (spec/decisions/post-quantum-node-id.md), which the
+/// bootstrap nodes' new phrases give them, so their entries are known only
+/// once they are set up with them. The reset puts the four entries here,
+/// in the release that carries the new IDs; until then a node runs alone.
+pub const DEFAULT_BOOTSTRAP_NODES: &str = "[]";
 
 /// The relay a node keeps a connection to while it has no hostname, unless
 /// `DASSIE_RELAY` names another: the front door of the node's default name,
 /// `<node ID>.dassiepay.net`, which reaches the node only over that
 /// connection (spec/decisions/default-relay.md,
-/// spec/areas/node.md#a-chosen-relay). Its ID is checked against its key at
-/// startup, like any entry. `DASSIE_RELAY=` (empty) keeps no relay.
-pub const DEFAULT_RELAY: &str = r#"{"id":"ouyq52vm2yrivs542gzg4pjozcx2nbsvje227kq","url":"https://relay.dassiepay.net","publicKey":"DliIZHngMG7GTDqfHBSP_dfSTmn8ziA9OE37FnxC7eo"}"#;
+/// spec/areas/node.md#a-chosen-relay). Its ID is checked against its keys
+/// at startup, like any entry. `DASSIE_RELAY=` (empty) keeps no relay.
+///
+/// None until the testnet's reset: the front door's ID now commits to its
+/// SLH-DSA key, which derives from its key file, so its entry is the one it
+/// logs once it runs a release that makes it (`relay_entry` in
+/// `front_door/key.rs`). Until then a node keeps no relay by default.
+pub const DEFAULT_RELAY: Option<&str> = None;
 
 /// Most bootstrap nodes accepted: each a registrar whose name list every
 /// node reads (spec/areas/network.md#holders).
@@ -126,12 +133,12 @@ impl std::error::Error for EnvError {}
 /// ([bootstrap nodes](../../../spec/areas/network.md#bootstrap-nodes)).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BootstrapNode {
-    /// Its node ID, which matches its key.
+    /// Its node ID, which matches its keys.
     pub id: NodeId,
     /// Where it takes QUIC, read from its entry's URL.
     pub endpoint: Endpoint,
-    /// Its Ed25519 key.
-    pub public_key: PublicKey,
+    /// Its keys: its Ed25519 key and its SLH-DSA key.
+    pub identity: NodeIdentity,
 }
 
 /// The relay a node keeps a connection to
@@ -478,6 +485,7 @@ struct BootstrapNodeJson {
     id: String,
     url: String,
     public_key: String,
+    slh_dsa_public_key: String,
 }
 
 /// `DASSIE_BOOTSTRAP_NODES`: a JSON list of entries, each checked; when
@@ -524,10 +532,13 @@ pub fn bootstrap_nodes(env: &Env) -> Result<Vec<BootstrapNode>, EnvError> {
 }
 
 /// `DASSIE_RELAY`: one entry in the bootstrap list's format; when unset,
-/// [`DEFAULT_RELAY`]; when empty, none.
+/// [`DEFAULT_RELAY`], if there is one; when empty, none.
 fn relay(env: &Env) -> Result<Option<Relay>, EnvError> {
     let (text, is_default) = match env.get("DASSIE_RELAY")? {
-        None => (DEFAULT_RELAY, true),
+        None => match DEFAULT_RELAY {
+            Some(text) => (text, true),
+            None => return Ok(None),
+        },
         Some("") => return Ok(None),
         Some(text) => (text, false),
     };
@@ -542,29 +553,36 @@ fn relay(env: &Env) -> Result<Option<Relay>, EnvError> {
     Ok(Some(Relay { node, is_default }))
 }
 
-/// A bootstrap node's entry, if its URL is HTTPS, its key decodes and its
-/// ID is the one the key gives.
+/// A bootstrap node's entry, if its URL is HTTPS, its keys decode and its
+/// ID is the one the two keys give.
 fn check_bootstrap_node(node: &BootstrapNodeJson) -> Option<BootstrapNode> {
-    let mut key = [0; 32];
-    // A key must decode to exactly 32 bytes: a shorter one would leave the
-    // rest of `key` zero.
-    if dassie_base64url::decoded_len(node.public_key.len()) != Some(key.len()) {
-        return None;
-    }
-    dassie_base64url::decode(node.public_key.as_bytes(), &mut key).ok()?;
     let endpoint = Endpoint::of_url(&node.url)?;
-    let public_key = PublicKey::from_bytes(&key).ok()?;
+    let public_key = PublicKey::from_bytes(&key_bytes(&node.public_key)?).ok()?;
+    let slh_dsa = SlhDsaPublicKey::from_bytes(key_bytes(&node.slh_dsa_public_key)?);
+    let identity = NodeIdentity::new(public_key, slh_dsa);
     let id = NodeId::parse(&node.id).ok()?;
-    (public_key.node_id() == id).then_some(BootstrapNode {
+    (identity.node_id() == id).then_some(BootstrapNode {
         id,
         endpoint,
-        public_key,
+        identity,
     })
+}
+
+/// The 32 bytes of a key in base64url. A key must decode to exactly 32
+/// bytes: a shorter one would leave the rest zero.
+fn key_bytes(text: &str) -> Option<[u8; 32]> {
+    let mut key = [0; 32];
+    if dassie_base64url::decoded_len(text.len()) != Some(key.len()) {
+        return None;
+    }
+    dassie_base64url::decode(text.as_bytes(), &mut key).ok()?;
+    Some(key)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dassie_identity::IdentityKey;
 
     fn settings(pairs: &[(&str, &str)]) -> Result<Settings, EnvError> {
         Settings::from_env(&Env::from_pairs(pairs.iter().copied()))
@@ -586,23 +604,30 @@ mod tests {
         assert!(dir(&[]).is_err());
     }
 
-    // spec/decisions/bootstrap-network.md: the default list names the
-    // testnet's four bootstrap nodes, and each passes the same checks as a
-    // configured entry.
+    /// The entry of the node of seed `seed` at `url`, as a front door logs
+    /// its own.
+    fn entry(seed: u8, url: &str) -> String {
+        let key = IdentityKey::from_bytes(&[seed; 32]);
+        crate::front_door::key::relay_entry(&key, url)
+    }
+
+    /// The same, but whose `field` holds `value`.
+    fn entry_with(seed: u8, url: &str, field: &str, value: &str) -> String {
+        let mut entry: serde_json::Value = serde_json::from_str(&entry(seed, url)).unwrap();
+        entry[field] = value.into();
+        entry.to_string()
+    }
+
+    // spec/decisions/bootstrap-network.md: the default list is empty until
+    // the testnet's reset gives its bootstrap nodes identities whose IDs
+    // commit to their SLH-DSA keys, so a node with nothing configured runs
+    // alone. The reset fills the list, and this test then checks that it
+    // names boot1–boot4, each passing the checks of a configured entry.
     #[test]
-    fn the_default_bootstrap_nodes_are_the_testnet() {
-        let urls = settings(&[("HOME", "/h")]).map(|s| {
-            s.bootstrap_nodes
-                .iter()
-                .map(|node| node.endpoint.url())
-                .collect::<Vec<_>>()
-        });
-        assert_eq!(
-            urls,
-            Ok(["boot1", "boot2", "boot3", "boot4"]
-                .map(|host| format!("https://{host}.dassie.xyz"))
-                .to_vec())
-        );
+    fn the_default_bootstrap_list_is_empty_until_the_reset() {
+        assert_eq!(DEFAULT_BOOTSTRAP_NODES, "[]");
+        let nodes = settings(&[("HOME", "/h")]).map(|s| s.bootstrap_nodes.len());
+        assert_eq!(nodes, Ok(0));
     }
 
     #[test]
@@ -614,7 +639,7 @@ mod tests {
 
     #[test]
     fn bootstrap_nodes_are_listed_once() {
-        let one = r#"{"id":"gstpaogawdidju5a6m4lolevaes3cm4dj7omffq","url":"https://test1.dassie.xyz","publicKey":"QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"}"#;
+        let one = entry(1, "https://test1.dassie.xyz");
         let twice = format!("[{one},{one}]");
         let once = format!("[{one}]");
         assert!(settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", &twice)]).is_err());
@@ -644,7 +669,7 @@ mod tests {
             ("DASSIE_BOOTSTRAP_NODES", "{"),
             (
                 "DASSIE_BOOTSTRAP_NODES",
-                r#"[{"id":"dx","url":"https://a","publicKey":"QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"}]"#,
+                &format!("[{}]", entry_with(1, "https://a", "id", "dx")),
             ),
             ("DASSIE_VALIDATOR_CONFIG", "/no/such/file"),
         ];
@@ -753,7 +778,7 @@ mod tests {
         let many: Vec<String> = (0..=dassie_peer::MAX_UPLINKS)
             .map(|n| {
                 let seed = [u8::try_from(n).unwrap(); 32];
-                dassie_identity::NodeKey::from_bytes(&seed)
+                dassie_identity::IdentityKey::from_bytes(&seed)
                     .node_id()
                     .to_string()
             })
@@ -770,11 +795,23 @@ mod tests {
         assert_eq!(unset, Ok(0));
     }
 
-    // A bootstrap entry whose ID does not match its key is refused.
+    // A bootstrap entry whose ID does not match its keys is refused: the ID
+    // of another node, or of its Ed25519 key with another SLH-DSA key.
     #[test]
     fn bootstrap_ids_must_match_keys() {
-        let swapped = r#"[{"id":"zk4niagv4itzjorfprykhog5fcrgg5f3jllw6va","url":"https://test1.dassie.xyz","publicKey":"QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"}]"#;
-        assert!(settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", swapped)]).is_err());
+        let url = "https://test1.dassie.xyz";
+        let other = IdentityKey::from_bytes(&[2; 32]).node_id();
+        let swapped = entry_with(1, url, "id", other.as_str());
+        let mut slh_dsa = [0u8; 43];
+        let length = dassie_base64url::encode(&[9; 32], &mut slh_dsa);
+        let slh_dsa = std::str::from_utf8(&slh_dsa[..length]).unwrap();
+        let other_slh_dsa = entry_with(1, url, "slhDsaPublicKey", slh_dsa);
+        let mut without: serde_json::Value = serde_json::from_str(&entry(1, url)).unwrap();
+        without.as_object_mut().unwrap().remove("slhDsaPublicKey");
+        for nodes in [swapped, other_slh_dsa, without.to_string()] {
+            let nodes = format!("[{nodes}]");
+            assert!(settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", &nodes)]).is_err());
+        }
     }
 
     // A key longer than 32 bytes once failed `decode`'s assertion on its
@@ -782,13 +819,16 @@ mod tests {
     #[test]
     fn bootstrap_keys_of_another_length_are_refused() {
         for key in ["QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIMA", "QBe5", ""] {
-            let nodes = format!(
-                r#"[{{"id":"zk4niagv4itzjorfprykhog5fcrgg5f3jllw6va","url":"https://test1.dassie.xyz","publicKey":"{key}"}}]"#
-            );
-            assert!(
-                settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", &nodes)]).is_err(),
-                "{key}"
-            );
+            for field in ["publicKey", "slhDsaPublicKey"] {
+                let nodes = format!(
+                    "[{}]",
+                    entry_with(1, "https://test1.dassie.xyz", field, key)
+                );
+                assert!(
+                    settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", &nodes)]).is_err(),
+                    "{field} {key}"
+                );
+            }
         }
     }
 
@@ -797,34 +837,31 @@ mod tests {
     #[test]
     fn a_relay_is_one_checked_entry() {
         let relay = |value: &str| settings(&[("HOME", "/h"), ("DASSIE_RELAY", value)]);
-        let boot1 = r#"{"id":"br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"}"#;
-        let chosen = relay(boot1).unwrap().relay.unwrap();
+        let boot1 = entry(1, "https://boot1.dassie.xyz");
+        let chosen = relay(&boot1).unwrap().relay.unwrap();
         assert_eq!(chosen.node.endpoint.url(), "https://boot1.dassie.xyz");
-        assert_eq!(chosen.node.public_key.node_id(), chosen.node.id);
+        assert_eq!(chosen.node.identity.node_id(), chosen.node.id);
         // One the owner named is kept, hostname or not.
         assert!(!chosen.is_default);
-        let swapped = r#"{"id":"zk4niagv4itzjorfprykhog5fcrgg5f3jllw6va","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"}"#;
-        assert!(relay(swapped).is_err());
+        let other = IdentityKey::from_bytes(&[2; 32]).node_id();
+        let swapped = entry_with(1, "https://boot1.dassie.xyz", "id", other.as_str());
+        assert!(relay(&swapped).is_err());
         assert!(relay(&format!("[{boot1}]")).is_err());
         let http = boot1.replace("https://", "http://");
         assert!(relay(&http).is_err());
     }
 
-    // spec/decisions/default-relay.md: unset, the relay is the front door of
-    // the default name, checked as any entry and kept only without a
-    // hostname; empty, there is none.
+    // spec/decisions/default-relay.md: there is no default relay until the
+    // testnet's reset gives the front door of the default name an identity
+    // whose ID commits to its SLH-DSA key, so unset, as empty, keeps none.
+    // The reset builds the front door's entry in, and this test then checks
+    // that unset names it, checked as any entry and kept only without a
+    // hostname.
     #[test]
-    fn the_default_relay_is_the_default_names_front_door() {
-        let unset = settings(&[("HOME", "/h")]).unwrap().relay.unwrap();
-        assert!(unset.is_default);
-        assert_eq!(
-            unset.node.endpoint.url(),
-            format!(
-                "https://relay.{}",
-                crate::open_payments::DEFAULT_FRONT_DOOR_DOMAIN
-            )
-        );
-        assert_eq!(unset.node.public_key.node_id(), unset.node.id);
+    fn the_default_relay_is_none_until_the_reset() {
+        assert_eq!(DEFAULT_RELAY, None);
+        let unset = settings(&[("HOME", "/h")]);
+        assert_eq!(unset.map(|s| s.relay), Ok(None));
         let empty = settings(&[("HOME", "/h"), ("DASSIE_RELAY", "")]);
         assert_eq!(empty.map(|s| s.relay), Ok(None));
     }

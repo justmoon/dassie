@@ -22,7 +22,7 @@ use support::{key, other_key, two_ledger_feed};
 fn a_subscriber_and_a_table_agree() {
     let secret = CookieSecret::from_bytes([1; 32]);
     let mut table = SubscriberTable::new(Limits::DEFAULT, secret);
-    let mut receiver = FeedReceiver::new(key().node_id());
+    let mut receiver = FeedReceiver::new(key().identity());
     let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(198, 51, 100, 7)), 5000);
     let now = 1_790_000_000_000;
 
@@ -43,7 +43,7 @@ fn a_subscriber_and_a_table_agree() {
 #[test]
 fn only_newer_verified_unexpired_feeds_of_its_node_are_taken() {
     let key = key();
-    let mut receiver = FeedReceiver::new(key.node_id());
+    let mut receiver = FeedReceiver::new(key.identity());
     let feed = two_ledger_feed();
     let now = feed.sequence_ms;
     let datagram = sign_feed(&key, &feed).unwrap();

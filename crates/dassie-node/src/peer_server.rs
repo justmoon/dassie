@@ -14,7 +14,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use dassie_identity::{NodeId, PublicKey};
+use dassie_identity::{NodeId, NodeIdentity};
 use dassie_kit::ClientKey;
 use dassie_node_core::connections::ConnectionLimits;
 use tokio_util::sync::CancellationToken;
@@ -61,7 +61,7 @@ impl Answer {
 /// Answers a peer request from `client`, by the node whose key `from` its
 /// connection proved, whose body `body` reads. The body is read only once
 /// the request may be handled, and within the node's time for a body.
-pub async fn answer<F>(node: &Node, client: IpAddr, from: PublicKey, body: F) -> Answer
+pub async fn answer<F>(node: &Node, client: IpAddr, from: NodeIdentity, body: F) -> Answer
 where
     F: Future<Output = Result<Vec<u8>, BodyError>>,
 {
@@ -89,7 +89,7 @@ async fn answer_body(
     node: &Node,
     engine: &crate::engine::Engine,
     client: IpAddr,
-    from: PublicKey,
+    from: NodeIdentity,
     body: Vec<u8>,
 ) -> Answer {
     // Loopback is no network of its own where private peers are allowed, as
@@ -142,7 +142,7 @@ impl crate::quic::Handler for QuicHandler {
     fn answer<'a>(
         &'a self,
         client: IpAddr,
-        from: PublicKey,
+        from: NodeIdentity,
         body: crate::quic::Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(answer(&self.0, client, from, body))
@@ -152,7 +152,7 @@ impl crate::quic::Handler for QuicHandler {
     /// connection proved who sent it.
     fn hub<'a>(
         &'a self,
-        from: dassie_identity::PublicKey,
+        from: dassie_identity::NodeIdentity,
         request: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Option<crate::hub::HubAnswer>> + Send + 'a>> {
         Box::pin(async move {
@@ -163,7 +163,7 @@ impl crate::quic::Handler for QuicHandler {
 
     fn hub_access(
         &self,
-        from: &dassie_identity::PublicKey,
+        from: &dassie_identity::NodeIdentity,
         hub: &[u8; 32],
     ) -> crate::hub::HubAccess {
         self.0.hubs().access(Some(from), hub)
@@ -171,7 +171,7 @@ impl crate::quic::Handler for QuicHandler {
 
     fn hub_permit(
         &self,
-        from: &dassie_identity::PublicKey,
+        from: &dassie_identity::NodeIdentity,
         access: crate::hub::HubAccess,
     ) -> Option<crate::hub::transport::HubPermit> {
         self.0
@@ -183,7 +183,7 @@ impl crate::quic::Handler for QuicHandler {
     /// validators only.
     fn hub_state<'a>(
         &'a self,
-        from: dassie_identity::PublicKey,
+        from: dassie_identity::NodeIdentity,
         request: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Option<crate::hub::transport::StateReply>> + Send + 'a>> {
         Box::pin(async move {
@@ -196,7 +196,7 @@ impl crate::quic::Handler for QuicHandler {
     /// lists, and only where the owner turned validating on.
     fn hub_founding_access(
         &self,
-        from: &dassie_identity::PublicKey,
+        from: &dassie_identity::NodeIdentity,
     ) -> crate::hub::founding::FoundingAccess {
         self.0.founding().map_or(
             crate::hub::founding::FoundingAccess::NotListed,
@@ -207,7 +207,7 @@ impl crate::quic::Handler for QuicHandler {
     /// A listed sponsor's requests while it founds a hub with the node.
     fn hub_founding<'a>(
         &'a self,
-        from: dassie_identity::PublicKey,
+        from: dassie_identity::NodeIdentity,
         request: Vec<u8>,
         place: crate::hub::founding::FoundingPlace,
     ) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'a>> {

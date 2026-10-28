@@ -37,16 +37,11 @@ fn joining_core(seed: u64, side: Side) -> (Core, NodeId, Arc<Mutex<Vec<u64>>>) {
     let asked = Joiner::install(&mut core, side);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
-    let downlink = Arc::new(dassie_identity::NodeKey::from_bytes(&[11; 32]));
+    let downlink = Arc::new(dassie_identity::IdentityKey::from_bytes(&[11; 32]));
     let at = NOW + 1_000;
     core.begin_step(at);
     let body = downlink_request(&downlink, at);
-    core.peer_inbound(
-        dassie_peer::InboundId(1),
-        downlink.public_key(),
-        &body,
-        None,
-    );
+    core.peer_inbound(dassie_peer::InboundId(1), downlink.identity(), &body, None);
     let peer = downlink.node_id();
     assert!(core.peer.peering_of(&peer).is_some());
     assert!(core.open_downlink_accounts(peer, STUB));

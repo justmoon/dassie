@@ -8,7 +8,7 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use dassie_identity::{NodeId, PublicKey};
+use dassie_identity::{NodeId, NodeIdentity, PublicKey};
 use dassie_oer::Decode;
 
 use super::gossip::{Processed, Retransmit};
@@ -61,21 +61,21 @@ pub(crate) struct Probe {
 
 impl PeerNode {
     /// Handles an inbound request, `body` being the stream's body, from the
-    /// node whose key `from` its connection proved, at the address
+    /// node whose identity `from` its connection proved, at the address
     /// `source` where one counts (spec/areas/peer-protocol.md#authentication).
     pub fn handle_inbound<'a>(
         &mut self,
         now_ms: u64,
         hooks: &mut dyn PeeringHooks,
         id: InboundId,
-        from: PublicKey,
+        from: NodeIdentity,
         body: &'a [u8],
         source: Option<core::net::IpAddr>,
     ) -> Inbound<'a> {
         self.advance(now_ms);
         let accepted = Accepted {
             sender: from.node_id(),
-            key: from,
+            key: from.key(),
         };
         let inbound = self.decode_inbound(hooks, id, accepted, body, source);
         if let Inbound::Reply(reply) = &inbound
@@ -408,7 +408,7 @@ impl PeerNode {
                 .is_some_and(|registration| registration.endpoint == endpoint)
         });
         if renewal {
-            return Inbound::Reply(self.register(&accepted, info, network, key));
+            return Inbound::Reply(self.register(&accepted, info, network, key.key()));
         }
         if let Some(refusal) = self.registration_refusal(&sender, &endpoint, network) {
             return Inbound::Reply(refusal);
@@ -578,7 +578,7 @@ impl PeerNode {
                     Reply::refuse(429, "too many new registrations")
                 }
                 Ok(info) if reachable => match info.verify() {
-                    Ok(key) => self.register(&probe.accepted, &info, probe.network, key),
+                    Ok(key) => self.register(&probe.accepted, &info, probe.network, key.key()),
                     Err(_) => Reply::refuse(400, "invalid link state"),
                 },
                 _ => Reply::refuse(409, "not reachable at its URL"),

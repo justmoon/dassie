@@ -14,7 +14,9 @@
 #![no_std]
 
 extern crate alloc;
-#[cfg(test)]
+// The simulated network keeps its nodes' identities once made, which needs
+// a lock: it runs only in tests and the simulation runner, on std.
+#[cfg(any(test, feature = "sim"))]
 extern crate std;
 
 mod channel;

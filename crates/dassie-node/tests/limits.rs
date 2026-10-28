@@ -15,7 +15,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_node::clock::ManualClock;
 use dassie_node::node::Policies;
 use dassie_node::quic::tunnel;
@@ -33,8 +33,8 @@ use tokio_rustls::client::TlsStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::{self, Message};
 
-fn key() -> NodeKey {
-    NodeKey::from_bytes(&[7; 32])
+fn key() -> IdentityKey {
+    IdentityKey::from_bytes(&[7; 32])
 }
 
 /// The close code the socket gets next, skipping other messages. What

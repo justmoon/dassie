@@ -589,7 +589,7 @@ impl Sponsor {
 mod tests {
     use alloc::vec;
 
-    use dassie_identity::NodeKey;
+    use dassie_identity::IdentityKey;
 
     use super::*;
     use crate::founding::validator::{self, Policy, Record};
@@ -601,8 +601,8 @@ mod tests {
     /// decisions, each keeping its records.
     struct Founding {
         sponsor: Sponsor,
-        sponsor_key: NodeKey,
-        nodes: Vec<NodeKey>,
+        sponsor_key: IdentityKey,
+        nodes: Vec<IdentityKey>,
         records: Vec<Vec<Record>>,
         listed: Vec<NodeId>,
         now: Millis,
@@ -610,8 +610,9 @@ mod tests {
 
     impl Founding {
         fn new() -> Self {
-            let sponsor_key = NodeKey::from_bytes(&[100; 32]);
-            let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
+            let sponsor_key = IdentityKey::from_bytes(&[100; 32]);
+            let nodes: Vec<IdentityKey> =
+                (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
             let invited = nodes
                 .iter()
                 .enumerate()
@@ -636,7 +637,7 @@ mod tests {
                 network: 1,
             };
             let node = &self.nodes[index];
-            let from = self.sponsor_key.public_key();
+            let from = self.sponsor_key.identity();
             let now = self.now;
             let records = (self.records[index].as_slice(), 0);
             let (answer, record) = match request {
@@ -746,7 +747,7 @@ mod tests {
     fn forged_answers_are_not_taken() {
         let mut founding = Founding::new();
         let terms = founding.sponsor.terms().clone();
-        let stranger = NodeKey::from_bytes(&[77; 32]);
+        let stranger = IdentityKey::from_bytes(&[77; 32]);
         let keys =
             crate::escrow::ValidatorKeys::derive(&stranger, terms.network, &terms.nonce).unwrap();
         let theirs = keys
@@ -789,11 +790,11 @@ mod tests {
 
     #[test]
     fn foundings_need_a_set() {
-        let key = NodeKey::from_bytes(&[1; 32]);
+        let key = IdentityKey::from_bytes(&[1; 32]);
         let three = (1..=3)
             .map(|i| {
                 (
-                    NodeKey::from_bytes(&[i; 32]).node_id(),
+                    IdentityKey::from_bytes(&[i; 32]).node_id(),
                     "v.example:1".into(),
                 )
             })

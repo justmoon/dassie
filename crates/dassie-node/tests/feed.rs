@@ -25,7 +25,7 @@ use dassie_feed::{
     FEED_HEARTBEAT_MS, FEED_MIN_INTERVAL_MS, FeedReceiver, Limits, RENEW_INTERVAL_MS, Received,
     Rejected, SUBSCRIPTION_TTL_MS,
 };
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::IdentityKey;
 use dassie_node::clock::{Clock as _, ManualClock};
 use dassie_node::fake_ledger::{Options, Server};
 use dassie_node::node::{Node, Policies};
@@ -92,7 +92,7 @@ struct Subscriber {
 }
 
 impl Subscriber {
-    async fn new(feed: SocketAddr, node: NodeId) -> Self {
+    async fn new(feed: SocketAddr, node: dassie_identity::NodeIdentity) -> Self {
         Self {
             socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
             feed,
@@ -166,7 +166,7 @@ enum Taken {
 
 /// A core node with dollars and XRP and a rate between them, whose feed
 /// takes two subscribers: the owner holds both, so both pairs convert.
-async fn core_node(server: &Server, rates: &RatesServer, owner: &NodeKey) -> TestNode {
+async fn core_node(server: &Server, rates: &RatesServer, owner: &IdentityKey) -> TestNode {
     let bound = Bound::new();
     let env = [
         ("DASSIE_EXTRA_CA_FILE", CA),
@@ -243,7 +243,7 @@ async fn proven_subscribers_get_the_nodes_prices_until_they_lapse() {
         })
         .await;
     };
-    let id = owner.node_id();
+    let id = owner.identity();
     let now = || clock.now_ms();
 
     // A proves its address and gets the latest feed at once, signed with
@@ -386,7 +386,7 @@ async fn a_core_node_names_its_feed_port() {
     node.engine_started().await;
     assert_eq!(discovery_of(&node).await.get("feedPort"), None);
     assert_eq!(node_of(&node).own_info().feed_port, None);
-    let mut subscriber = Subscriber::new(node.feed, owner.node_id()).await;
+    let mut subscriber = Subscriber::new(node.feed, owner.identity()).await;
     subscriber.subscribe().await;
     assert!(subscriber.quiet(clock.now_ms()).await);
     // Its owner sees the socket, and that the feed does not serve.

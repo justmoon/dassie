@@ -254,7 +254,7 @@ pub(crate) mod tests {
     use dassie_hub::escrow::{ValidatorKeys, escrow_master};
     use dassie_hub::ledger::TESTNET_NETWORK;
     use dassie_hub::rules::{Acceptance, Fees, Limits, Terms, Timers};
-    use dassie_identity::NodeKey;
+    use dassie_identity::IdentityKey;
     use dassie_oer::Encode;
 
     use super::*;
@@ -263,16 +263,16 @@ pub(crate) mod tests {
     pub(crate) const NONCE: [u8; 32] = [7; 32];
 
     /// Terms that check, sponsored by `sponsor`, on the testnet.
-    pub(crate) fn terms(sponsor: &NodeKey) -> Terms {
+    pub(crate) fn terms(sponsor: &IdentityKey) -> Terms {
         terms_on(sponsor, TESTNET_NETWORK)
     }
 
     /// The same on `network`.
-    fn terms_on(sponsor: &NodeKey, network: u32) -> Terms {
+    fn terms_on(sponsor: &IdentityKey, network: u32) -> Terms {
         Terms {
             version: dassie_hub::rules::HUB_VERSION,
             nonce: NONCE,
-            sponsor: sponsor.public_key(),
+            sponsor: sponsor.identity(),
             network,
             escrow: escrow_master(sponsor, network, &NONCE).account().0,
             asset: dassie_hub::rules::Asset::Xrp,
@@ -312,12 +312,12 @@ pub(crate) mod tests {
     }
 
     /// The rules of a hub of `nodes`, each at its endpoint.
-    pub(crate) fn rules(sponsor: &NodeKey, nodes: &[(NodeKey, String)]) -> Rules {
+    pub(crate) fn rules(sponsor: &IdentityKey, nodes: &[(IdentityKey, String)]) -> Rules {
         rules_on(sponsor, nodes, TESTNET_NETWORK)
     }
 
     /// The same on `network`.
-    fn rules_on(sponsor: &NodeKey, nodes: &[(NodeKey, String)], network: u32) -> Rules {
+    fn rules_on(sponsor: &IdentityKey, nodes: &[(IdentityKey, String)], network: u32) -> Rules {
         let terms = terms_on(sponsor, network);
         let validators: Vec<Acceptance> = nodes
             .iter()
@@ -353,16 +353,21 @@ pub(crate) mod tests {
         .to_string()
     }
 
-    fn nodes() -> Vec<(NodeKey, String)> {
+    fn nodes() -> Vec<(IdentityKey, String)> {
         (1..=4)
-            .map(|i| (NodeKey::from_bytes(&[i; 32]), format!("v{i}.example:443")))
+            .map(|i| {
+                (
+                    IdentityKey::from_bytes(&[i; 32]),
+                    format!("v{i}.example:443"),
+                )
+            })
             .collect()
     }
 
     #[test]
     fn a_hub_of_a_listed_sponsor_is_taken() {
         let refused = LiveRealm::Refused;
-        let sponsor = NodeKey::from_bytes(&[100; 32]);
+        let sponsor = IdentityKey::from_bytes(&[100; 32]);
         let rules = rules(&sponsor, &nodes());
         let listed = vec![sponsor.node_id().as_str().to_string()];
         let config = parse(&file(&listed, &rules), refused).unwrap();
@@ -396,7 +401,7 @@ pub(crate) mod tests {
     fn the_network_is_the_files() {
         use dassie_xrpl::network::MAINNET;
 
-        let sponsor = NodeKey::from_bytes(&[100; 32]);
+        let sponsor = IdentityKey::from_bytes(&[100; 32]);
         let listed = vec![sponsor.node_id().as_str().to_string()];
         let testnet = rules(&sponsor, &nodes());
         let mainnet = rules_on(&sponsor, &nodes(), MAINNET.id);
@@ -429,7 +434,7 @@ pub(crate) mod tests {
     #[test]
     fn the_publishers_are_the_networks_unless_named() {
         let refused = LiveRealm::Refused;
-        let sponsor = NodeKey::from_bytes(&[100; 32]);
+        let sponsor = IdentityKey::from_bytes(&[100; 32]);
         let rules = rules(&sponsor, &nodes());
         let listed = vec![sponsor.node_id().as_str().to_string()];
         let config = parse(&file(&listed, &rules), refused).unwrap();

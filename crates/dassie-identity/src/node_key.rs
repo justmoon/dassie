@@ -5,7 +5,6 @@ use core::fmt;
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 
 use crate::error::Error;
-use crate::node_id::NodeId;
 use crate::secret::{Hex, secret_bytes};
 
 /// PKCS#8 `PrivateKeyInfo` for an Ed25519 seed (RFC 8410 §7), up to the
@@ -70,12 +69,6 @@ impl NodeKey {
     #[must_use]
     pub fn public_key(&self) -> PublicKey {
         self.public
-    }
-
-    /// The node ID of the public key.
-    #[must_use]
-    pub fn node_id(&self) -> NodeId {
-        self.public.node_id()
     }
 
     /// Signs `message`.
@@ -160,16 +153,11 @@ impl PublicKey {
     }
 
     /// The 32 bytes as received, which is what node IDs and signatures are
-    /// computed over.
+    /// computed over. A node ID takes the node's SLH-DSA key too
+    /// ([`NodeIdentity`](crate::NodeIdentity)).
     #[must_use]
     pub fn as_bytes(&self) -> &[u8; 32] {
         self.key.as_bytes()
-    }
-
-    /// The node ID of this key.
-    #[must_use]
-    pub fn node_id(&self) -> NodeId {
-        NodeId::from_public_key(self.as_bytes())
     }
 
     /// Verifies `signature` over `message` by the ZIP-215 rules

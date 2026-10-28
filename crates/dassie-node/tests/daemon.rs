@@ -14,7 +14,7 @@ mod support;
 use std::os::unix::net::UnixDatagram;
 
 use bytes::Bytes;
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_kit::DAY_MS;
 use dassie_node::clock::ManualClock;
 use dassie_node::daemon::DaemonError;
@@ -26,8 +26,8 @@ use hyper::{Request, StatusCode};
 use support::*;
 use tokio_tungstenite::tungstenite::Message;
 
-fn key() -> NodeKey {
-    NodeKey::from_bytes(&[7; 32])
+fn key() -> IdentityKey {
+    IdentityKey::from_bytes(&[7; 32])
 }
 
 #[tokio::test]
@@ -61,7 +61,7 @@ async fn setup_then_login_then_logout() {
         post_json(
             &node,
             "/api/login",
-            &login_body(&NodeKey::from_bytes(&[8; 32])),
+            &login_body(&IdentityKey::from_bytes(&[8; 32])),
         ),
     )
     .await;
@@ -273,7 +273,7 @@ async fn foreign_origins_and_bad_bodies_are_refused() {
 async fn login_attempts_are_limited() {
     let node = TestNode::start().await;
     set_up(&node, &key()).await;
-    let wrong = login_body(&NodeKey::from_bytes(&[9; 32]));
+    let wrong = login_body(&IdentityKey::from_bytes(&[9; 32]));
     let mut statuses = vec![];
     for _ in 0..5 {
         statuses.push(

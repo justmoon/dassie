@@ -15,7 +15,7 @@
 
 use alloc::vec::Vec;
 
-use dassie_identity::{NodeId, NodeKey, PublicKey, Signature};
+use dassie_identity::{IdentityKey, NodeId, NodeIdentity, Signature};
 
 use super::wire::{GenesisCertificate, Refusal};
 use super::{ACCEPTANCE_TTL_MS, MAX_GENESIS_AGE_MS, MAX_GENESIS_AHEAD_MS, genesis_digest};
@@ -43,8 +43,8 @@ pub struct Policy<'a> {
 pub struct Record {
     /// The terms' nonce.
     pub nonce: [u8; 32],
-    /// The sponsor's node key.
-    pub sponsor: PublicKey,
+    /// The sponsor's identity.
+    pub sponsor: NodeIdentity,
     /// The digest of the terms it accepted.
     pub terms: Digest,
     /// When it accepted them.
@@ -74,7 +74,11 @@ impl Record {
 }
 
 /// Whether `from` may found hubs with this validator.
-fn allowed(policy: &Policy<'_>, from: &PublicKey, sponsor: &PublicKey) -> Result<(), Refusal> {
+fn allowed(
+    policy: &Policy<'_>,
+    from: &NodeIdentity,
+    sponsor: &NodeIdentity,
+) -> Result<(), Refusal> {
     if from != sponsor || !policy.sponsors.contains(&sponsor.node_id()) {
         return Err(Refusal::NotAllowed);
     }
@@ -107,10 +111,10 @@ fn has_room(
 ///
 /// Why it does not accept.
 pub fn accept(
-    node: &NodeKey,
+    node: &IdentityKey,
     policy: &Policy<'_>,
     (records, running_elsewhere): (&[Record], usize),
-    from: &PublicKey,
+    from: &NodeIdentity,
     terms: &Terms,
     now: Millis,
 ) -> Result<(Acceptance, Record), Refusal> {
@@ -151,10 +155,10 @@ pub fn accept(
 
 /// Whether `rules` carry an acceptance of this validator's, with the keys
 /// it makes under their nonce.
-fn ours(node: &NodeKey, rules: &Rules) -> Result<ValidatorKeys, Refusal> {
+fn ours(node: &IdentityKey, rules: &Rules) -> Result<ValidatorKeys, Refusal> {
     let keys = ValidatorKeys::derive(node, rules.terms.network, &rules.terms.nonce)
         .ok_or(Refusal::Busy)?;
-    let own = node.public_key();
+    let own = node.identity();
     let consensus = keys.consensus.public_key();
     let escrow = *keys.escrow.public_key().as_bytes();
     let payout = keys.payout.public().ok_or(Refusal::Busy)?;
@@ -180,10 +184,10 @@ fn ours(node: &NodeKey, rules: &Rules) -> Result<ValidatorKeys, Refusal> {
 ///
 /// Why it does not sign.
 pub fn sign_genesis(
-    node: &NodeKey,
+    node: &IdentityKey,
     policy: &Policy<'_>,
     (records, running_elsewhere): (&[Record], usize),
-    from: &PublicKey,
+    from: &NodeIdentity,
     (rules, genesis_ms): (&Rules, Millis),
     now: Millis,
 ) -> Result<(Signature, Record), Refusal> {
@@ -244,10 +248,10 @@ fn genesis_record(
 ///
 /// Why it does not run the hub.
 pub fn take_certificate(
-    node: &NodeKey,
+    node: &IdentityKey,
     policy: &Policy<'_>,
     (records, running_elsewhere): (&[Record], usize),
-    from: &PublicKey,
+    from: &NodeIdentity,
     certificate: &GenesisCertificate,
     now: Millis,
 ) -> Result<Record, Refusal> {
@@ -314,15 +318,15 @@ mod tests {
     const NOW: Millis = 1_800_000_000_000;
 
     struct Validators {
-        sponsor: NodeKey,
-        nodes: Vec<NodeKey>,
+        sponsor: IdentityKey,
+        nodes: Vec<IdentityKey>,
         sponsors: Vec<NodeId>,
     }
 
     impl Validators {
         fn new() -> Self {
-            let sponsor = NodeKey::from_bytes(&[100; 32]);
-            let nodes = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
+            let sponsor = IdentityKey::from_bytes(&[100; 32]);
+            let nodes = (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
             let sponsors = vec![sponsor.node_id()];
             Self {
                 sponsor,
@@ -342,7 +346,7 @@ mod tests {
 
         /// Every validator accepts; the rules and each one's record.
         fn rules(&self, terms: &Terms) -> (Rules, Vec<Record>) {
-            let from = self.sponsor.public_key();
+            let from = self.sponsor.identity();
             let (validators, records) = self
                 .nodes
                 .iter()
@@ -364,7 +368,7 @@ mod tests {
         let terms = terms(&v.sponsor);
         let (rules, records) = v.rules(&terms);
         rules.check().unwrap();
-        let from = v.sponsor.public_key();
+        let from = v.sponsor.identity();
         let mut signatures = Vec::new();
         let mut signed = Vec::new();
         for (i, node) in v.nodes.iter().enumerate() {
@@ -405,7 +409,7 @@ mod tests {
         let v = Validators::new();
         let terms = terms(&v.sponsor);
         let node = &v.nodes[0];
-        let from = v.sponsor.public_key();
+        let from = v.sponsor.identity();
         let unlisted = Policy {
             sponsors: &[],
             ..v.policy()
@@ -413,7 +417,7 @@ mod tests {
         let refused = accept(node, &unlisted, (&[], 0), &from, &terms, NOW);
         assert_eq!(refused.unwrap_err(), Refusal::NotAllowed);
         // Someone else passing the sponsor's terms on is not the sponsor.
-        let stranger = NodeKey::from_bytes(&[50; 32]).public_key();
+        let stranger = IdentityKey::from_bytes(&[50; 32]).identity();
         let refused = accept(node, &v.policy(), (&[], 0), &stranger, &terms, NOW);
         assert_eq!(refused.unwrap_err(), Refusal::NotAllowed);
         let no_endpoint = Policy {
@@ -451,7 +455,7 @@ mod tests {
     fn over_the_bound_it_refuses() {
         let v = Validators::new();
         let node = &v.nodes[0];
-        let from = v.sponsor.public_key();
+        let from = v.sponsor.identity();
         let policy = v.policy();
         let terms_at = |nonce: u8| Terms {
             version: crate::rules::HUB_VERSION,
@@ -478,7 +482,7 @@ mod tests {
         let terms = terms(&v.sponsor);
         let (rules, records) = v.rules(&terms);
         let node = &v.nodes[0];
-        let from = v.sponsor.public_key();
+        let from = v.sponsor.identity();
         let policy = v.policy();
         let mine = core::slice::from_ref(&records[0]);
         let (_, signed) =
@@ -488,7 +492,7 @@ mod tests {
         assert_eq!(later.unwrap_err(), Refusal::OtherGenesis);
         // Rules with another validator in place of one.
         let mut other = rules.clone();
-        let fifth = NodeKey::from_bytes(&[5; 32]);
+        let fifth = IdentityKey::from_bytes(&[5; 32]);
         other.validators[3] = accept(&fifth, &policy, (&[], 0), &from, &terms, NOW)
             .unwrap()
             .0;
@@ -533,12 +537,12 @@ mod tests {
         let terms = terms(&v.sponsor);
         let (rules, records) = v.rules(&terms);
         let node = &v.nodes[0];
-        let from = v.sponsor.public_key();
+        let from = v.sponsor.identity();
         let policy = v.policy();
         let mine = core::slice::from_ref(&records[0]);
         // Its place taken by another node's acceptance.
         let mut without = rules.clone();
-        let fifth = NodeKey::from_bytes(&[5; 32]);
+        let fifth = IdentityKey::from_bytes(&[5; 32]);
         without.validators[0] = accept(&fifth, &policy, (&[], 0), &from, &terms, NOW)
             .unwrap()
             .0;

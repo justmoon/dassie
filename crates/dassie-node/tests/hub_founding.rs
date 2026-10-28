@@ -19,7 +19,7 @@
 
 use std::time::Duration;
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_node::clock::ManualClock;
 use dassie_node::fake_ledger::{Options, Server};
 use dassie_node::node::Policies;
@@ -32,7 +32,7 @@ mod support;
 
 /// Sets `node` up with `key` in the realm of `network`, with a hostname
 /// and a certificate: what a validator needs to name its endpoint.
-async fn prepare(node: &TestNode, key: &NodeKey, network: &Network) {
+async fn prepare(node: &TestNode, key: &IdentityKey, network: &Network) {
     if network.realm == dassie_ledger::Realm::Live {
         let token = node.setup_token().await;
         let body = setup_body_in(&token, key, "live");
@@ -128,7 +128,7 @@ async fn until(clock: &ManualClock, step_ms: u64, mut done: impl AsyncFnMut() ->
 /// proven under.
 fn validator_file(
     dir: &std::path::Path,
-    sponsor: &NodeKey,
+    sponsor: &IdentityKey,
     (network, xrpl): (&Network, &str),
     publishers: Option<serde_json::Value>,
 ) -> String {
@@ -174,7 +174,7 @@ struct Net {
     clock: ManualClock,
     sponsor: TestNode,
     validators: Vec<TestNode>,
-    keys: Vec<NodeKey>,
+    keys: Vec<IdentityKey>,
     network: &'static Network,
     _files: tempfile::TempDir,
 }
@@ -204,7 +204,7 @@ impl Net {
         .unwrap();
         let clock = ManualClock::new(START_MS);
         xrpl.close_on(std::sync::Arc::new(clock.clone()));
-        let sponsor_key = NodeKey::from_bytes(&[70; 32]);
+        let sponsor_key = IdentityKey::from_bytes(&[70; 32]);
         let files = tempfile::tempdir().unwrap();
         let file = validator_file(
             files.path(),
@@ -216,8 +216,8 @@ impl Net {
         let mut validator_env = env.clone();
         validator_env.push(("DASSIE_VALIDATOR_CONFIG", file.as_str()));
         let mut validators = Vec::new();
-        let keys: Vec<NodeKey> = (71..=74)
-            .map(|seed| NodeKey::from_bytes(&[seed; 32]))
+        let keys: Vec<IdentityKey> = (71..=74)
+            .map(|seed| IdentityKey::from_bytes(&[seed; 32]))
             .collect();
         for (key, seed) in keys.iter().zip(71_u64..) {
             let node = Bound::new()
@@ -642,7 +642,7 @@ async fn a_live_realm_sponsor_founds_hubs_on_mainnet() {
     use dassie_hub::rules::Asset;
 
     let net = Net::start_on(&MAINNET, |_| {}).await;
-    let sponsor_key = NodeKey::from_bytes(&[70; 32]);
+    let sponsor_key = IdentityKey::from_bytes(&[70; 32]);
     let entropy = sponsor_key.xrpl_account_entropy(MAINNET.id, 0);
     let mainnet_account = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account();
     let funded = net.xrpl.ledger().balance(mainnet_account).unwrap();
@@ -739,7 +739,7 @@ impl dassie_node::quic::Handler for Dialer {
     fn answer<'a>(
         &'a self,
         _client: std::net::IpAddr,
-        _from: dassie_identity::PublicKey,
+        _from: dassie_identity::NodeIdentity,
         _body: dassie_node::quic::Body<'a>,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = dassie_node::peer_server::Answer> + Send + 'a>,
@@ -756,19 +756,19 @@ impl dassie_node::quic::Handler for Dialer {
 /// Sends a founding request as the node of `key` to `to`, and returns the
 /// answer's bytes.
 async fn found_as(
-    key: &NodeKey,
-    to: (&NodeKey, &TestNode),
+    key: &IdentityKey,
+    to: (&IdentityKey, &TestNode),
     shutdown: &tokio_util::sync::CancellationToken,
 ) -> Result<Vec<u8>, dassie_node::hub::HubExchangeError> {
     use dassie_oer::Encode;
     let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     let (identity, receiver) = tokio::sync::watch::channel(Some(std::sync::Arc::new(
-        NodeKey::from_bytes(key.as_bytes()),
+        IdentityKey::from_bytes(key.as_bytes()),
     )));
     let quic = std::sync::Arc::new(dassie_node::quic::Quic::new(socket, receiver, true).unwrap());
     tokio::spawn(std::sync::Arc::clone(&quic).serve(std::sync::Arc::new(Dialer), shutdown.clone()));
     let client = dassie_node::outbound::Resolver::new(true);
-    let terms = dassie_hub::founding::starting_terms([3; 32], key.public_key(), 1, [4; 20]);
+    let terms = dassie_hub::founding::starting_terms([3; 32], key.identity(), 1, [4; 20]);
     let request = dassie_hub::founding::FoundingRequest::Propose(terms).to_vec();
     let (node, endpoint) = (to.0.node_id(), to.1.host());
     // The connection's timeout is real time, so it only guards against a
@@ -792,8 +792,8 @@ async fn a_strangers_founding_stream_is_reset_unread() {
 
     let shutdown = tokio_util::sync::CancellationToken::new();
     let clock = ManualClock::new(START_MS);
-    let sponsor = NodeKey::from_bytes(&[80; 32]);
-    let stranger = NodeKey::from_bytes(&[81; 32]);
+    let sponsor = IdentityKey::from_bytes(&[80; 32]);
+    let stranger = IdentityKey::from_bytes(&[81; 32]);
     let files = tempfile::tempdir().unwrap();
     let file = validator_file(files.path(), &sponsor, (&TESTNET, "ws://127.0.0.1:1"), None);
     let env = [
@@ -806,8 +806,8 @@ async fn a_strangers_founding_stream_is_reset_unread() {
         ("DASSIE_VALIDATOR_CONFIG", file.as_str()),
     ];
     let (validator_key, plain_key) = (
-        NodeKey::from_bytes(&[82; 32]),
-        NodeKey::from_bytes(&[83; 32]),
+        IdentityKey::from_bytes(&[82; 32]),
+        IdentityKey::from_bytes(&[83; 32]),
     );
     let validator = Bound::new()
         .start(clock.clone(), 82, Policies::DEV, &validator_env)
@@ -980,7 +980,7 @@ async fn a_cancelled_funding_is_paid_again() {
         panic!("no account");
     };
     let sequence = api::account_info_result(&result).unwrap().sequence;
-    let entropy = NodeKey::from_bytes(&[70; 32]).xrpl_account_entropy(TESTNET.id, 0);
+    let entropy = IdentityKey::from_bytes(&[70; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let wallet = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes());
     assert_eq!(wallet.account(), sponsor);
     let other = Payment {

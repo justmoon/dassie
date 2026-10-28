@@ -68,7 +68,7 @@ pub fn genesis_digest(rules: &Rules, genesis_ms: Millis) -> Digest {
 #[must_use]
 pub fn starting_terms(
     nonce: [u8; 32],
-    sponsor: dassie_identity::PublicKey,
+    sponsor: dassie_identity::NodeIdentity,
     network: u32,
     escrow: [u8; crate::rules::LEDGER_ACCOUNT_LEN],
 ) -> crate::rules::Terms {
@@ -120,7 +120,7 @@ pub fn starting_terms(
 mod tests {
     #[test]
     fn the_starting_terms_check() {
-        let sponsor = dassie_identity::NodeKey::from_bytes(&[1; 32]).public_key();
+        let sponsor = crate::rules::tests::node_key(1).identity();
         let terms = super::starting_terms([2; 32], sponsor, 1, [3; 20]);
         assert_eq!(terms.check(), Ok(()));
         // spec/areas/hubs.md#consensus: f + 1 views at most before an

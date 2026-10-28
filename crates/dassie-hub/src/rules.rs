@@ -19,11 +19,12 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use dassie_identity::{NodeKey, PublicKey, Signature};
+use dassie_identity::{IdentityKey, NodeIdentity, PublicKey, Signature};
 use dassie_oer::{Alphabet, Encode, Reader, Size, Writer, size};
 
 use crate::codec::{
-    HubDecodeError, KEY_LEN, SIGNATURE_LEN, read_key, read_signature, write_key, write_signature,
+    HubDecodeError, KEY_LEN, NODE_LEN, SIGNATURE_LEN, read_key, read_node, read_signature,
+    write_key, write_node, write_signature,
 };
 use crate::consensus::{MAX_STALL_MS, MIN_STALL_MS};
 use crate::digest::{Digest, Domain};
@@ -200,8 +201,9 @@ pub struct Terms {
     /// A random nonce the sponsor picked, under which validators derive
     /// their keys for this hub.
     pub nonce: [u8; 32],
-    /// The sponsor's node key.
-    pub sponsor: PublicKey,
+    /// The sponsor's identity: its node key and its SLH-DSA key, so that
+    /// its node ID follows from the terms.
+    pub sponsor: NodeIdentity,
     /// The underlying ledger's network ID (1 is the XRPL testnet).
     pub network: u32,
     /// The escrow's account on the underlying ledger, known in advance:
@@ -221,8 +223,10 @@ pub struct Terms {
 /// A validator's acceptance of the terms, signed with its node key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Acceptance {
-    /// The validator's node key, which signs the acceptance.
-    pub node: PublicKey,
+    /// The validator's identity: its node key, which signs the
+    /// acceptance, and its SLH-DSA key, so that its node ID, which members
+    /// and validators reach it by, follows from the rules.
+    pub node: NodeIdentity,
     /// The key it signs votes, certificates and receipts with.
     pub consensus: PublicKey,
     /// Its key on the escrow's signer list.
@@ -545,7 +549,8 @@ impl Acceptance {
             &[
                 nonce,
                 terms.as_bytes(),
-                self.node.as_bytes(),
+                self.node.key().as_bytes(),
+                self.node.slh_dsa().as_bytes(),
                 self.consensus.as_bytes(),
                 &self.escrow,
                 &self.payout,
@@ -557,8 +562,8 @@ impl Acceptance {
 
     /// Signs an acceptance with `node`, the validator's node key.
     #[must_use]
-    pub fn sign(mut self, node: &NodeKey, terms: &Terms) -> Self {
-        self.node = node.public_key();
+    pub fn sign(mut self, node: &IdentityKey, terms: &Terms) -> Self {
+        self.node = node.identity();
         let digest = self.digest(&terms.digest(), &terms.nonce);
         self.signature = node.sign(digest.as_bytes());
         self
@@ -568,7 +573,10 @@ impl Acceptance {
     #[must_use]
     pub fn verifies(&self, terms: &Digest, nonce: &[u8; 32]) -> bool {
         let digest = self.digest(terms, nonce);
-        self.node.verify(digest.as_bytes(), &self.signature).is_ok()
+        self.node
+            .key()
+            .verify(digest.as_bytes(), &self.signature)
+            .is_ok()
     }
 }
 
@@ -602,10 +610,11 @@ impl Rules {
             ));
         }
         let nodes_distinct = self.validators.iter().enumerate().all(|(i, a)| {
-            self.validators
-                .iter()
-                .skip(i.saturating_add(1))
-                .all(|b| b.node != a.node && b.escrow != a.escrow && b.payout != a.payout)
+            self.validators.iter().skip(i.saturating_add(1)).all(|b| {
+                // By the key that signs, so that one key never counts twice
+                // under two SLH-DSA keys.
+                b.node.key() != a.node.key() && b.escrow != a.escrow && b.payout != a.payout
+            })
         });
         if !nodes_distinct {
             return Err(RulesError::Validators);
@@ -654,7 +663,7 @@ const TIMERS_LEN: usize = 8 * 7;
 /// The terms but their asset: the version, nonce, sponsor, network,
 /// escrow, fees, limits and timers.
 const TERMS_LEN: usize =
-    2 + 32 + KEY_LEN + 4 + LEDGER_ACCOUNT_LEN + FEES_LEN + LIMITS_LEN + TIMERS_LEN;
+    2 + 32 + NODE_LEN + 4 + LEDGER_ACCOUNT_LEN + FEES_LEN + LIMITS_LEN + TIMERS_LEN;
 /// The asset's CHOICE tag, and for a token its currency and issuer.
 const TOKEN_LEN: usize = 20 + LEDGER_ACCOUNT_LEN;
 
@@ -671,7 +680,7 @@ impl Encode for Terms {
     fn encode_to(&self, writer: &mut Writer<'_>) {
         writer.write_u16(self.version);
         writer.write_bytes(&self.nonce);
-        write_key(writer, &self.sponsor);
+        write_node(writer, &self.sponsor);
         writer.write_u32(self.network);
         writer.write_bytes(&self.escrow);
         match self.asset {
@@ -745,7 +754,7 @@ impl Terms {
             ));
         }
         let nonce = *reader.read_array::<32>()?;
-        let sponsor = read_key(reader)?;
+        let sponsor = read_node(reader)?;
         let network = reader.read_u32()?;
         let escrow = *reader.read_array::<LEDGER_ACCOUNT_LEN>()?;
         let asset = match reader.read_u8()? {
@@ -812,11 +821,16 @@ fn decode_timers(reader: &mut Reader<'_>) -> Result<Timers, HubDecodeError> {
 
 impl Encode for Acceptance {
     fn encoded_len(&self) -> usize {
-        KEY_LEN * 2 + LEDGER_KEY_LEN * 2 + 32 + size::prefixed(self.endpoint.len()) + SIGNATURE_LEN
+        NODE_LEN
+            + KEY_LEN
+            + LEDGER_KEY_LEN * 2
+            + 32
+            + size::prefixed(self.endpoint.len())
+            + SIGNATURE_LEN
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
-        write_key(writer, &self.node);
+        write_node(writer, &self.node);
         write_key(writer, &self.consensus);
         writer.write_bytes(&self.escrow);
         writer.write_bytes(&self.payout);
@@ -830,7 +844,7 @@ impl Acceptance {
     /// Decodes an acceptance; whether it verifies is the caller's to check.
     pub fn decode(reader: &mut Reader<'_>) -> Result<Self, HubDecodeError> {
         Ok(Self {
-            node: read_key(reader)?,
+            node: read_node(reader)?,
             consensus: read_key(reader)?,
             escrow: *reader.read_array::<LEDGER_KEY_LEN>()?,
             payout: *reader.read_array::<LEDGER_KEY_LEN>()?,
@@ -887,13 +901,23 @@ impl Rules {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use dassie_identity::NodeKey;
+
+    /// The node key of seed `seed`, with its identity, made once per seed:
+    /// its SLH-DSA key takes a key generation, and the tests sign with the
+    /// same few node keys over and over.
+    pub(crate) fn node_key(seed: u8) -> &'static IdentityKey {
+        static KEYS: [std::sync::OnceLock<IdentityKey>; 256] =
+            [const { std::sync::OnceLock::new() }; 256];
+        KEYS[usize::from(seed)].get_or_init(|| IdentityKey::from_bytes(&[seed; 32]))
+    }
 
     /// Terms that pass [`Terms::check`], for tests.
-    pub(crate) fn terms(sponsor: &NodeKey) -> Terms {
+    pub(crate) fn terms(sponsor: &IdentityKey) -> Terms {
         Terms {
             version: HUB_VERSION,
             nonce: [7; 32],
-            sponsor: sponsor.public_key(),
+            sponsor: sponsor.identity(),
             network: 1,
             escrow: [9; LEDGER_ACCOUNT_LEN],
             asset: Asset::Xrp,
@@ -950,8 +974,7 @@ pub(crate) mod tests {
     /// The rules of a hub of `n` validators whose node keys are seeds
     /// 1..=n, for tests.
     pub(crate) fn rules(n: u8) -> (Rules, Vec<NodeKey>) {
-        let sponsor = NodeKey::from_bytes(&[100; 32]);
-        let mut terms = terms(&sponsor);
+        let mut terms = terms(node_key(100));
         terms.timers.margin = least_margin_ms(usize::from(n));
         let consensus: Vec<NodeKey> = (1..=n)
             .map(|i| NodeKey::from_bytes(&[i + 50; 32]))
@@ -960,7 +983,7 @@ pub(crate) mod tests {
             .zip(&consensus)
             .map(|(i, key)| {
                 Acceptance {
-                    node: key.public_key(),
+                    node: node_key(i).identity(),
                     consensus: key.public_key(),
                     escrow: escrow_key(i),
                     payout: payout_key(i).key,
@@ -968,10 +991,30 @@ pub(crate) mod tests {
                     endpoint: alloc::format!("v{i}.example:443"),
                     signature: Signature::from_bytes([0; 64]),
                 }
-                .sign(&NodeKey::from_bytes(&[i; 32]), &terms)
+                .sign(node_key(i), &terms)
             })
             .collect();
         (Rules { terms, validators }, consensus)
+    }
+
+    // spec/areas/hubs.md#the-rules: two acceptances are of two validators
+    // only if their Ed25519 keys differ. A node that signs a second
+    // acceptance under a foreign SLH-DSA key, which is another node ID,
+    // still counts once, and the rules do not check.
+    #[test]
+    fn one_ed25519_key_under_two_slh_dsa_keys_counts_once() {
+        let (mut rules, _) = rules(4);
+        let terms = rules.terms.clone();
+        let mut twice = rules.validators[1].clone();
+        twice.node = NodeIdentity::new(
+            node_key(1).public_key(),
+            dassie_identity::SlhDsaPublicKey::from_bytes([9; 32]),
+        );
+        assert_ne!(twice.node.node_id(), rules.validators[0].node.node_id());
+        twice.signature = node_key(1).sign(twice.digest(&terms.digest(), &terms.nonce).as_bytes());
+        assert!(twice.verifies(&terms.digest(), &terms.nonce));
+        rules.validators[1] = twice;
+        assert_eq!(rules.check(), Err(RulesError::Validators));
     }
 
     // spec/areas/hubs.md#consensus: the margin covers what finality takes
@@ -1038,25 +1081,25 @@ pub(crate) mod tests {
 
     #[test]
     fn terms_relations() {
-        let sponsor = NodeKey::from_bytes(&[1; 32]);
-        let mut bad = terms(&sponsor);
+        let sponsor = crate::rules::tests::node_key(1);
+        let mut bad = terms(sponsor);
         bad.timers.hold_notice = MAX_HOLD_MS;
         assert!(bad.check().is_err());
-        let mut bad = terms(&sponsor);
+        let mut bad = terms(sponsor);
         bad.fees.account_reserve = bad.fees.least_payout;
         assert!(bad.check().is_err());
-        let mut bad = terms(&sponsor);
+        let mut bad = terms(sponsor);
         bad.limits.claimed_per_hold = 1_000;
         assert!(bad.check().is_err());
         // A stall shorter than recovery from the longest outage, or longer
         // than an engine holds the views of.
         for stall in [MIN_STALL_MS - 1, MAX_STALL_MS + 1] {
-            let mut bad = terms(&sponsor);
+            let mut bad = terms(sponsor);
             bad.timers.stall = stall;
             assert!(bad.check().is_err(), "{stall}");
         }
         for stall in [MIN_STALL_MS, MAX_STALL_MS] {
-            let mut good = terms(&sponsor);
+            let mut good = terms(sponsor);
             good.timers.stall = stall;
             assert_eq!(good.check(), Ok(()), "{stall}");
         }
@@ -1079,8 +1122,8 @@ pub(crate) mod tests {
     // a hub other than the same terms in XRP would.
     #[test]
     fn token_terms_round_trip_and_name_another_hub() {
-        let sponsor = NodeKey::from_bytes(&[3; 32]);
-        let xrp = terms(&sponsor);
+        let sponsor = crate::rules::tests::node_key(3);
+        let xrp = terms(sponsor);
         let token = token_terms(xrp.clone());
         token.check().unwrap();
         let bytes = token.to_vec();
@@ -1100,7 +1143,7 @@ pub(crate) mod tests {
         let mut later = bytes.clone();
         later[1] = 2;
         assert!(Terms::decode(&mut Reader::new(&later)).is_err());
-        let asset_at = 2 + 32 + KEY_LEN + 4 + LEDGER_ACCOUNT_LEN;
+        let asset_at = 2 + 32 + NODE_LEN + 4 + LEDGER_ACCOUNT_LEN;
         let mut unknown = bytes.clone();
         unknown[asset_at] = 2;
         assert!(Terms::decode(&mut Reader::new(&unknown)).is_err());
@@ -1111,9 +1154,9 @@ pub(crate) mod tests {
 
     #[test]
     fn fee_checks_follow_the_asset() {
-        let sponsor = NodeKey::from_bytes(&[3; 32]);
+        let sponsor = crate::rules::tests::node_key(3);
         let fails = |change: &dyn Fn(&mut Terms), token: bool| {
-            let mut terms = terms(&sponsor);
+            let mut terms = terms(sponsor);
             if token {
                 terms = token_terms(terms);
             }
@@ -1151,7 +1194,7 @@ pub(crate) mod tests {
             true
         ));
         // New rules keep the asset and the gas.
-        let xrp = terms(&sponsor);
+        let xrp = terms(sponsor);
         let token = token_terms(xrp.clone());
         assert!(token.keeps_tables_of(&token));
         assert!(!token.keeps_tables_of(&xrp) && !xrp.keeps_tables_of(&token));
@@ -1169,7 +1212,7 @@ pub(crate) mod tests {
     // millionths, rounded down, and only in the hub's token.
     #[test]
     fn token_amounts_and_the_hubs_unit() {
-        let xrp = terms(&NodeKey::from_bytes(&[3; 32]));
+        let xrp = terms(crate::rules::tests::node_key(3));
         let token = token_terms(xrp.clone());
         let value = |text: &str| TokenValue::parse(text).unwrap();
         assert_eq!(token_value(1_500_000), value("1.5"));

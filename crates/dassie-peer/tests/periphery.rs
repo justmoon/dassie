@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_oer::Decode;
 use dassie_peer::sim::{Arriving, Network, START, key};
 use dassie_peer::wire::{
@@ -32,12 +32,12 @@ fn stub() -> SchemeId {
 
 /// A request from `from` to node `to` of `network`, over a connection that
 /// proves `from`'s key.
-fn request(_: &Network, from: &Arc<NodeKey>, _: usize, content: &Content<'_>) -> Arriving {
+fn request(_: &Network, from: &Arc<IdentityKey>, _: usize, content: &Content<'_>) -> Arriving {
     Arriving::new(from, content)
 }
 
 /// A link state of `key` at `url`, with `extensions`.
-fn link_state(key: &NodeKey, sequence: u64, url: &str, extensions: &[u16]) -> Vec<u8> {
+fn link_state(key: &IdentityKey, sequence: u64, url: &str, extensions: &[u16]) -> Vec<u8> {
     let entries = core::iter::once(Entry::Scheme(stub()))
         .chain(extensions.iter().map(|kind| Entry::Extension {
             kind: *kind,
@@ -49,6 +49,7 @@ fn link_state(key: &NodeKey, sequence: u64, url: &str, extensions: &[u16]) -> Ve
         url,
         alias: "",
         public_key: *key.public_key().as_bytes(),
+        slh_dsa_public_key: *key.identity().slh_dsa().as_bytes(),
         entries,
     };
     sign_node_info(key, &info)
@@ -56,7 +57,12 @@ fn link_state(key: &NodeKey, sequence: u64, url: &str, extensions: &[u16]) -> Ve
 
 /// A peering request from `from` to node `to`, with `state` as its link
 /// state, and the answer.
-fn ask(network: &mut Network, from: &Arc<NodeKey>, to: usize, state: &[u8]) -> dassie_peer::Reply {
+fn ask(
+    network: &mut Network,
+    from: &Arc<IdentityKey>,
+    to: usize,
+    state: &[u8],
+) -> dassie_peer::Reply {
     let content = Content::PeeringRequest(PeeringRequest {
         scheme: stub(),
         node_info: SignedNodeInfo::decode_exact(state).unwrap(),
@@ -75,13 +81,13 @@ fn id(index: usize) -> NodeId {
 }
 
 /// A key of its own for each `seed`.
-fn downlink_key(seed: u8) -> Arc<NodeKey> {
-    Arc::new(NodeKey::from_bytes(&[seed; 32]))
+fn downlink_key(seed: u8) -> Arc<IdentityKey> {
+    Arc::new(IdentityKey::from_bytes(&[seed; 32]))
 }
 
 /// Asks node 0 to take `key` as its downlink, now: why it refused, if it
 /// did.
-fn ask_as_downlink(network: &mut Network, key: &Arc<NodeKey>) -> Option<RefusalReason> {
+fn ask_as_downlink(network: &mut Network, key: &Arc<IdentityKey>) -> Option<RefusalReason> {
     let state = link_state(key, network.clock(0), "", &[EXTENSION_PERIPHERY]);
     let reply = ask(network, key, 0, &state);
     match answer(&reply) {
@@ -92,7 +98,7 @@ fn ask_as_downlink(network: &mut Network, key: &Arc<NodeKey>) -> Option<RefusalR
 
 /// Node 0's books take a settlement of at least one largest packet from
 /// `key`.
-fn pays(network: &mut Network, key: &NodeKey) {
+fn pays(network: &mut Network, key: &IdentityKey) {
     let node = key.node_id();
     network.act_with_hooks(0, |peer, hooks, now| peer.paid_by(now, hooks, &node));
 }
@@ -101,7 +107,7 @@ fn pays(network: &mut Network, key: &NodeKey) {
 // the periphery extension; with it, the state is a periphery node's.
 #[test]
 fn an_empty_url_verifies_only_in_a_periphery_link_state() {
-    let key = NodeKey::from_bytes(&[90; 32]);
+    let key = IdentityKey::from_bytes(&[90; 32]);
     let periphery = link_state(&key, START, "", &[EXTENSION_PERIPHERY]);
     let signed = SignedNodeInfo::decode_exact(&periphery).unwrap();
     assert!(signed.verify().is_ok());
@@ -133,7 +139,7 @@ fn a_downlink_with_a_url_is_refused_without_a_channel() {
     let mut network = Network::with_periphery(17, 2, 1, 0, Config::DEV);
     settle(&mut network, 30_000);
     let channels = network.node(0).channels().count();
-    let stranger = Arc::new(NodeKey::from_bytes(&[97; 32]));
+    let stranger = Arc::new(IdentityKey::from_bytes(&[97; 32]));
     let state = link_state(
         &stranger,
         network.clock(0),
@@ -159,7 +165,7 @@ fn a_refused_downlink_takes_no_place() {
     let mut network = Network::with_periphery(18, 2, 1, 0, config);
     settle(&mut network, 30_000);
     let at = network.clock(0);
-    let first = Arc::new(NodeKey::from_bytes(&[98; 32]));
+    let first = Arc::new(IdentityKey::from_bytes(&[98; 32]));
     network.nodes[0].hooks.refuse = Some(RefusalReason::Capacity);
     let state = link_state(&first, at, "", &[EXTENSION_PERIPHERY]);
     let reply = ask(&mut network, &first, 0, &state);
@@ -169,7 +175,7 @@ fn a_refused_downlink_takes_no_place() {
     );
     assert!(!network.node(0).is_downlink(&first.node_id()));
     network.nodes[0].hooks.refuse = None;
-    let second = Arc::new(NodeKey::from_bytes(&[99; 32]));
+    let second = Arc::new(IdentityKey::from_bytes(&[99; 32]));
     let state = link_state(&second, at, "", &[EXTENSION_PERIPHERY]);
     let reply = ask(&mut network, &second, 0, &state);
     assert!(matches!(answer(&reply), PeeringResponse::Accepted));
@@ -418,7 +424,7 @@ fn a_periphery_node_reaches_more_uplinks_than_a_link_state_lists() {
     assert_eq!(peers_of(&network, core), sorted);
     // Its link state as it signed it, which it serves itself: what every
     // node decodes, and verifies.
-    let asker = Arc::new(NodeKey::from_bytes(&[101; 32]));
+    let asker = Arc::new(IdentityKey::from_bytes(&[101; 32]));
     let content = Content::LinkStateRequest(vec![id(core)]);
     let body = request(&network, &asker, core, &content);
     let reply = network.inbound(core, &body);
@@ -507,7 +513,7 @@ fn uplink_among(network: &Network, core: usize, periphery: usize) -> usize {
 fn a_periphery_node_pinned_to_an_unknown_node_asks_nobody() {
     let (core, periphery) = (3, 1);
     let mut network = Network::with_periphery(24, core, 1, periphery, Config::DEV);
-    let nobody = NodeKey::from_bytes(&[95; 32]).node_id();
+    let nobody = IdentityKey::from_bytes(&[95; 32]).node_id();
     network.pin_uplinks(core, vec![nobody]);
     settle(&mut network, 90_000);
     assert!(peers_of(&network, core).is_empty());
@@ -546,7 +552,7 @@ fn a_downlinks_link_state_goes_nowhere() {
 fn downlinks_are_accepted_without_a_probe() {
     let mut network = Network::with_periphery(13, 2, 1, 0, Config::DEV);
     settle(&mut network, 30_000);
-    let stranger = Arc::new(NodeKey::from_bytes(&[91; 32]));
+    let stranger = Arc::new(IdentityKey::from_bytes(&[91; 32]));
     let at = network.clock(0);
     let periphery = link_state(&stranger, at, "", &[EXTENSION_PERIPHERY]);
     let reply = ask(&mut network, &stranger, 0, &periphery);
@@ -559,7 +565,7 @@ fn downlinks_are_accepted_without_a_probe() {
         "no core slot taken"
     );
     // Its URL would be probed; it is in no list, so it is refused first.
-    let other = Arc::new(NodeKey::from_bytes(&[92; 32]));
+    let other = Arc::new(IdentityKey::from_bytes(&[92; 32]));
     let core = link_state(&other, at, "https://other.test", &[]);
     let reply = ask(&mut network, &other, 0, &core);
     assert_eq!(
@@ -617,8 +623,8 @@ fn a_closed_channel_frees_a_downlinks_place() {
     };
     let mut network = Network::with_periphery(17, 2, 1, 0, config);
     settle(&mut network, 30_000);
-    let first = Arc::new(NodeKey::from_bytes(&[97; 32]));
-    let second = Arc::new(NodeKey::from_bytes(&[98; 32]));
+    let first = Arc::new(IdentityKey::from_bytes(&[97; 32]));
+    let second = Arc::new(IdentityKey::from_bytes(&[98; 32]));
     let at = network.clock(0);
     let state = link_state(&first, at, "", &[EXTENSION_PERIPHERY]);
     let reply = ask(&mut network, &first, 0, &state);
@@ -642,7 +648,7 @@ fn a_closed_channel_frees_a_downlinks_place() {
     settle(&mut network, Config::DEV.peer_dead_ms);
     assert!(network.node(0).channel(&first.node_id()).is_none());
     // Another newcomer.
-    let third = Arc::new(NodeKey::from_bytes(&[99; 32]));
+    let third = Arc::new(IdentityKey::from_bytes(&[99; 32]));
     let state = link_state(&third, network.clock(0), "", &[EXTENSION_PERIPHERY]);
     let reply = ask(&mut network, &third, 0, &state);
     assert!(matches!(answer(&reply), PeeringResponse::Accepted));
@@ -765,7 +771,7 @@ fn a_periphery_node_takes_no_peers() {
     let (core, periphery) = (2, 1);
     let mut network = Network::with_periphery(16, core, 1, periphery, Config::DEV);
     settle(&mut network, 30_000);
-    let stranger = Arc::new(NodeKey::from_bytes(&[96; 32]));
+    let stranger = Arc::new(IdentityKey::from_bytes(&[96; 32]));
     let state = link_state(&stranger, network.clock(core), "", &[EXTENSION_PERIPHERY]);
     let reply = ask(&mut network, &stranger, core, &state);
     assert_eq!(
@@ -818,7 +824,7 @@ fn a_refused_downlink_leaves_a_full_table() {
     let mut network = full_tables(20, 0);
     assert_eq!(core_entries(&network, 0), 3, "the core table is full");
     network.nodes[0].hooks.refuse = Some(RefusalReason::Capacity);
-    let stranger = Arc::new(NodeKey::from_bytes(&[100; 32]));
+    let stranger = Arc::new(IdentityKey::from_bytes(&[100; 32]));
     let state = link_state(&stranger, network.clock(0), "", &[EXTENSION_PERIPHERY]);
     let reply = ask(&mut network, &stranger, 0, &state);
     assert_eq!(

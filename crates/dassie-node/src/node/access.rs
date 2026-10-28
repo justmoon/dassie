@@ -3,6 +3,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+use dassie_identity::IdentityKey;
 use dassie_kit::ClientKey;
 use dassie_node_core::config::{ConfigError, Realm};
 use dassie_node_core::session::{
@@ -40,6 +41,9 @@ pub enum AuthError {
     RateLimited(u64),
     /// The database failed.
     Store(StoreError),
+    /// The setup's key generation did not finish: the node is shutting
+    /// down.
+    Interrupted,
 }
 
 impl fmt::Display for AuthError {
@@ -52,6 +56,7 @@ impl fmt::Display for AuthError {
             Self::InvalidLogin => f.write_str("Invalid login proof"),
             Self::RateLimited(_) => f.write_str("Too many attempts, try again later"),
             Self::Store(error) => error.fmt(f),
+            Self::Interrupted => f.write_str("The node is shutting down"),
         }
     }
 }
@@ -78,7 +83,7 @@ impl Node {
     /// browser in. The realm is fixed here, with the key, and never changes
     /// after (spec/decisions/mainnet-schemes.md); `live` is refused but by
     /// the dev switch.
-    pub fn setup(
+    pub async fn setup(
         &self,
         request: &SetupRequest,
         realm: Realm,
@@ -93,6 +98,12 @@ impl Node {
         let realm = realm
             .check_settable(self.live_realm())
             .map_err(AuthError::Realm)?;
+        // Its SLH-DSA key, once, for the ID (spec/areas/identity.md#node-id):
+        // a key generation, which takes a blocking task rather than the
+        // runtime, and only once the setup token is checked.
+        let key = tokio::task::spawn_blocking(move || IdentityKey::new(key))
+            .await
+            .map_err(|_| AuthError::Interrupted)?;
         {
             // Under the config's writer, so that no other change writes
             // back the realm from before.

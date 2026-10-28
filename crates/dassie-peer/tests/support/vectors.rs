@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::Name;
 use dassie_peer::wire::{
@@ -21,16 +21,19 @@ use super::inputs::{KINDS, content};
 /// (spec/decisions/protocol-upgrades.md).
 pub const VERSION: &str = "dassie/2";
 
-/// The key of node A: the seed of 32 bytes `01`.
+/// The key of node A: the seed of 32 bytes `01`. Made once, since its
+/// SLH-DSA key takes a key generation.
 #[must_use]
-pub fn node_a() -> NodeKey {
-    NodeKey::from_bytes(&[1; 32])
+pub fn node_a() -> &'static IdentityKey {
+    static KEY: std::sync::OnceLock<IdentityKey> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| IdentityKey::from_bytes(&[1; 32]))
 }
 
 /// The key of node B: the seed of 32 bytes `03`.
 #[must_use]
-pub fn node_b() -> NodeKey {
-    NodeKey::from_bytes(&[3; 32])
+pub fn node_b() -> &'static IdentityKey {
+    static KEY: std::sync::OnceLock<IdentityKey> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| IdentityKey::from_bytes(&[3; 32]))
 }
 
 /// Node A's link state: a neighbor, a scheme and an extension, signed.
@@ -41,6 +44,7 @@ pub fn link_state() -> Vec<u8> {
         url: "https://a.example",
         alias: "Node A",
         public_key: *node_a().public_key().as_bytes(),
+        slh_dsa_public_key: *node_a().identity().slh_dsa().as_bytes(),
         entries: vec![
             Entry::Neighbor(node_b().node_id()),
             Entry::Scheme(SchemeId::parse("stub").unwrap()),
@@ -50,7 +54,7 @@ pub fn link_state() -> Vec<u8> {
             },
         ],
     };
-    sign_node_info(&node_a(), &info)
+    sign_node_info(node_a(), &info)
 }
 
 /// A message kind's name as the protocol spells it: `peeringRequest`.

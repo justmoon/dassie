@@ -20,7 +20,7 @@ mod support;
 
 use std::time::Duration;
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_node::clock::Clock;
 use dassie_node::clock::ManualClock;
 use dassie_node::fake_ledger::{Options, Server};
@@ -89,7 +89,7 @@ fn port_of(url: &str) -> u16 {
     authority.rsplit(':').next().unwrap().parse().unwrap()
 }
 
-fn account_of(key: &NodeKey) -> AccountId {
+fn account_of(key: &IdentityKey) -> AccountId {
     let entropy = key.xrpl_account_entropy(TESTNET.id, 0);
     Wallet::from_entropy(entropy.as_bytes()).account()
 }
@@ -155,7 +155,7 @@ async fn fees(node: &TestNode) -> i64 {
 
 /// Whether the node is up to date with the ledger, with its books matching
 /// its account less the reserve.
-async fn in_step(node: &TestNode, key: &NodeKey, server: &Server) -> bool {
+async fn in_step(node: &TestNode, key: &IdentityKey, server: &Server) -> bool {
     let Some(ledger) = ledger_of(node).await else {
         return false;
     };
@@ -546,7 +546,7 @@ async fn external_asset(node: &TestNode) -> Option<proto::ExternalAsset> {
 
 /// What `key`'s account holds of DSUSD, in the ledger's internal units:
 /// whole millionths.
-fn dsusd_held(key: &NodeKey, server: &Server) -> Option<u64> {
+fn dsusd_held(key: &IdentityKey, server: &Server) -> Option<u64> {
     use dassie_xrpl::amount::IssuedAsset;
 
     let held = server
@@ -557,7 +557,7 @@ fn dsusd_held(key: &NodeKey, server: &Server) -> Option<u64> {
 
 /// Whether the node is up to date with its DSUSD line, with its books
 /// holding the line in whole millionths.
-async fn dsusd_in_step(node: &TestNode, key: &NodeKey, server: &Server) -> bool {
+async fn dsusd_in_step(node: &TestNode, key: &IdentityKey, server: &Server) -> bool {
     let Some(ledger) = ledger_named(node, DSUSD_LEDGER).await else {
         return false;
     };

@@ -33,7 +33,7 @@ use dassie_hub::operation::ValidatorOperation;
 use dassie_hub::rules::{Acceptance, Fees, Limits, Rules, Terms, Timers};
 use dassie_hub::service::wire::Message;
 use dassie_hub::{HubId, Millis};
-use dassie_identity::{NodeKey, PublicKey};
+use dassie_identity::{IdentityKey, NodeIdentity};
 use dassie_kit::ClientKey;
 use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::hub::driver::Driver;
@@ -73,7 +73,7 @@ impl Handler for HubHandler {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
-        _from: dassie_identity::PublicKey,
+        _from: dassie_identity::NodeIdentity,
         _body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(async {
@@ -84,17 +84,17 @@ impl Handler for HubHandler {
         })
     }
 
-    fn hub_access(&self, from: &PublicKey, hub: &[u8; 32]) -> HubAccess {
+    fn hub_access(&self, from: &NodeIdentity, hub: &[u8; 32]) -> HubAccess {
         self.0.access(Some(from), hub)
     }
 
-    fn hub_permit(&self, from: &PublicKey, access: HubAccess) -> Option<HubPermit> {
+    fn hub_permit(&self, from: &NodeIdentity, access: HubAccess) -> Option<HubPermit> {
         self.0.request_permit(access, &Sender(*from))
     }
 
     fn hub<'a>(
         &'a self,
-        from: PublicKey,
+        from: NodeIdentity,
         request: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Option<HubAnswer>> + Send + 'a>> {
         Box::pin(async move { Some(self.0.answer(Sender(from), &request).await) })
@@ -102,7 +102,7 @@ impl Handler for HubHandler {
 
     fn hub_state<'a>(
         &'a self,
-        from: PublicKey,
+        from: NodeIdentity,
         request: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Option<StateReply>> + Send + 'a>> {
         Box::pin(async move {
@@ -117,13 +117,13 @@ impl Handler for HubHandler {
 
 /// A node's endpoint, the hubs it validates and its database.
 struct Node {
-    key: Arc<NodeKey>,
+    key: Arc<IdentityKey>,
     quic: Arc<Quic>,
     hubs: Arc<Hubs>,
     store: Arc<Store>,
     endpoint: String,
     // Kept alive: the endpoint presents the key it holds.
-    _identity: watch::Sender<Option<Arc<NodeKey>>>,
+    _identity: watch::Sender<Option<Arc<IdentityKey>>>,
 }
 
 /// QUIC trusts no roots: each connection pins its node's key, and the
@@ -134,7 +134,7 @@ fn client() -> Resolver {
 
 fn node(seed: u8, shutdown: &CancellationToken) -> Node {
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-    let key = Arc::new(NodeKey::from_bytes(&[seed; 32]));
+    let key = Arc::new(IdentityKey::from_bytes(&[seed; 32]));
     let (identity, receiver) = watch::channel(Some(Arc::clone(&key)));
     let quic = Arc::new(Quic::new(socket, receiver, true).unwrap());
     let hubs = Arc::new(Hubs::default());
@@ -152,11 +152,11 @@ fn node(seed: u8, shutdown: &CancellationToken) -> Node {
     }
 }
 
-fn terms(sponsor: &NodeKey) -> Terms {
+fn terms(sponsor: &IdentityKey) -> Terms {
     Terms {
         version: dassie_hub::rules::HUB_VERSION,
         nonce: NONCE,
-        sponsor: sponsor.public_key(),
+        sponsor: sponsor.identity(),
         network: 1,
         escrow: escrow_master(sponsor, TESTNET_NETWORK, &NONCE).account().0,
         asset: dassie_hub::rules::Asset::Xrp,
@@ -196,7 +196,7 @@ fn terms(sponsor: &NodeKey) -> Terms {
 }
 
 fn rules(nodes: &[Node]) -> Rules {
-    let sponsor = NodeKey::from_bytes(&[100; 32]);
+    let sponsor = IdentityKey::from_bytes(&[100; 32]);
     let terms = terms(&sponsor);
     let validators: Vec<Acceptance> = nodes
         .iter()
@@ -351,7 +351,7 @@ async fn four_validators_finalize_blocks_over_quic_and_a_member_hears_them() {
     // f + 1 signed alike: the newest final block each covered.
     let member = node(50, &shutdown);
     let member = HubClient::new(Some(Arc::clone(&member.quic)), client());
-    let key = NodeKey::from_bytes(&[1; 32]).public_key();
+    let key = IdentityKey::from_bytes(&[1; 32]).public_key();
     let agreed = ask(&clock, &member, &nodes, &rules, Request::Account(key)).await;
     assert!(
         matches!(agreed, Statement::Account { account: None, .. }),
@@ -399,7 +399,7 @@ async fn a_node_that_validates_no_such_hub_resets_the_stream() {
     let validator = node(1, &shutdown);
     let member = node(2, &shutdown);
     let member = HubClient::new(Some(Arc::clone(&member.quic)), client());
-    let key = NodeKey::from_bytes(&[1; 32]).public_key();
+    let key = IdentityKey::from_bytes(&[1; 32]).public_key();
     let message = Message::Request(Request::Account(key)).to_vec();
     let hub = HubId(dassie_hub::Digest([9; 32]));
     let to = validator.key.node_id();
@@ -417,7 +417,7 @@ async fn a_node_that_validates_no_such_hub_resets_the_stream() {
     );
 
     // A key other than the validator's own is never reached.
-    let stranger = NodeKey::from_bytes(&[3; 32]).node_id();
+    let stranger = IdentityKey::from_bytes(&[3; 32]).node_id();
     let answer = member
         .exchange(stranger, &validator.endpoint, &hub, &message, support::HANG)
         .await;
@@ -461,7 +461,7 @@ async fn a_member_node_hears_its_validators_through_its_engine() {
             ],
         )
         .await;
-    support::set_up(&member, &NodeKey::from_bytes(&[60; 32])).await;
+    support::set_up(&member, &IdentityKey::from_bytes(&[60; 32])).await;
     let mut owner = member.ipc().await;
     let hex: String = rules.to_vec().iter().map(|b| format!("{b:02x}")).collect();
     let config = serde_json::json!({ "rules": hex }).to_string();
@@ -667,7 +667,7 @@ async fn hub_status(node: &support::TestNode) -> Option<dassie_node::rpc::proto:
 /// Terms of an XRP hub whose escrow is `escrow`: all a validator reads a
 /// deposit to it by.
 fn xrp_hub_terms(escrow: dassie_xrpl::AccountId) -> dassie_hub::rules::Terms {
-    let sponsor = NodeKey::from_bytes(&[100; 32]).public_key();
+    let sponsor = IdentityKey::from_bytes(&[100; 32]).identity();
     dassie_hub::founding::starting_terms([0; 32], sponsor, 1, escrow.0)
 }
 
@@ -775,7 +775,7 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
             ],
         )
         .await;
-    let member_key = NodeKey::from_bytes(&[60; 32]);
+    let member_key = IdentityKey::from_bytes(&[60; 32]);
     support::set_up(&member, &member_key).await;
     xrpl.close_on(Arc::new(clock.clone()));
     let mut xrpl_config = serde_json::json!({ "server": xrpl.url, "faucet": null });

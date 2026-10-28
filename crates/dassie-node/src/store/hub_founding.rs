@@ -29,8 +29,8 @@ const MAX_STATE_BYTES: usize = 65_536;
 pub struct FoundingRecordRow {
     /// The terms' nonce.
     pub nonce: [u8; 32],
-    /// The sponsor's node key.
-    pub sponsor: [u8; 32],
+    /// The sponsor's identity: its node key, then its SLH-DSA key.
+    pub sponsor: [u8; 64],
     /// The digest of the terms it accepted.
     pub terms: [u8; 32],
     /// When it accepted them.
@@ -76,7 +76,7 @@ type RecordColumns = (
     bool,
 );
 
-fn array(bytes: &[u8]) -> Result<[u8; 32], StoreError> {
+fn array<const N: usize>(bytes: &[u8]) -> Result<[u8; N], StoreError> {
     bytes
         .try_into()
         .map_err(|_| StoreError::Corrupt("a hub founding's key or digest"))
@@ -380,7 +380,7 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         let record = FoundingRecordRow {
             nonce: [1; 32],
-            sponsor: [2; 32],
+            sponsor: [2; 64],
             terms: [3; 32],
             accepted_at_ms: 5,
             genesis: None,

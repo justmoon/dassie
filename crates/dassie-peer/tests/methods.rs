@@ -11,7 +11,7 @@
     clippy::panic
 )]
 
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_kit::sim::SeededRng;
 use dassie_peer::sim::{Faults, Network, SECOND, START, STUB, StubHooks, key, scheme};
 use dassie_peer::wire::{Entry, Kind, NodeInfo, SchemeId, TerminationReason, sign_node_info};
@@ -520,7 +520,7 @@ fn a_late_acceptance_answers_no_later_request() {
 // it how it peers.
 #[test]
 fn a_scheme_listed_again_is_one_method() {
-    let mallory = NodeKey::from_bytes(&[91; 32]);
+    let mallory = IdentityKey::from_bytes(&[91; 32]);
     let entries = core::iter::repeat_n(Entry::Scheme(scheme(STUB)), MAX_SCHEMES + 1)
         .chain(core::iter::repeat_n(
             Entry::Scheme(scheme(SECOND)),
@@ -532,6 +532,7 @@ fn a_scheme_listed_again_is_one_method() {
         url: "https://mallory.test",
         alias: "",
         public_key: *mallory.public_key().as_bytes(),
+        slh_dsa_public_key: *mallory.identity().slh_dsa().as_bytes(),
         entries,
     };
     let stored = Stored {

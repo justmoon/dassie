@@ -376,7 +376,7 @@
         "The peer protocol over QUIC, its only transport, with each node's key pinned, and a short backoff from a node it cannot reach; the settlement loop",
         "QUIC over a WebSocket where UDP is blocked: every node takes the same QUIC packets at `/quic` on its HTTPS listener, and a node without a URL dials there when UDP has not connected within a second, keeping whichever connection proves the key first; where the network sets an HTTP proxy, that dial goes through it",
         "QUIC connections held apart by who opened them, as the key each proved says: core peers, downlinks and everyone else each have room of their own, so many downlinks never crowd out the links that carry the network",
-        "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments and by the owner's paired apps; a node without a hostname keeps one to the `dassiepay.net` front door unless `DASSIE_RELAY` names another or, empty, none",
+        "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments and by the owner's paired apps; a node without a hostname keeps one to the relay `DASSIE_RELAY` names; the `dassiepay.net` front door is the default again once the testnet's reset builds in its new entry",
         "Front doors: a server with a key of its own and a wildcard certificate that takes Open Payments requests for `<node ID>.<domain>` and passes them to the node the ID names, or for `<name>.<domain>` to the name's holder, which it takes from the registrars' name lists as every node does, over relayed streams it opens on the connection the node keeps to it; it returns only the node's signed JSON, under a policy that lets nothing run, and never a node's page or a cookie; at the root of a name it shows a short static page of its own, saying what the name is and whether the node is connected; on its relay host it takes QUIC over a WebSocket at `/quic` too, so a node whose UDP is blocked keeps it as its relay",
         "RPC with live streams, the log ring, the database inspector, and a discovery document at `/.well-known/dassie/node` that names the node's ID, key and feed port",
         "The owner's names, registered and renewed through the peer node, and how each stands with each registrar, streamed to the wallet; once the node holds a name, it accepts and signs Open Payments requests under `<name>.dassiepay.net` too, and under `<name>.<domain>` at any other front door its owner names it at, which front doors pass on to it, and stops when it no longer holds it",
@@ -549,7 +549,7 @@
       "does": [
         "The wire format and message authentication",
         "The node table, link-state flooding, membership by majority and registration",
-        "Link states that say whether a node is a periphery node, where a core node's rate feed is, and which settlement hubs a node is in, each with the scheme it settles on there",
+        "Link states that carry both keys a node ID commits to, Ed25519 and SLH-DSA, and say whether a node is a periphery node, where a core node's rate feed is, and which settlement hubs a node is in, each with the scheme it settles on there",
         "Peering on its own, and routing, keeping a few first hops per node, picked by a hash only the node itself can compute",
         "Periphery nodes without a URL and with no neighbors in their link state, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any, as many as a market maker trades through",
         "Downlinks that never paid the node take at most half of its places for downlinks, so keys made for nothing cannot keep out those that pay",
@@ -717,9 +717,9 @@
       "w": 184,
       "desc": "Turns the owner's 20-word phrase into everything that identifies a node. The phrase names its realm and corrects a few wrong or unreadable words, never without the owner's say. The same phrase always gives the same node.",
       "does": [
-        "Phrases of 20 words with a realm, a creation time and Reed–Solomon check words, and every secret below the node key as one typed path: the login, ledger accounts, a hub's keys, STREAM receivers, QUIC keys",
-        "The Ed25519 node key, node ID and login secret",
-        "The node ID: 39 characters of base32, the same in ILP addresses, DNS names and the wallet, and 24 bytes on the wire",
+        "Phrases of 20 words with a realm, a creation time and Reed–Solomon check words, and every secret below the node key as one typed path: the login, ledger accounts, a hub's keys, STREAM receivers, QUIC keys, the SLH-DSA key's seeds",
+        "The Ed25519 node key, which signs, an SLH-DSA key (FIPS 205) that signs nothing yet, so that a node can prove who it is once Ed25519 falls, and the login secret",
+        "The node ID, a hash of both public keys: 39 characters of base32, the same in ILP addresses, DNS names and the wallet, and 24 bytes on the wire",
         "Signature checks under the ZIP-215 rules",
         "Builds to WebAssembly"
       ]
@@ -1648,7 +1648,7 @@
             "cli",
             "node"
           ],
-          "text": "A node without a hostname keeps a QUIC connection open to the `dassiepay.net` front door, its relay unless it names another, from behind its NAT: over UDP, or where UDP is blocked, over a WebSocket to `relay.dassiepay.net/quic`."
+          "text": "A node without a hostname keeps a QUIC connection open to its relay, such as the `dassiepay.net` front door, the default again once the testnet's reset builds in its new entry, from behind its NAT: over UDP, or where UDP is blocked, over a WebSocket to `relay.dassiepay.net/quic`."
         },
         {
           "ids": [
