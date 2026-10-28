@@ -217,8 +217,10 @@ impl PeerNode {
 
     /// A node to ask: fresh, with a scheme in common, not in backoff.
     /// Nodes our routes do not reach come first, then majority nodes; the
-    /// RNG picks among the best. A bridge only considers majority nodes
-    /// unreachable for the grace period.
+    /// RNG picks among the best. A node with a URL that is not core yet
+    /// asks those with a core relationship free first, which can promote it
+    /// (spec/decisions/promotion-to-core.md). A bridge only considers
+    /// majority nodes unreachable for the grace period.
     fn pick_candidate(
         &mut self,
         hooks: &dyn PeeringHooks,
@@ -226,6 +228,7 @@ impl PeerNode {
     ) -> Option<(NodeId, SchemeId)> {
         let (now, stale, future) = (self.now_ms, self.config.stale_ms, self.config.max_future_ms);
         let grace = self.config.unreachable_grace_ms;
+        let seeking_promotion = self.has_url() && !self.is_core();
         let mut best: Vec<(u8, NodeId, SchemeId)> = Vec::new();
         for (id, entry) in &self.table {
             let Some(link) = entry.link.as_ref() else {
@@ -254,7 +257,8 @@ impl PeerNode {
             {
                 continue;
             }
-            let score = u8::from(!unreachable) * 2 + u8::from(!majority);
+            let full = seeking_promotion && link.free_core.is_none_or(|free| free == 0);
+            let score = u8::from(full) * 4 + u8::from(!unreachable) * 2 + u8::from(!majority);
             best.push((score, *id, scheme));
         }
         let top = best.iter().map(|(score, _, _)| *score).min()?;

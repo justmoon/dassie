@@ -142,8 +142,9 @@ export type GetStatusResponse = Message<"dassie.owner.v1.GetStatusResponse"> & {
 
   /**
    * Whether the node runs as a periphery node
-   * (spec/areas/network.md#periphery-nodes): it has a QUIC endpoint and no
-   * hostname, so it registers nowhere, and its peers are its uplinks.
+   * (spec/areas/network.md#periphery-nodes): it is not core, as every node
+   * starts (spec/decisions/promotion-to-core.md), so its peers are its
+   * uplinks; one without a hostname also registers nowhere.
    *
    * @generated from field: bool periphery = 8;
    */

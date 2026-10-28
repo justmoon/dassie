@@ -564,6 +564,8 @@ fn a_scheme_offered_again_is_one_method() {
         Box::new(SeededRng::new(78)),
         START,
     );
+    // A core node, which a node asks to peer.
+    node.set_dev_core(vec![mallory.node_id()]);
     node.set_offers(
         START,
         vec![Offer::plain(scheme(STUB)), Offer::plain(scheme(SECOND))],

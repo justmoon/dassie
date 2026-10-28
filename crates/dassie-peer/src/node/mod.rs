@@ -333,8 +333,14 @@ pub struct PeerNode {
     /// The core, as the signed data defines it, computed with the routes
     /// (spec/decisions/promotion-to-core.md).
     pub(crate) core: BTreeSet<NodeId>,
-    /// Since when we are in it ourselves, in this run.
+    /// Since when we are a core node in our own view, in this run
+    /// ([`Self::is_core`]).
     pub(crate) own_core_since_ms: Option<u64>,
+    /// Since when we are not, in this run: one of the two is set.
+    pub(crate) out_of_core_since_ms: Option<u64>,
+    /// Whether we use our own address, as last told
+    /// ([`Event::OwnAddress`]).
+    own_address: bool,
     /// The nodes a dev network makes core outright, sorted; empty outside
     /// one (`DASSIE_DEV_CORE_NODES`).
     pub(crate) dev_core: BTreeSet<NodeId>,
@@ -468,6 +474,8 @@ impl PeerNode {
             routes: Routes::new(),
             core: BTreeSet::new(),
             own_core_since_ms: None,
+            out_of_core_since_ms: Some(now_ms),
+            own_address: false,
             dev_core: BTreeSet::new(),
             route_key: RouteKey::of(&key),
             requests: BTreeMap::new(),
@@ -557,7 +565,8 @@ impl PeerNode {
         if info != self.own_info {
             self.own_info = info;
             self.gossip.own_changed = true;
-            self.end_downlinks();
+            self.gossip.routes_dirty = true;
+            self.update_own_status();
         }
     }
 
@@ -628,6 +637,7 @@ impl PeerNode {
         );
         self.dev_core = nodes.into_iter().collect();
         self.gossip.routes_dirty = true;
+        self.update_own_status();
     }
 
     /// The core, as the signed data defines it
@@ -637,7 +647,8 @@ impl PeerNode {
         &self.core
     }
 
-    /// Since when this node is in the core in its own view, if it is.
+    /// Since when this node is a core node in its own view, if it is
+    /// ([`Self::is_core`]).
     #[must_use]
     pub const fn own_core_since_ms(&self) -> Option<u64> {
         self.own_core_since_ms
@@ -694,8 +705,12 @@ impl PeerNode {
             // A periphery node is reached only over the connection it
             // opened, whether or not its link state has a URL, and so is our
             // downlink until its peering turns core
-            // ([`follow_kinds`](Self::follow_kinds)).
-            let core = !entry.is_downlink() && self.is_core_node(node, link.endpoint.is_some());
+            // ([`follow_kinds`](Self::follow_kinds)). A bootstrap node is
+            // reached at its URL whatever the core: registrations and lists
+            // go to it there.
+            let bootstrap = self.bootstrap.iter().any(|bootstrap| bootstrap.id == *node);
+            let core = !entry.is_downlink()
+                && (bootstrap || self.is_core_node(node, link.endpoint.is_some()));
             return Some((key, link.endpoint.clone().filter(|_| core)));
         }
         self.bootstrap
@@ -1014,6 +1029,37 @@ impl PeerNode {
         self.seek_methods(hooks);
         self.tend_snapshots(hooks);
         self.update_routes();
+        self.follow_own_address();
+    }
+
+    /// Tells the driver when the node starts or stops using its own
+    /// address ([`Self::uses_own_address`]): once its status settled, or at
+    /// once when it leaves the core.
+    fn follow_own_address(&mut self) {
+        let own = self.uses_own_address();
+        if own != self.own_address {
+            self.own_address = own;
+            self.event(Event::OwnAddress { own });
+        }
+    }
+
+    /// When our own status is next due to settle: the time we use our own
+    /// address, while core and waiting for it, or end our downlinks, while
+    /// out of the core with some.
+    fn next_status_due(&self) -> Option<u64> {
+        let settle = self.config.core_settle_ms;
+        let own = self
+            .own_core_since_ms
+            .filter(|_| !self.own_address)
+            .map(|since| since.saturating_add(settle));
+        let downlinks = self
+            .out_of_core_since_ms
+            .filter(|_| self.table.values().any(Entry::is_downlink))
+            .map(|since| since.saturating_add(settle));
+        own.into_iter()
+            .chain(downlinks)
+            .map(|at| at.max(self.now_ms.saturating_add(1)))
+            .min()
     }
 
     /// The next time something is due.
@@ -1028,6 +1074,7 @@ impl PeerNode {
             self.next_review(),
             self.next_maintenance(),
             self.registering.iter().map(|(_, _, until)| *until).min(),
+            self.next_status_due(),
             self.answers.iter().map(|(at, _)| *at).min(),
             self.next_settlement_retry(),
             self.registrar.as_ref().and_then(Registrar::next_due),
@@ -1351,11 +1398,42 @@ impl PeerNode {
     /// Whether this node runs as a periphery node: it peers only with core
     /// nodes, as their downlink, and never forwards
     /// (spec/areas/network.md#periphery-nodes). Every node that is not a
-    /// core node is one (spec/decisions/promotion-to-core.md); for now, a
-    /// node with a URL is a core node.
+    /// core node in its own view is one ([`Self::is_core`]).
     #[must_use]
-    pub const fn is_periphery(&self) -> bool {
-        self.own_info.is_periphery()
+    pub fn is_periphery(&self) -> bool {
+        !self.is_core()
+    }
+
+    /// Whether this node is a core node in its own view: it has a URL, and
+    /// is in the core as it computes it, or is a seed, which acts as a core
+    /// node from the start so that the first core forms among the seeds
+    /// (spec/decisions/promotion-to-core.md).
+    #[must_use]
+    pub fn is_core(&self) -> bool {
+        self.has_url() && (self.core.contains(&self.own) || self.is_seed(&self.own))
+    }
+
+    /// Whether `node` is a seed: a bootstrap node or on the dev core list,
+    /// or this node when it runs alone, as its own bootstrap node. Seeds
+    /// peer with each other as core peers and so form the first core
+    /// (spec/decisions/promotion-to-core.md).
+    pub(crate) fn is_seed(&self, node: &NodeId) -> bool {
+        self.dev_core.contains(node)
+            || self.bootstrap.iter().any(|bootstrap| bootstrap.id == *node)
+            || (self.bootstrap.is_empty() && *node == self.own)
+    }
+
+    /// Whether this node has been core in its own view for as long as its
+    /// status needs to settle, so it is paid at its own address; a seed is
+    /// at once. A node that stops being core goes back to its child
+    /// addresses at once (spec/decisions/promotion-to-core.md).
+    #[must_use]
+    pub fn uses_own_address(&self) -> bool {
+        self.is_core()
+            && (self.is_seed(&self.own)
+                || self.own_core_since_ms.is_some_and(|since| {
+                    since.saturating_add(self.config.core_settle_ms) <= self.now_ms
+                }))
     }
 
     /// Whether this node has a URL, which its link state carries: what
@@ -1369,11 +1447,25 @@ impl PeerNode {
     /// Whether `node`, whose link state has a URL if `has_url`, is a core
     /// node, which we peer with as a core peer, ask to peer and reach at
     /// its URL; any other is a periphery node, our downlink if peered,
-    /// reached only over the connection it opened
-    /// (spec/decisions/promotion-to-core.md). For now, a node with a URL is
-    /// a core node.
-    pub(crate) const fn is_core_node(&self, _node: &NodeId, has_url: bool) -> bool {
-        has_url
+    /// reached only over the connection it opened: in the core as we
+    /// compute it, or, if we are a seed, another seed
+    /// (spec/decisions/promotion-to-core.md). A node without a URL never
+    /// is: nobody could reach it.
+    pub(crate) fn is_core_node(&self, node: &NodeId, has_url: bool) -> bool {
+        has_url && (self.core.contains(node) || (self.is_seed(&self.own) && self.is_seed(node)))
+    }
+
+    /// Follows our own status in our own view: since when we are core, or
+    /// out of the core.
+    pub(crate) fn update_own_status(&mut self) {
+        let now = self.now_ms;
+        if self.is_core() {
+            self.out_of_core_since_ms = None;
+            self.own_core_since_ms.get_or_insert(now);
+        } else {
+            self.own_core_since_ms = None;
+            self.out_of_core_since_ms.get_or_insert(now);
+        }
     }
 
     /// How long each bucket a peer's heartbeats are counted in lasts.
@@ -1382,8 +1474,8 @@ impl PeerNode {
     }
 
     /// Whether this node takes downlinks: a core node with room for any.
-    pub(crate) const fn takes_downlinks(&self) -> bool {
-        !self.is_periphery() && self.config.max_downlinks > 0
+    pub(crate) fn takes_downlinks(&self) -> bool {
+        self.is_core() && self.config.max_downlinks > 0
     }
 
     /// The downlinks in the table.

@@ -584,7 +584,7 @@ fn a_periphery_node_forwards_nothing() {
     let child = String::from("test.das.done.dnode");
     harness
         .connector
-        .set_periphery(Some(core::slice::from_ref(&child)))
+        .set_child_addresses(core::slice::from_ref(&child), true)
         .unwrap();
     let to_alice = prepare(&format!("{child}.alice.x"), 10, NOW + 20_000, [1; 32]);
     let Outcome::Forward(sent) = harness.prepare(NOW, ONE, 1, &to_alice) else {
@@ -605,7 +605,9 @@ fn a_periphery_node_forwards_nothing() {
     let outcome = harness.prepare(NOW, ONE, 4, &bare);
     assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
     assert_eq!(
-        harness.connector.set_periphery(Some(&[format!("{OWN}.x")])),
+        harness
+            .connector
+            .set_child_addresses(&[format!("{OWN}.x")], true),
         Err(RoutesError::InvalidPrefix)
     );
 }
@@ -620,11 +622,11 @@ fn a_periphery_node_takes_an_address_beneath_every_uplink() {
         .map(|n| format!("test.das.dup{n}.dnode"))
         .collect();
     assert_eq!(
-        harness.connector.set_periphery(Some(&addresses)),
+        harness.connector.set_child_addresses(&addresses, true),
         Err(RoutesError::TooMany)
     );
     let (all, extra) = addresses.split_at(dassie_connector::MAX_CHILD_ADDRESSES);
-    harness.connector.set_periphery(Some(all)).unwrap();
+    harness.connector.set_child_addresses(all, true).unwrap();
     let last = all.last().unwrap();
     let packet = prepare(&format!("{last}.alice.x"), 10, NOW + 20_000, [1; 32]);
     let Outcome::Forward(sent) = harness.prepare(NOW, ONE, 1, &packet) else {
@@ -634,4 +636,54 @@ fn a_periphery_node_takes_an_address_beneath_every_uplink() {
     let beyond = prepare(&format!("{}.alice.x", extra[0]), 10, NOW + 20_000, [2; 32]);
     let outcome = harness.prepare(NOW, ONE, 2, &beyond);
     assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
+}
+
+// spec/decisions/promotion-to-core.md: a node that leaves the periphery for
+// the core keeps its addresses beneath its uplinks, now its core peers,
+// which go on routing them: packets below one still reach its own
+// endpoints, and it forwards its peers' packets as a core node.
+#[test]
+fn a_core_node_keeps_its_child_addresses() {
+    let mut harness = harness();
+    set(&mut harness, &[("test.das.dfar", &[TWO])]);
+    let child = String::from("test.das.done.dnode");
+    harness
+        .connector
+        .set_child_addresses(core::slice::from_ref(&child), false)
+        .unwrap();
+    assert!(!harness.connector.is_periphery());
+    let to_alice = prepare(&format!("{child}.alice.x"), 10, NOW + 20_000, [1; 32]);
+    let Outcome::Forward(sent) = harness.prepare(NOW, ONE, 1, &to_alice) else {
+        panic!("not forwarded")
+    };
+    assert_eq!(sent.to, BTP);
+    let onward = prepare("test.das.dfar.x", 10, NOW + 20_000, [2; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 2, &onward)), TWO);
+}
+
+// spec/decisions/promotion-to-core.md: an uplink goes on routing a promoted
+// node's child address to it while they are peered, whatever the peering's
+// kind: a core peer at its own address is reached beneath ours too. One
+// that overlaps another's is refused.
+#[test]
+fn a_core_peer_is_reached_beneath_us() {
+    let mut harness = harness();
+    let beneath = format!("{OWN}.done");
+    let packet = prepare(&format!("{beneath}.alice"), 10, NOW + 20_000, [1; 32]);
+    let outcome = harness.prepare(NOW, TWO, 1, &packet);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
+    harness.connector.set_beneath(ONE, &beneath).unwrap();
+    assert_eq!(forwarded_to(harness.prepare(NOW, TWO, 2, &packet)), ONE);
+    assert!(
+        harness
+            .connector
+            .set_beneath(TWO, &format!("{beneath}.x"))
+            .is_err()
+    );
+    assert!(
+        harness
+            .connector
+            .set_beneath(TWO, "test.das.elsewhere")
+            .is_err()
+    );
 }

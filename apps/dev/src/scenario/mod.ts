@@ -23,7 +23,13 @@ import {
 import { dataDir, type Layout, layout as defaultLayout } from "../paths.ts";
 import { DEV_RATES, type RateServer, startRates } from "../rates.ts";
 import type { Stream } from "../process.ts";
-import { identity, loadTable, type Realm, type Table } from "../vanity.ts";
+import {
+  identity,
+  idIn,
+  loadTable,
+  type Realm,
+  type Table,
+} from "../vanity.ts";
 import { until } from "../wait.ts";
 import { type NodeEnvironment, ScenarioNode } from "./node.ts";
 import {
@@ -350,6 +356,19 @@ export class Scenario {
     );
   }
 
+  /**
+   * The scenario's core nodes, as `DASSIE_DEV_CORE_NODES` names them: every
+   * node not set up as a periphery node, those added later too, core
+   * outright, without the hour promotion takes
+   * (spec/decisions/promotion-to-core.md).
+   */
+  #devCoreNodes(): string {
+    return [...this.#table]
+      .filter(([index]) => peripheryOf(this.def, index) === undefined)
+      .map(([, entry]) => idIn(entry, this.#realm))
+      .join(",");
+  }
+
   /** The schemes node `index` runs: the scenario's, or an added node's. */
   #schemes(index: number): readonly string[] {
     if (this.options.withoutLedger?.includes(index)) return [];
@@ -576,14 +595,17 @@ export class Scenario {
   }
 
   /**
-   * The environment of node `index`: the bootstrap nodes, for a periphery
-   * node the IDs of the nodes it is pinned to, and in a live scenario the
-   * dev switch that lets the node run in the live realm, which only a build
-   * with debug assertions honours (spec/decisions/mainnet-schemes.md).
+   * The environment of node `index`: the bootstrap nodes, the core nodes,
+   * for a periphery node the IDs of the nodes it is pinned to, and in a
+   * live scenario the dev switch that lets the node run in the live realm.
+   * Only a build with debug assertions honours the dev switches
+   * (spec/decisions/mainnet-schemes.md,
+   * spec/decisions/promotion-to-core.md).
    */
   #nodeEnv(index: number): Record<string, string> {
     const env: Record<string, string> = {
       DASSIE_BOOTSTRAP_NODES: this.#bootstrapNodes(),
+      DASSIE_DEV_CORE_NODES: this.#devCoreNodes(),
     };
     if (live(this.def)) env.DASSIE_DEV_LIVE_REALM = "1";
     const periphery = peripheryOf(this.def, index);

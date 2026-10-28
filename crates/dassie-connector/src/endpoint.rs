@@ -236,6 +236,11 @@ pub(crate) struct Endpoint {
     /// the node's own swaps coming back reach it
     /// (spec/areas/connector.md#swaps).
     pub routed: bool,
+    /// The address below the node's own that reaches a peer whose address
+    /// does not: a core peer's `<own>.<ID>`, which it may have been paid at
+    /// as our downlink, and goes on being reached at for as long as it is
+    /// peered (spec/decisions/promotion-to-core.md).
+    pub beneath: Option<String>,
 }
 
 impl Endpoint {
@@ -252,6 +257,17 @@ impl Endpoint {
             child: false,
             transit: false,
             routed: true,
+            beneath: None,
+        }
+    }
+
+    /// The address below the node's own that routes to it, if one does:
+    /// a child's own address, or what lies beneath us for a core peer.
+    pub fn below_own(&self) -> Option<&str> {
+        if self.child {
+            Some(&self.address)
+        } else {
+            self.beneath.as_deref()
         }
     }
 
@@ -331,11 +347,7 @@ impl Endpoints {
         endpoint.child = address.strip_prefix(own).is_some();
         endpoint.transit = id.is_peer() && !endpoint.child;
         let child_clash = (!id.is_peer() && !endpoint.child)
-            || (endpoint.child
-                && self
-                    .by_id
-                    .values()
-                    .any(|e| e.child && overlaps(&e.address, &endpoint.address)));
+            || (endpoint.child && self.overlaps_below_own(None, &endpoint.address));
         if child_clash {
             return Err(EndpointError::InvalidAddress);
         }
@@ -356,11 +368,8 @@ impl Endpoints {
         own: Address<'_>,
     ) -> Result<(), EndpointError> {
         let parsed = Address::parse(address).map_err(|_| EndpointError::InvalidAddress)?;
-        let clash = parsed.strip_prefix(own).is_none()
-            || self
-                .by_id
-                .iter()
-                .any(|(other, e)| *other != id && e.child && overlaps(&e.address, address));
+        let clash =
+            parsed.strip_prefix(own).is_none() || self.overlaps_below_own(Some(id), address);
         if clash {
             return Err(EndpointError::InvalidAddress);
         }
@@ -370,16 +379,49 @@ impl Endpoints {
         Ok(())
     }
 
+    /// Routes `address`, a child address below `own` that overlaps no
+    /// other's, to peer `id`, whose own address lies elsewhere.
+    pub fn set_beneath(
+        &mut self,
+        id: EndpointId,
+        address: &str,
+        own: Address<'_>,
+    ) -> Result<(), EndpointError> {
+        let parsed = Address::parse(address).map_err(|_| EndpointError::InvalidAddress)?;
+        if !id.is_peer()
+            || parsed.strip_prefix(own).is_none()
+            || self.overlaps_below_own(Some(id), address)
+        {
+            return Err(EndpointError::InvalidAddress);
+        }
+        let endpoint = self.by_id.get_mut(&id).ok_or(EndpointError::Unknown)?;
+        endpoint.beneath = Some(String::from(address));
+        Ok(())
+    }
+
+    /// Whether `address` overlaps what lies below our own address for an
+    /// endpoint other than `except`: routing could not tell them apart.
+    fn overlaps_below_own(&self, except: Option<EndpointId>, address: &str) -> bool {
+        self.by_id.iter().any(|(other, endpoint)| {
+            Some(*other) != except
+                && endpoint
+                    .below_own()
+                    .is_some_and(|below| overlaps(below, address))
+        })
+    }
+
     /// The child whose address is a whole-segment prefix of `destination`.
     /// Children's addresses never nest, so at most one fits. A
     /// downlink whose peering is ending takes no new Prepare.
     pub fn route_child(&self, destination: Address<'_>) -> Option<EndpointId> {
         self.by_id
             .iter()
-            .filter(|(_, endpoint)| endpoint.child && endpoint.routed && !endpoint.draining)
+            .filter(|(_, endpoint)| endpoint.routed && !endpoint.draining)
             .find(|(_, endpoint)| {
-                Address::parse(&endpoint.address)
-                    .is_ok_and(|address| destination.has_prefix(address))
+                endpoint
+                    .below_own()
+                    .and_then(|below| Address::parse(below).ok())
+                    .is_some_and(|address| destination.has_prefix(address))
             })
             .map(|(&id, _)| id)
     }
@@ -390,11 +432,11 @@ impl Endpoints {
     pub fn route_child_below(&self, own: &str, below: &str) -> Option<EndpointId> {
         self.by_id
             .iter()
-            .filter(|(_, endpoint)| endpoint.child && endpoint.routed && !endpoint.draining)
+            .filter(|(_, endpoint)| endpoint.routed && !endpoint.draining)
             .find(|(_, endpoint)| {
                 endpoint
-                    .address
-                    .strip_prefix(own)
+                    .below_own()
+                    .and_then(|below| below.strip_prefix(own))
                     .and_then(|rest| rest.strip_prefix('.'))
                     .and_then(|segments| below.strip_prefix(segments))
                     .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))

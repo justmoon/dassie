@@ -318,6 +318,14 @@ pub enum Event {
     /// The core changed, as this node computes it
     /// (spec/decisions/promotion-to-core.md).
     CoreChanged,
+    /// The node starts using its own address, `<scheme>.das.<ID>`, if
+    /// `own`, its status as a core node having settled; or stops, having
+    /// left the core, and goes back to its child addresses beneath its
+    /// uplinks (spec/decisions/promotion-to-core.md).
+    OwnAddress {
+        /// Whether it uses its own address now.
+        own: bool,
+    },
     /// Check that `peer` answers at `url` over HTTPS, with a certificate a
     /// public authority issued: a downlink asking to be promoted, or a node
     /// registered with us, whose check the node tells

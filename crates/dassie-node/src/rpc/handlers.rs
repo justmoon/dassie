@@ -421,7 +421,10 @@ async fn status(node: &Node) -> proto::GetStatusResponse {
         }),
         http_port: http_port.into(),
         https_port: https_port.into(),
-        periphery: node.own_info().is_periphery(),
+        // Without a URL, or not core in the engine's view
+        // (spec/decisions/promotion-to-core.md).
+        periphery: node.own_info().is_periphery()
+            || node.quic().is_some_and(|quic| quic.is_periphery()),
         relay: node
             .quic()
             .and_then(|quic| quic.chosen_relay())

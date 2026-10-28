@@ -20,7 +20,9 @@ use dassie_node::engine::NewIncoming;
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, ErrorCode, request::Method, response};
 use support::btp_client::{BtpClient, pay_stream};
-use support::pair::{bootstrap, ca_file, key, peered, peered_downlink, prepare, settle, until};
+use support::pair::{
+    bootstrap, ca_file, dev_core, key, peered, peered_downlink, prepare, settle, until,
+};
 use support::{Bound, START_MS, STUB_UNLIMITED, TestNode, set_up};
 
 /// What the uplink's client pays the downlink. The nodes run on the stub
@@ -231,8 +233,10 @@ async fn a_pinned_periphery_node_asks_only_its_uplink() {
     let (key_a, key_b, key_p) = (key(43), key(44), key(45));
     let (bound_a, bound_b, bound_p) = (Bound::new(), Bound::new(), Bound::new());
     let nodes = bootstrap(&key_a, bound_a.https_port());
+    let core = dev_core(&[&key_a, &key_b]);
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
+        ("DASSIE_DEV_CORE_NODES", core.as_str()),
         ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
@@ -277,8 +281,10 @@ async fn a_periphery_node_is_paid_beneath_the_uplink_it_names() {
     let (key_a, key_b, key_p) = (key(46), key(47), key(48));
     let (bound_a, bound_b, bound_p) = (Bound::new(), Bound::new(), Bound::new());
     let nodes = bootstrap(&key_a, bound_a.https_port());
+    let core = dev_core(&[&key_a, &key_b]);
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
+        ("DASSIE_DEV_CORE_NODES", core.as_str()),
         ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];

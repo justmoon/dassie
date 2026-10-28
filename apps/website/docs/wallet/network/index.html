@@ -64,8 +64,9 @@
 
       <h2 id="registered-or-not">Registered or not</h2>
       <p>
-        A node with a public address and a domain name is a core node. It
-        joins the network by registering with the bootstrap nodes. Each keeps
+        A node with a public address and a domain name joins the network by
+        registering with the bootstrap nodes, and becomes a core node once
+        its uplinks promote it. Each keeps
         a list, and a node that more than half of them list is a member,
         which every other node then knows about.
       </p>
@@ -78,7 +79,7 @@
         replaces them, for a network of your own.
       </p>
       <p>
-        On a core node, the details card is
+        On a node with a domain name, the details card is
         <em>Details for your node</em>, with a section called
         <em>Tier 1 registration</em>:
       </p>
@@ -93,9 +94,11 @@
           puts it in the core, the nodes that two core nodes peer with,
           grown from the bootstrap nodes
           (<a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/promotion-to-core.md">why</a>).
-          Every node starts outside it. <em>Not in the core</em> is no
-          fault: a node with a domain name still works as a core node, and
-          nothing depends on the core yet.
+          Every node starts outside it, as a periphery node, until two of
+          its uplinks promote it: after an hour in good standing with them,
+          answering at its domain name with a real certificate, with room
+          and a settlement between them. Until then it is paid beneath its
+          uplinks, and its card shows its uplinks too (below).
         </li>
         <li>
           <em>Listed by 3 of 4 bootstrap nodes</em>: how many list it.
@@ -186,8 +189,10 @@
       <p>
         A node without a domain name, such as the
         <a href="/docs/desktop/">desktop app</a> or a server behind a router,
-        is a periphery node. It registers with no bootstrap node. Its card
-        says <em>Periphery node</em> and shows these instead:
+        is a periphery node, and so is one with a domain name until it is
+        promoted. One without a domain name registers with no bootstrap
+        node. Its card says <em>Periphery node</em> and shows these
+        instead:
       </p>
       <ul>
         <li>

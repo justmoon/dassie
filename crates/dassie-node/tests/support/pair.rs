@@ -70,6 +70,16 @@ pub fn bootstrap_all(nodes: &[(IdentityKey, u16)]) -> String {
     format!("[{}]", entries.join(","))
 }
 
+/// `DASSIE_DEV_CORE_NODES` naming each of `nodes`: core outright, without
+/// the time promotion takes (spec/decisions/promotion-to-core.md).
+pub fn dev_core(nodes: &[&IdentityKey]) -> String {
+    let ids: Vec<String> = nodes
+        .iter()
+        .map(|node| node.node_id().to_string())
+        .collect();
+    ids.join(",")
+}
+
 /// Sets a node up as a peer: owner, hostname, certificate, and the stub
 /// with unlimited trust, for a test whose subject is not settlement.
 pub async fn prepare(node: &TestNode, key: &IdentityKey) {
@@ -240,8 +250,10 @@ impl Pair {
         let (key_a, key_b) = (key(seed_a), key(seed_b));
         let (bound_a, bound_b) = (Bound::new(), Bound::new());
         let nodes = bootstrap(&key_a, bound_a.https_port());
+        let core = dev_core(&[&key_a, &key_b]);
         let env = [
             ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
+            ("DASSIE_DEV_CORE_NODES", core.as_str()),
             ("DASSIE_EXTRA_CA_FILE", ca_file()),
             ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ];

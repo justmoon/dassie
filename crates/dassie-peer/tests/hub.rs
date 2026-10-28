@@ -490,6 +490,8 @@ fn first_asked(own: Vec<Offer>, theirs: Theirs<'_>, second_over_hub: bool) -> Op
         Box::new(SeededRng::new(78)),
         START,
     );
+    // A core node, which a node asks to peer.
+    node.set_dev_core(vec![other.node_id()]);
     node.set_offers(START, own);
     let mut hooks = StubHooks {
         commitments: true,

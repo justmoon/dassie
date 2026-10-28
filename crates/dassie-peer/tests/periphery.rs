@@ -231,6 +231,8 @@ fn a_core_node_that_becomes_periphery_ends_its_downlinks() {
         );
     });
     assert!(network.node(turning).is_periphery());
+    // Once it has been out of the core for as long as its status settles.
+    settle(&mut network, Config::DEV.core_settle_ms);
     for downlink in &downlinks {
         assert!(ended_or_ending(&network, turning, downlink));
     }
@@ -551,8 +553,9 @@ fn a_downlinks_link_state_goes_nowhere() {
 }
 
 // spec/areas/network.md#asking-and-answering: a core node accepts a
-// periphery node at once, without a probe; one in no list with a URL is
-// still unknown; a core node with no room for downlinks takes none.
+// periphery node at once, without a probe, with a URL or without: every
+// node starts in the periphery (spec/decisions/promotion-to-core.md); a
+// core node with no room for downlinks takes none.
 #[test]
 fn downlinks_are_accepted_without_a_probe() {
     let mut network = Network::with_periphery(13, 2, 1, 0, Config::DEV);
@@ -569,14 +572,13 @@ fn downlinks_are_accepted_without_a_probe() {
         1,
         "no core slot taken"
     );
-    // Its URL would be probed; it is in no list, so it is refused first.
+    // A node with a URL, in no list, is not core either.
     let other = Arc::new(dassie_identity::TableKeygen::identity_key(&[92; 32]));
-    let core = link_state(&other, at, "https://other.test", &[]);
-    let reply = ask(&mut network, &other, 0, &core);
-    assert_eq!(
-        answer(&reply),
-        PeeringResponse::Refused(RefusalReason::UnknownNode)
-    );
+    let with_url = link_state(&other, at, "https://other.test", &[]);
+    let reply = ask(&mut network, &other, 0, &with_url);
+    assert!(matches!(answer(&reply), PeeringResponse::Accepted));
+    assert!(network.node(0).is_downlink(&other.node_id()));
+    assert_eq!(network.node(0).core_peers().count(), 1);
     let none = Config {
         max_downlinks: 0,
         ..Config::DEV
@@ -924,11 +926,11 @@ fn peered_as(network: &Network, at: usize, node: &NodeId, since: u64, downlink: 
 }
 
 // spec/decisions/promotion-to-core.md: a peering's kind follows the peer's
-// status in place. A periphery node that gets a URL, a core node for now,
-// stays peered with its uplinks: they take it as a core peer, with the
-// same peering and channel, once it is registered, whose URL the bootstrap
-// nodes probed, and as a downlink until then. Losing its URL again makes it
-// their downlink again, still the same peering.
+// status in place. A periphery node that gets a URL is not core for it, and
+// stays its uplinks' downlink; once it is core, here by the dev core list,
+// they take it as a core peer, with the same peering and channel, and once
+// it is not, without a URL again, as their downlink again, still the same
+// peering, as often as its status changes.
 #[test]
 fn a_peers_kind_changes_in_place() {
     let (core, periphery) = (3, 1);
@@ -942,44 +944,37 @@ fn a_peers_kind_changes_in_place() {
         .collect();
     assert!(!uplinks.is_empty(), "the periphery node has an uplink");
     set_url(&mut network, turning, Some(dassie_peer::sim::url(turning)));
-    let start = network.now;
-    while !uplinks
-        .iter()
-        .all(|(at, since)| peered_as(&network, *at, &node, *since, false))
-    {
-        for (at, since) in &uplinks {
-            let as_core = peered_as(&network, *at, &node, *since, false);
-            assert!(as_core || peered_as(&network, *at, &node, *since, true));
-        }
-        settle(&mut network, 5_000);
-        assert!(network.now < start + 10 * 60_000, "it turns core");
-    }
-    // Once the hold a change of kind starts is over, it may change again.
-    settle(&mut network, Config::DEV.advertise_hold_max_ms);
-    set_url(&mut network, turning, None);
     settle(&mut network, 60_000);
     for (at, since) in &uplinks {
-        assert!(peered_as(&network, *at, &node, *since, true), "node {at}");
-    }
-    // Changing again while held down ends the peering, as a peer that
-    // flaps: a peer flipping its URL costs no more than one asking anew.
-    set_url(&mut network, turning, Some(dassie_peer::sim::url(turning)));
-    let start = network.now;
-    while uplinks
-        .iter()
-        .any(|(at, since)| peered_as(&network, *at, &node, *since, true))
-    {
-        settle(&mut network, 5_000);
-        assert!(network.now < start + 10 * 60_000, "it turns core");
-    }
-    set_url(&mut network, turning, None);
-    settle(&mut network, 60_000);
-    for (at, since) in &uplinks {
-        let peering = network.node(*at).peering_of(&node);
         assert!(
-            peering.is_none_or(|p| p.since_ms != *since || p.depeering.is_some()),
-            "node {at} ends the peering that flipped while held down"
+            peered_as(&network, *at, &node, *since, true),
+            "a URL makes no core node: node {at}"
         );
+    }
+    for round in 0..2 {
+        set_url(&mut network, turning, Some(dassie_peer::sim::url(turning)));
+        network.set_dev_core(&[0, 1, 2, turning]);
+        let start = network.now;
+        while !uplinks
+            .iter()
+            .all(|(at, since)| peered_as(&network, *at, &node, *since, false))
+        {
+            for (at, since) in &uplinks {
+                let as_core = peered_as(&network, *at, &node, *since, false);
+                assert!(as_core || peered_as(&network, *at, &node, *since, true));
+            }
+            settle(&mut network, 5_000);
+            assert!(network.now < start + 60_000, "it turns core, round {round}");
+        }
+        network.set_dev_core(&[0, 1, 2]);
+        set_url(&mut network, turning, None);
+        settle(&mut network, 60_000);
+        for (at, since) in &uplinks {
+            assert!(
+                peered_as(&network, *at, &node, *since, true),
+                "node {at}, round {round}"
+            );
+        }
     }
 }
 
@@ -1114,4 +1109,70 @@ fn an_uplink_watches_its_downlink_for_promotion() {
     let cut = promotion(&network).expect("a candidate still");
     assert_eq!(cut.url_answered, Some(false));
     assert!(cut.pending(&Config::DEV).contains(&PromotionCheck::Url));
+}
+
+// spec/decisions/promotion-to-core.md: a node with a URL starts in the
+// periphery, with no dev core to help it. Its uplinks promote it once it
+// passes every check, it joins the core with two edges into it, every node
+// computes so, and its uplinks take it as a core peer in place; it uses its
+// own address once that has held for as long as its status settles.
+#[test]
+fn a_node_with_a_url_is_promoted_into_the_core() {
+    use dassie_peer::PROMOTION_ROOM_PACKETS;
+
+    let (core, periphery) = (3, 1);
+    let mut network = Network::with_periphery(41, core, 3, periphery, Config::DEV);
+    network.set_dev_core(&[]);
+    settle(&mut network, 90_000);
+    let seeds: std::collections::BTreeSet<NodeId> = (0..core).map(id).collect();
+    assert_eq!(network.node(0).core(), &seeds, "the bootstrap nodes peer");
+    let turning = core;
+    let node = id(turning);
+    set_url(&mut network, turning, Some(dassie_peer::sim::url(turning)));
+    settle(&mut network, 60_000);
+    assert!(
+        network.node(turning).is_periphery(),
+        "a URL makes no core node"
+    );
+    let uplinks: Vec<(usize, u64)> = (0..core)
+        .filter(|at| network.node(*at).is_downlink(&node))
+        .map(|at| (at, network.node(at).peering_of(&node).unwrap().since_ms))
+        .collect();
+    assert_eq!(uplinks.len(), 2, "as many uplinks as the core needs edges");
+    for (at, _) in &uplinks {
+        network.act_with_hooks(*at, |peer, hooks, now| {
+            hooks.room_packets.insert(node, PROMOTION_ROOM_PACKETS);
+            peer.paid_by(now, hooks, &node);
+        });
+    }
+    settle(&mut network, Config::DEV.promotion_standing_ms);
+    assert!(
+        !network.node(0).core().contains(&node),
+        "not checked over HTTPS"
+    );
+    let url = dassie_peer::sim::url(turning);
+    for (at, _) in &uplinks {
+        network.act(*at, |peer, now| peer.https_checked(now, &node, &url, true));
+    }
+    let start = network.now;
+    while !(0..=core).all(|index| network.node(index).core().contains(&node)) {
+        settle(&mut network, 5_000);
+        assert!(network.now < start + 60_000, "every node computes it core");
+    }
+    for (at, since) in &uplinks {
+        let peer = network.node(*at);
+        assert!(peer.peering_of(&node).is_some_and(|p| p.since_ms == *since));
+        assert!(
+            !peer.is_downlink(&node),
+            "a core peer of node {at}, in place"
+        );
+    }
+    let promoted = network.node(turning);
+    assert!(promoted.is_core());
+    assert!(
+        !promoted.uses_own_address(),
+        "not before its status settles"
+    );
+    settle(&mut network, Config::DEV.core_settle_ms);
+    assert!(network.node(turning).uses_own_address());
 }

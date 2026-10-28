@@ -41,6 +41,8 @@ pub(super) struct Hooks<'a> {
     pub settings: PeerSettings,
     /// The step's time, which a peer's snapshot must not have expired by.
     pub now_ms: u64,
+    /// The largest packet, which a downlink's room is counted in.
+    pub max_packet: u64,
 }
 
 impl Hooks<'_> {
@@ -301,6 +303,10 @@ impl PeeringHooks for Hooks<'_> {
     /// methods' ledgers where it has none, in the core peers' share, which
     /// must have room for them all; a downlink's opened only once value
     /// moved with it (spec/decisions/lazy-downlink-accounts.md).
+    fn room_packets(&self, peer: NodeId, scheme: SchemeId) -> u64 {
+        super::settlement::room_packets(self.schemes, self.ledger, self.max_packet, peer, scheme)
+    }
+
     fn open_core_accounts(&mut self, now_ms: u64, peer: NodeId, schemes: &[SchemeId]) -> bool {
         let Some(name) = name(peer) else {
             return false;
@@ -649,6 +655,15 @@ impl Core {
         Ok(())
     }
 
+    /// Whether the node runs as a periphery node now: it is not a core node
+    /// in its own view (spec/decisions/promotion-to-core.md), so its QUIC
+    /// endpoint keeps the connections it dials alive, which its uplinks
+    /// reach it over.
+    #[must_use]
+    pub fn is_periphery(&self) -> bool {
+        self.peer.is_periphery()
+    }
+
     /// Whether a peering began or ended since the last call, or, at the
     /// first, whether any was restored.
     pub fn take_peerings_changed(&mut self) -> bool {
@@ -761,6 +776,7 @@ impl Core {
             downlinks: &self.downlinks,
             settings: self.peer_settings,
             now_ms: now,
+            max_packet: self.settle.max_packet,
         };
         f(&mut self.peer, &mut hooks, now)
     }
@@ -1322,7 +1338,11 @@ impl Core {
                 }
                 self.update_routes();
             }
-            Event::RoutesChanged => self.update_routes(),
+            // Whether we are paid at our own address or beneath our
+            // uplinks, and how our QUIC endpoint keeps its connections.
+            Event::RoutesChanged | Event::OwnAddress { .. } | Event::CoreChanged => {
+                self.update_routes();
+            }
             // The claim for a Fulfill of ours, of a Prepare the peer sent on
             // one of its methods, which the connector no longer holds and
             // the peering may have dropped since: a claim is signed for one
@@ -1677,6 +1697,18 @@ impl Core {
             .map_err(|e| e.to_string())?;
         self.peer_endpoints.insert(node, id);
         self.endpoint_peers.insert(id, node);
+        // A core peer is reached beneath us too, where it may have been
+        // paid as our downlink, for as long as it is peered
+        // (spec/decisions/promotion-to-core.md).
+        if !self.peer.is_downlink(&node) {
+            let beneath = format!("{}.{node}", self.connector.own_address());
+            if let Err(error) = self.connector.set_beneath(EndpointId::Peer(id), &beneath) {
+                self.report(PeerEvent::NoEndpoint {
+                    node,
+                    error: error.to_string(),
+                });
+            }
+        }
         if !self.peer.reachable(&node) {
             self.connector.set_unreached(EndpointId::Peer(id), true);
         }
@@ -1713,12 +1745,13 @@ impl Core {
         // (`check_bounds`), none of them below our own address.
         let taken = self.connector.set_routes(routes);
         assert!(taken.is_ok(), "routes not taken: {taken:?}");
-        let children = self
-            .peer
-            .is_periphery()
-            .then(|| self.child_addresses(false));
-        // One per uplink, each beneath another node's address.
-        let taken = self.connector.set_periphery(children.as_deref());
+        // One beneath each core peer, which reaches us there whatever we
+        // are, and a periphery node's while it is one: paid beneath its
+        // uplinks until it uses its own address, as a core node once its
+        // status settled (spec/decisions/promotion-to-core.md).
+        let children = self.child_addresses(false);
+        let periphery = self.peer.is_periphery();
+        let taken = self.connector.set_child_addresses(&children, periphery);
         assert!(taken.is_ok(), "child addresses not taken: {taken:?}");
     }
 
@@ -1754,7 +1787,7 @@ impl Core {
     /// A core node, which is paid at its own address, or `uplink` is not
     /// an uplink confirmed now.
     pub(super) fn address_beneath(&self, uplink: &NodeId) -> Result<String, EngineError> {
-        if !self.peer.is_periphery() {
+        if self.peer.uses_own_address() {
             return Err(EngineError::Precondition(
                 "a core node is paid at its own address, beneath no uplink".into(),
             ));
@@ -1778,7 +1811,7 @@ impl Core {
     /// connected to, if any. `None` on a core node, which is paid at its
     /// own address.
     pub(super) fn receiving_address(&self) -> Option<String> {
-        if !self.peer.is_periphery() {
+        if self.peer.uses_own_address() {
             return None;
         }
         let connected = self.child_addresses(true).into_iter().next();

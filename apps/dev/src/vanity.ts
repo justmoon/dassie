@@ -124,7 +124,7 @@ export function idOf(secret: string, realm: Realm): string {
 }
 
 /** The ID an entry holds for `realm`. */
-function idIn([, test, live]: Entry, realm: Realm): string {
+export function idIn([, test, live]: Entry, realm: Realm): string {
   return realm === "live" ? live : test;
 }
 

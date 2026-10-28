@@ -62,7 +62,7 @@ impl Connector {
     /// is a core node, since a periphery node forwards nothing.
     #[must_use]
     pub const fn offers_swaps(&self) -> bool {
-        self.offer_swaps && self.periphery.is_none()
+        self.offer_swaps && !self.periphery
     }
 
     /// Adds the node's swap endpoint on `ledger`, a local endpoint at

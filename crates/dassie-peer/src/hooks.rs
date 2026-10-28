@@ -79,6 +79,17 @@ pub trait PeeringHooks {
         true
     }
 
+    /// The room `peer` has in our books on `scheme`, in the largest
+    /// packets: what it may still owe us there, our own position for it,
+    /// the only side a node knows (spec/decisions/own-fulfills.md). A
+    /// downlink needs [`PROMOTION_ROOM_PACKETS`](crate::PROMOTION_ROOM_PACKETS)
+    /// of it to be promoted (spec/decisions/promotion-to-core.md). None by
+    /// default.
+    fn room_packets(&self, peer: NodeId, scheme: SchemeId) -> u64 {
+        let _ = (peer, scheme);
+        0
+    }
+
     /// Completes our request to `peer`, which accepted: opens its
     /// accounts.
     ///

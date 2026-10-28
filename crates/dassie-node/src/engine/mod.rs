@@ -803,17 +803,9 @@ impl Engine {
     }
 }
 
-/// What the node's link state says about it. A periphery node's QUIC
-/// endpoint keeps the connections it dials alive, since they are the only
-/// way its uplinks reach it (spec/areas/peer-protocol.md#quic), and dials
-/// over a tunnel where UDP does not get through
-/// (spec/areas/peer-protocol.md#quic-over-websocket).
+/// What the node's link state says about it.
 fn own_info(node: &Node) -> dassie_peer::OwnInfo {
-    let info = node.own_info();
-    if let Some(quic) = node.quic() {
-        quic.set_periphery(info.is_periphery());
-    }
-    info
+    node.own_info()
 }
 
 /// The engine as a supervised service: waits for the node's identity, then
@@ -1147,6 +1139,15 @@ impl Driver<'_> {
             for link in failed {
                 self.core.close_link(link);
             }
+        }
+        // A periphery node's QUIC endpoint keeps the connections it dials
+        // alive, since they are the only way its uplinks reach it
+        // (spec/areas/peer-protocol.md#quic), and dials over a tunnel where
+        // UDP does not get through
+        // (spec/areas/peer-protocol.md#quic-over-websocket): every node that
+        // is not core, with a URL or without.
+        if let Some(quic) = self.node.quic() {
+            quic.set_periphery(self.core.is_periphery());
         }
         let changes = self.core.take_changes();
         if changes != Changes::default() {

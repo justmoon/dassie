@@ -185,7 +185,7 @@ impl Core {
     /// Whether the node offers swaps to its peers: its owner lets it, and
     /// it is a core node, since a periphery node forwards nothing
     /// (spec/decisions/peer-swaps.md).
-    pub(super) const fn offers_swaps(&self) -> bool {
+    pub(super) fn offers_swaps(&self) -> bool {
         self.peer_settings.offer_swaps && !self.peer.is_periphery()
     }
 
