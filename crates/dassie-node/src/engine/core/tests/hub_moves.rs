@@ -652,3 +652,126 @@ fn the_stub_with_commitments_is_in_no_hub() {
     }
     assert_ne!(accounts[0], accounts[1]);
 }
+
+/// The prices `core` builds from what its table was built from, the XRP
+/// book's holding changed by `undo`: what they would be had that not
+/// happened.
+fn priced_as_if(
+    core: &Core,
+    undo: impl Fn(dassie_connector::Holding) -> dassie_connector::Holding,
+) -> Vec<dassie_connector::Price> {
+    let table = core.price_table();
+    let inventories: Vec<dassie_connector::Inventory> = table
+        .ledgers()
+        .map(|entry| dassie_connector::Inventory {
+            ledger: entry.ledger,
+            owner: entry.owner,
+            holding: if entry.ledger == LedgerId::XrplTestnetXrp {
+                undo(entry.holding)
+            } else {
+                entry.holding
+            },
+        })
+        .collect();
+    let built = dassie_connector::PriceTable::build_by_asset(
+        core.rates(),
+        &inventories,
+        |ledger| owner_book_ledger(ledger).unwrap_or(ledger),
+        table.pricing(),
+        table.built_at_ms(),
+        core.connector.config().max_rate_age_ms,
+    );
+    built.prices().copied().collect()
+}
+
+/// A test core with the XRP Ledger testnet's XRP book synced on `ledger`,
+/// in the XRP hub `hub`, whose account there holds `balance`, all of it
+/// deposited, with the node's own moves off; and a hundred dollars on the
+/// stub, at two XRP to the dollar: two assets, short of dollars.
+fn xrp_hub_and_dollars(ledger: &mut FakeLedger, hub: &mut Hub, balance: u64) -> Core {
+    let mut core = super::core(9);
+    super::add_xrpl(&mut core, "xrpl-testnet-xrp", super::SHARED_CONFIG).unwrap();
+    super::follow_xrpl(&mut core, ledger);
+    core.add_scheme(SCHEME_ID, hub.config()).unwrap();
+    super::follow_xrpl(&mut core, ledger);
+    core.set_hub_automatic(SCHEME_ID, false).unwrap();
+    hub.account(&mut core, balance, balance);
+    super::add_stub(&mut core, super::TRUSTING);
+    let one = 10_u128.pow(dassie_connector::RATE_PRECISION);
+    let now = core.now_ms() + 1_000;
+    core.begin_step(now);
+    core.set_rates(&[("USD", one, now), ("XRP", 2 * one, now)]);
+    let stub = Name::new("stub").unwrap();
+    let mut effects = Vec::new();
+    let active = core.schemes.get_mut(&stub).unwrap();
+    active
+        .scheme
+        .deposit(100_000_000_000, &mut effects)
+        .unwrap();
+    core.apply_effects(stub, LedgerId::StubUsd, &effects)
+        .unwrap();
+    core.finish_step(&mut Vec::new());
+    let table = core.price_table();
+    assert_eq!(table.assets(), 2);
+    let into_hub = table.price(LedgerId::StubUsd, LedgerId::HubXrplTestnetXrp);
+    assert!(into_hub.is_some());
+    core
+}
+
+// spec/decisions/passive-rebalancing.md: while the node's own deposit from
+// its XRP book into its XRP hub is on its way, held on the book until the
+// XRP Ledger applies it and then on neither ledger until the hub credits
+// it, the prices are what they would be without the move: the XRP reads
+// neither short, which would pay the bonus for XRP coming in and charge
+// for it going out, nor twice. Once the hub credited it, nothing is on its
+// way.
+#[test]
+fn a_hub_move_on_its_way_moves_no_price() {
+    use dassie_connector::Holding;
+
+    let (mut ledger, _) = super::funded_ledger();
+    let mut hub = Hub::new(SCHEME_ID, TESTNET.id, Asset::Xrp);
+    let balance = 5_000_000;
+    let mut core = xrp_hub_and_dollars(&mut ledger, &mut hub, balance);
+    let prices = |core: &Core| -> Vec<dassie_connector::Price> {
+        core.price_table().prices().copied().collect()
+    };
+    let as_built = |core: &Core| priced_as_if(core, |holding| holding);
+
+    // Held on the book: still there, but not at the least.
+    let drops = 100_000_000;
+    let amount = u128::from(drops * UNITS_PER_DROP);
+    core.begin_step(core.now_ms() + 1_000);
+    core.hub_deposit_to(SCHEME_ID, drops * UNITS_PER_DROP)
+        .unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    assert!(core.hub_status().unwrap().moving.is_some());
+    let held = |holding: Holding| Holding {
+        debits_pending: holding.debits_pending - amount,
+        ..holding
+    };
+    assert_eq!(prices(&core), priced_as_if(&core, held));
+    assert_ne!(prices(&core), as_built(&core), "the move moves nothing");
+
+    // Applied on the XRP Ledger, not yet credited in the hub: on neither.
+    super::close_xrpl(&mut core, &mut ledger);
+    assert!(core.hub_status().unwrap().moving.is_some());
+    let book = core.price_table().ledger(LedgerId::XrplTestnetXrp);
+    assert_eq!(book.unwrap().holding.debits_pending, 0);
+    let gone = |holding: Holding| Holding {
+        posted: holding.posted + amount,
+        ..holding
+    };
+    assert_eq!(prices(&core), priced_as_if(&core, gone));
+    assert_ne!(prices(&core), as_built(&core), "the move moves nothing");
+
+    // Credited: in the hub, and nothing on its way.
+    hub.account(&mut core, balance + drops, balance + drops);
+    super::follow_xrpl(&mut core, &mut ledger);
+    let in_hub = core.price_table().ledger(LedgerId::HubXrplTestnetXrp);
+    assert_eq!(
+        in_hub.unwrap().holding.posted,
+        u128::from((balance + drops) * UNITS_PER_DROP)
+    );
+    assert_eq!(prices(&core), as_built(&core));
+}

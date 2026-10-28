@@ -13,6 +13,7 @@
 //! up from the XRP owner book of the hub's network if short
 //! (spec/decisions/token-hubs.md).
 
+use dassie_connector::OnItsWay;
 use dassie_hub::member::{HubAccount, UNITS_PER_DROP};
 use dassie_ledger::{LedgerId, Name};
 use dassie_peer::MAX_OWN_HUBS;
@@ -347,11 +348,63 @@ impl Core {
         }
     }
 
-    /// Keeps the moves' state of the hub of `scheme` with this batch.
+    /// Keeps the moves' state of the hub of `scheme` with this batch. The
+    /// prices count a move on its way ([`moves_on_their_way`](Self::moves_on_their_way)),
+    /// so they are built again.
     fn keep_funding(&mut self, scheme: Name) {
         if let Some(funding) = self.funding.get(&scheme) {
             self.batch.hub_funding.insert(scheme, row(funding));
+            self.prices.due = true;
         }
+    }
+
+    /// What each hub's move on its way carries that the ledger it leaves
+    /// no longer shows, by that ledger, for the prices to count toward its
+    /// asset (spec/decisions/passive-rebalancing.md): held there until its
+    /// payment applies; then, for a deposit the XRP Ledger applied, gone
+    /// from the owner book until the hub's account shows it credited. A
+    /// withdrawal's payment applies when the hub pays it out, which ends
+    /// the move.
+    pub(super) fn moves_on_their_way(&self) -> Vec<(LedgerId, OnItsWay)> {
+        let mut moves = Vec::new();
+        for (&scheme, funding) in &self.funding {
+            let Some(moving) = funding.moving else {
+                continue;
+            };
+            let leaves = match moving.direction {
+                Direction::Deposit => self.owner_book(scheme),
+                Direction::Withdraw => {
+                    (self.schemes.get(&scheme)).map(|active| (scheme, active.scheme.ledger()))
+                }
+            };
+            let Some((leaves, ledger)) = leaves else {
+                continue;
+            };
+            let amount = u128::from(moving.drops) * u128::from(UNITS_PER_DROP);
+            let credited = || {
+                self.hub_account(scheme)
+                    .and_then(HubAccount::view)
+                    .is_some_and(|(_, view)| view.deposited >= moving.target)
+            };
+            let on_its_way = if self.owner_payment_hold(leaves, moving.payment).is_some() {
+                OnItsWay {
+                    held: amount,
+                    gone: 0,
+                }
+            } else if moving.direction == Direction::Deposit
+                && self.paying(scheme) == OwnerPaymentState::Applied
+                && !credited()
+            {
+                OnItsWay {
+                    held: 0,
+                    gone: amount,
+                }
+            } else {
+                continue;
+            };
+            moves.push((ledger, on_its_way));
+        }
+        moves
     }
 
     /// Whether a move between the hub of `scheme` and its owner book is on

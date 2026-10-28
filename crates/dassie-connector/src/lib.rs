@@ -59,7 +59,8 @@ pub use connector::{
 pub use endpoint::{EndpointError, EndpointId, MAX_SLOTS, SlotError, SlotView};
 pub use fx::{RATE_PRECISION, Rates, convert, convert_at};
 pub use pricing::{
-    BestOutput, Holding, Holdings, Inventory, Price, PriceError, PriceTable, Pricing, Targets,
+    BestOutput, Holding, Holdings, Inventory, OnItsWay, Price, PriceError, PriceTable, Pricing,
+    Targets,
 };
 pub use quotes::{
     DEFAULT_GRID_PPM, GRID_LEVELS, GRID_STEP_PPM, QUOTE_PRECISION, QUOTE_TOLERANCE_PPB, Quote,
