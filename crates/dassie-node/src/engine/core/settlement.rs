@@ -64,6 +64,12 @@ pub(super) struct Settlements {
     /// would ask again (spec/decisions/settle-when-funds-arrive.md). In
     /// memory: a restart forgets them, and the asker asks again.
     pub unanswered: BTreeMap<(NodeId, SchemeId), Unanswered>,
+    /// How we size our fundings toward each peer on each method over a
+    /// hub, by how often it asks: the credit we count when asked, doubled
+    /// while it asks again soon after each funding landed, and halved
+    /// while it does not ask (spec/decisions/settle-by-request-rate.md). In
+    /// memory: a restart counts the default credit again.
+    pub pace: BTreeMap<(NodeId, SchemeId), policy::Pace>,
     /// Our settlements prepared and not yet final, by scheme and ID.
     pub settling: BTreeMap<(Name, Name), Settling>,
     /// Settlements to execute once their pending transfers are on disk.
@@ -113,6 +119,7 @@ impl Settlements {
             default_hubs: super::schemes::DEFAULT_HUBS,
             asked: BTreeMap::new(),
             unanswered: BTreeMap::new(),
+            pace: BTreeMap::new(),
             settling: BTreeMap::new(),
             to_execute: Vec::new(),
             backoff: BTreeMap::new(),
@@ -454,6 +461,7 @@ impl Core {
     fn ask_peers(&mut self) {
         let peers = self.methods_of_active_peers();
         self.settle.asked.retain(|key, _| peers.contains(key));
+        self.prune_paces(&peers);
         for (node, scheme) in peers {
             self.ask(node, scheme);
         }
@@ -594,6 +602,7 @@ impl Core {
     /// way, which is the whole answer, or the one made now.
     pub(super) fn settlement_requested(&mut self, node: NodeId, scheme: SchemeId) -> u64 {
         let key = (node, scheme);
+        self.paced_ask(node, scheme);
         match self.fund_request(node, scheme) {
             Answer::Full | Answer::Never => {
                 self.settle.unanswered.remove(&key);
@@ -611,6 +620,90 @@ impl Core {
             Answer::OnItsWay => {}
         }
         self.settling_to(&node, scheme)
+    }
+
+    /// A request to settle on `scheme` came from `node`: over a hub, its
+    /// pace learns of it, doubling the credit we count if it came soon
+    /// after our last funding landed (spec/decisions/settle-by-request-rate.md).
+    /// Not a request that finds a settlement on its way, which is the
+    /// answer: it says nothing of how fast the last one was spent.
+    fn paced_ask(&mut self, node: NodeId, scheme: SchemeId) {
+        if !self.paces(node, scheme) || self.settling_to(&node, scheme) > 0 {
+            return;
+        }
+        let (now, every) = (self.now_ms, self.settle.request_every_ms);
+        let pace = self
+            .settle
+            .pace
+            .entry((node, scheme))
+            .or_insert_with(|| policy::Pace::new(now));
+        let before = pace.doublings(now, every);
+        pace.asked(now, every);
+        let doublings = pace.doublings(now, every);
+        if doublings != before {
+            self.report(SettlementEvent::Paced {
+                node,
+                scheme,
+                doublings,
+            });
+        }
+    }
+
+    /// Our funding to `node` on `scheme` landed: its pace counts how long
+    /// it took from the request, if the peer asked on it.
+    fn paced_landing(&mut self, node: NodeId, scheme: SchemeId) {
+        let (now, every) = (self.now_ms, self.settle.request_every_ms);
+        if let Some(pace) = self.settle.pace.get_mut(&(node, scheme)) {
+            pace.landed(now, every);
+        }
+    }
+
+    /// Whether we size our fundings to `node` on `scheme` by its pace: a
+    /// method of an active peering over a hub, without unlimited trust.
+    fn paces(&self, node: NodeId, scheme: SchemeId) -> bool {
+        !self.settle.never_settles
+            && !self.unlimited(scheme)
+            && Name::new(scheme.as_str())
+                .ok()
+                .and_then(|name| self.schemes.get(&name))
+                .is_some_and(|active| active.over_hub)
+            && self
+                .peer
+                .peering_of(&node)
+                .is_some_and(|peering| peering.method(scheme).is_some())
+    }
+
+    /// The credit we count when `node` asks us to settle on `scheme` over
+    /// a hub: the default, or more for a peer that asks often, by its pace,
+    /// at most half the hub's ceiling (spec/decisions/settle-by-request-rate.md).
+    pub(super) fn counted_credit(&self, node: NodeId, scheme: SchemeId) -> u64 {
+        let credit = self.peer_credit;
+        let most = policy::most_counted_credit(self.settle.max_packet);
+        self.settle
+            .pace
+            .get(&(node, scheme))
+            .map_or(credit, |pace| {
+                pace.credit(self.now_ms, self.settle.request_every_ms, credit, most)
+            })
+    }
+
+    /// The credit we count when `node` asks us to settle on `scheme`, for
+    /// a simulation to judge what a link survives. Built only with the
+    /// `testing` feature.
+    #[cfg(feature = "testing")]
+    #[must_use]
+    pub fn counted_credit_for(&self, node: NodeId, scheme: SchemeId) -> u64 {
+        self.counted_credit(node, scheme)
+    }
+
+    /// Forgets the paces of methods that are no longer one of an active
+    /// peering's, and those back at the default with nothing left to
+    /// double by, which are no different from none.
+    fn prune_paces(&mut self, methods: &[(NodeId, SchemeId)]) {
+        let (now, every) = (self.now_ms, self.settle.request_every_ms);
+        self.settle
+            .pace
+            .retain(|key, pace| methods.contains(key) && !pace.idle(now, every));
     }
 
     /// Funds, as the rule stands now, each request to settle we could not
@@ -800,15 +893,23 @@ impl Core {
             .schemes
             .get(&at.scheme)
             .is_some_and(|active| active.over_hub);
-        let position = if over_hub {
-            hub_position(&at, self.peer_credit)
+        let (trigger, minimum) = (self.settle.trigger, self.settle.minimum);
+        let amount = if over_hub {
+            // As if we extended the default credit, or more for a peer that
+            // asks often (spec/decisions/settle-by-request-rate.md): never
+            // less than at the default.
+            let counted = self.counted_credit(node, scheme);
+            let paced = policy::requested_amount(hub_position(&at, counted), trigger, minimum);
+            let base = hub_position(&at, self.peer_credit);
+            assert!(
+                paced >= policy::requested_amount(base, trigger, minimum),
+                "a paced step is at least the default's"
+            );
+            paced
         } else {
-            at.position
+            policy::requested_amount(at.position, trigger, minimum)
         };
-        let amount = self.whole_units(
-            &at.scheme,
-            policy::requested_amount(position, self.settle.trigger, self.settle.minimum),
-        );
+        let amount = self.whole_units(&at.scheme, amount);
         Some((at, over_hub, amount))
     }
 
@@ -1318,6 +1419,7 @@ impl Core {
             return;
         };
         self.settle.backoff.remove(&(peer, scheme_id));
+        self.paced_landing(peer, scheme_id);
         let notice = Notice {
             peer,
             scheme: scheme_id,

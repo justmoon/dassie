@@ -443,6 +443,13 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::RequestShort { node, scheme } => {
             emit!(severity, target: target::SETTLEMENT, %node, %scheme, "asked to settle with less on hand than the request calls for: the rest follows once the scheme can fund it");
         }
+        SettlementEvent::Paced {
+            node,
+            scheme,
+            doublings,
+        } => {
+            emit!(severity, target: target::SETTLEMENT, %node, %scheme, doublings, "a peer's requests to settle now count the default credit doubled this often");
+        }
         SettlementEvent::Reconciling { .. }
         | SettlementEvent::UnknownExecuted { .. }
         | SettlementEvent::AnnounceFailed { .. }
@@ -540,6 +547,7 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::SchemeUnavailable { .. }
         | SettlementEvent::PrepareFailed { .. }
         | SettlementEvent::RequestShort { .. }
+        | SettlementEvent::Paced { .. }
         | SettlementEvent::HistoryGap { .. }
         | SettlementEvent::SettlementUnproven { .. }
         // Logged by `settled_by_peers`.

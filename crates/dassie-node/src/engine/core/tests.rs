@@ -6886,6 +6886,9 @@ mod asking;
 // Funding a request to settle late, once the scheme can.
 mod funds_arrive;
 
+// Sizing the fundings to a peer by how often it asks.
+mod pacing;
+
 // Our settlements on two methods of a peering, behind each other's
 // messages on its one channel.
 mod held_settlements;

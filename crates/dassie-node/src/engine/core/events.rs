@@ -312,6 +312,17 @@ pub enum SettlementEvent {
         /// The method's scheme.
         scheme: dassie_peer::wire::SchemeId,
     },
+    /// The credit we count when a peer asks us to settle on a method over a
+    /// hub changed, by how often it asks: `doublings` of the default now
+    /// (spec/decisions/settle-by-request-rate.md).
+    Paced {
+        /// The peer.
+        node: NodeId,
+        /// The method's scheme.
+        scheme: dassie_peer::wire::SchemeId,
+        /// How many times the default credit is doubled.
+        doublings: u8,
+    },
     /// A scheme cannot settle now, said now and then.
     SchemeUnavailable {
         /// The peer.
@@ -565,6 +576,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::Settling { .. }
         | SettlementEvent::Reconciling { .. }
         | SettlementEvent::RequestShort { .. }
+        | SettlementEvent::Paced { .. }
         | SettlementEvent::PeerSettled { .. }
         | SettlementEvent::PegResumed { .. }
         // The books follow what is above the reserve: a change of it is

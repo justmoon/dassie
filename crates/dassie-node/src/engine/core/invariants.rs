@@ -102,6 +102,15 @@ impl Core {
             }),
             "an unanswered request came, and was tried only with the least settlement to spend"
         );
+        // A pace is kept per method of a peering over a hub, within its
+        // doublings (spec/decisions/settle-by-request-rate.md).
+        assert!(
+            self.settle.pace.len() <= (config.max_core_peers() + config.max_downlinks) * methods,
+            "a pace per method of a peering"
+        );
+        for pace in self.settle.pace.values() {
+            pace.check(self.now_ms);
+        }
     }
 
     /// A settlement's transfer is pending, as it was booked: posting or

@@ -507,7 +507,7 @@ impl Core {
     /// into the hub is not the none it gave at peering
     /// (spec/designs/settlement-hubs.md#5-joining); 0 for a peer without
     /// one.
-    fn hub_peerings(&self, scheme: Name) -> Vec<(dassie_identity::NodeId, u32)> {
+    pub(super) fn hub_peerings(&self, scheme: Name) -> Vec<(dassie_identity::NodeId, u32)> {
         let Some(active) = self.schemes.get(&scheme) else {
             return Vec::new();
         };
@@ -559,7 +559,7 @@ impl Core {
         let max_packet = self.settle.max_packet;
         let gas = fees.operation.saturating_mul(UNITS_PER_DROP);
         let gas_ppm = per(gas, policy::minimum(max_packet))?;
-        let (floor, ceiling) = self.hub_limits(self.hub_peerings(scheme).len());
+        let (floor, ceiling) = self.hub_limits(scheme, &self.hub_peerings(scheme));
         let deposit = XRPL_FEE_DROPS.saturating_mul(UNITS_PER_DROP);
         let deposit = if ledger.asset().code == "XRP" {
             deposit
@@ -575,12 +575,24 @@ impl Core {
         u32::try_from(gas_ppm.saturating_add(move_ppm)).ok()
     }
 
-    /// The floor and the ceiling, in internal units, for `peerings`.
-    fn hub_limits(&self, peerings: usize) -> (u64, u64) {
+    /// The floor and the ceiling of the hub of `scheme`, in internal
+    /// units, for the peerings over it, `peers`: the floor follows what one
+    /// request has the node fund toward each of them, by the credit it
+    /// counts for it (spec/decisions/settle-by-request-rate.md).
+    pub(super) fn hub_limits(
+        &self,
+        scheme: Name,
+        peers: &[(dassie_identity::NodeId, u32)],
+    ) -> (u64, u64) {
         let max_packet = self.settle.max_packet;
-        let peerings = u64::try_from(peerings).unwrap_or(u64::MAX);
+        let method = dassie_peer::wire::SchemeId::parse(scheme.as_str());
+        let counted = peers.iter().map(|(node, _)| {
+            method.map_or(self.peer_credit, |method| {
+                self.counted_credit(*node, method)
+            })
+        });
         (
-            policy::hub_floor(max_packet, self.peer_credit, peerings),
+            policy::paced_hub_floor(max_packet, self.peer_credit, counted),
             policy::hub_ceiling(max_packet),
         )
     }
@@ -637,7 +649,7 @@ impl Core {
         let active = self.schemes.get(&scheme)?;
         let terms = account.terms();
         let fees = terms.fees;
-        let (floor, ceiling) = self.hub_limits(self.hub_peerings(scheme).len());
+        let (floor, ceiling) = self.hub_limits(scheme, &self.hub_peerings(scheme));
         let (floor, ceiling) = (drops_up(floor), ceiling / UNITS_PER_DROP);
         let unfunded = active
             .asset
@@ -1252,7 +1264,7 @@ impl Core {
     fn hub_status_of(&self, scheme: Name) -> Option<HubStatus> {
         let account = self.hub_account(scheme)?;
         let peers = self.hub_peerings(scheme);
-        let (floor, ceiling) = self.hub_limits(peers.len());
+        let (floor, ceiling) = self.hub_limits(scheme, &peers);
         let number = account.number();
         let view = account.view().map(|(_, view)| *view);
         let units = dassie_hub::member::units;

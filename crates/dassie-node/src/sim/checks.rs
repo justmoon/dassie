@@ -315,9 +315,14 @@ fn drifted_on(
         (room(sim, a, b, method)?, room(sim, b, a, method)?);
     let (short_a, short_b) = (policy::ask(room_a, TRIGGER), policy::ask(room_b, TRIGGER));
     let survives = match (short_a, short_b) {
-        (true, false) => survives(sim, credit_a, b, credit_b),
-        (false, true) => survives(sim, credit_b, a, credit_a),
-        _ => survives(sim, credit_a, b, credit_b).min(survives(sim, credit_b, a, credit_a)),
+        (true, false) => survives(sim, (a, credit_a), (b, credit_b), method),
+        (false, true) => survives(sim, (b, credit_b), (a, credit_a), method),
+        _ => survives(sim, (a, credit_a), (b, credit_b), method).min(survives(
+            sim,
+            (b, credit_b),
+            (a, credit_a),
+            method,
+        )),
     };
     Some(Drifted {
         nodes: (a, b),
@@ -328,19 +333,30 @@ fn drifted_on(
     })
 }
 
-/// How far a link survives drift when the side that extends `asker` asks
-/// node `payer`, which extends `credit`, to settle: asked at the asker's
-/// trigger, the payer settles only if its books leave it its own trigger
-/// plus twice the least settlement, and over a hub it answers as if it
-/// extended its default credit (spec/decisions/crash-drift.md).
-fn survives(sim: &Sim, asker: u64, payer: usize, credit: u64) -> u128 {
+/// How far a link on `method` survives drift when node `asking`, which
+/// extends `asker`, asks node `payer`, which extends `credit`, to settle:
+/// asked at the asker's trigger, the payer settles only if its books leave
+/// it its own trigger plus twice the least settlement, and over a hub it
+/// answers as if it extended the credit it counts for the asker: its
+/// default credit, or more by its pace (spec/decisions/crash-drift.md,
+/// spec/decisions/settle-by-request-rate.md).
+fn survives(
+    sim: &Sim,
+    (asking, asker): (usize, u64),
+    (payer, credit): (usize, u64),
+    method: SchemeId,
+) -> u128 {
     let over_hub =
         matches!(sim.settling, Settling::StubHub(_)) || sim.settling.hub_validators().is_some();
     let answers = if over_hub {
-        sim.credits
+        let default = sim
+            .credits
             .get(&payer)
             .copied()
-            .unwrap_or(Policies::DEFAULT.peer_credit)
+            .unwrap_or(Policies::DEFAULT.peer_credit);
+        sim.nodes[payer].core.as_ref().map_or(default, |core| {
+            core.counted_credit_for(key(asking).node_id(), method)
+        })
     } else {
         credit
     };

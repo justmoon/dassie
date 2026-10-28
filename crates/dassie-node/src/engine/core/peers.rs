@@ -1295,6 +1295,7 @@ impl Core {
             Event::MethodDropped { peer, scheme, .. } => {
                 self.settle.asked.remove(&(peer, scheme));
                 self.settle.backoff.remove(&(peer, scheme));
+                self.settle.pace.remove(&(peer, scheme));
                 self.resync_slots(peer);
             }
             // While our messages surely do not reach the peer, its new
@@ -1359,6 +1360,9 @@ impl Core {
             }
             Event::PeeringEnded { peer } => {
                 self.peerings_changed = true;
+                // Nothing more is funded: its paces go
+                // (spec/decisions/settle-by-request-rate.md).
+                self.settle.pace.retain(|(node, _), _| *node != peer);
                 self.remove_peer_endpoint(&peer);
                 self.update_routes();
             }
