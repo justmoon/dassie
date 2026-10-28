@@ -7113,3 +7113,7 @@ mod swapping;
 // The owner's payments over a settlement hub that the hub account alone
 // does not cover: the node deposits the shortfall from the owner book.
 mod deposit_on_demand;
+
+// The moves between a hub and its owner book while the hub account's own
+// operations race them.
+mod move_races;

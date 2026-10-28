@@ -16,7 +16,11 @@
 //!   ceiling; above the ceiling, it withdraws to the owner's own account
 //!   down to the midpoint, never below the floor: the hub keeps a float, and
 //!   the owner's funds are kept on the own account
-//!   (spec/decisions/one-balance-per-asset.md). Holds toward us count only
+//!   (spec/decisions/one-balance-per-asset.md). A withdrawal is sized from
+//!   what the account can still spend once the operations ahead of it
+//!   executed, as the hub scheme pays it ([`Standing::spendable`]), never
+//!   from an agreed state older than they are
+//!   (spec/decisions/hub-move-races.md). Holds toward us count only
 //!   from our peers, never a stranger's, which anyone may open, and they
 //!   grow by our peers' settlements alone, so only those can take the hub
 //!   past the ceiling, until they are taken and withdrawn.
@@ -33,7 +37,11 @@
 //!   account reaches that, failed only once the side it leaves says its
 //!   payment moved nothing, and on its way otherwise, however long, and
 //!   across restarts: the database keeps it. So no move is ever paid twice.
-//!   One that failed waits a backoff, doubling, before the next.
+//!   One that failed, or could not be made, holds back the next move its
+//!   way for a backoff, doubling ([`Backoff`]), and never a move the other
+//!   way: a deposit leaves the XRPL account and a withdrawal the hub, so
+//!   neither side that failed is asked again at every check, and a
+//!   withdrawal the hub refused never keeps the floor's deposit from going.
 //! - **Late.** A move on its way past a while (`CREDIT_WAIT_MS`) since the
 //!   XRP Ledger applied it, or since it was made, is late: the owner is told,
 //!   and nothing is paid again for it. A deposit the XRP Ledger applied and
@@ -86,6 +94,63 @@ pub enum Direction {
     Deposit,
     /// From the hub to the XRPL account.
     Withdraw,
+}
+
+/// What a failure holds back: nothing is tried before `not_before_ms`, and
+/// the next failure waits `wait_ms`, which doubles with each failure in a
+/// row, from [`FIRST_BACKOFF_MS`] to at most [`MAX_BACKOFF_MS`], and starts
+/// from the first wait again once a try succeeds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Backoff {
+    /// Nothing is tried before this.
+    not_before_ms: u64,
+    /// The wait after the next failure.
+    wait_ms: u64,
+}
+
+impl Backoff {
+    /// Nothing failed.
+    pub const fn new() -> Self {
+        Self {
+            not_before_ms: 0,
+            wait_ms: FIRST_BACKOFF_MS,
+        }
+    }
+
+    /// A try failed at `now_ms`: the next waits, and the one after a
+    /// further failure twice as long.
+    fn failed(&mut self, now_ms: u64) {
+        self.not_before_ms = now_ms.saturating_add(self.wait_ms);
+        self.wait_ms = self.wait_ms.saturating_mul(2).min(MAX_BACKOFF_MS);
+    }
+
+    /// A try succeeded: a later failure waits the first wait again.
+    const fn succeeded(&mut self) {
+        self.wait_ms = FIRST_BACKOFF_MS;
+    }
+
+    /// Until when it holds tries back at `now_ms`, if it does.
+    pub const fn holds(&self, now_ms: u64) -> Option<u64> {
+        if now_ms < self.not_before_ms {
+            Some(self.not_before_ms)
+        } else {
+            None
+        }
+    }
+
+    /// Its bounds at `now_ms`: the wait is between the first and the
+    /// longest, and no failure, which came at `now_ms` or before, holds
+    /// tries back past the longest wait from now.
+    fn check(&self, now_ms: u64) {
+        assert!(
+            (FIRST_BACKOFF_MS..=MAX_BACKOFF_MS).contains(&self.wait_ms),
+            "a backoff waits between the first and the longest wait"
+        );
+        assert!(
+            self.not_before_ms <= now_ms.saturating_add(MAX_BACKOFF_MS),
+            "a backoff holds back for at most the longest wait"
+        );
+    }
 }
 
 /// How long a check of a token hub's gas holds
@@ -174,6 +239,13 @@ pub struct Held {
 pub struct Standing {
     /// The hub account, once agreed.
     pub held: Option<Held>,
+    /// What a withdrawal made now could take of the hub account with its
+    /// fees, as the hub scheme pays it: the balance as the books hold it,
+    /// less what the operations waiting or on their way take, which
+    /// execute before it. The agreed state in [`Held`] says only every few
+    /// seconds what the node's own settlements took; a withdrawal sized
+    /// from it alone may be one the scheme refuses.
+    pub spendable: u64,
     /// Whether the hub says it has no account for the node's key.
     pub unfunded: bool,
     /// Whether the hub is unavailable, as a frozen token hub is: nothing
@@ -303,20 +375,18 @@ pub struct Funding {
     /// still show on the other side: the automatic moves wait for the owner
     /// until it is cleared.
     pub given_up: Option<(Direction, u64)>,
-    /// No automatic move before this: a failure's backoff.
-    not_before_ms: u64,
-    /// The wait after the next failure.
-    backoff_ms: u64,
+    /// What a failed deposit holds back: the next automatic deposit.
+    deposits: Backoff,
+    /// What a failed withdrawal holds back: the next automatic withdrawal.
+    withdrawals: Backoff,
     /// The next check.
     pub at_ms: u64,
     interval_ms: u64,
     /// The check of a token hub's gas before its next withdrawal.
     pub gas: Gas,
-    /// No check of the gas before this: a failed top-up's backoff, which
-    /// holds back no other move.
-    gas_not_before_ms: u64,
-    /// The wait after the next failed top-up.
-    gas_backoff_ms: u64,
+    /// What a failed top-up holds back: the next check of the gas, and no
+    /// other move.
+    gas_backoff: Backoff,
 }
 
 impl Funding {
@@ -327,14 +397,47 @@ impl Funding {
             paused_until_ms: 0,
             moving: None,
             given_up: None,
-            not_before_ms: 0,
-            backoff_ms: FIRST_BACKOFF_MS,
+            deposits: Backoff::new(),
+            withdrawals: Backoff::new(),
             at_ms: now_ms,
             interval_ms,
             gas: Gas::Unchecked,
-            gas_not_before_ms: 0,
-            gas_backoff_ms: FIRST_BACKOFF_MS,
+            gas_backoff: Backoff::new(),
         }
+    }
+
+    /// What a failure of a move `direction` holds back.
+    const fn backoff(&self, direction: Direction) -> &Backoff {
+        match direction {
+            Direction::Deposit => &self.deposits,
+            Direction::Withdraw => &self.withdrawals,
+        }
+    }
+
+    /// [`backoff`](Self::backoff), to change.
+    const fn backoff_mut(&mut self, direction: Direction) -> &mut Backoff {
+        match direction {
+            Direction::Deposit => &mut self.deposits,
+            Direction::Withdraw => &mut self.withdrawals,
+        }
+    }
+
+    /// Until when a failure holds the next automatic move `direction`
+    /// back at `now_ms`, if it does.
+    pub const fn backing_off(&self, direction: Direction, now_ms: u64) -> Option<u64> {
+        self.backoff(direction).holds(now_ms)
+    }
+
+    /// Its bounds at `now_ms`: each backoff's ([`Backoff`]), and the next
+    /// check at most an interval away.
+    pub fn check_invariants(&self, now_ms: u64) {
+        self.deposits.check(now_ms);
+        self.withdrawals.check(now_ms);
+        self.gas_backoff.check(now_ms);
+        assert!(
+            self.interval_ms > 0 && self.at_ms <= now_ms.saturating_add(self.interval_ms),
+            "the next check is at most an interval away"
+        );
     }
 
     /// Follows the move on its way: done once the account's counter
@@ -350,13 +453,15 @@ impl Funding {
             Direction::Withdraw => held.withdrawn,
         });
         if counter.is_some_and(|counter| counter >= moving.target) {
+            let direction = moving.direction;
             self.moving = None;
-            self.backoff_ms = FIRST_BACKOFF_MS;
+            self.backoff_mut(direction).succeeded();
             return true;
         }
         match standing.paying {
             OwnerPaymentState::Failed(_) | OwnerPaymentState::Cancelled => {
-                self.failed(now_ms);
+                let direction = moving.direction;
+                self.failed(now_ms, direction);
                 true
             }
             OwnerPaymentState::Applied
@@ -396,28 +501,32 @@ impl Funding {
         self.given_up = None;
     }
 
-    /// A move that failed, or could not be made: the next waits.
-    pub fn failed(&mut self, now_ms: u64) {
+    /// A move `direction` that failed, or could not be made: the next move
+    /// that way waits, and no move the other way.
+    pub fn failed(&mut self, now_ms: u64, direction: Direction) {
+        assert!(
+            self.moving
+                .is_none_or(|moving| moving.direction == direction),
+            "a move fails its own way"
+        );
         self.moving = None;
-        self.back_off(now_ms);
-    }
-
-    /// The next automatic move waits the backoff, which doubles.
-    fn back_off(&mut self, now_ms: u64) {
-        self.not_before_ms = now_ms.saturating_add(self.backoff_ms);
-        self.backoff_ms = self.backoff_ms.saturating_mul(2).min(MAX_BACKOFF_MS);
+        self.backoff_mut(direction).failed(now_ms);
     }
 
     /// The automatic move due now, if any: none while one is on its way,
     /// the owner turned them off or paused them, gave one up and has not
-    /// acted since, or a failure's backoff lasts. What the owner's
-    /// unfinished payments are still to pay out of the hub counts as gone
-    /// from it already: a deposit brings the rest back to the midpoint,
-    /// past the ceiling by what they need, and a withdrawal takes nothing
-    /// they need (spec/decisions/one-balance-per-asset.md). Payments the
-    /// owner's funds in the hub cannot cover are not held back by the
-    /// owner's pause, but then the deposit fills no more than the floor
-    /// and what they need, so it undoes nothing the owner moved.
+    /// acted since, or a failure of the last move the same way holds it
+    /// back. What the owner's unfinished payments are still to pay out of
+    /// the hub counts as gone from it already: a deposit brings the rest
+    /// back to the midpoint, past the ceiling by what they need, and a
+    /// withdrawal takes nothing they need
+    /// (spec/decisions/one-balance-per-asset.md). Payments the owner's
+    /// funds in the hub cannot cover are not held back by the owner's
+    /// pause, but then the deposit fills no more than the floor and what
+    /// they need, so it undoes nothing the owner moved. A withdrawal takes
+    /// no more than the account can still spend once the operations ahead
+    /// of it executed ([`Standing::spendable`]), less the floor and what
+    /// the payments need.
     pub fn due(&self, now_ms: u64, standing: &Standing) -> Option<Planned> {
         let promised = standing.promised;
         // What the payments need beyond the owner's funds in the hub.
@@ -427,16 +536,19 @@ impl Funding {
             || standing.unavailable
             || self.given_up.is_some()
             || !self.automatic
-            || (paused && deficit == 0)
-            || now_ms < self.not_before_ms;
+            || (paused && deficit == 0);
         if waiting {
             return None;
         }
+        let backing_off = |direction| self.backing_off(direction, now_ms).is_some();
         let Some(held) = standing.held else {
-            return opening(standing);
+            return opening(standing).filter(|_| !backing_off(Direction::Deposit));
         };
         let middle = standing.floor.midpoint(standing.ceiling);
         if held.balance < standing.floor.saturating_add(promised) || deficit > 0 {
+            if backing_off(Direction::Deposit) {
+                return None;
+            }
             let target = if paused { standing.floor } else { middle };
             let room = standing
                 .ceiling
@@ -460,20 +572,10 @@ impl Funding {
                 .then(|| Planned::deposit(drops, held.deposited, false));
         }
         if held.exposure > standing.ceiling.saturating_add(promised) {
-            let spare = held
-                .balance
-                .saturating_sub(promised)
-                .saturating_sub(standing.floor)
-                .saturating_sub(standing.withdrawal_fees)
-                .min(
-                    standing
-                        .hub_owner
-                        .saturating_sub(promised)
-                        .saturating_sub(standing.withdrawal_fees),
-                );
-            let drops = (held.exposure - promised - middle).min(spare);
-            return (drops >= standing.least_payout)
-                .then(|| Planned::withdraw(drops, standing.ledger_fee, held.withdrawn, false));
+            if backing_off(Direction::Withdraw) {
+                return None;
+            }
+            return withdrawal(&held, standing, middle);
         }
         None
     }
@@ -517,8 +619,8 @@ impl Funding {
     /// Until when a failed top-up holds the check of the gas back, while
     /// it does.
     pub const fn gas_backing_off(&self, now_ms: u64) -> Option<u64> {
-        if now_ms < self.gas_not_before_ms && matches!(self.gas, Gas::Unchecked) {
-            Some(self.gas_not_before_ms)
+        if matches!(self.gas, Gas::Unchecked) {
+            self.gas_backoff.holds(now_ms)
         } else {
             None
         }
@@ -541,7 +643,9 @@ impl Funding {
             return GasNext::Ready;
         }
         match self.gas {
-            Gas::Unchecked | Gas::Ready { .. } if now_ms < self.gas_not_before_ms => GasNext::Wait,
+            Gas::Unchecked | Gas::Ready { .. } if self.gas_backoff.holds(now_ms).is_some() => {
+                GasNext::Wait
+            }
             Gas::Unchecked | Gas::Ready { .. } => self.read_gas(seen.anchor, 0),
             Gas::Reading { after } => match seen.proven {
                 Some((drops, at)) if at >= after => {
@@ -598,7 +702,7 @@ impl Funding {
     /// from the first wait again.
     const fn gas_ready_now(&mut self, now_ms: u64) {
         self.gas = Gas::Ready { at_ms: now_ms };
-        self.gas_backoff_ms = FIRST_BACKOFF_MS;
+        self.gas_backoff.succeeded();
     }
 
     /// The node's top-up of the escrow's gas, of the shortfall a read
@@ -629,8 +733,7 @@ impl Funding {
     /// again after. The automatic moves wait for nothing but the check.
     pub fn gas_failed(&mut self, now_ms: u64) {
         self.gas = Gas::Unchecked;
-        self.gas_not_before_ms = now_ms.saturating_add(self.gas_backoff_ms);
-        self.gas_backoff_ms = self.gas_backoff_ms.saturating_mul(2).min(MAX_BACKOFF_MS);
+        self.gas_backoff.failed(now_ms);
     }
 
     /// Whether a check is due, and when the next is.
@@ -641,6 +744,51 @@ impl Funding {
         self.at_ms = now_ms.saturating_add(self.interval_ms);
         true
     }
+}
+
+/// The withdrawal of what the hub account `held` keeps past the ceiling,
+/// down to `middle`, if it is at least what the hub pays out: never more
+/// than the account can spend when it executes, as the hub scheme pays it
+/// ([`Standing::spendable`], which the agreed state may not show yet, and
+/// never more than that state's balance), less the floor, what the
+/// owner's payments need and its fees; nor than the owner's funds in the
+/// hub, less what the payments need and its fees.
+fn withdrawal(held: &Held, standing: &Standing, middle: u64) -> Option<Planned> {
+    let promised = standing.promised;
+    let fees = standing.withdrawal_fees;
+    let spendable = standing.spendable.min(held.balance);
+    let spare = spendable
+        .saturating_sub(promised)
+        .saturating_sub(standing.floor)
+        .saturating_sub(fees)
+        .min(
+            standing
+                .hub_owner
+                .saturating_sub(promised)
+                .saturating_sub(fees),
+        );
+    let drops = held
+        .exposure
+        .saturating_sub(promised)
+        .saturating_sub(middle)
+        .min(spare);
+    if drops == 0 || drops < standing.least_payout {
+        return None;
+    }
+    assert!(
+        drops
+            .saturating_add(fees)
+            .saturating_add(standing.floor)
+            .saturating_add(promised)
+            <= spendable,
+        "a withdrawal leaves the floor and what the payments need"
+    );
+    Some(Planned::withdraw(
+        drops,
+        standing.ledger_fee,
+        held.withdrawn,
+        false,
+    ))
 }
 
 /// The deposit that opens the account, once the hub says it has none for
@@ -655,7 +803,8 @@ mod tests {
     use super::*;
 
     /// A hub account with a floor of 400 000 drops and a ceiling of
-    /// 10 000 000, and plenty on the XRPL account.
+    /// 10 000 000, and plenty on the XRPL account, with no operation of its
+    /// own waiting or on its way.
     fn standing(balance: u64, exposure: u64) -> Standing {
         Standing {
             held: Some(Held {
@@ -664,6 +813,7 @@ mod tests {
                 deposited: 7,
                 withdrawn: 3,
             }),
+            spendable: balance,
             unfunded: false,
             unavailable: false,
             floor: 400_000,
@@ -900,6 +1050,96 @@ mod tests {
         assert_eq!(planned.drops, 2_000_000 - 110, "with its fees");
         high.hub_owner = 500_000;
         assert_eq!(funding.due(1, &high), None, "less than the hub pays out");
+    }
+
+    // spec/decisions/hub-move-races.md: a withdrawal takes no more than the
+    // account can spend once its own operations ahead of it executed, as
+    // the hub scheme pays it, though the agreed state shows more; none if
+    // that leaves less than the hub pays out above the floor.
+    #[test]
+    fn a_withdrawal_is_sized_from_what_the_account_can_still_spend() {
+        let funding = Funding::new(0, 4_000);
+        let high = standing(12_000_000, 14_000_000);
+        let full = funding.due(1, &high).unwrap();
+        assert_eq!(full.drops, 14_000_000 - 5_200_000);
+        let funded = Standing {
+            spendable: 3_000_000,
+            ..high
+        };
+        let planned = funding.due(1, &funded).unwrap();
+        assert_eq!(planned.direction, Direction::Withdraw);
+        assert_eq!(
+            planned.drops,
+            3_000_000 - 400_000 - 110,
+            "down to the floor"
+        );
+        let short = Standing {
+            spendable: 1_400_000,
+            ..high
+        };
+        assert_eq!(funding.due(1, &short), None, "less than the hub pays out");
+        let ahead = Standing {
+            spendable: 20_000_000,
+            ..high
+        };
+        assert_eq!(
+            funding.due(1, &ahead),
+            Some(full),
+            "never more than the agreed state's balance"
+        );
+    }
+
+    // spec/decisions/hub-move-races.md: a move that failed, or could not be
+    // made, holds back the next move its way, doubling, and never one the
+    // other way; one done that way starts its backoff from the first wait
+    // again, and leaves the other's as it was.
+    #[test]
+    fn a_failed_move_holds_back_only_its_own_way() {
+        let mut funding = Funding::new(0, 4_000);
+        let low = standing(100_000, 2_000_000);
+        let high = standing(12_000_000, 14_000_000);
+        funding.failed(10, Direction::Withdraw);
+        assert_eq!(funding.due(11, &high), None, "withdrawals wait");
+        assert_eq!(
+            funding.backing_off(Direction::Withdraw, 11),
+            Some(10 + FIRST_BACKOFF_MS)
+        );
+        assert_eq!(funding.backing_off(Direction::Deposit, 11), None);
+        let deposit = funding.due(11, &low).unwrap();
+        assert_eq!(deposit.direction, Direction::Deposit, "the floor's goes");
+
+        // The deposit fails as well: each way waits its own backoff.
+        funding.start(11, deposit, payment());
+        let mut failed = low;
+        failed.paying = OwnerPaymentState::Cancelled;
+        assert!(funding.follow(12, &failed));
+        assert_eq!(funding.due(13, &low), None, "deposits wait");
+        assert_eq!(
+            funding.backing_off(Direction::Deposit, 13),
+            Some(12 + FIRST_BACKOFF_MS)
+        );
+        let after = 10 + FIRST_BACKOFF_MS;
+        let withdrawal = funding.due(after, &high).unwrap();
+        assert_eq!(withdrawal.direction, Direction::Withdraw);
+        assert_eq!(funding.due(after, &low), None, "deposits still wait");
+
+        // The withdrawal fails again: its wait doubles, the deposit's not.
+        funding.failed(after, Direction::Withdraw);
+        assert_eq!(
+            funding.backing_off(Direction::Withdraw, after),
+            Some(after + 2 * FIRST_BACKOFF_MS)
+        );
+        let later = 12 + FIRST_BACKOFF_MS;
+        let deposit = funding.due(later, &low).unwrap();
+        funding.start(later, deposit, payment());
+        assert!(funding.follow(later, &counted(low, deposit.target, 3)));
+        funding.failed(later, Direction::Deposit);
+        assert_eq!(
+            funding.backing_off(Direction::Deposit, later),
+            Some(later + FIRST_BACKOFF_MS),
+            "done, so from the first wait again"
+        );
+        funding.check_invariants(later);
     }
 
     // An owner's move pauses the automatic ones; turned off, none is made.
