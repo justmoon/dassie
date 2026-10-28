@@ -806,16 +806,16 @@ impl Quic {
             return result;
         }
         // Verified: of it and the kept one, the one the node keeps too
-        // survives, and the other closes. The node keeps the one the lower
-        // node ID opened, and of two the same node opened, the one it holds
-        // ([`keep_inbound`](Self::keep_inbound)): so ours replaces the kept
-        // one only if we have the lower ID and the node opened that one, and
-        // the node has switched to ours already.
+        // survives, and the other closes. The node keeps what it holds only
+        // if the lower node ID opened it, and takes ours in its place
+        // otherwise ([`keep_inbound`](Self::keep_inbound)): so the kept one
+        // stays only if the lower ID opened it, and ours, which the node has
+        // switched to already, replaces it any other way.
         let lower = self.keys.current().is_some_and(|(own, _)| own < request.to);
         let mut held = place.lock().await;
         let keeps_old = held
             .as_ref()
-            .is_some_and(|kept| kept.is_open() && (kept.ours || !lower));
+            .is_some_and(|kept| kept.is_open() && kept.ours == lower);
         if keeps_old {
             drop(held);
             connection.close(0u32.into(), b"");

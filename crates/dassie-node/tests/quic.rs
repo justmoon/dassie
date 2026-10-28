@@ -744,3 +744,61 @@ async fn the_far_side_of_a_fresh_request_still_reaches_us() {
     }
     shutdown.cancel();
 }
+
+// Review of #688: whichever node holds its own dial, and whichever has the
+// lower ID, a fresh request leaves both on the same connection, and the far
+// side's requests keep going across it: the kept one stays if the lower ID
+// opened it, and the fresh one, which the far side took at once, replaces
+// it any other way.
+#[tokio::test]
+async fn both_keep_one_connection_across_a_fresh_request() {
+    let shutdown = CancellationToken::new();
+    let client = client();
+    for (checker, checked) in [(21, 22), (22, 21)] {
+        for checker_dialled in [true, false] {
+            let (up, down) = (side(checker, &shutdown), side(checked, &shutdown));
+            if checker_dialled {
+                up.quic
+                    .send(&request(&down, b"open".to_vec()), &client)
+                    .await
+                    .unwrap();
+            } else {
+                down.quic
+                    .send(&request(&up, b"open".to_vec()), &client)
+                    .await
+                    .unwrap();
+            }
+            let fresh = Request {
+                fresh: true,
+                ..request(&down, b"check".to_vec())
+            };
+            let response = send_peer(Some(Arc::clone(&up.quic)), &client, fresh)
+                .await
+                .unwrap();
+            assert_eq!(response.body, b"check");
+            for n in 0..3u8 {
+                let response = down
+                    .quic
+                    .send(&request(&up, vec![n]), &client)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.body,
+                    vec![n],
+                    "the checked node reaches the checker"
+                );
+                let response = up
+                    .quic
+                    .send(&request(&down, vec![n]), &client)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.body,
+                    vec![n],
+                    "the checker reaches the checked node"
+                );
+            }
+        }
+    }
+    shutdown.cancel();
+}
