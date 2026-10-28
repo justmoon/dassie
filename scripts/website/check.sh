@@ -12,9 +12,11 @@
 #   apps/website/headers.json, which the backend bucket adds: a bucket
 #   provisioned with other headers fails here, after the deploy;
 # - pages are revalidated, and assets cached for good;
-# - every page the header links to is there, and its path without its
+# - every page the home page links to is there, and its path without its
 #   slash redirects to the path with it, with a 308 from the load
 #   balancer's rule for it, not the bucket's own redirect to index.html;
+# - every page that moved (MOVED in apps/website/src/docs.ts): its old
+#   path, with its slash and without, redirects to the new one with a 308;
 # - the STREAM toy's WebAssembly is served as application/wasm.
 set -eu
 
@@ -70,8 +72,8 @@ case $(header cache-control) in
   *) fail "/: Cache-Control '$(header cache-control)' does not revalidate" ;;
 esac
 
-# Every page the header links to: its path without the slash redirects to
-# the path with it, and the page is there.
+# Every page the home page links to, the header's among them: its path
+# without the slash redirects to the path with it, and the page is there.
 pages=$(grep -oE 'href="/[a-z0-9/-]+/"' "$work/body" | sed -E 's/^href="(.*)"$/\1/' | sort -u)
 [ -n "$pages" ] || fail "/: links to no page"
 for page in $pages; do
@@ -85,6 +87,24 @@ for page in $pages; do
   fetch "$page" "$@"
   [ "$(status)" = 200 ] || fail "$page: status $(status)"
 done
+
+# Every page that moved: its old path, with the slash and without,
+# redirects to its new one. The list is MOVED's entries, one per line, as
+# `{ from: "<old>", to: "<new>" }`.
+grep -oE '\{ from: "/[a-z0-9/-]+/", to: "/[a-z0-9/-]+/" \}' \
+  "$here/../../apps/website/src/docs.ts" \
+  | sed -E 's/^\{ from: "([^"]*)", to: "([^"]*)" \}$/\1 \2/' > "$work/moved"
+[ -s "$work/moved" ] || fail "apps/website/src/docs.ts: no moved pages found in MOVED"
+while read -r from to; do
+  for old in "${from%/}" "$from"; do
+    fetch "$old" "$@"
+    [ "$(status)" = 308 ] || fail "$old: status $(status), not a 308"
+    case $(header location) in
+      "$to" | https://dassie.land"$to" | https://dassie.land:443"$to") ;;
+      *) fail "$old: redirects to '$(header location)', not $to" ;;
+    esac
+  done
+done < "$work/moved"
 
 fetch /tools/stream-toy/ "$@"
 [ "$(status)" = 200 ] || fail "/tools/stream-toy/: status $(status)"

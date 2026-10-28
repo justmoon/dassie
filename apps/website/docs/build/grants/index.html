@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="What an Open Payments grant may ask for on a Dassie node, how its limits are spent, and where a node differs from other servers."
+    />
+    <title>Grants and limits · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Grants and limits</h1>
+      <p class="lede">
+        A grant is what your app holds to act on a node's wallet addresses.
+        This page lists what a grant may ask for, when the owner must agree,
+        how limits are counted, and the few places where a Dassie node is
+        stricter than the Open Payments specs require.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="what-a-grant-may-ask-for">What a grant may ask for</h2>
+      <p>
+        A grant request names up to three access items. Each has a type, its
+        actions, and for some types a wallet address and limits:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Actions</th>
+              <th><code>identifier</code></th>
+              <th><code>limits</code></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>incoming-payment</code></td>
+              <td>
+                <code>create</code>, <code>complete</code>, <code>read</code>,
+                <code>read-all</code>, <code>list</code>,
+                <code>list-all</code>
+              </td>
+              <td>Optional; without one, every wallet address of the node</td>
+              <td>None</td>
+            </tr>
+            <tr>
+              <td><code>outgoing-payment</code></td>
+              <td>
+                <code>create</code>, <code>read</code>, <code>read-all</code>,
+                <code>list</code>, <code>list-all</code>
+              </td>
+              <td>Required</td>
+              <td>Optional, <a href="#limits">below</a></td>
+            </tr>
+            <tr>
+              <td><code>quote</code></td>
+              <td>
+                <code>create</code>, <code>read</code>, <code>read-all</code>
+              </td>
+              <td>None</td>
+              <td>None</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li>
+          Each action appears once in an item, and each item once in a
+          request.
+        </li>
+        <li>
+          The <code>-all</code> actions include their plain forms, and reach
+          what other clients made too. The plain ones reach only what your
+          app made.
+        </li>
+        <li>
+          An <code>identifier</code> must be one of this node's wallet
+          addresses, under any of its names. The node records it in its
+          <code>/pay/&lt;asset&gt;</code> form, so
+          <code>/.well-known/pay</code> and <code>/pay/xrp</code> are the same
+          wallet address when XRP is the default.
+        </li>
+        <li>
+          Only one item per wallet address may allow creating outgoing
+          payments, so that it is always clear which limits apply.
+        </li>
+        <li>
+          A subject request, asking the node to prove a wallet address, takes
+          one identity, a wallet address URL.
+        </li>
+        <li>Card authorization is not offered: a node has no cards.</li>
+      </ul>
+
+      <h2 id="when-the-owner-decides">When the owner decides</h2>
+      <p>
+        Some grants move the owner's money or show more than your app's own
+        resources, so they wait for the owner. The rest are approved at once.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>The request holds</th>
+              <th>Approved</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Any <code>outgoing-payment</code> item</td>
+              <td>By the owner</td>
+            </tr>
+            <tr>
+              <td>Any <code>list-all</code> action</td>
+              <td>By the owner</td>
+            </tr>
+            <tr>
+              <td><code>read-all</code> on quotes</td>
+              <td>By the owner</td>
+            </tr>
+            <tr>
+              <td>A subject request</td>
+              <td>By the owner</td>
+            </tr>
+            <tr>
+              <td>
+                Anything else, <code>read-all</code> on incoming payments
+                included
+              </td>
+              <td>At once</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Reading any incoming payment needs no owner: a sender's wallet reads a
+        payment it did not create to learn how to pay it, and the payment
+        shows only what paying needs.
+      </p>
+      <p>A grant that waits for the owner must:</p>
+      <ul>
+        <li>
+          ask to interact, with <code>"start": ["redirect"]</code>, and, if it
+          names a finish, <code>"method": "redirect"</code>, a URI without a
+          fragment and a nonce of 1 to 256 bytes;
+        </li>
+        <li>
+          name your app by its wallet address. A client known only by its key
+          gets <code>400 invalid_client</code>, since the owner must see who
+          asks.
+        </li>
+      </ul>
+      <p>
+        The owner sees the request on a consent page in their wallet, which
+        says what each side of a payment comes to, as far as it is known.
+        <a href="/docs/wallet/grants/">Connect apps</a> shows that side.
+      </p>
+      <p class="not-yet">
+        Consent through a front door is not there yet: a node reached at
+        <code>&lt;node ID&gt;.dassiepay.net</code> cannot yet approve a grant
+        that waits for its owner.
+        <a href="/docs/project/roadmap/#periphery">What's next</a>
+      </p>
+
+      <h2 id="limits">Limits on outgoing payments</h2>
+      <p>
+        An <code>outgoing-payment</code> item may limit what its payments
+        debit, what they deliver, which incoming payment they pay, and over
+        which interval:
+      </p>
+      <dl class="ref">
+        <dt id="debitAmount"><code>debitAmount</code></dt>
+        <dd>
+          <p>
+            The most the payments may debit from the wallet address, every fee
+            and exchange on the way included. On an item that may create
+            payments, it must be in the wallet address's own asset and scale.
+            A limit in another asset there is refused with
+            <code>400 invalid_request</code>, whose description names the
+            asset it must be in, since no payment could ever fit it. An item
+            that only reads or lists is not checked for it.
+          </p>
+        </dd>
+        <dt id="receiveAmount"><code>receiveAmount</code></dt>
+        <dd>
+          <p>
+            The most the payments may deliver, as their receivers count it.
+            It is taken only beside a <code>debitAmount</code>: a limit on
+            what is delivered alone is refused, since it puts no bound on what
+            the owner pays.
+          </p>
+          <p>
+            A receive limit in another asset than the receiver it names is
+            not refused: the owner sees a warning on the consent page, and a
+            payment that cannot fit it is refused when it is made.
+          </p>
+        </dd>
+        <dt id="receiver"><code>receiver</code></dt>
+        <dd>
+          <p>
+            The only incoming payment the grant may pay: an incoming payment's
+            URL, without a query or a fragment. On an item that only reads or
+            lists, it narrows what the item reaches.
+          </p>
+        </dd>
+        <dt id="interval"><code>interval</code></dt>
+        <dd>
+          <p>
+            An ISO 8601 repeating interval, such as
+            <code>R/2026-10-28T09:00:00Z/P1D</code> for every day from that
+            moment. The amounts apply to each window again. Without one, they
+            apply to all time. Windows are counted as the reference server,
+            Rafiki, counts them, so a month from January 31 ends on
+            February 28. Each window must last at least a minute. No payment
+            may be made before the first window or after the last.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        Amounts are strings of whole units at the asset's scale, and must be
+        above zero.
+      </p>
+      <aside class="note">
+        <p>
+          <code>@interledger/open-payments</code> 7.4.0, the version Dassie's
+          tests run, refuses a request with both a <code>debitAmount</code>
+          and a <code>receiveAmount</code>, since the Open Payments specs are
+          only changing to allow it. To ask for both, sign the grant request
+          yourself, with <code>createHeaders</code> from
+          <code>@interledger/http-signature-utils</code>, and post it.
+        </p>
+      </aside>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/receive-limit-alone.md">Why it works this way</a>:
+        why a receive limit alone is refused.
+      </p>
+
+      <h2 id="how-limits-are-spent">How limits are spent</h2>
+      <ul>
+        <li>
+          <strong>Reserved when a payment is made.</strong> An outgoing
+          payment takes its amounts from the window it is made in. One that
+          would pass a limit is refused with <code>403 invalid_request</code>.
+        </li>
+        <li>
+          <strong>Given back when it ends.</strong> What a payment did not
+          send goes back to the window. If it failed, so does what it did not
+          deliver.
+        </li>
+        <li>
+          <strong>A receive limit caps the money, not only the books.</strong>
+          Under a grant with a <code>receiveAmount</code>, a payment delivers
+          no more than its own receive amount, even when its quote fixed what
+          it debits. It may then finish without debiting all of its
+          <code>debitAmount</code>.
+        </li>
+        <li>
+          <strong>What the window has spent</strong> comes back when your app
+          creates a payment, in <code>grantSpentDebitAmount</code> and
+          <code>grantSpentReceiveAmount</code>, and at any time from
+          <code>GET /outgoing-payment-grant</code>, which the client library
+          calls <code>outgoingPayment.getGrantSpentAmounts</code>.
+        </li>
+        <li>
+          <strong>The node checks the funds too.</strong> What the owner has
+          free on that ledger must cover the payment and what the payments
+          still sending there have left to send. Otherwise it is refused with
+          <code>400 invalid_request</code>.
+        </li>
+      </ul>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/receive-limit-caps-delivery.md">Why it works this way</a>:
+        why a receive limit caps what payments deliver.
+      </p>
+
+      <h2 id="what-a-grant-spends-from">What a grant spends from</h2>
+      <p>
+        A wallet address books on the ledger its asset arrives on: on the
+        testnet, the node's account in a settlement hub. So a grant to pay
+        from <code>/pay/xrp</code> spends what the node holds in its XRP hub.
+        An owner who keeps received money on their own XRP Ledger account
+        leaves only the hub's working balance there, and a grant can spend
+        only that.
+      </p>
+      <p>
+        <a href="/docs/concepts/hubs/">Settlement hubs</a> and
+        <a href="/docs/concepts/ledgers/">Ledgers, books and realms</a>
+        explain where a node keeps money.
+      </p>
+
+      <h2 id="tokens-and-time">Tokens and time</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>What</th>
+              <th>How long</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>An access token</td>
+              <td>
+                One hour. Rotate it at its <code>manage</code> URL, or ask
+                again.
+              </td>
+            </tr>
+            <tr>
+              <td>A grant that waits for the owner</td>
+              <td>Ten minutes, then it lapses</td>
+            </tr>
+            <tr>
+              <td>The wait before you continue a grant</td>
+              <td>Five seconds, as <code>continue.wait</code> says</td>
+            </tr>
+            <tr>
+              <td>A quote</td>
+              <td>Five minutes</td>
+            </tr>
+            <tr>
+              <td>An outgoing payment</td>
+              <td>Ten minutes at most, then it fails</td>
+            </tr>
+            <tr>
+              <td>An incoming payment your app creates</td>
+              <td>A day by default, seven days at most</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li>
+          <strong>A grant is bound to your app's key.</strong> Every later
+          request under it must be signed with that key, so a stolen token is
+          of no use alone.
+        </li>
+        <li>
+          <strong>The node keeps tokens only as hashes,</strong> and cannot
+          show one again.
+        </li>
+        <li>
+          <strong>The owner can revoke a grant</strong> at any time, on the
+          wallet's Connected Apps page. Its tokens get
+          <code>401 unauthorized</code> from then on.
+        </li>
+      </ul>
+
+      <h2 id="room-for-clients">Room for clients</h2>
+      <p>
+        Anyone can be a client, so a node keeps room for its owner and for the
+        apps the owner already approved. When strangers fill their share, a
+        new stranger is refused, never the owner.
+      </p>
+      <ul>
+        <li>
+          <strong>Requests</strong> are rate-limited per client address, with
+          a tighter limit on whatever creates something: grants, incoming
+          payments, quotes and outgoing payments. Past it, you get
+          <code>429 too_many_requests</code>.
+        </li>
+        <li>
+          <strong>Grants.</strong> An app the owner has not approved before
+          is a stranger, counted by its wallet address and by its network, an
+          IPv4 /24 or an IPv6 /56. Each may hold only a small share of the
+          grants kept and of the grants waiting for the owner: past it,
+          <code>429 too_many_requests</code>. When a whole pool is full,
+          <code>503 request_denied</code>: try again later.
+        </li>
+        <li>
+          <strong>Incoming payments.</strong> Clients' open incoming payments
+          are bounded apart from the owner's. When clients' share is full, the
+          oldest one that has received nothing is closed to make room.
+        </li>
+        <li>
+          <strong>Quotes.</strong> Clients' quotes share the probes that
+          measure routes, and a few are kept for the owner alone.
+        </li>
+      </ul>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/owners-share.md">Why it works this way</a>
+      </p>
+
+      <h2 id="where-dassie-differs">Where Dassie differs</h2>
+      <p>
+        A node implements Open Payments as its specs define it. Where the
+        specs leave a choice, or another server may be more lenient, a
+        Dassie node:
+      </p>
+      <ul>
+        <li>refuses a limit on what is received alone;</li>
+        <li>
+          caps what payments deliver under a receive limit, not only what
+          they reserve;
+        </li>
+        <li>
+          refuses a debit limit in another asset than its wallet address's,
+          on an item that may create payments;
+        </li>
+        <li>
+          takes at most three access items, and one item per wallet address
+          that creates outgoing payments;
+        </li>
+        <li>needs windows of at least a minute;</li>
+        <li>
+          asks the owner for <code>list-all</code> and for
+          <code>read-all</code> on quotes, but not for <code>read-all</code>
+          on incoming payments;
+        </li>
+        <li>
+          refuses a client known only by its key for a grant the owner must
+          approve;
+        </li>
+        <li>offers no card authorization, and no SPSP.</li>
+      </ul>
+      <p>
+        The <a href="/docs/reference/open-payments/">Open Payments endpoints</a>
+        reference lists the routes, and
+        <a href="/docs/build/open-payments/">Accept payments with Open Payments</a>
+        walks through a grant end to end.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/payments.md#what-a-grant-allows">Why it works this way</a>
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

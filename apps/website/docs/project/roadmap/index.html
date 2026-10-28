@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="What Dassie does not do yet, in plain words: real money, mainnet hubs, names, nodes without a public IP, setup in the wallet, and more."
+    />
+    <title>What's next · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>What's next</h1>
+      <p class="lede">
+        Dassie is early. This page lists what it does not do yet, so you know
+        where the edges are. The work has no numbered milestones: each area
+        moves forward on its own, side by side with the others.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm. <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <p>
+        The full list, with what "done" means for each area, is the
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/roadmap.md">roadmap in the specification</a>.
+        This page says the same in plain words, and leaves out the internals.
+      </p>
+
+      <h2 id="real-money">Real money</h2>
+      <p>
+        Every node refuses the live realm, so nobody can put real money into
+        Dassie yet. It stays that way until every condition on a short list
+        holds. Still left: the node checking the XRP Ledger's validators in a
+        few more cases, a live node that takes none of the testnet's
+        defaults, settlement hubs on mainnet, a mainnet list of bootstrap
+        nodes, and an external security review.
+        <a href="/docs/start/early-days/#before-real-money">Early days</a>
+        lists every condition and where each stands.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/real-money.md">Why it works this way</a>:
+        each condition closes a way that real money could be lost.
+      </p>
+
+      <h2 id="public-testnet">The public testnet</h2>
+      <p>
+        The testnet was set up again for 0.3.0. Its four bootstrap nodes,
+        <code>boot1</code> to <code>boot4</code>, are built in, and so are
+        its XRP hub and its DSUSD hub, which those four keep. The project
+        also runs the front door at <code>dassiepay.net</code>, which a node
+        without a hostname keeps as its relay by default, so that it is
+        reached at <code>&lt;node ID&gt;.dassiepay.net</code>. A new node
+        finds the network on its own, and <code>dassie setup</code> joins
+        the XRP hub.
+      </p>
+      <p>
+        The testnet still has no domain of its own. Later, its names move to
+        <code>test.dassiepay.net</code>, so that <code>dassiepay.net</code>
+        is left for the live realm.
+      </p>
+
+      <h2 id="hubs">Settlement hubs</h2>
+      <p>
+        Peers settle over <a href="/docs/concepts/hubs/">settlement hubs</a>,
+        and the node runs as a hub's member and as one of its validators
+        today. On the testnet, an XRP hub and a DSUSD hub run, kept by the
+        four bootstrap nodes. Still to come:
+      </p>
+      <ul>
+        <li>
+          hubs on mainnet, for XRP and for RLUSD: their schemes are built,
+          but no hub runs there yet, so none is built in;
+        </li>
+        <li>
+          for owners: closing your account in a hub, setting the floor and
+          ceiling your node keeps it between, and moving to another hub of
+          the same asset;
+        </li>
+        <li>
+          for validators: keeping their history across a restart, and a few
+          rarer steps when a hub's validators change;
+        </li>
+        <li>
+          founding: replacing a validator that fails before the hub starts,
+          and following a founding in the wallet;
+        </li>
+        <li>hub balances and holds in the desktop app;</li>
+        <li>
+          once hubs run for a while: fees that follow how busy a hub is,
+          several hubs of one asset per node, and putting what a node earns
+          into its holds.
+        </li>
+      </ul>
+
+      <h2 id="names">Names</h2>
+      <p>
+        <a href="/docs/concepts/names/">Names</a> are built, and on the
+        testnet they are free, held for your node by a quorum of the
+        bootstrap nodes. A name reaches a node through a front door: a node
+        without a hostname is reached at
+        <code>&lt;name&gt;.dassiepay.net</code>, through the front door it
+        keeps as its relay by default. Testnet names may be reset at any
+        time. A live node has no names. Next:
+      </p>
+      <ul>
+        <li>
+          fees for names and for registering a node, so that nobody can
+          take every good name for free; with them, names on the live realm;
+        </li>
+        <li>
+          showing in the wallet who holds the names your node looks up, and
+          the payment address each of your names gives;
+        </li>
+        <li>moving a name to a new node ID when you move to a new node.</li>
+      </ul>
+
+      <h2 id="periphery">Nodes without a public IP</h2>
+      <p>
+        A node without a public IP joins as a
+        <a href="/docs/concepts/core-and-periphery/">periphery node</a>: it
+        connects to core nodes as its uplinks, gets addresses beneath them,
+        and is reached through a relay, by default the front door at
+        <code>dassiepay.net</code>. That works today, over UDP or, where
+        UDP is blocked, a WebSocket, through an HTTP proxy where the network
+        sets one. Not there yet:
+      </p>
+      <ul>
+        <li>dialing a lost uplink again with a backoff;</li>
+        <li>
+          <strong>becoming core.</strong> Today a node with a hostname is a
+          core node and one without is a periphery node. Later, every node
+          starts in the periphery and is promoted once it has shown it can
+          be relied on;
+        </li>
+        <li>
+          <strong>front doors:</strong> the consent page for apps that ask to
+          spend from your wallet, your own domain pointed at a front door,
+          your names as a wallet setting, and rate limits per client behind
+          a front door;
+        </li>
+        <li>
+          <strong>owner apps.</strong> The node pairs apps today
+          (<code>dassie pair</code>), but the apps themselves, a remote mode
+          of the desktop app and a mobile app, are still to be built;
+        </li>
+        <li>
+          <strong>the desktop app beyond Linux and Nix:</strong> AppImage,
+          .deb and Flatpak packages, macOS and Windows, and updates of its own
+          (<a href="/docs/desktop/platforms/">Other platforms</a>);
+        </li>
+        <li>receivers that need no deposit of their own, and nodes that run in a browser.</li>
+      </ul>
+
+      <h2 id="onboarding">Setting up in the wallet</h2>
+      <p>
+        Today you set a node up with your recovery phrase and a first ledger, and
+        every other choice is a default. A guided setup in the wallet is to
+        walk you through each choice that matters, and what it costs. One
+        of them is your relay. A node without a hostname keeps a
+        connection to the project's front door at <code>dassiepay.net</code>
+        by default, unless its owner says otherwise in
+        <code>DASSIE_RELAY</code>. The front door then learns when your
+        node is online, and reads the Open Payments requests it passes on. The guided setup is to say so, and
+        let you keep it, name another relay, or keep none. Until then,
+        <a href="/docs/desktop/reach/#another-relay-or-none">How others
+        reach you</a> shows how to choose.
+      </p>
+
+      <h2 id="rates-and-swaps">Exchange rates</h2>
+      <p>
+        A node's holdings drift as it forwards payments. Today, peers swap
+        assets with each other at the prices in each other's signed
+        snapshots, which brings them back toward balance. What is left is
+        where the rates come from. A node takes its
+        <a href="/docs/concepts/rates/">exchange rates</a> today from
+        exchanges and the European Central Bank, whose terms allow personal
+        or internal use. Next, it takes XRP's rate from mainnet's XRP/RLUSD
+        pool, proven against validated ledgers, and the other currencies'
+        from four central banks.
+      </p>
+
+      <h2 id="xrp-ledger">Checking the XRP Ledger</h2>
+      <p>
+        A node proves what it reads from the XRP Ledger against ledgers its
+        own list of validators signed, with the project's proof servers
+        answering. Left: signing only from a fresh anchor, a few more cases in
+        the simulations, offering the proof servers' patch to rippled, and
+        riding out validators that go offline as rippled does. Issuer
+        transfer fees on tokens are not handled yet: while an issuer charges
+        one, the node does not pay from that token.
+      </p>
+
+      <h2 id="kopje">Kopje everywhere</h2>
+      <p>
+        This site draws in Kopje, Dassie's
+        <a href="/brand/">visual identity</a>. The wallet and the desktop
+        app's icons and tray do not yet.
+      </p>
+
+      <h2 id="smaller-gaps">Smaller gaps</h2>
+      <ul>
+        <li>
+          <strong>ILP over HTTP.</strong> The node speaks BTP and Open
+          Payments to clients, but serves no <code>/ilp</code> route.
+        </li>
+        <li>
+          <strong>Post-quantum TLS.</strong> The node's TLS uses classical key
+          exchange only. Each node ID already commits to a post-quantum key,
+          which signs nothing yet.
+        </li>
+        <li>
+          <strong>Limits per ledger.</strong> The largest packet, and the
+          thresholds counted in it, are one value for the whole node, not one
+          per ledger.
+        </li>
+        <li>
+          <strong>Live status in the wallet.</strong> The wallet asks the node
+          for its status and hubs every few seconds, instead of following a
+          stream.
+        </li>
+        <li>
+          <strong>A gentle shutdown.</strong> On stop, the node does not wait
+          for payments in flight to finish. After the restart they count as
+          rejected.
+        </li>
+        <li>
+          <strong>Peers over a node's lifetime.</strong> A node keeps the
+          accounts of every peer it ever had in memory, which caps how many
+          peers it can have in its life at a few thousand.
+        </li>
+        <li>
+          <strong>Pre-releases.</strong> There is one release channel, and
+          no release candidates.
+        </li>
+      </ul>
+
+      <h2 id="how-its-built">How Dassie is tested and released</h2>
+      <ul>
+        <li>
+          <strong>Continuous simulation.</strong> A campaign already runs the
+          simulations from random seeds and files an issue for each new
+          failure. Next: wider random configurations in more simulations,
+          and, once a live network runs on Dassie's releases, a release that
+          waits until the campaign has cleared it.
+        </li>
+        <li>
+          <strong>Rebuilding releases.</strong> Each release is built once,
+          then signed. Next, a second builder builds it again and signing
+          waits until the bytes match.
+        </li>
+      </ul>
+
+      <h2 id="further-out">Further out</h2>
+      <p>
+        Some designs stay future work, and the architecture must leave room
+        for them: a way to pay for messages between nodes with tokens, a
+        private transport between peers over UDP, and a wallet that does not
+        have to trust the node that serves it.
+      </p>
+
+      <h2 id="follow-along">Following along</h2>
+      <p>
+        The <a href="https://github.com/justmoon/dassie/blob/main/spec/roadmap.md">roadmap</a>
+        changes as work lands, and <a href="/docs/reference/releases/">Release notes</a>
+        say what each release brought. The reasons behind each piece of work
+        are in the <a href="/docs/project/decisions/">design decisions</a>.
+        To talk about any of it, or to help, come to
+        <a href="https://discord.gg/HqdGNfs9kq">Discord</a> or read
+        <a href="/docs/project/contributing/">Contributing</a>.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

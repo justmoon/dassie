@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Create a BTP token for an ILP client that connects to your node, cap what it may spend, and revoke it."
+    />
+    <title>API keys · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>API keys</h1>
+      <p class="lede">
+        An API key lets an Interledger client, such as a script using
+        <code>ilp-plugin-btp</code>, connect to your node and send and receive
+        payments with your money. Here is how to make one, cap it and take it
+        back.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="what-a-key-is">What a key is</h2>
+      <p>
+        The wallet calls them API keys and BTP tokens: the same thing. Each
+        token belongs to one of your ledgers. A client that connects with it
+        pays out of your money on that ledger, and what it receives is yours
+        too. Anyone who has the token can do that, so treat it like a
+        password, and give it a cap unless you trust the client with
+        everything on that ledger.
+      </p>
+      <p>
+        Apps that work through Open Payments do not need a key: they ask for
+        a grant, which you approve in the wallet. See
+        <a href="/docs/wallet/grants/">Connect apps</a>.
+      </p>
+
+      <h2 id="creating">Create a key</h2>
+      <ol class="steps">
+        <li>
+          Open <strong>Settings</strong>, and find the
+          <strong>API Keys</strong> card.
+        </li>
+        <li>
+          Under <strong>Create BTP Token</strong>, give it a
+          <strong>Label</strong> you will recognize later, such as the
+          client's name. It is at most 64 characters.
+        </li>
+        <li>
+          Choose the <strong>Ledger</strong>, by its ID, such as
+          <code>hub-xrpl-testnet-xrp+xrp</code>. The client pays and is paid in
+          that ledger's currency.
+        </li>
+        <li>
+          Set a <strong>Spending cap</strong> and how often it renews,
+          <strong>Per</strong> hour, day or week. Leave the amount empty for
+          no cap.
+        </li>
+        <li>Select <strong>Create BTP Token</strong>.</li>
+        <li>
+          A dialog shows the <strong>Token</strong> and the
+          <strong>URL</strong>. Select <strong>Copy BTP URL</strong> and put it
+          in your client's configuration.
+        </li>
+      </ol>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> The token is shown only this once. Your
+          node keeps only a hash of it and cannot show it again. If you lose
+          it, revoke the key and make a new one.
+        </p>
+      </aside>
+      <p>The URL holds the token and your node's address:</p>
+      <pre><code><span class="output">btp+wss://:&lt;token&gt;@node.example.com/btp</span></code></pre>
+      <p>
+        A node that serves HTTPS on another port than 443 has the port in the
+        URL too. On a node without a domain name, such as the desktop app,
+        the URL names <code>localhost</code>, so the client has to run on the
+        same machine. To connect a client, see
+        <a href="/docs/build/btp/">Connect an ILP client over BTP</a>.
+      </p>
+      <p>
+        A key connects clients only while your node runs the ledger it
+        belongs to. A key whose ledger does not run, such as one of a scheme
+        your node no longer offers, stays listed for you to see and revoke,
+        but no client connects with it.
+      </p>
+
+      <h2 id="caps">Caps</h2>
+      <p>
+        A cap is the most a key may spend per hour, day or week. It refills
+        smoothly rather than all at once: a key capped at 10 a day that spent
+        10 has about 5 again twelve hours later. Over any stretch of time, a
+        key spends at most its cap once, plus the cap's share of the time
+        that passed.
+      </p>
+      <ul>
+        <li>
+          Only money that leaves you counts: payments out to your peers.
+          Paying your own node, or another key's client, moves none of your
+          money out, and does not count.
+        </li>
+        <li>
+          Payments still under way count as spent, until they finish.
+        </li>
+        <li>
+          All of a key's connections share its one cap.
+        </li>
+        <li>
+          A payment that would go over the cap is refused. The client sees an
+          Interledger error: <code>T04</code> while the cap is used up, or
+          <code>F08</code> for a single packet larger than the whole cap.
+          See <a href="/docs/build/errors/">Error codes</a>.
+        </li>
+      </ul>
+      <p>
+        Each key in the list shows its cap, such as
+        <em>Cap: XRP 10.00 per day</em>, a meter of how much is used, and how
+        much is left. Select <strong>Set a cap</strong> or
+        <strong>Edit cap</strong> to change it, or
+        <strong>Remove cap</strong> to lift it. A cap you set is in the
+        ledger's currency.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/connector.md#spending-caps">Why it works this way</a>:
+        how a cap refills, and what counts against it.
+      </p>
+
+      <h2 id="reading-the-list">Reading the list</h2>
+      <p>
+        Each key shows its label, its ledger, when you made it, how many
+        clients are connected with it now, and what it received net: what
+        came in through it less what went out, negative once it has spent
+        more than it took in. A label left empty shows as
+        <em>unnamed</em>.
+      </p>
+
+      <h2 id="revoking">Revoke a key</h2>
+      <ol class="steps">
+        <li>Find the key in the <strong>API Keys</strong> card.</li>
+        <li>Select <strong>Revoke</strong>, and confirm.</li>
+      </ol>
+      <p>
+        Its clients are disconnected, and from that moment they can send no
+        new payments. The key is refused from then on. Payments it already
+        made stay made, and its history stays in your books.
+      </p>
+      <p>
+        If a client keeps failing to log in, your node slows it down: it
+        limits failed logins per address. Clients that log in successfully
+        can reconnect as often as they need.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

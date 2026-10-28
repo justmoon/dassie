@@ -50,8 +50,16 @@ function mirrorMap(): UrlMap {
         defaultService: WEBSITE,
         routeRules: [{
           priority: 1,
-          matchRules: [{ fullPathMatch: "/guides/quick-start" }],
-          urlRedirect: { pathRedirect: "/guides/quick-start/" },
+          matchRules: [{ fullPathMatch: "/docs/start/quick-start" }],
+          urlRedirect: { pathRedirect: "/docs/start/quick-start/" },
+        }, {
+          priority: 2,
+          matchRules: [
+            { fullPathMatch: "/guides/quick-start" },
+            { fullPathMatch: "/guides/quick-start/" },
+            { fullPathMatch: "/guides/quick-start/index.html" },
+          ],
+          urlRedirect: { pathRedirect: "/docs/start/quick-start/" },
         }],
       },
       {

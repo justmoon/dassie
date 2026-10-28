@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Remove Dassie from a server, and keep or delete the node's data."
+    />
+    <title>Uninstall · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Uninstall</h1>
+      <p class="lede">
+        Remove Dassie from a server you installed it on with the installer.
+        The node's data stays until you delete it yourself, so you can change
+        your mind.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="before-you-start">Before you start</h2>
+      <p>
+        If you mean to delete the node for good, move its money out while it
+        still runs. It is test money, but you may want it on another node.
+      </p>
+      <ul>
+        <li>
+          Withdraw what the node holds in its settlement hubs to its XRP
+          Ledger account, in the wallet's
+          <a href="/docs/wallet/hubs/">Hubs</a> page or with
+          <code>dassie hub withdraw</code>.
+        </li>
+        <li>
+          Keep your recovery phrase. The keys of the node's XRP Ledger
+          accounts derive from it, so the phrase brings them back on a new
+          node. <a href="/docs/concepts/phrase/">Your recovery phrase</a>
+          says what else it brings back.
+        </li>
+      </ul>
+      <p>
+        If you're moving the node to another server instead, see
+        <a href="/docs/node/backup/">Back up and move a node</a>.
+      </p>
+
+      <h2 id="remove-dassie">Remove Dassie</h2>
+      <p>Run the installer with <code>uninstall</code>:</p>
+      <pre><code><span class="prompt">$</span>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh -s -- uninstall</code></pre>
+      <p>
+        It asks for <code>sudo</code> where it needs root, and shows each
+        command it runs as root. It:
+      </p>
+      <ol class="steps">
+        <li>
+          checks that no update is running: if one is, it stops and changes
+          nothing, so run it again once the update is done;
+        </li>
+        <li>
+          stops and disables the node and its units:
+          <code>dassie.service</code>, its sockets
+          (<code>dassie-http.socket</code>, <code>dassie-https.socket</code>,
+          <code>dassie-ipc.socket</code>, <code>dassie-quic.socket</code>,
+          <code>dassie-feed.socket</code>) and the updater
+          (<code>dassie-update.service</code>,
+          <code>dassie-update.timer</code>);
+        </li>
+        <li>
+          removes those unit files from <code>/etc/systemd/system</code>;
+        </li>
+        <li>
+          removes <code>/opt/dassie</code>, with every installed version, and
+          the <code>dassie</code> command in <code>/usr/local/bin</code>.
+        </li>
+      </ol>
+      <p>When it is done, it says what it left behind:</p>
+      <pre><code><span class="output">▶ Dassie is uninstalled
+  The node's data stays in /var/lib/private/dassie, and the group dassie-users stays too.</span></code></pre>
+      <p>
+        The same command removes an install made with
+        <code>--no-service</code>, which has no units to stop. It still asks
+        systemd to reload its units, though, so on a machine without
+        systemd, such as a container, it stops with an error before it
+        removes anything. There, remove the files yourself:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo rm -rf /opt/dassie /usr/local/bin/dassie</code></pre>
+
+      <h2 id="what-stays">What stays</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>What</th>
+              <th>Where</th>
+              <th>Why it stays</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>The node's data</td>
+              <td>
+                <code>/var/lib/private/dassie</code>, which
+                <code>/var/lib/dassie</code> links to
+              </td>
+              <td>
+                It holds the node key and the node's books. Installing again
+                picks them up, and the node is back as it was.
+              </td>
+            </tr>
+            <tr>
+              <td>The group <code>dassie-users</code></td>
+              <td><code>/etc/group</code></td>
+              <td>
+                Its members could use the node's socket. Installing again
+                keeps them members.
+              </td>
+            </tr>
+            <tr>
+              <td>Your drop-ins</td>
+              <td>
+                <code>/etc/systemd/system/dassie.service.d/</code>,
+                <code>/etc/systemd/system/dassie-update.timer.d/</code>, and
+                any other you made
+              </td>
+              <td>
+                They are your changes to the units, such as environment
+                variables, and the installer never touches them.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="delete-the-data">Delete the data</h2>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> This can't be undone. The data holds the
+          node's key, its books with its peers, its payments, settings, grants
+          and API keys. Your recovery phrase brings back the node's identity
+          and its accounts on the ledgers, but none of the rest.
+        </p>
+      </aside>
+      <p>Once Dassie is uninstalled, delete the data and the link to it:</p>
+      <pre><code><span class="prompt">$</span>sudo rm -rf /var/lib/private/dassie /var/lib/dassie</code></pre>
+      <p>Then the drop-ins, if you made any:</p>
+      <pre><code><span class="prompt">$</span>sudo rm -rf /etc/systemd/system/dassie.service.d /etc/systemd/system/dassie-update.timer.d
+<span class="prompt">$</span>sudo systemctl daemon-reload</code></pre>
+      <p>And the group:</p>
+      <pre><code><span class="prompt">$</span>sudo groupdel dassie-users</code></pre>
+
+      <h2 id="installing-again">Installing again</h2>
+      <p>
+        If you kept the data, install as before
+        (<a href="/docs/start/quick-start/">Quick Start</a>). The installer
+        puts the newest release in place and starts the node, which finds its
+        database and carries on with the same identity, books and settings.
+        There's no need to run <code>dassie init</code> or set it up again.
+      </p>
+      <p>
+        A node that was down for a while may have missed releases. The
+        installer installs the newest, which reads a database from 0.3.0 or
+        any later release;
+        <a href="/docs/node/updates/#keeping-up">Keeping up with the
+        network</a> says what a node that was away misses.
+      </p>
+      <p>
+        Data left by a release before 0.3.0 (0.1 or 0.2) doesn't carry over.
+        Those releases ran the early test network, and the node refuses their database and doesn't
+        start. Move that data aside and set the node up again with a new
+        phrase; it starts with empty books
+        (<a href="/docs/node/updates/#from-0-2">A node from the 0.2
+        releases</a>).
+      </p>
+
+      <h2 id="nixos-and-desktop">On NixOS and in the desktop app</h2>
+      <p>
+        On NixOS, the installer isn't involved: turn the module off in your
+        configuration and rebuild. <a href="/docs/node/nixos/">Dassie on
+        NixOS</a> shows how. The node's data stays there too, in
+        <code>/var/lib/private/dassie</code>.
+      </p>
+      <p>
+        The desktop app keeps its node's data in your home directory, in
+        <code>~/.local/share/dassie</code> (or
+        <code>$XDG_DATA_HOME/dassie</code>, if you set it), and the installer
+        doesn't touch it. <a href="/docs/desktop/install/">Install the
+        desktop app</a> covers the app.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

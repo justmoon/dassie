@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Every subcommand of the dassie command, its options, and the codes it exits with."
+    />
+    <title>The dassie command · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>The dassie command</h1>
+      <p class="lede">
+        One binary, <code>dassie</code>, runs your node and talks to it. This
+        page lists every subcommand and option it has, in the order you are
+        likely to meet them.
+      </p>
+
+      <h2 id="usage">Usage</h2>
+      <pre><code><span class="prompt">$</span>dassie &lt;command&gt; [options]</code></pre>
+      <dl class="ref">
+        <dt><code>-h</code>, <code>--help</code></dt>
+        <dd>
+          <p>Prints the list of commands and options, and exits.</p>
+        </dd>
+        <dt><code>-V</code>, <code>--version</code></dt>
+        <dd>
+          <p>
+            Prints <code>dassie</code> and the version, such as
+            <code>dassie 0.3.0</code>, and exits.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        Most commands talk to the running node over its IPC socket. Using that
+        socket is administering the node, so only root and members of the
+        group <code>dassie-users</code> may. The installer adds you to the
+        group; log in again afterwards for it to take effect. The command
+        looks for the socket at <code>DASSIE_IPC_SOCKET_PATH</code> if you set
+        it, and otherwise at <code>/run/dassie.sock</code>, then
+        <code>$XDG_RUNTIME_DIR/dassie.sock</code>. See
+        <a href="/docs/reference/files-and-ports/">Files, ports and sockets</a>.
+      </p>
+      <p>
+        The commands that talk to the node are <code>init</code>,
+        <code>status</code>, <code>setup-url</code>, <code>setup</code>,
+        <code>pair</code> and <code>hub</code>. If nothing answers on the
+        socket, they say the daemon is not running and how to start it.
+      </p>
+
+      <h2 id="exit-codes">Exit codes</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>0</code></td>
+              <td>It worked, or there was nothing to do.</td>
+            </tr>
+            <tr>
+              <td><code>1</code></td>
+              <td>
+                It failed: the node could not be reached, refused, or the
+                daemon could not start. The reason is on standard error.
+              </td>
+            </tr>
+            <tr>
+              <td><code>2</code></td>
+              <td>
+                The command line was not understood: an unknown command or
+                option, or a missing value. The reason comes first, then the
+                usage, on standard error. With no command at all, it prints
+                only the usage, on standard output.
+              </td>
+            </tr>
+            <tr>
+              <td><code>3</code></td>
+              <td>
+                Only <a href="#dassie-setup"><code>dassie setup</code></a>:
+                the node is already set up with another recovery phrase of
+                the same realm. Nothing was changed.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="dassie-daemon"><code>dassie daemon</code></h2>
+      <p>
+        Runs the node in the foreground, for a process manager such as
+        systemd. The installer's <code>dassie.service</code> runs
+        <code>dassie daemon --runtime=systemd</code>. It reads its settings
+        from the <a href="/docs/reference/environment/">environment</a>, and
+        stops at once, naming the variable, if one has a value it cannot use.
+        SIGTERM or SIGINT stops it cleanly.
+      </p>
+      <dl class="ref">
+        <dt><code>--runtime standalone|systemd</code></dt>
+        <dd>
+          <p>
+            Where the sockets come from. <code>systemd</code> takes them from
+            the socket units, by name, and reports readiness to systemd.
+            <code>standalone</code> binds them itself. Without this option the
+            node uses <code>systemd</code> when systemd passed it sockets, and
+            <code>standalone</code> otherwise.
+          </p>
+        </dd>
+        <dt><code>--http-port &lt;port&gt;</code>, <code>--https-port &lt;port&gt;</code></dt>
+        <dd>
+          <p>
+            Standalone only: listen for HTTP and HTTPS on these TCP ports
+            instead of 80 and 443. The two go together. QUIC listens on UDP at
+            the HTTPS port, since peers dial QUIC at the port in the node's
+            URL.
+          </p>
+        </dd>
+        <dt><code>--listen &lt;address&gt;</code></dt>
+        <dd>
+          <p>
+            Standalone only: listen on this one IP address instead of every
+            address.
+          </p>
+        </dd>
+        <dt><code>--feed-listen &lt;address:port&gt;</code></dt>
+        <dd>
+          <p>
+            Standalone only: the UDP socket that answers requests for the
+            node's <a href="/docs/build/snapshots/">snapshot</a>. By default
+            it is the HTTPS listener's address on port 7768. If the node
+            cannot bind it, it runs, answers no request for its snapshot, and
+            says so in its log.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        It exits with <code>1</code> if it could not start: a bad variable,
+        a socket it could not bind, a database it cannot open, or an engine
+        that fails to start. A node does not run without its UDP socket for
+        QUIC.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/node.md#runtimes">How the runtimes differ</a>
+      </p>
+
+      <h2 id="dassie-init"><code>dassie init</code></h2>
+      <p>
+        Gives a server node its public name and a certificate. It sets the
+        hostname, asks the node to order a certificate from Let's Encrypt
+        over ACME, shows how the order goes, and prints the link that
+        finishes setup in your browser, or, once the node is set up, its
+        address. The node runs the order itself;
+        <code>init</code> only shows it. For the order to work, the name must
+        point at this host and TCP port 80 must be reachable from the
+        internet.
+      </p>
+      <p>
+        In a terminal it asks for what you did not give as an option. Without
+        a terminal, <code>--hostname</code> is required, and so is
+        <code>--agree-tos</code> when it orders a certificate. If the node
+        already has a certificate from a CA, it asks whether to skip ordering
+        one; without a terminal it skips.
+      </p>
+      <p>
+        A node with a hostname answers under it alone. So once
+        <code>init</code> sets one, the node closes its connection to the
+        default relay, <code>relay.dassiepay.net</code>. A relay you named
+        in <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
+        stays.
+      </p>
+      <dl class="ref">
+        <dt><code>--hostname &lt;name&gt;</code></dt>
+        <dd>
+          <p>The node's public DNS name.</p>
+        </dd>
+        <dt><code>--email &lt;address&gt;</code></dt>
+        <dd>
+          <p>
+            A contact for the ACME account, which the CA may write to about
+            your certificate. Optional.
+          </p>
+        </dd>
+        <dt><code>--agree-tos</code></dt>
+        <dd>
+          <p>Agree to the CA's terms of service without being asked.</p>
+        </dd>
+        <dt><code>--acme-directory &lt;url&gt;</code></dt>
+        <dd>
+          <p>
+            Order from this ACME directory. Once an order from it succeeds,
+            the node keeps it, for renewals and for every later
+            <code>init</code> that names none. Without this option, the node
+            orders from the directory it keeps, Let's Encrypt's at first.
+          </p>
+        </dd>
+        <dt><code>--acme-staging</code></dt>
+        <dd>
+          <p>
+            The same as <code>--acme-directory</code> with Let's Encrypt's
+            staging directory, whose certificates browsers do not trust.
+            Useful for a trial run. Once it succeeds, the node keeps staging
+            too. To go back, run <code>sudo dassie init</code> in a terminal
+            with
+            <code>--acme-directory https://acme-v02.api.letsencrypt.org/directory</code>,
+            and answer No when it asks whether to skip ordering.
+          </p>
+        </dd>
+        <dt><code>--skip-acme</code></dt>
+        <dd>
+          <p>Keep the certificate the node has now, whatever it is.</p>
+        </dd>
+      </dl>
+      <p>
+        More on certificates in
+        <a href="/docs/node/certificates/">Certificates</a>. A node without a
+        public IP needs no <code>init</code>: see
+        <a href="/docs/node/periphery/">A server without a public IP</a>.
+      </p>
+
+      <h2 id="dassie-setup"><code>dassie setup</code></h2>
+      <p>
+        Sets the node up from your recovery phrase, on the node's own host,
+        without a browser. It does what the wallet does: it derives the node
+        key from the phrase and hands the node only the key, never the phrase.
+        Then it waits for the node's engine, sets the config of the external
+        assets you name, adds the settlement schemes you name, and joins
+        settlement hubs. Each step prints one line. A walk-through is in
+        <a href="/docs/node/headless/">Headless setup</a>.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+      <p>
+        The phrase names its realm, so no option does. A phrase of the live
+        realm is refused, and the node stays as it was. The realm is fixed
+        once the node is set up.
+      </p>
+      <p>
+        Running it again changes nothing that is already in place, so a unit
+        can run it at every boot. A node already set up with another phrase is
+        refused, and nothing is changed: with exit code <code>1</code> if
+        the node runs another realm than the phrase's, which it checks
+        first, and with <code>3</code> otherwise. A phrase
+        that needs correcting is refused, since no one is there to confirm the
+        correction, and so is one made more than a day after the host's clock.
+      </p>
+      <dl class="ref">
+        <dt><code>--passphrase-file &lt;file&gt;</code></dt>
+        <dd>
+          <p>
+            Required. The file that holds your recovery phrase, and nothing
+            else. It is read once; no line the command prints names it. Keep
+            the file readable by root alone.
+          </p>
+        </dd>
+        <dt><code>--asset &lt;id&gt;=&lt;config&gt;</code></dt>
+        <dd>
+          <p>
+            The JSON config of an external asset, set before any scheme is
+            added, such as the XRP Ledger server of
+            <code>xrpl-testnet-account/0</code>:
+            <code>--asset 'xrpl-testnet-account/0={"server":"wss://…"}'</code>.
+            Repeatable, at most 8.
+          </p>
+        </dd>
+        <dt><code>--scheme &lt;id&gt;[=&lt;config&gt;]</code></dt>
+        <dd>
+          <p>
+            A settlement scheme to add if the node does not run it yet, with
+            its JSON config if it takes one. Repeatable, at most 16. The ids
+            are in <a href="/docs/reference/schemes/">Schemes and hubs</a>.
+          </p>
+        </dd>
+        <dt><code>--hub &lt;scheme&gt;|none</code></dt>
+        <dd>
+          <p>
+            Join the default hub of this hub scheme's asset, such as
+            <code>hub-xrpl-testnet-dsusd</code>. For each hub, it first adds
+            the owner books the hub is funded from, which peer with nobody,
+            then the hub's scheme. Repeatable. <code>none</code> joins no hub,
+            and goes with no other <code>--hub</code>.
+          </p>
+          <p>
+            Without <code>--hub</code>, setup joins the testnet's XRP hub,
+            <code>hub-xrpl-testnet-xrp</code>. This release has two
+            <a href="/docs/reference/schemes/#default-hubs">default hubs</a>
+            built in, the testnet's XRP hub and its DSUSD hub, both kept by
+            the four bootstrap nodes. A <code>--hub</code> of another realm than
+            the phrase's is refused before anything changes.
+          </p>
+          <p>
+            To join a hub other than the default, add the owner books it is
+            funded from, then its scheme with the hub's rules as the config:
+            <code>--scheme &lt;hub scheme&gt;='{"rules":"&lt;hex&gt;"}'</code>.
+            Schemes are added before hubs are joined, so setup then leaves
+            that hub's scheme as it is.
+          </p>
+        </dd>
+        <dt><code>--keep-funds hub|account</code></dt>
+        <dd>
+          <p>
+            Where the node keeps what it receives in each asset a hub holds:
+            in the hub, where it arrives (the default for a new node), or on
+            your own account, withdrawing what is beyond a ceiling. Without
+            this option the node's choice stays as it is.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        <code>--no-hub</code> is refused, with a pointer to
+        <code>--hub none</code>.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/headless-setup.md">Why it works this way</a>
+      </p>
+
+      <h2 id="dassie-setup-url"><code>dassie setup-url</code></h2>
+      <p>
+        Prints the link that finishes setup in a browser. The link holds the
+        setup token, so treat it as a secret until setup is done. Once the
+        node is set up, it says so and exits with <code>1</code>: log in to
+        the wallet with your phrase instead. It takes no options.
+      </p>
+
+      <h2 id="dassie-status"><code>dassie status</code></h2>
+      <p>
+        Shows how the node is doing, in a few lines: its version, address and
+        certificate, whether it is set up, the network (and, for a node
+        without a public IP, its uplinks), the relay it keeps and whether it
+        is connected (a node without a public IP that keeps none says so),
+        its settlement hubs, whether it
+        answers requests for its snapshot (the line labeled
+        <em>Rate feed</em>), the hubs it validates or founds,
+        the last update, what its engine counted since it started, its peers
+        and its ledgers. It gives a hint only where something is wrong.
+      </p>
+      <p>
+        It names no secret, so you can paste its output where you ask for
+        help. If the node is not running, it says so, still shows how the
+        last update went, and exits with <code>1</code>. It takes no options.
+        How to read it is in <a href="/docs/node/status/">Check on your node</a>.
+      </p>
+
+      <h2 id="dassie-pair"><code>dassie pair</code></h2>
+      <p>
+        Prints a code that pairs an owner app with the node. Enter it in the
+        app within five minutes. It works once, and running
+        <code>dassie pair</code> again replaces it. It takes no options.
+      </p>
+      <p class="not-yet">
+        The owner apps that take this code are not there yet.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+
+      <h2 id="dassie-hub"><code>dassie hub</code></h2>
+      <p>
+        Your node's account in each
+        <a href="/docs/concepts/hubs/">settlement hub</a> it is in, and moving
+        your funds between a hub and your own XRP Ledger account. Every
+        command that acts on one hub names it first by the scheme over it,
+        such as <code>hub-xrpl-testnet-xrp</code>, exactly as
+        <code>dassie hub status</code> shows it. That way a script means the
+        same hub once the node is in more than one.
+      </p>
+      <p>
+        Amounts are in the hub's asset, XRP or DSUSD, with up to nine
+        decimals, such as <code>2.5</code>. They must be more than zero.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h3 id="dassie-hub-status"><code>dassie hub status</code></h3>
+      <p>
+        Also plain <code>dassie hub</code>. For each hub whose scheme runs:
+        the hub's ID, the account's number and balance, whether it is in step
+        with the hub, how many validators answer, what was deposited and
+        withdrawn, the floor and ceiling the node keeps the account between,
+        whether the node moves funds by itself, a move on its way, and the
+        holds toward and from each peer. A move the other side still has not
+        shown ten minutes after it was made, or after the XRP Ledger applied
+        it, is marked late.
+      </p>
+      <pre><code><span class="prompt">$</span>dassie hub status</code></pre>
+
+      <h3 id="dassie-hub-deposit"><code>dassie hub deposit &lt;scheme&gt; &lt;amount&gt;</code></h3>
+      <p>
+        Moves the hub's asset from the node's XRP Ledger account into the
+        hub. If the node has no account in the hub yet, this deposit opens
+        one. Moving funds by hand pauses the node's own moves for that hub
+        for an hour, so they do not undo yours.
+      </p>
+      <pre><code><span class="prompt">$</span>dassie hub deposit hub-xrpl-testnet-xrp 2.5</code></pre>
+
+      <h3 id="dassie-hub-withdraw"><code>dassie hub withdraw &lt;scheme&gt; &lt;amount&gt;</code></h3>
+      <p>
+        Moves the hub's asset from the hub back to the node's XRP Ledger
+        account. From a DSUSD hub, the node first checks that the hub's
+        escrow has the XRP it pays its fees with, and tops it up if not; if it
+        asks you to, try again shortly. This pauses the node's own moves for
+        an hour too.
+      </p>
+
+      <h3 id="dassie-hub-auto"><code>dassie hub auto &lt;scheme&gt; on|off</code></h3>
+      <p>
+        Lets the node move funds to and from the hub by itself, or not. With
+        it on, the node deposits when the account falls below its floor, and,
+        if you keep funds on your own account, withdraws beyond the ceiling.
+      </p>
+
+      <h3 id="dassie-hub-give-up"><code>dassie hub give-up &lt;scheme&gt;</code></h3>
+      <p>
+        Gives up a move that is late: the hub has not shown it for a while.
+        The node forgets the move and books nothing; if the other side shows
+        it later, it is booked then. Its own moves for that hub then wait
+        until you turn them on again with <code>dassie hub auto</code>, or
+        move funds yourself.
+      </p>
+
+      <h3 id="dassie-hub-found"><code>dassie hub found &lt;node ID&gt;@&lt;host:port&gt;…</code></h3>
+      <p>
+        Founds a new settlement hub with these nodes as its validators, with
+        your node as its sponsor, on the XRP Ledger network of your node's
+        realm: the testnet, since nodes refuse the live realm. Name 4 to 16
+        validators, each once, as <code>&lt;node ID&gt;@&lt;host:port&gt;</code>.
+        Every validator must accept. The node pays the hub's escrow from its
+        XRP account on that network. It prints the founding's nonce;
+        <code>dassie hub foundings</code> shows how far it is. The full steps
+        are in <a href="/docs/services/found-a-hub/">Found a hub</a>.
+      </p>
+      <dl class="ref">
+        <dt><code>--terms &lt;file&gt;</code></dt>
+        <dd>
+          <p>
+            A JSON file, at most 8 KiB, of the terms that differ from the
+            starting ones.
+          </p>
+        </dd>
+        <dt><code>--escrow-funding &lt;XRP&gt;</code></dt>
+        <dd>
+          <p>
+            How much XRP funds the escrow: its reserves and the fees of its
+            setup and of the hub's own transactions. By default
+            <code>2</code>. You may give more, never less than the ledger's
+            reserves and the setup's fees.
+          </p>
+        </dd>
+        <dt><code>--xrpl &lt;url&gt;</code></dt>
+        <dd>
+          <p>
+            The XRP Ledger server to set the escrow up on. By default, the
+            server of the node's own XRP Ledger account on that network.
+          </p>
+        </dd>
+      </dl>
+
+      <h3 id="dassie-hub-foundings"><code>dassie hub foundings</code></h3>
+      <p>
+        Shows each hub the node is founding or founded: its stage, which
+        validators accepted, signed the genesis and run the hub, the escrow
+        and how many validators checked it, any problem, and, once they are
+        fixed, the hub's rules.
+      </p>
+
+      <h3 id="dassie-hub-drop"><code>dassie hub drop &lt;nonce&gt;</code></h3>
+      <p>
+        Drops a founding, named by the nonce
+        <code>dassie hub foundings</code> shows.
+      </p>
+
+      <h3 id="dassie-hub-payout"><code>dassie hub payout &lt;scheme&gt;</code></h3>
+      <p>
+        Shows the payout bundles the node kept of the hub over that scheme:
+        which validators signed the payout of which block. Once a quorum
+        signed the same set, it prints the transactions to submit to the XRP
+        Ledger, in order. Validators sign a payout once a hub ended or
+        stalled, and anyone may submit it, so you are paid out whether or not
+        a validator is still up. While the hub runs there is nothing to show.
+      </p>
+
+      <h2 id="dassie-update"><code>dassie update</code></h2>
+      <p>
+        Updates Dassie to the newest release on the
+        <a href="/docs/reference/mirror/">mirror</a>, once the release's
+        signature and sums check out. It installs the new version beside the
+        old one in <code>/opt/dassie</code>, switches to it, restarts the
+        node, and goes back to the version before if the new one does not
+        come up. The installer's timer runs it once a day; you can run it
+        yourself as root. See <a href="/docs/node/updates/">Updates and
+        rollback</a>.
+      </p>
+      <p>
+        It only moves forward on its own, and it does not try again a version
+        that failed to start here until the mirror offers a newer one. It runs
+        only from an installer's layout,
+        <code>/opt/dassie/&lt;version&gt;/bin/dassie</code>; on NixOS your
+        flake decides the version instead.
+      </p>
+      <dl class="ref">
+        <dt><code>-f</code>, <code>--force</code></dt>
+        <dd>
+          <p>
+            Install even if the version is not newer, or is the one that was
+            rolled back.
+          </p>
+        </dd>
+        <dt><code>-t</code>, <code>--target-version &lt;version&gt;</code></dt>
+        <dd>
+          <p>
+            Install this version instead of the newest, older ones included.
+            Stop <code>dassie-update.timer</code> if you want to stay there,
+            or it moves the node forward again.
+          </p>
+        </dd>
+        <dt><code>--mirror &lt;url&gt;</code></dt>
+        <dd>
+          <p>
+            Another mirror, <code>https://</code> only. By default
+            <code>DASSIE_MIRROR_URL</code>, or else
+            <code>https://get.dassie.land</code>.
+          </p>
+        </dd>
+        <dt><code>--no-restart</code></dt>
+        <dd>
+          <p>Install and switch, but leave systemd and the node alone.</p>
+        </dd>
+        <dt><code>--unit &lt;name&gt;.service=&lt;dir&gt;</code></dt>
+        <dd>
+          <p>
+            Restart this unit, whose node keeps its data in
+            <code>&lt;dir&gt;</code>, instead of <code>dassie.service</code>,
+            and install none of the release's units. For a host that runs its
+            nodes under units of its own. On a rollback it puts back each
+            node's database. Repeatable, at most 8; not together with
+            <code>--no-restart</code>.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        It exits with <code>1</code> if the update failed or was rolled back,
+        and records how it went in <code>/opt/dassie/last-update</code>, which
+        <code>dassie status</code> shows.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/release-integrity.md">Why it works this way</a>
+      </p>
+
+      <h2 id="dassie-verify-install"><code>dassie verify-install</code></h2>
+      <p>
+        Checks that this binary works on this host: SQLite, TLS, the wallet
+        built into it, and a version the updater can read. Then it names the
+        release key it trusts for updates. The installer and the updater run
+        it before they switch to a new binary. It takes no options.
+      </p>
+      <pre><code><span class="prompt">$</span>dassie verify-install
+<span class="output">Verifying that SQLite is working...
+Verifying that TLS is working...
+Verifying that the wallet is built in...
+Verifying the version...
+Updates are verified with release key 5D960652FE941432.
+Success! Dassie appears to be installed correctly.</span></code></pre>
+
+      <h2 id="dassie-front-door"><code>dassie front-door</code></h2>
+      <p>
+        Runs a front door, which is not a node. It serves Open Payments at
+        <code>&lt;node ID&gt;.&lt;domain&gt;</code> for the nodes that keep
+        it as their relay, and at <code>&lt;name&gt;.&lt;domain&gt;</code> for
+        whoever holds a name, as the registrars among the bootstrap nodes list
+        it. The project runs the one at <code>dassiepay.net</code>, which a
+        node without a hostname keeps by default; a node keeps yours when
+        its <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
+        names it. Each option overrides its
+        <a href="/docs/reference/environment/#DASSIE_FRONT_DOOR_DOMAIN"><code>DASSIE_FRONT_DOOR_*</code></a>
+        variable. Setting one up is in
+        <a href="/docs/services/front-door/">Run a front door</a>.
+      </p>
+      <dl class="ref">
+        <dt><code>--domain &lt;name&gt;</code></dt>
+        <dd>
+          <p>
+            The domain it serves nodes under, of at least two labels. By
+            default <code>dassiepay.net</code>.
+          </p>
+        </dd>
+        <dt><code>--https-listen &lt;address:port&gt;</code></dt>
+        <dd>
+          <p>HTTPS, on TCP. By default <code>[::]:443</code>.</p>
+        </dd>
+        <dt><code>--quic-listen &lt;address:port&gt;</code></dt>
+        <dd>
+          <p>QUIC, on UDP. By default <code>[::]:443</code>.</p>
+        </dd>
+        <dt><code>--certificate &lt;file&gt;</code></dt>
+        <dd>
+          <p>
+            The PEM certificate chain for <code>*.&lt;domain&gt;</code>, leaf
+            first.
+          </p>
+        </dd>
+        <dt><code>--certificate-key &lt;file&gt;</code></dt>
+        <dd>
+          <p>The certificate's PEM key.</p>
+        </dd>
+        <dt><code>--key-file &lt;file&gt;</code></dt>
+        <dd>
+          <p>
+            The front door's own key. By default
+            <code>front-door.key</code> in systemd's state directory.
+          </p>
+        </dd>
+        <dt><code>--relay-url &lt;url&gt;</code></dt>
+        <dd>
+          <p>
+            Where nodes dial it, as <code>https://host[:port]</code>. By
+            default <code>https://relay.&lt;domain&gt;</code>.
+          </p>
+        </dd>
+        <dt><code>--make-key</code></dt>
+        <dd>
+          <p>
+            Make the key file if there is none, print the entry that names
+            this front door for
+            <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>,
+            and exit.
+          </p>
+        </dd>
+      </dl>
+
+      <h2 id="dassie-market-maker"><code>dassie market-maker</code></h2>
+      <p>
+        Trades through core nodes when what their
+        <a href="/docs/build/snapshots/">snapshots</a> quote and an AMM pool
+        on the XRP Ledger leave a margin, and moves your funds back on the
+        ledger. It is not a node: it drives one node of your own, a node
+        without a public IP in the settlement hubs of both of the pool's
+        assets, over that node's IPC socket. The core nodes it trades
+        through are that node's uplinks, which
+        <a href="/docs/reference/environment/#DASSIE_UPLINKS"><code>DASSIE_UPLINKS</code></a>
+        pins. It reads their snapshots from its node, and swaps with the one
+        that pays best, over their peering. Its node must swap with its
+        peers, as a new node does: the market maker doesn't start while the
+        node's owner has turned
+        <a href="/docs/wallet/rates/#swaps">Swapping with peers</a> off. It
+        runs until SIGTERM or SIGINT.
+        See <a href="/docs/services/market-maker/">Run a market maker</a>.
+      </p>
+      <dl class="ref">
+        <dt><code>--config &lt;file&gt;</code></dt>
+        <dd>
+          <p>
+            Required. Its JSON config, at most 64 KiB, checked whole before
+            anything connects: <code>socket</code>, its node's IPC socket;
+            <code>passphraseFile</code>, the file with that node's recovery
+            phrase; <code>xrpl</code>, the XRP Ledger server and the token
+            the pool pairs with XRP; for <code>xrp</code> and
+            <code>token</code> each, the hub's <code>ledger</code> it swaps
+            on, the <code>ownerBook</code> that funds the hub, a
+            <code>tradeSize</code> and a <code>band</code>;
+            <code>marginPpm</code> and <code>slippagePpm</code>; and, if the
+            host needs them, <code>caFile</code>, roots to trust the XRP
+            Ledger server by. A config in the format before 0.3.0 is
+            refused.
+          </p>
+        </dd>
+      </dl>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/node.md#the-dassie-command">The command in the spec</a>
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Pay a payment pointer, a wallet address or a payment request, read the quote, and follow the payment until it arrives."
+    />
+    <title>Send money · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Send money</h1>
+      <p class="lede">
+        You can pay any Open Payments wallet, on your node or another, in any
+        currency. Your node looks the recipient up, quotes what the payment
+        costs, and pays once you confirm.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="pay-someone">Pay someone</h2>
+      <ol class="steps">
+        <li>
+          Choose <strong>Send</strong> on the Dashboard.
+        </li>
+        <li>
+          Under <strong>Whom to Pay</strong>, enter a payment pointer such as
+          <code>$pay.example.com</code>, a wallet address URL, or the link of a
+          payment request. Your node looks it up as you type, and shows whom it
+          found, in what currency, and what a request asks for. A recipient on
+          your own node says "(one of yours)". Choose
+          <strong>Continue</strong>.
+        </li>
+        <li>
+          Under <strong>How Much</strong>, choose whether the amount is
+          <strong>What they receive</strong>, in their currency, or
+          <strong>What you send</strong>, in yours, and type it. With more than
+          one ledger, choose which one to <strong>Pay from</strong>. Add a
+          note for them, if you like, and choose <strong>Review</strong>.
+        </li>
+        <li>
+          Read the quote, below, and choose <strong>Send</strong>.
+        </li>
+      </ol>
+      <p>
+        A payment request comes with its amount filled in. Paying less pays
+        part of it. A request carries its own note, so you add none.
+      </p>
+
+      <h2 id="the-quote">Reading the quote</h2>
+      <p>
+        Before it quotes, your node sends a few tiny test packets along the
+        route, and measures what arrives. Nodes on the way may take a small
+        fee, and may convert between currencies, so the quote is what this
+        route delivers now, not a rate from a table.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>The review shows</th>
+              <th>What it means</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>To</td>
+              <td>Whom you pay.</td>
+            </tr>
+            <tr>
+              <td>From</td>
+              <td>The ledger the payment comes out of.</td>
+            </tr>
+            <tr>
+              <td>You send</td>
+              <td>The most it takes from you. A payment never takes more.</td>
+            </tr>
+            <tr>
+              <td>They receive</td>
+              <td>What arrives, in their currency.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A quote is good for five minutes, or less when the request it pays
+        expires sooner. The review counts down. Once it has lapsed, choose
+        <strong>Get a New Quote</strong>.
+      </p>
+      <p>
+        Every packet of the payment must deliver at least the quote's rate, so
+        a route that got worse since fails the payment rather than charging
+        you more.
+      </p>
+
+      <h2 id="follow-the-payment">Follow the payment</h2>
+      <p>
+        Once you choose <strong>Send</strong>, the wallet opens the payment's
+        own page. It shows <strong>Sending…</strong> with how much has gone
+        so far, then <strong>Sent</strong> or <strong>Failed</strong>, with
+        what they receive, when it started and when it finished. Every payment
+        is in <a href="/docs/wallet/activity/">Activity</a>, and
+        <strong>Send Again</strong> starts a new one to the same recipient.
+      </p>
+      <p>
+        A payment of what they receive counts as complete when the receiver
+        has it, give or take a ten-thousandth of a unit of its currency:
+        every node on the way rounds down in its own units, so no sender can
+        hit an amount to the last digit. It never counts more than a
+        thousandth of the payment that way.
+      </p>
+
+      <h2 id="why-a-payment-fails">Why a payment can fail</h2>
+      <p>
+        What a failed payment delivered before it stopped stays delivered, and
+        the rest stays with you. The failure says why:
+      </p>
+      <dl class="ref">
+        <dt id="funds">The funds do not cover the payment</dt>
+        <dd>
+          <p>
+            Your node refuses it before it starts. What you have free on the
+            ledger must cover this payment and every unfinished one from it.
+          </p>
+        </dd>
+        <dt id="takes-no-more">The receiver takes no more</dt>
+        <dd>
+          <p>
+            The receiver has all it asked for, as when someone else paid the
+            request first.
+          </p>
+        </dd>
+        <dt id="stopped">The receiver stopped the payment before it was complete</dt>
+        <dd>
+          <p>
+            The receiver closed it, as when its request was completed early.
+            Ask the receiver.
+          </p>
+        </dd>
+        <dt id="kept-failing">The payment's packets kept failing</dt>
+        <dd>
+          <p>
+            Money stopped getting through, at the receiver or on the path, or
+            arrived short of the quote's rate. Your node tries again, waiting
+            longer each time, until the payment runs out of time ten minutes
+            after it started. Then it says "the payment ran out of time", with
+            the reason.
+          </p>
+        </dd>
+        <dt id="invalid">The receiver's address is invalid</dt>
+        <dd>
+          <p>
+            The receiver gave details no payment can go to. Ask the receiver
+            for another address.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        If your node has no peers, nothing gets past your own node: payments
+        reach other nodes only through a
+        <a href="/docs/wallet/hubs/">settlement hub</a> you share with peers.
+        <a href="/docs/wallet/setup/#join-the-hub">Join the testnet's hub</a>
+        to have some.
+      </p>
+      <p>
+        The page pays wallets you can name with a pointer or a link. Paying
+        bare STREAM credentials, an address and a shared secret, is open to
+        <a href="/docs/build/owner-apps/">owner apps</a> through the node's
+        API, not to this page.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/paid-within-a-tolerance.md">Why it works this way</a>:
+        why a payment counts as paid within a tolerance.
+        <a href="/docs/concepts/payments/">How a payment travels</a> follows
+        one hop by hop.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

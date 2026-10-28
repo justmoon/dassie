@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Read the Network page: your node's registration or uplinks, its relay, swaps and snapshot, its peers and the hubs they settle over."
+    />
+    <title>Network and peers · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Network and peers</h1>
+      <p class="lede">
+        The Network page shows your node among its neighbors: who it knows,
+        who it peers with, and how it stands with the network. This page
+        walks you through it, and through ending a peering or banning a node
+        when you need to.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="the-page">The page at a glance</h2>
+      <p>
+        Open <strong>Network</strong> in the top menu. At the top right of
+        every page, next to the menu, a dot and a count such as
+        <em>12 nodes</em> tell you how many nodes your node knows, and whether
+        the wallet is connected to it, still connecting, reconnecting, or
+        failed. Select it to open the Nodes debug page.
+      </p>
+      <p>The Network page has three parts:</p>
+      <ul>
+        <li>
+          <strong>The graph.</strong> Your node and every node a route
+          reaches, with a line where both ends list each other. A peer that is
+          offline, or that does not list your node back, has no line. Each
+          node keeps its place as the network changes. Select a node to see
+          its details.
+        </li>
+        <li>
+          <strong>Nodes.</strong> Every node your node knows, grouped by how
+          far it is: <em>This Node</em>, <em>Direct Peers</em>,
+          <em>Peers Not Routed</em> and <em>Offline Peers</em>,
+          <em>Other Nodes</em> two or more hops away, and
+          <em>No Connection</em> for nodes no route reaches. Each shows its
+          name, or the start of its ID, and its URL.
+        </li>
+        <li>
+          <strong>Details.</strong> Your own node's standing, or, once you
+          select another node, that node's details.
+        </li>
+      </ul>
+
+      <h2 id="registered-or-not">Registered or not</h2>
+      <p>
+        A node with a public address and a domain name is a core node. It
+        joins the network by registering with the bootstrap nodes. Each keeps
+        a list, and a node that more than half of them list is a member,
+        which every other node then knows about.
+      </p>
+      <p>
+        Your node knows the testnet's four bootstrap nodes from the start,
+        <code>boot1.dassie.xyz</code> to <code>boot4.dassie.xyz</code>, and
+        registers with them by itself when it starts. It renews before a
+        registration lapses.
+        <a href="/docs/reference/environment/#DASSIE_BOOTSTRAP_NODES"><code>DASSIE_BOOTSTRAP_NODES</code></a>
+        replaces them, for a network of your own.
+      </p>
+      <p>
+        On a core node, the details card is
+        <em>Details for Your Node</em>, with a section called
+        <em>Tier 1 Registration</em>:
+      </p>
+      <ul>
+        <li>
+          <strong>Registered</strong> or <strong>Not registered</strong>:
+          whether enough bootstrap nodes list your node.
+        </li>
+        <li>
+          <em>Listed by 3 of 4 bootstrap nodes</em>: how many list it.
+        </li>
+      </ul>
+      <p>
+        A new node shows <em>Not registered</em> for a while at first: each
+        bootstrap node first checks that your node's URL answers, and your
+        node then has to fetch their lists to see itself on them.
+      </p>
+      <p>
+        To see each bootstrap node, select <strong>Register</strong> (or
+        <strong>Update registration</strong>). The page lists each one with
+        whether it lists your node, when your node last registered, and when
+        it last fetched that node's list. <strong>Renew now</strong>
+        registers with that one again at once.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/network.md#membership">How membership works</a>,
+        in the spec.
+      </p>
+
+      <h3 id="swaps">Swaps</h3>
+      <p>
+        Below the registration, the card shows how your node swaps with its
+        peers (see
+        <a href="/docs/wallet/rates/#swaps">Exchange-rate settings</a>).
+        Its badge says <code>swapping</code> when your node swaps by itself,
+        with how many peers' quotes it reads, or <code>on request</code> when
+        it swaps only when you ask. Once it has swapped, the lines below
+        count what it sent: fulfilled, rejected and in flight, and how often
+        it backed off, was refused, or got back too little.
+      </p>
+
+      <h3 id="snapshot">Snapshot</h3>
+      <p>
+        Last, a core node's card shows whether it answers requests for its
+        snapshot: the quotes it swaps at with its peers, signed by your node.
+        Its peers get it over their peering. Anyone else, such as someone
+        choosing a node to swap with, asks for it over UDP.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Badge</th>
+              <th>Means</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>answering</code></td>
+              <td>
+                It answers at the address shown. The line below counts the
+                datagrams it took: answered, over its budget, or ignored.
+              </td>
+            </tr>
+            <tr>
+              <td><code>sends failed</code></td>
+              <td>It answers, but some answers could not be sent.</td>
+            </tr>
+            <tr>
+              <td><code>not answering</code></td>
+              <td>
+                It has the socket, but no snapshot to give: it answers once
+                it has a domain name and offers swaps to its peers.
+              </td>
+            </tr>
+            <tr>
+              <td><code>none</code></td>
+              <td>
+                The node has no UDP socket for it, so it answers no request.
+                Its peers still get its snapshot.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        It answers on UDP port 7768, which you open as in
+        <a href="/docs/node/requirements/">Requirements</a>. If that port is
+        taken, your node runs without it. To ask a node for its snapshot
+        yourself, see <a href="/docs/build/snapshots/">Read a node's
+        snapshot</a>.
+      </p>
+
+      <h2 id="uplinks-and-relay">Uplinks and relay</h2>
+      <p>
+        A node without a domain name, such as the
+        <a href="/docs/desktop/">desktop app</a> or a server behind a router,
+        is a periphery node. It registers with no bootstrap node. Its card
+        says <em>Periphery Node</em> and shows these instead:
+      </p>
+      <ul>
+        <li>
+          <strong>Uplinks.</strong> The core nodes it peers with, which carry
+          its payments in and out, each <em>connected</em> or
+          <em>not connected</em>, with when it was last heard from. With none
+          yet, no payment reaches your node: it looks for core nodes that
+          share a settlement hub with it. On the testnet, all four
+          bootstrap nodes are in both of its hubs, so a node in either
+          finds uplinks among them. In
+          the graph, your node has a line to each uplink it reaches directly.
+        </li>
+        <li>
+          <strong>Relay.</strong> The relay that apps and wallets using Open
+          Payments reach your node through, by its URL, with
+          <em>connected</em>, <em>connecting</em> or <em>unreachable</em>.
+          By default it is Dassie's front door,
+          <code>https://relay.dassiepay.net</code>, which reaches your node
+          at its <code>dassiepay.net</code> address. <em>Connecting</em>
+          right after a start is normal; <em>unreachable</em> means your node
+          has not reached it for a while. The card says <em>None</em> when
+          your node keeps no relay: when <code>DASSIE_RELAY</code> is set
+          empty, or when your node has a domain name and keeps the default,
+          which it then drops. Then no one reaches your node through Open
+          Payments at its <code>dassiepay.net</code> address. You can still
+          send, and Interledger payments still reach it through its uplinks.
+        </li>
+        <li>
+          <strong>Swaps.</strong> As on a core node
+          (<a href="#swaps">above</a>), toward the targets you set.
+        </li>
+      </ul>
+      <p>
+        The default relay has a cost: it is a machine the project runs, so
+        it learns when your node is online, and it reads the Open Payments
+        requests it passes on. To name another relay, keep none, or pin
+        uplinks on a server, see
+        <a href="/docs/node/periphery/">A server without a public IP</a>; in
+        the desktop app, see
+        <a href="/docs/desktop/reach/">How others reach you</a>. For how it
+        fits together, see
+        <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why there is a default relay</a>
+      </p>
+
+      <h2 id="peers-and-methods">Peers and how they settle</h2>
+      <p>
+        Your node finds its peers by itself: nodes that share a settlement
+        hub with it. It joins a hub when you add the hub's scheme under
+        <strong>Ledgers</strong> (see <a href="/docs/wallet/hubs/">Your
+        hubs</a>), and <code>dassie setup</code> on the testnet joins the
+        testnet's XRP hub unless you tell it otherwise. Your node peers only with nodes that
+        speak its version of the peer protocol, so a node still on a 0.2
+        release never becomes its peer; see
+        <a href="/docs/concepts/versions/">Protocol versions</a>.
+      </p>
+      <p>
+        Select any node, in the graph or the list, to see its details:
+      </p>
+      <dl>
+        <dt><strong>Distance</strong></dt>
+        <dd>
+          <p>How many hops away it is, or <em>no route</em>.</p>
+        </dd>
+        <dt><strong>Settles with</strong></dt>
+        <dd>
+          <p>
+            The settlement schemes that node says it runs, by their IDs, such
+            as <code>hub-xrpl-testnet-xrp</code>.
+          </p>
+        </dd>
+        <dt><strong>Neighbors</strong></dt>
+        <dd>
+          <p>The nodes it lists as its own peers.</p>
+        </dd>
+        <dt><strong>Peering</strong></dt>
+        <dd>
+          <p>
+            <code>none</code>, <code>requesting</code>, <code>peered</code>
+            or <code>terminating</code>: how your node stands with it.
+          </p>
+        </dd>
+      </dl>
+      <p>For a peer, the details go on:</p>
+      <dl>
+        <dt><strong>Settles on</strong></dt>
+        <dd>
+          <p>
+            Each hub the two of you settle over, in the order you agreed, with
+            what your node owes the peer there, net. A negative amount means
+            the peer owes yours. A method may carry a badge:
+          </p>
+          <ul>
+            <li>
+              <strong>Winding down</strong>: your node takes no new payments
+              on it, asks the peer to settle once, then stops settling there.
+              This happens, for example, while you remove that ledger.
+            </li>
+            <li>
+              <strong>Short of room</strong>: the peer has not settled for a
+              while, so no payments go through it there until it does.
+            </li>
+          </ul>
+        </dd>
+        <dt><strong>Status and Last heard</strong></dt>
+        <dd>
+          <p>Whether the peer is online now, and when it last spoke.</p>
+        </dd>
+        <dt><strong>Advertised</strong></dt>
+        <dd>
+          <p>
+            Whether your node tells the network it can route through this
+            peer. A peer that is unhealthy for a while is taken out of that,
+            and comes back once it is healthy again; it stays peered all the
+            while.
+          </p>
+        </dd>
+        <dt><strong>Ending, because</strong></dt>
+        <dd>
+          <p>Shown while a peering ends, with the reason.</p>
+        </dd>
+      </dl>
+      <p>
+        For what peers, credit and holds mean, see
+        <a href="/docs/concepts/peers/">Peers and holds</a>.
+      </p>
+
+      <h2 id="ending-a-peering">End a peering</h2>
+      <p>
+        Your node ends peerings with peers that stay silent or short of room
+        for long by itself. You rarely need to. If you do:
+      </p>
+      <ol class="steps">
+        <li>Select the peer, and then <strong>Terminate peering</strong>.</li>
+        <li>Confirm with <strong>Terminate</strong>.</li>
+      </ol>
+      <p>
+        Your node first asks the peer to settle once more, without saying
+        why, and takes no new payments from it. Then it tells the peer, and
+        once the payments in flight are done, the peering ends. What either
+        side still owes stays on the books, to be settled if you peer again.
+        The two do not peer again for a day, unless your node restarts.
+      </p>
+
+      <h2 id="banning">Ban a node</h2>
+      <p>
+        A ban is for a node you never want to deal with. Select the node, then
+        <strong>Ban node</strong>, and confirm with <strong>Ban</strong>.
+      </p>
+      <p>
+        Your node ends any peering with it at once: it stops routing through
+        it and tells it now, without asking it to settle first. What it owes
+        stays on the books. The details then say <em>Banned by you</em>.
+        Your node never peers with it again until you select
+        <strong>Unban node</strong>. A ban lasts across restarts.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peering-lifecycle.md">Why it works this way</a>:
+        ending a peering slowly and quietly, and bans.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

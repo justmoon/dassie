@@ -25,6 +25,16 @@ Update `map.json` in the same PR as the change it describes:
 
 Write for someone new to Dassie, in the present tense, and leave out milestones, PR numbers and counts that go stale. `map_test.ts` fails when a crate, app, package or contract has no box, when a path or id is wrong, when boxes overlap or leave their layer, when a box's `uses` links differ from the workspace dependencies in its `Cargo.toml` (not its dev-dependencies) or `package.json`, and when the newest release is not the workspace version in `Cargo.toml` (`[workspace.package]`). Run it with `node --test apps/website/src/architecture/map_test.ts`.
 
+## Keep the docs current
+
+[dassie.land/docs/](https://dassie.land/docs/) tells owners, operators and developers what to do: hand-written HTML pages under [`apps/website/docs/`](apps/website/docs/), listed in [`apps/website/src/docs.ts`](apps/website/src/docs.ts) ([Website](spec/areas/website.md#docs)).
+
+- **A change to what an owner, operator or developer does** (a command, a flag, a wallet screen, an install step, a port, an environment variable) updates its docs page in the same PR.
+- **Reference pages list what the code has:** every subcommand, `DASSIE_*` variable, settlement scheme and NixOS option has its entry. `docs_test.ts` reads each list from the code and fails when an entry is missing.
+- Describe what is built. What the roadmap or a design describes but the code does not do is "not there yet", with a link to the roadmap page. Write in Kopje's voice (below), and link the spec on GitHub for the reasons rather than copying them.
+
+Run it with `node --test apps/website/docs_test.ts`, or one page with `--test-name-pattern=/docs/node/status/`.
+
 ## Follow the visual identity
 
 Anything of Dassie's that people see (dassie.land, the wallet, the desktop app, images, things printed for operators) follows Kopje, Dassie's visual identity: [`apps/website/brand/index.html`](apps/website/brand/index.html), with its stylesheet `brand.css` beside it, served at [dassie.land/brand/](https://dassie.land/brand/). Read it before you design or restyle anything. It holds the mark and when to use which version, the palette and each color's role, type, the graphic language, the voice, and each of them in use, light and dark. The reasons are in [`spec/decisions/visual-identity.md`](spec/decisions/visual-identity.md).

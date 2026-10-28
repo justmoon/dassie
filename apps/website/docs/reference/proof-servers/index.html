@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="The XRP Ledger servers a node asks for proofs, one per network, why it never has to trust them, and how to use your own."
+    />
+    <title>Proof servers · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Proof servers</h1>
+      <p class="lede">
+        Your node checks everything it books on the XRP Ledger against
+        proofs, and it asks a proof server for them. This page lists the
+        servers it uses unless you name another, and shows how to run and
+        use your own.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="what-a-proof-server-is">What a proof server is</h2>
+      <p>
+        A proof server is an XRP Ledger server, rippled's
+        <code>xrpld</code>, with a small patch that adds three public
+        methods:
+      </p>
+      <dl class="ref">
+        <dt id="validations"><code>validations</code></dt>
+        <dd>
+          <p>
+            The validators' signatures on a recent ledger. Your node checks
+            that enough of the validators it trusts signed that ledger.
+          </p>
+        </dd>
+        <dt id="tx_proof"><code>tx_proof</code></dt>
+        <dd>
+          <p>
+            Proof that a transaction is in a ledger: the ledger's header and
+            the transaction's branch in that ledger's transaction tree.
+          </p>
+        </dd>
+        <dt id="state_proof"><code>state_proof</code></dt>
+        <dd>
+          <p>
+            Proof of what a ledger holds, such as an account's balance or a
+            trust line, and proof that it holds nothing under a key.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        A plain <code>rippled</code> doesn't have these methods. An account
+        pointed at one stops and waits, and says
+        <q>the server serves no proofs; name a proof server</q>.
+      </p>
+
+      <h2 id="the-default-servers">The default servers</h2>
+      <p>
+        The project runs one proof server for each network, and your node's
+        account on that network uses it unless you name another.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Network</th>
+              <th>Server</th>
+              <th>Network ID</th>
+              <th>Your node's account</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Testnet</td>
+              <td><code>wss://testnet.xrpl.dassieland.net</code></td>
+              <td>1</td>
+              <td><code>xrpl-testnet-account/0</code></td>
+            </tr>
+            <tr>
+              <td>Mainnet</td>
+              <td><code>wss://mainnet.xrpl.dassieland.net</code></td>
+              <td>0</td>
+              <td><code>xrpl-account/0</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Your node's own testnet books, its XRP and DSUSD, are held in its
+        testnet account, and money moves between that account and your
+        settlement hubs on the ledger. So all of it is checked through that
+        account's server. The mainnet account belongs to the
+        live realm, which a node refuses, so no node uses the mainnet
+        server. Real money is not there yet.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p>
+        A server that reports a different network ID than its account's
+        stops the account, with a message that says so. That catches a
+        server set up for the wrong network right away.
+      </p>
+
+      <h2 id="never-trusted">Relied on, never trusted</h2>
+      <p>
+        Your node takes nothing a proof server says on its word. Every
+        answer it acts on has to prove itself against a ledger that a quorum
+        of your node's own validators signed. Your node builds that list of
+        validators from the lists its network's publishers sign, not from
+        the server.
+      </p>
+      <ul>
+        <li>
+          <strong>A server that lies</strong> fails the first check its
+          answer meets. Your node counts the lie, connects again, and books
+          nothing from it.
+        </li>
+        <li>
+          <strong>A server that goes silent</strong> stalls the account
+          until it answers again. Your node waits and says why. It never
+          falls back to taking the server's word.
+        </li>
+        <li>
+          <strong>A server holds no secret.</strong> Whoever takes one over
+          can make it lie, which your node catches, or go quiet, which
+          stalls your node until it comes back. Nothing more.
+        </li>
+      </ul>
+      <p>
+        A server does see what your node asks about: your account on the
+        ledger, and when your node is online to ask.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/verified-ledgers.md"
+          >Why it works this way</a
+        >
+        and what each proof covers, in
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/designs/xrpl-validation.md#3-the-proof-api"
+          >the proof API</a
+        >.
+      </p>
+
+      <h2 id="history">History</h2>
+      <p>
+        Each default server keeps about two days of ledgers: at least 45,000
+        of them. Your node relies on a proof server to keep the last 40,000
+        ledgers, its history bound, so that it can prove what changed while
+        it was away.
+      </p>
+      <ul>
+        <li>
+          <strong>Away for a shorter time:</strong> your node proves every
+          transaction it missed and books it as usual.
+        </li>
+        <li>
+          <strong>Away for longer:</strong> what lies beyond the history
+          bound is a gap. Your node matches its books to the balances the
+          server proves, logs a warning and counts the gap. A settlement of
+          your own in that gap stays pending for you to look at, and is
+          never canceled.
+        </li>
+        <li>
+          <strong>A server that keeps less:</strong> if it answers that it
+          doesn't have a ledger within the bound, the account stops and
+          waits, and says the server's history is too short. Name another
+          server.
+        </li>
+      </ul>
+      <p>
+        When the XRP Ledger testnet is reset, the testnet server starts over
+        about half an hour after the reset, and then needs about an hour to
+        sync the new chain. Testnet nodes wait meanwhile and book nothing wrong.
+      </p>
+
+      <h2 id="your-own">Using your own server</h2>
+      <p>
+        Anyone can run a proof server. Your node checks every answer, so it
+        gains nothing from a server it knows and loses nothing to one it
+        doesn't. Running your own means nobody else sees what your node
+        asks about, and your node doesn't wait on the project's server.
+      </p>
+      <ol class="steps">
+        <li>
+          <p>
+            <strong>Build the patched <code>xrpld</code>.</strong> The patch,
+            the build script and the configuration are in
+            <a href="https://github.com/justmoon/dassie/tree/main/resources/proof-server"><code>resources/proof-server/</code></a>.
+            The build needs Nix with flakes and a few tens of gigabytes of
+            disk:
+          </p>
+          <pre><code><span class="prompt">$</span>resources/proof-server/build.sh 3.5.0-rc1+proofs.1 out/</code></pre>
+          <p>
+            The version is the rippled release named in
+            <code>patches/BASE</code>, with <code>+proofs.&lt;n&gt;</code>
+            after it. It writes <code>xrpld</code>, <code>BUILDINFO</code>
+            and <code>SHA256SUMS</code>. You can also take the project's
+            builds from
+            <code>https://storage.googleapis.com/dassie-xrpld/&lt;version&gt;/xrpld</code>:
+            you don't need to trust the binary, since your node checks every
+            answer.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Configure it like the project's.</strong> Start from
+            <code>xrpld-testnet.cfg</code> and
+            <code>validators-testnet.txt</code> in the same directory.
+            Keep at least 45,000 ledgers of history
+            (<code>[ledger_history]</code> and <code>online_delete</code>):
+            anything under your node's bound of 40,000 stalls it after an
+            absence. Give it fast disk: syncing writes thousands of small
+            blocks a second.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Serve it over <code>wss://</code> at a public
+            address,</strong> with a certificate. Your node connects only to
+            <code>wss://</code> servers at public addresses: plain
+            <code>ws://</code> and private addresses are for development
+            only. The project's servers keep xrpld's public ports on
+            <code>127.0.0.1</code>, behind Caddy (<code>Caddyfile</code>),
+            which sets the client's address itself and drops the
+            <code>Forwarded</code> and <code>X-User</code> headers a client
+            sends. That keeps xrpld's limits per client, so one busy client
+            slows down only itself.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Check that it serves proofs.</strong> The build version
+            ends in <code>+proofs.&lt;n&gt;</code>, and
+            <code>state_proof</code> answers:
+          </p>
+          <pre><code><span class="prompt">$</span>curl -s https://proofs.example.com -d '{"method":"server_info"}' | jq .result.info.build_version
+<span class="prompt">$</span>curl -s https://proofs.example.com -d '{"method":"state_proof","params":[{"keys":["&lt;64 hex&gt;"]}]}' | jq .result</code></pre>
+        </li>
+        <li>
+          <p>
+            <strong>Point your node's account at it.</strong> An account's
+            server is part of the account's config, which you set with
+            <a href="/docs/reference/cli/#dassie-setup"><code>dassie setup</code></a>
+            and the phrase your node was set up with.
+            <code>--hub none</code> keeps it from joining a hub you haven't
+            joined:
+          </p>
+          <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file phrase.txt --hub none \
+    --asset 'xrpl-testnet-account/0={"server":"wss://proofs.example.com"}'</code></pre>
+          <p>
+            If schemes already settle through the account, your node takes
+            the new server at its next start:
+          </p>
+          <pre><code><span class="prompt">$</span>sudo systemctl restart dassie</code></pre>
+          <p>
+            The config can also name <code>faucet</code> (an HTTPS URL, or
+            <code>null</code> for none) and <code>publishers</code>, the
+            validator list publishers you trust, which then replace your
+            network's.
+          </p>
+        </li>
+      </ol>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Keep your phrase file only as long as
+          the command needs it. Anyone who reads it holds your node's money.
+          <a href="/docs/concepts/phrase/">Your recovery phrase</a>
+        </p>
+      </aside>
+      <p>
+        Three other roles name an XRP Ledger server of their own. A hub
+        validator takes it from the <code>xrpl</code> fields of the file
+        <a href="/docs/reference/environment/#DASSIE_VALIDATOR_CONFIG"><code>DASSIE_VALIDATOR_CONFIG</code></a>
+        names, and otherwise uses its network's default server
+        (<a href="/docs/services/hub-validator/">Validate a settlement hub</a>).
+        A hub's founder passes
+        <a href="/docs/reference/cli/#dassie-hub-found"><code>dassie hub found --xrpl</code></a>,
+        and otherwise uses the server of your node's account on that
+        network.
+        A market maker names its own server and trusts it
+        (<a href="/docs/services/market-maker/">Run a market maker</a>).
+      </p>
+      <p class="not-yet">
+        Proofs from any <code>rippled</code> are not there yet: the patch
+        still has to be taken upstream.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p>
+        The project's servers, how they are built, set up and kept running
+        are in
+        <a href="https://github.com/justmoon/dassie/blob/main/resources/proof-server/README.md"><code>resources/proof-server/README.md</code></a>
+        and the spec's
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/proof-servers.md"
+          >Proof servers</a
+        >.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

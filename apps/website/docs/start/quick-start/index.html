@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="A node on your own server: install with one command, run dassie init, and finish in the browser with your recovery phrase, a ledger and a hub."
+    />
+    <title>Quick Start · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Quick Start</h1>
+      <p class="lede">
+        This page takes you from an empty server to a node with a wallet,
+        a ledger and a settlement hub. It takes a few commands and a few
+        minutes in your browser.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="what-you-need">What you need</h2>
+      <p>A server, or a virtual machine, with:</p>
+      <ul>
+        <li>
+          Linux with systemd, on x86-64 or arm64. The installer is tested on
+          Debian 12, Ubuntu 24.04, Fedora 42 and CentOS Stream 9. On NixOS,
+          follow <a href="/docs/node/nixos/">Dassie on NixOS</a> instead.
+        </li>
+        <li><code>curl</code> or <code>wget</code>;</li>
+        <li>
+          <code>minisign</code>, or OpenSSL 1.1.1 or later, to check the
+          release's signature;
+        </li>
+        <li>a public IP address, and a domain name that points to it;</li>
+        <li>
+          TCP ports 80 and 443 and UDP port 443 open to the world, and no
+          other program on UDP port 443. Nodes talk to each other over QUIC,
+          on UDP, and the node does not start without it.
+        </li>
+        <li>
+          UDP port 7768 open too, if you want anyone to be able to ask your
+          node for its snapshot, the quotes it swaps at. Without it the node
+          runs, and its peers still get its snapshot.
+        </li>
+      </ul>
+      <p>
+        <a href="/docs/node/requirements/">Requirements</a> has the details.
+        No domain name, or no public address? See
+        <a href="/docs/start/pick-your-setup/">Pick your setup</a>.
+      </p>
+
+      <h2 id="install">Install</h2>
+      <p>On your server, run:</p>
+      <pre><code><span class="prompt">$</span>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh</code></pre>
+      <p>
+        The installer downloads the newest release from
+        <code>get.dassie.land</code> and checks its signature against
+        Dassie's release key before it unpacks anything. It installs Dassie
+        in <code>/opt/dassie</code>, puts the <code>dassie</code> command on
+        your path, and sets up and starts its systemd units.
+      </p>
+      <p>
+        It also adds you to the group <code>dassie-users</code>, whose
+        members may talk to the node. The change takes effect the next time
+        you log in, so close your SSH session and log in again before you
+        use <code>dassie</code> without <code>sudo</code>.
+      </p>
+      <p>
+        To install a particular version rather than the newest, in a
+        Dockerfile or a cloud-init script for example, name it:
+      </p>
+      <pre><code><span class="prompt">$</span>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh -s -- --target-version &lt;version&gt;</code></pre>
+      <p>
+        On a host that runs the node under systemd units of its own, or with
+        no systemd at all, such as a container, add
+        <code>--no-service</code>. The installer then puts the files in place
+        and sets up no units.
+      </p>
+      <p>Then check that the installed binary works on this server:</p>
+      <pre><code><span class="prompt">$</span>dassie verify-install</code></pre>
+      <p>
+        If the installer stops, it says why. A common cause is UDP port 443
+        taken by another program: the node does not start without it.
+      </p>
+      <p>
+        If this server ran a 0.2 release of Dassie, the new node can't read
+        its old database.
+        <a href="/docs/node/updates/#from-0-2">A node from the 0.2
+        releases</a> shows how to start afresh.
+      </p>
+
+      <h2 id="configure">Configure the node</h2>
+      <p>
+        Before you can open the wallet, the node needs its domain name and
+        a TLS certificate. It gets the certificate from Let's Encrypt
+        itself. Run:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie init</code></pre>
+      <p>
+        It asks for your server's domain name, whether you agree to Let's
+        Encrypt's terms, and an email address. Then it fetches the
+        certificate and prints a URL where you finish the setup in your
+        browser, <code>https://&lt;your domain&gt;/setup/&lt;token&gt;</code>.
+      </p>
+      <p>
+        Whoever opens that URL first sets up the node, so keep it to
+        yourself. It stays valid until setup is done, even if the server
+        restarts. If you lose it, print it again:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie setup-url</code></pre>
+      <p>
+        If the certificate fails, check that your domain name points to this
+        server and that TCP port 80 is open: Let's Encrypt checks both.
+      </p>
+
+      <h2 id="phrase">Make your recovery phrase</h2>
+      <p>Open the setup URL in your browser.</p>
+      <ol class="steps">
+        <li>
+          Choose <strong>Generate a new wallet</strong>. If you already have
+          a Dassie phrase, choose <strong>Recover an existing wallet</strong>
+          and type it in instead. A phrase made for a 0.2 release doesn't
+          work any more, since the test network was reset: make a new one.
+        </li>
+        <li>
+          Write the 20 words down, in order, on paper or a metal plate, and
+          keep them somewhere safe and private. The first four letters of
+          each word, shown in bold, are enough. Then choose
+          <strong>I have written it down</strong>.
+        </li>
+        <li>
+          Type back the word the wallet asks for, and choose
+          <strong>Verify</strong>. The node sets itself up and logs you in.
+        </li>
+      </ol>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Anyone who knows your phrase controls your
+          node and its money. If you lose it, nobody can recover it for you.
+          Your browser makes the phrase and keeps it to itself: only the key
+          it gives your node reaches the server.
+        </p>
+      </aside>
+      <p>
+        <a href="/docs/concepts/phrase/">Your recovery phrase</a> explains
+        what the 20 words hold, and how they fix a word you misread.
+      </p>
+
+      <h2 id="ledger">Choose a ledger</h2>
+      <p>
+        Next the wallet asks you to <strong>Choose a Ledger Type</strong>.
+        It lists the ledgers your node can hold money on, all of them on the
+        XRP Ledger's test network: your own account there, and the
+        testnet's settlement hubs. Start with your account.
+      </p>
+      <ol class="steps">
+        <li>
+          Next to <strong>XRP Ledger Testnet Settlement</strong>, choose
+          <strong>Select →</strong>. This is your node's own account on the XRP
+          Ledger testnet, which holds your test XRP.
+        </li>
+        <li>
+          Wait for the test XRP. While the account does not exist on the
+          ledger yet, your node asks the testnet faucet for XRP by itself.
+          The XRP shows up once the ledger validates it. To ask for more,
+          open <strong>Assets</strong> and choose
+          <strong>Get test XRP</strong>.
+        </li>
+      </ol>
+      <p>
+        The list also offers <strong>DSUSD on the XRP Ledger Testnet
+        Settlement</strong>, which holds Dassie's test dollar in the same
+        account, and the testnet's two hubs, which you join next.
+        <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> covers it.
+      </p>
+
+      <h2 id="hub">Join a settlement hub</h2>
+      <p>
+        Your XRP Ledger account holds your money, but your node never pays
+        its peers from it directly. Peers settle through a settlement hub
+        they share, so your node needs to join one.
+      </p>
+      <p>
+        The testnet's XRP hub is built into your node, and the four
+        bootstrap nodes keep it. To join it:
+      </p>
+      <ol class="steps">
+        <li>
+          In the wallet, open <strong>Ledgers</strong> and choose
+          <strong>+ Add Ledger</strong>.
+        </li>
+        <li>
+          Next to <strong>XRP in a settlement hub on the XRP Ledger Testnet
+          Settlement</strong>, choose <strong>Select →</strong>.
+        </li>
+      </ol>
+      <p>
+        Your node then moves about 2.5 test XRP from your account into the
+        hub: the hub account's reserve of 2 XRP, and some to spend. From
+        then on it keeps its balance in the hub above a floor by itself. The
+        <strong>Hubs</strong> page shows your account there.
+        <a href="/docs/wallet/hubs/">Your hubs</a> says more.
+      </p>
+      <p>
+        The testnet's DSUSD hub is built in too, for when you hold DSUSD.
+        <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> covers it.
+      </p>
+
+      <h2 id="network">Join the network</h2>
+      <p>
+        Your node now looks for the rest of the network on its own. It asks
+        the bootstrap nodes who is on the network, registers with them, and
+        peers with a few nodes that share a hub with it. The testnet's four
+        bootstrap nodes are built in, so you do not have to do anything.
+        The <strong>Network</strong> page shows the nodes it knows and the
+        peers it has.
+      </p>
+      <p>
+        Nodes talk to each other with the peer protocol
+        <code>dassie/2</code>, so yours peers only with nodes on Dassie
+        0.3.0 or later.
+        <a href="/docs/concepts/versions/">Protocol versions</a> says more.
+      </p>
+
+      <h2 id="check">Check on your node</h2>
+      <p>
+        To see how your node is doing, run:
+      </p>
+      <pre><code><span class="prompt">$</span>dassie status</code></pre>
+      <p>
+        It shows the version, the address and certificate, whether setup is
+        done, the network, the peers and ledgers, your hubs and how the last
+        update went. It gives a hint only where something is wrong. Its
+        output holds no secrets, so you can paste it when you ask for help.
+        The node's full log is in the journal:
+      </p>
+      <pre><code><span class="prompt">$</span>journalctl -u dassie</code></pre>
+      <p>
+        <a href="/docs/node/status/">Check on your node</a> explains the
+        output line by line.
+      </p>
+
+      <h2 id="updates">Updates</h2>
+      <p>
+        Dassie updates itself. Once a day a systemd timer looks for a newer
+        release, checks its signature and switches to it. If the new version
+        does not start, it goes back to the old one, with the node's data as
+        the old one left it. To update right away, run:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie update</code></pre>
+      <p>
+        <a href="/docs/node/updates/">Updates and rollback</a> covers
+        pinning a version and going back.
+      </p>
+
+      <h2 id="uninstall">Uninstall</h2>
+      <p>If you ever want Dassie gone, run:</p>
+      <pre><code><span class="prompt">$</span>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh -s -- uninstall</code></pre>
+      <p>
+        This removes Dassie and its systemd units. The node's data stays in
+        <code>/var/lib/private/dassie</code>, in case you change your mind.
+        <a href="/docs/node/uninstall/">Uninstall</a> has the details.
+      </p>
+
+      <h2 id="next">Next</h2>
+      <ul>
+        <li>
+          <a href="/docs/start/first-payment/">Your first payment</a>: send
+          test XRP to someone and watch it arrive.
+        </li>
+        <li>
+          <a href="/docs/wallet/backup/">Back up your phrase</a>, if you have
+          not yet.
+        </li>
+        <li>
+          <a href="/docs/node/configure/">Configure your node</a>: what you
+          can change, and where.
+        </li>
+      </ul>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

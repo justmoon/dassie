@@ -24,9 +24,9 @@ The installer fetches the newest release from `get.dassie.land`, checks its sign
 
 Dassie updates itself: once a day, a systemd timer checks for a newer release, verifies it and switches to it, and goes back if the new version does not start. `sudo dassie update` does the same right away. To uninstall, run the installer with `sh -s -- uninstall`. The node's data stays in `/var/lib/private/dassie` in case you change your mind.
 
-The [Quick Start](https://dassie.land/guides/quick-start/) on dassie.land walks through the same steps.
+The [Quick Start](https://dassie.land/docs/start/quick-start/) on dassie.land walks through the same steps.
 
-On NixOS, each release publishes a flake instead, `https://get.dassie.land/<version>/flake.tar.gz`, and `https://get.dassie.land/flake/latest.tar.gz` is the newest one, which `nix flake update` follows. It holds a module that runs the release's signed binary under its own systemd units, without the updater. [Dassie on NixOS](https://dassie.land/guides/nixos/) shows how to use it.
+On NixOS, each release publishes a flake instead, `https://get.dassie.land/<version>/flake.tar.gz`, and `https://get.dassie.land/flake/latest.tar.gz` is the newest one, which `nix flake update` follows. It holds a module that runs the release's signed binary under its own systemd units, without the updater. [Dassie on NixOS](https://dassie.land/docs/node/nixos/) shows how to use it.
 
 ## Using your node
 

@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Run the desktop app on Linux with Nix, set your node up in its window, and keep it installed."
+    />
+    <title>Install the desktop app · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Install the desktop app</h1>
+      <p class="lede">
+        The desktop app runs your own Dassie node on the computer you use
+        every day, with its wallet in a window. You need no server, no public
+        address and no domain. Today it runs on Linux, and you install it
+        with Nix.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="what-you-need">What you need</h2>
+      <ul>
+        <li>A Linux desktop on x86-64.</li>
+        <li>
+          <a href="https://nixos.org/download/">Nix</a>, the package manager.
+          It runs beside your distribution's own packages and changes nothing
+          of them. On NixOS you have it already.
+        </li>
+        <li>
+          A tray, for the app's icon. KDE, Xfce, Cinnamon and most other
+          desktops have one. GNOME shows tray icons only with an extension,
+          such as AppIndicator and KStatusNotifierItem Support. Without a
+          tray the app still runs: see
+          <a href="/docs/desktop/lifecycle/#without-a-tray">Tray, login and quitting</a>.
+        </li>
+      </ul>
+      <p>
+        Nix builds the app from Dassie's source, the wallet included. That
+        takes a while, so start it when you have a few minutes to spare.
+        Once you have installed it, the app starts in a moment. A
+        <code>nix run</code> of the main branch, below, builds again whenever
+        the branch has moved since you last ran it.
+      </p>
+      <p class="not-yet">
+        Packages for other distributions, macOS and Windows are not there
+        yet, and neither is the app in the release mirror's signed flake.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+
+      <h2 id="try-it">Try it</h2>
+      <p>
+        To run the app once, without installing it, run this in a terminal:
+      </p>
+      <pre><code><span class="prompt">$</span>nix run github:justmoon/dassie#desktop</code></pre>
+      <p>
+        If Nix says that <code>nix-command</code> or <code>flakes</code> is
+        an experimental feature, turn them on for this command:
+      </p>
+      <pre><code><span class="prompt">$</span>nix --extra-experimental-features 'nix-command flakes' run github:justmoon/dassie#desktop</code></pre>
+      <p>
+        This builds the newest commit on Dassie's main branch. To build a
+        release instead, which Nix builds once and then starts in a moment,
+        put its tag after the repository's name, as in
+        <code>github:justmoon/dassie/&lt;tag&gt;#desktop</code>. The
+        <a href="/docs/reference/releases/">release notes</a> list the
+        releases and their tags.
+      </p>
+      <p>
+        An app started with <code>nix run</code> does not start itself at
+        login, since the path it runs from can go away with Nix's next
+        cleanup. Install it, below, if you want your node to run whenever
+        you are logged in.
+      </p>
+
+      <h2 id="install-it">Install it</h2>
+      <p>To keep the app, add it to your Nix profile:</p>
+      <pre><code><span class="prompt">$</span>nix profile add github:justmoon/dassie#desktop
+<span class="comment"># older Nix calls it: nix profile install github:justmoon/dassie#desktop</span></code></pre>
+      <p>
+        Dassie then shows up among your applications, and the command
+        <code>dassie-desktop</code> is on your <code>PATH</code>. To update
+        it later, run <code>nix profile upgrade --all</code>, quit the app
+        and start it again.
+      </p>
+      <h3>On NixOS</h3>
+      <p>
+        Add Dassie's repository as an input of your system's flake, and the
+        app to your packages:
+      </p>
+      <figure class="file">
+        <figcaption>flake.nix</figcaption>
+        <pre><code>{
+  inputs.dassie.url = "github:justmoon/dassie";
+
+  outputs = { nixpkgs, dassie, ... }: {
+    nixosConfigurations.my-laptop = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ./configuration.nix
+        {
+          environment.systemPackages = [
+            dassie.packages.x86_64-linux.desktop
+          ];
+        }
+      ];
+    };
+  };
+}</code></pre>
+      </figure>
+      <p>
+        Your flake's lock file pins the commit you build, and
+        <code>nix flake update dassie</code> moves it to the newest one. This
+        is the desktop app only. To run a node on a server with NixOS, follow
+        <a href="/docs/node/nixos/">Dassie on NixOS</a>.
+      </p>
+
+      <h2 id="first-start">First start</h2>
+      <p>
+        Start Dassie from your applications, or run
+        <code>dassie-desktop</code>. The window says
+        <em>Starting your node…</em> and then opens the wallet, which asks
+        you to set up your node.
+      </p>
+      <ol class="steps">
+        <li>
+          Choose <em>Generate a new wallet</em>, or <em>Recover an existing
+          wallet</em> if you already have a recovery phrase.
+        </li>
+        <li>
+          Write down the 20 words of your new phrase, in order, on paper. They
+          are your node and its money: anyone who knows them controls both,
+          and nobody can give them back to you if you lose them.
+          <a href="/docs/wallet/backup/">Back up your phrase</a> says how to
+          keep them.
+        </li>
+        <li>
+          Enter the word the wallet asks for, to show that you wrote them
+          down. The wallet then sets your node up and opens.
+        </li>
+      </ol>
+      <p>
+        The phrase never leaves the window: the wallet derives your node's
+        key from it and hands the node only the key.
+        <a href="/docs/wallet/setup/">Set up your wallet</a> walks through
+        setup in more detail, and
+        <a href="/docs/concepts/phrase/">Your recovery phrase</a> explains
+        what the phrase holds.
+      </p>
+      <p>
+        Then add your first ledger, and join the testnet's XRP hub. Peers
+        settle only through settlement hubs, so your node finds its first
+        peers once it is in one. The wallet joins no hub by itself:
+        <a href="/docs/wallet/hubs/#joining-a-hub">Joining a hub</a> shows
+        how.
+      </p>
+      <p>
+        From then on, closing the window leaves your node running, with an
+        icon in the tray. <a href="/docs/desktop/lifecycle/">Tray, login and
+        quitting</a> says how to open it again and how to stop it, and
+        <a href="/docs/desktop/reach/">How others reach you</a> says how
+        payments find a node on a laptop.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/desktop-app.md">Why it works this way</a>:
+        the node in the app's own process, the wallet from the node's own
+        address, and a Nix package first.
+      </p>
+
+      <h2 id="where-things-are">Where things are</h2>
+      <p>
+        The node in the app is the same node a server runs, and it keeps its
+        data in the same place a node run by your user does.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>What</th>
+              <th>Where</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>The node's database</td>
+              <td>
+                <code>~/.local/share/dassie</code>, or
+                <code>$XDG_DATA_HOME/dassie</code> where that is set
+              </td>
+            </tr>
+            <tr>
+              <td>The node's IPC socket, for the <code>dassie</code> command</td>
+              <td><code>$XDG_RUNTIME_DIR/dassie.sock</code></td>
+            </tr>
+            <tr>
+              <td>
+                The app's own files: the wallet's port, whether to start at
+                login, and the window's cookies, cache and storage
+              </td>
+              <td>
+                <code>~/.local/share/land.dassie.desktop</code>, or
+                <code>$XDG_DATA_HOME/land.dassie.desktop</code> where that is
+                set
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The app keeps all of these to your user alone: what it writes is
+        readable by you only, and it tightens its directories to that if
+        they are looser. The window's session cookie lets whoever reads it
+        into your wallet, so keep it that way.
+        <a href="/docs/reference/files-and-ports/#desktop-files">Files, ports and sockets</a>
+        lists every file and port.
+      </p>
+      <p>
+        The node reads the same environment variables as a server's node,
+        such as <code>DASSIE_LOG</code> and <code>DASSIE_RELAY</code>, when
+        the app starts. <a href="/docs/reference/environment/">Environment
+        variables</a> lists them all. The <code>dassie</code> command works
+        on the app's node too, over its socket, with no <code>sudo</code>.
+        The app does not bring the command along; Nix runs it for you:
+      </p>
+      <pre><code><span class="prompt">$</span>nix run github:justmoon/dassie -- status</code></pre>
+      <aside class="note">
+        <p>
+          Back up your phrase, not the folders. The phrase recovers your node
+          on any computer. <a href="/docs/node/backup/">Back up and move a
+          node</a> says what a copy of the database adds, and when it is
+          safe to use one.
+        </p>
+      </aside>
+
+      <h2 id="if-it-does-not-start">If it does not start</h2>
+      <p>
+        When the node cannot start, the window says <em>Your node could not
+        start</em>, with the reason. Closing that window quits the app. These
+        are the usual reasons:
+      </p>
+      <ul>
+        <li>
+          <strong>Another node uses the same data.</strong> Only one node
+          runs on a data directory at a time. If you also run
+          <code>dassie daemon</code> as your user, stop it first. Starting the
+          app a second time does no harm: it only shows the first one's
+          window.
+        </li>
+        <li>
+          <strong>The wallet's port was taken</strong> between the app
+          choosing it and the node opening it. Start the app again: it
+          chooses another.
+        </li>
+        <li>
+          <strong>The database was made for the early testnet.</strong>
+          Dassie 0.3.0 reset the testnet, and reads no database or phrase
+          from before. Quit the app, move <code>~/.local/share/dassie</code>
+          aside, start the app again, and set your node up with a new
+          phrase.
+        </li>
+      </ul>
+      <p>
+        If an environment variable has a value the node cannot use, the app
+        does not open at all. Start it from a terminal, and it says which
+        variable and why.
+      </p>
+      <p>
+        To see the node's log, quit the app and start it from a terminal,
+        where the log appears. <code>DASSIE_LOG=debug dassie-desktop</code>
+        shows more of it.
+      </p>
+      <p>
+        If the window opens but stays blank, your graphics driver may not
+        get along with WebKitGTK, the engine that draws the window. Starting
+        the app with <code>WEBKIT_DISABLE_DMABUF_RENDERER=1</code> set often
+        helps. If it does not, <a href="/docs/project/help/">ask for help</a>
+        and say which distribution and graphics card you use.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

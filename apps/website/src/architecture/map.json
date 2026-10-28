@@ -140,9 +140,11 @@
       "x": 420,
       "y": 48,
       "w": 176,
-      "desc": "This website, in Kopje, the visual identity: static pages built by Vite and published from main to a bucket behind the release mirror's load balancer, under a strict content security policy.",
+      "desc": "This website, in Kopje, the visual identity: the docs and a few more pages, hand-written HTML that Vite builds into static pages, published from main to a bucket behind the release mirror's load balancer under a strict content security policy.",
       "does": [
-        "The home page, the Quick Start and the NixOS guide",
+        "The home page",
+        "The docs: hand-written pages for owners, operators and developers, from a first node to the reference, with search that runs in the browser",
+        "A test checks the reference pages against the code: every command, environment variable, settlement scheme and NixOS option has its entry",
         "This architecture page, drawn from one data file",
         "The brand page: Kopje, the visual identity, with the mark, color, type and how they look in use",
         "The STREAM toy: Dassie's own STREAM code, compiled to WebAssembly, sends a payment over a simulated network",

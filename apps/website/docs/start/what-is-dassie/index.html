@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="A payment network its users run themselves: each node peers with a few neighbors, keeps its own books and settles through hubs on a shared ledger."
+    />
+    <title>What is Dassie? · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>What is Dassie?</h1>
+      <p class="lede">
+        Dassie is a payment network that its users run themselves. You run a
+        node, your node peers with a few neighbors, and together you are the
+        network. Nobody sits on top.
+      </p>
+
+      <h2 id="a-node-of-your-own">A node of your own</h2>
+      <p>
+        A Dassie node is one program, <code>dassie</code>, running on a server
+        or on your own computer. You are its owner. You set it up with a
+        recovery phrase of 20 words, and every key the node uses comes from
+        that phrase: the key that names your node on the network, and the
+        keys to your accounts on each ledger. Write the phrase down and you
+        can bring the same node back anywhere.
+        <a href="/docs/concepts/phrase/">Your recovery phrase</a> says more.
+      </p>
+      <p>
+        The node serves you a wallet in your browser. There you send and
+        receive money, see what your node holds, and decide which apps may
+        pay through it. Apps reach your node with
+        <a href="https://openpayments.dev">Open Payments</a> or with ILP
+        clients over BTP, so they need no code of Dassie's.
+      </p>
+
+      <h2 id="neighbors">Neighbors, not a center</h2>
+      <p>
+        Your node finds the others through a few bootstrap nodes, which keep
+        a list of who is on the network. Then it picks a few peers of its
+        own. Packets of a payment travel from peer to peer until they reach
+        the receiver, the way packets travel across the internet. Each node
+        on the way can charge a small fee for carrying them.
+      </p>
+      <p>
+        A node with a domain name forwards payments for others. A node
+        without one, such as the desktop app, connects out to a few of those
+        nodes and is reached through them.
+        <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>
+        explains the two kinds.
+      </p>
+
+      <h2 id="own-books">Each node keeps its own books</h2>
+      <p>
+        Every node records what each peer owes it and what it owes each peer,
+        and enforces its own limits from those books. It never needs to agree
+        with its peers about them. Whatever a peer does, what it can cost
+        your node is bounded by the limits your node set for it: the credit
+        it gives that peer, and how much it lets be in flight.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/own-books.md">Why it works this way</a>
+      </p>
+
+      <h2 id="hubs-and-ledgers">Hubs, and the ledgers under them</h2>
+      <p>
+        Peers settle what they owe each other through settlement hubs. A hub
+        is a small ledger that a few validators keep together, backed by an
+        escrow on an underlying ledger. Today that ledger is the XRP Ledger's
+        test network, and the hubs hold test XRP or DSUSD, Dassie's test
+        dollar. The testnet's XRP hub and DSUSD hub are built into every
+        node, and the four bootstrap nodes keep them.
+      </p>
+      <p>
+        In a hub, your node sets money aside for each peer it pays. That
+        money is all the credit the peer gets from you, and the hub pays the
+        peer from it whether your node is around or not. So two nodes can
+        trade without trusting each other, only the hub's validators.
+        <a href="/docs/concepts/hubs/">Settlement hubs</a> explains how.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hubs-only.md">Why peers settle only over hubs</a>
+      </p>
+
+      <h2 id="any-currency">Any currency</h2>
+      <p>
+        Dassie speaks <a href="https://interledger.org">Interledger</a>, so a
+        payment can start in one currency and arrive in another. Nodes
+        convert along the way at rates they fetch themselves, and swap
+        assets with their peers to keep what they hold in balance. You hold
+        what you like, and still pay people who hold something else.
+        <a href="/docs/concepts/payments/">How a payment travels</a> follows
+        one from start to finish.
+      </p>
+
+      <h2 id="not-a-blockchain">Not a blockchain</h2>
+      <p>
+        Dassie has no blockchain, and no coin to buy or mine. DSUSD is a
+        test-only dollar token on the XRP Ledger testnet, standing in for
+        RLUSD while Dassie takes test money only. Payments
+        pass through the network and are not stored by it. Nodes share only
+        what they need to route payments, and settle on ledgers that already
+        exist.
+      </p>
+
+      <h2 id="test-money-only">Test money only, for now</h2>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+      <p>
+        Dassie is early. Few people run nodes so far, and there is one
+        ledger to settle on. Everything runs on the XRP Ledger's test
+        network, where money costs nothing, so a bug costs nobody anything
+        real. Real money comes once a list of conditions holds, and
+        <a href="/docs/start/early-days/">Early days</a> shows how far along
+        each one is.
+      </p>
+
+      <h2 id="where-next">Where to go next</h2>
+      <ul>
+        <li>
+          <a href="/docs/start/pick-your-setup/">Pick your setup</a>: a
+          server, NixOS or the desktop app.
+        </li>
+        <li>
+          <a href="/docs/start/quick-start/">Quick Start</a>: a node on a
+          server in a few commands.
+        </li>
+        <li>
+          <a href="/docs/start/glossary/">Glossary</a>: the words Dassie
+          uses.
+        </li>
+        <li>
+          <a href="/architecture/">Architecture</a>: how Dassie is built.
+        </li>
+      </ul>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

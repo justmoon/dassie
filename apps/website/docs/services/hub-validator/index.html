@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Turn on the validator in your node, say whose hubs it may validate, and read its lines in dassie status."
+    />
+    <title>Validate a settlement hub · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Validate a settlement hub</h1>
+      <p class="lede">
+        A settlement hub is a small ledger that a few nodes keep together,
+        its validators, backed by money held on the XRP Ledger. Your node
+        can be one of them. This page turns the validator on, and shows what
+        to watch once it runs.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="before-you-start">Before you start</h2>
+      <p>
+        <a href="/docs/concepts/hubs/">Settlement hubs</a> explains what a
+        hub is and why validators matter. A validator keeps other people's
+        money safe together with the others, so it asks more of you than a
+        node does:
+      </p>
+      <ul>
+        <li>
+          <strong>A node on a server, with a hostname,</strong> set up and
+          running. Other validators and members reach it at its own address,
+          over QUIC on UDP port 443, so a node in the desktop app or without
+          a public address cannot validate.
+        </li>
+        <li>
+          <strong>A server that stays up.</strong> A hub needs most of its
+          validators to agree on each block. If a validator is gone for longer
+          than the hub's terms allow, three days unless its sponsor chose
+          otherwise, the hub shuts down and pays everyone out.
+        </li>
+        <li>
+          <strong>A sponsor you trust.</strong> Every hub has a sponsor, the
+          node that founds it. Your node validates only for sponsors you list,
+          and the sponsor asks you to join a hub when it founds one. To
+          found a hub yourself, see <a href="/docs/services/found-a-hub/">Found
+          a hub</a>.
+        </li>
+      </ul>
+      <p>
+        Your node validates at most four hubs, those it was asked to join
+        and those you list, together.
+      </p>
+
+      <h2 id="the-validator-config">The validator config</h2>
+      <p>
+        Validating is off until you name a config file in
+        <code>DASSIE_VALIDATOR_CONFIG</code>. The file is JSON. It holds no
+        secret, so it may be readable by everyone, which the node's service
+        needs. The smallest one lists the sponsors you validate for:
+      </p>
+      <figure class="file">
+        <figcaption>/etc/dassie/validator.json</figcaption>
+        <pre><code>{
+  "sponsors": ["&lt;the sponsor's node ID&gt;"],
+  "hubs": []
+}</code></pre>
+      </figure>
+      <dl class="ref">
+        <dt id="sponsors"><code>sponsors</code></dt>
+        <dd>
+          <p>
+            The node IDs of the sponsors whose hubs your node may validate.
+            Required.
+          </p>
+        </dd>
+        <dt id="hubs"><code>hubs</code></dt>
+        <dd>
+          <p>
+            Hubs to validate that were not founded with your node, written in
+            by hand, each with its <code>rules</code> (the hub's rules as
+            hex), its <code>genesisMs</code> (the time its first block is
+            stamped with, which every validator must use alike) and,
+            optionally, its own <code>xrpl</code> server. Required, and
+            usually empty: the hubs a sponsor founds with you are added on
+            their own, and kept across restarts.
+          </p>
+        </dd>
+        <dt id="network"><code>network</code></dt>
+        <dd>
+          <p>
+            The XRP Ledger network every hub you validate is on:
+            <code>testnet</code>, the default. A hub on another network is
+            refused, and so is <code>mainnet</code>, which holds real
+            money.
+          </p>
+        </dd>
+        <dt id="xrpl"><code>xrpl</code></dt>
+        <dd>
+          <p>
+            The XRP Ledger server your node follows each hub's escrow on, as
+            a <code>wss://</code> URL. By default, Dassie's
+            <a href="/docs/reference/proof-servers/">proof server</a> for the
+            network. Another server must answer the same proofs, since your
+            node checks everything the server says against the XRP Ledger's
+            own validators.
+          </p>
+        </dd>
+        <dt id="publishers"><code>publishers</code></dt>
+        <dd>
+          <p>
+            The validator list publishers whose lists your node trusts to
+            check those proofs, each with its <code>key</code> and
+            <code>sites</code>. By default, the network's own. Leave it out
+            unless you run a network of your own for testing.
+          </p>
+        </dd>
+      </dl>
+
+      <h2 id="turn-it-on">Turn it on</h2>
+      <ol class="steps">
+        <li>
+          <p>Write the file, and make it readable:</p>
+          <pre><code><span class="prompt">$</span>sudo install -d /etc/dassie
+<span class="prompt">$</span>sudoedit /etc/dassie/validator.json
+<span class="prompt">$</span>sudo chmod 644 /etc/dassie/validator.json</code></pre>
+        </li>
+        <li>
+          <p>Name it in the node's environment:</p>
+          <pre><code><span class="prompt">$</span>sudo systemctl edit dassie</code></pre>
+          <p>and add:</p>
+          <pre><code>[Service]
+Environment=DASSIE_VALIDATOR_CONFIG=/etc/dassie/validator.json</code></pre>
+          <p>
+            On NixOS, set
+            <code>services.dassie.environment.DASSIE_VALIDATOR_CONFIG</code>
+            instead: <a href="/docs/reference/nixos-options/#services.dassie.environment">NixOS
+            module options</a>.
+          </p>
+        </li>
+        <li>
+          <p>Restart the node, which reads the file only when it starts:</p>
+          <pre><code><span class="prompt">$</span>sudo systemctl restart dassie</code></pre>
+        </li>
+        <li>
+          <p>
+            Tell the sponsor your node ID, which <code>dassie status</code>
+            shows on its <em>Setup</em> line, and your node's host and port,
+            such as <code>node.example.com:443</code>. It names you by both
+            when it founds the hub.
+          </p>
+        </li>
+      </ol>
+      <p>
+        If the file has a problem, the node does not start, and its log says
+        what is wrong, naming <code>DASSIE_VALIDATOR_CONFIG</code>:
+        <code>journalctl -u dassie</code>. A hub of a sponsor you do not list,
+        or whose rules do not check, stops it the same way. A hub whose rules
+        do not name your node is left out, and the log says so.
+      </p>
+
+      <h2 id="when-a-sponsor-asks">When a sponsor asks</h2>
+      <p>
+        When a sponsor you list founds a hub, your node answers on its own.
+        It accepts the terms if they check, are on the network of your
+        file, and your node has a place left for another hub. It then signs
+        the hub's first block, once, and starts validating as soon as enough
+        of the validators have signed. You do nothing; you watch.
+      </p>
+      <p>
+        Your node keeps what it votes on disk before it sends the vote, so
+        that it never contradicts itself after a crash. That is also why
+        <strong>a validator must only ever run on its newest
+        database</strong>.
+      </p>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Never start a validator from an older
+          copy of its database, and never run the same node on two machines.
+          Either one can make it sign two different things for the same step,
+          which the other validators can prove against you.
+        </p>
+      </aside>
+
+      <h2 id="status-and-hints">Status and hints</h2>
+      <p>
+        <code>dassie status</code> has a <em>Validating</em> line for each
+        hub your node validates. A hub that runs well reads like this:
+      </p>
+      <pre><code><span class="prompt">$</span>dassie status
+<span class="output">…
+  Validating   hub 3f9a0c51d2e4b7a8…, validator 2 of 4, block 1234 in view 1300</span></code></pre>
+      <p>
+        It names the hub by the start of its ID, your node's place among its
+        validators, and the newest final block. Where the hub's validators
+        have changed and your node is no longer among them, the line says
+        <em>no longer one of its 4 validators</em> where it would say
+        <em>validator 2 of 4</em>.
+        A hint follows at the end only when something needs you:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>The line ends with</th>
+              <th>What to do</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><em>no block final for …: check that its co-validators reach it over QUIC</em></td>
+              <td>
+                The hub has had no new block for over a minute. Check that
+                UDP port 443 is open to your node, and ask the other
+                validators whether theirs are up.
+              </td>
+            </tr>
+            <tr>
+              <td><em>its escrow is not checked yet, so no deposit is credited</em></td>
+              <td>
+                Not enough validators have checked the hub's account on the
+                XRP Ledger. Normal right after the hub is founded, and after
+                the test network resets; it clears once they have.
+              </td>
+            </tr>
+            <tr>
+              <td><em>not following the escrow: its XRPL server cannot be reached</em></td>
+              <td>
+                Your node cannot reach its XRP Ledger server. Check the
+                server in your file, or your network. Your node tries again
+                on its own.
+              </td>
+            </tr>
+            <tr>
+              <td><em>shutting down</em></td>
+              <td>The hub is closing, as its terms allow. Nothing to do.</td>
+            </tr>
+            <tr>
+              <td><em>ended: its payout set is signed</em></td>
+              <td>
+                The hub has ended, and your node has signed the payments that
+                pay its members out. Members fetch them from it, so keep
+                your node running a while longer.
+              </td>
+            </tr>
+            <tr>
+              <td><em>stalled: it never votes in the hub again, and signed the payout set of its last block</em></td>
+              <td>
+                The hub could not go on, and your node has signed the payout
+                of its last block. Keep your node running so that members can
+                fetch it.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The node's log says more. When a validator breaks the hub's rules,
+        your node logs which one.
+      </p>
+      <p class="not-yet">
+        Publishing the proof against such a validator is not there yet, and
+        neither is gathering the old validators' signatures after a hub's
+        escrow keys change. <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/hubs.md#the-validator-in-the-node">How the validator works</a>,
+        in the spec, and <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/settlement-hubs.md">why
+        hubs</a>.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

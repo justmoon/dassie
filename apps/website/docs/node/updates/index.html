@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How your node updates itself every night, how to update now or to one version, how to go back, and why a node that falls behind loses its peers."
+    />
+    <title>Updates and rollback · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Updates and rollback</h1>
+      <p class="lede">
+        A node you installed with the installer keeps itself up to date. This
+        page shows what happens each night, how to update by hand, and how to
+        go back to the version before.
+      </p>
+      <p>
+        Dassie is early, and releases come often. Most of the time you don't
+        need to do anything: the node checks for a newer release, checks its
+        signature, switches to it, and goes back by itself if the new version
+        doesn't start.
+      </p>
+
+      <h2 id="the-nightly-update">The nightly update</h2>
+      <p>
+        The installer sets up a systemd timer, <code>dassie-update.timer</code>.
+        It runs <code>dassie update</code> once a day, at a random time in the
+        hour after 03:20 by the server's clock. If the server was off at that
+        time, the timer runs as soon as it is back.
+      </p>
+      <p>Each run:</p>
+      <ol class="steps">
+        <li>
+          asks the mirror, <code>get.dassie.land</code>, for the newest
+          version, and stops there unless it is newer than the one running;
+        </li>
+        <li>
+          downloads that release's list of checksums and checks its signature
+          against the release key built into your <code>dassie</code> binary,
+          then checks the download against its checksum, before it unpacks
+          anything;
+        </li>
+        <li>
+          unpacks the new version into <code>/opt/dassie/&lt;version&gt;</code>
+          and asks it to check itself (<code>dassie verify-install</code>);
+        </li>
+        <li>
+          installs that version's systemd units, points
+          <code>/opt/dassie/current</code> at it, and restarts the node;
+        </li>
+        <li>
+          waits for the node to say it is ready, for up to five minutes. If it
+          doesn't, the update goes back to the version before
+          (<a href="#automatic-rollback">below</a>).
+        </li>
+      </ol>
+      <p>
+        The mirror can hold back a release, but it can't make your node
+        install anything the release key didn't sign, and it can't move your
+        node to an older version. Only you can, by naming one.
+        <a href="/docs/concepts/releases/">Releases you can trust</a> explains
+        why.
+      </p>
+      <p>
+        After an update, the new version and the one before it stay in
+        <code>/opt/dassie</code>. Older ones are removed.
+      </p>
+
+      <h2 id="what-the-last-update-did">What the last update did</h2>
+      <p>
+        <code>dassie status</code> ends with a line about the last update:
+      </p>
+      <pre><code><span class="prompt">$</span>dassie status
+<span class="comment"># …</span>
+<span class="output">  Updates      checked 2026-10-28 03:41 UTC: up to date</span></code></pre>
+      <p>
+        It says whether the node was up to date, which version it updated to,
+        or why an update failed or went back. The update writes this record to
+        <code>/opt/dassie/last-update</code>, and its full output goes to the
+        journal:
+      </p>
+      <pre><code><span class="prompt">$</span>journalctl -u dassie-update</code></pre>
+      <p>
+        To see when the next run is due:
+      </p>
+      <pre><code><span class="prompt">$</span>systemctl list-timers dassie-update.timer</code></pre>
+
+      <h2 id="update-now">Update now</h2>
+      <p>To update right away, without waiting for the night:</p>
+      <pre><code><span class="prompt">$</span>sudo dassie update</code></pre>
+      <p>
+        It runs as root, since it writes to <code>/opt/dassie</code> and to the
+        systemd units. It does exactly what the nightly run does, and prints
+        each step. If the newest version is the one running, it says so and
+        changes nothing.
+      </p>
+      <p>
+        Only one update runs at a time. If the timer's run is still going, a
+        second one stops with <code>another update is running</code>; try
+        again once it is done. The installer takes the same lock: if an
+        update is running, it stops and asks you to run it again once the
+        update is done.
+      </p>
+
+      <h2 id="update-to-one-version">Update to one version</h2>
+      <p>
+        To install one particular release, newer or older, name it:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie update --target-version &lt;version&gt;</code></pre>
+      <p>
+        A version is three numbers, such as <code>0.3.0</code>. The release
+        must be on the mirror, and its signature is checked as for any
+        update. The installer takes the same option under the same name, so a
+        new server can start on the version your others run:
+      </p>
+      <pre><code><span class="prompt">$</span>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh -s -- --target-version &lt;version&gt;</code></pre>
+      <p>
+        The other options of <code>dassie update</code>:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Option</th>
+              <th>What it does</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>-f</code>, <code>--force</code></td>
+              <td>
+                Installs the mirror's newest version even if it isn't newer,
+                or if it didn't start here before.
+              </td>
+            </tr>
+            <tr>
+              <td><code>-t</code>, <code>--target-version &lt;v&gt;</code></td>
+              <td>Installs this version instead of the newest.</td>
+            </tr>
+            <tr>
+              <td><code>--mirror &lt;url&gt;</code></td>
+              <td>
+                Uses another mirror, which must be an <code>https://</code>
+                URL. Without it, the update uses
+                <code>DASSIE_MIRROR_URL</code>, or else
+                <code>https://get.dassie.land</code>. A mirror of your own may
+                be on a private network; <code>DASSIE_MIRROR_CA_FILE</code>
+                adds a root certificate to trust it by.
+              </td>
+            </tr>
+            <tr>
+              <td><code>--no-restart</code></td>
+              <td>
+                Installs the version and switches to it, but leaves systemd
+                alone: the new version runs from the node's next start.
+              </td>
+            </tr>
+            <tr>
+              <td><code>--unit &lt;name&gt;.service=&lt;dir&gt;</code></td>
+              <td>
+                For a host that runs nodes under units of its own: restarts
+                this unit, whose node keeps its data in
+                <code>&lt;dir&gt;</code>, instead of
+                <code>dassie.service</code>, and installs none of the
+                release's units. Repeat it for each node, up to eight.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <a href="/docs/reference/cli/#dassie-update">The dassie command</a>
+        lists them with the rest of the commands.
+      </p>
+
+      <h2 id="automatic-rollback">If a new version doesn't start</h2>
+      <p>
+        A node is ready once it has started its engine on its database. If
+        the new version doesn't get there within five minutes, the update:
+      </p>
+      <ol class="steps">
+        <li>removes the systemd units the new version added;</li>
+        <li>points <code>/opt/dassie/current</code> back at the version before, with that version's units;</li>
+        <li>
+          puts back the node's database from just before the new version
+          changed it, if it did and the old version can't read it as it is;
+        </li>
+        <li>starts the old version again.</li>
+      </ol>
+      <p>
+        A new version may change the database's layout when it starts. An
+        older version refuses a database newer than it knows, so the node
+        keeps a copy from just before the change,
+        <code>dassie.sqlite3.pre-migration</code>, in its data directory. The
+        node makes that copy before it talks to anyone, so nothing the copy
+        lacks has reached a peer. When a rollback puts it back, the database
+        the new version left stays beside it as
+        <code>dassie.sqlite3.rolled-back</code>, for you to look at.
+      </p>
+      <p>
+        <code>dassie status</code> then says which version didn't start and
+        why. The node doesn't try that version again: the nightly update waits
+        until the mirror offers a newer one. If you think the problem is gone,
+        try it again yourself:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie update --force</code></pre>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> If the database can't be put back, the
+          update leaves the node stopped, rather than start an old version
+          that would refuse the database, or start afresh with a new identity
+          and no books. Its message says where each copy of the database is.
+          Put the one to keep in place as <code>dassie.sqlite3</code>, with its
+          <code>-wal</code> and <code>-shm</code> files, then run
+          <code>sudo systemctl start dassie.service</code>. If you're not
+          sure which to keep, <a href="/docs/project/help/">ask for help</a>
+          first.
+        </p>
+      </aside>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/release.md#rolling-back">Why it works this way</a>
+        and what the updater trusts.
+      </p>
+
+      <h2 id="going-back-by-hand">Going back by hand</h2>
+      <p>
+        If a new version starts but misbehaves, go back to the version you ran
+        before by naming it:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie update --target-version &lt;version before&gt;</code></pre>
+      <p>
+        Then stop the nightly update, or it moves the node forward again the
+        next night:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo systemctl disable --now dassie-update.timer</code></pre>
+      <p>
+        This works when the older version can read the database. If the newer
+        version changed the database's layout, the older one refuses it and
+        doesn't start, and the update returns to the newer version, as it
+        does whenever a version doesn't come up. The copy from before the
+        change, <code>dassie.sqlite3.pre-migration</code>, is still in the
+        data directory, but it lacks everything the node did since. Putting
+        it back by hand makes the node forget payments and settlements its
+        peers remember, so <a href="/docs/project/help/">ask for help</a>
+        before you do.
+      </p>
+      <p>When you're ready to follow releases again:</p>
+      <pre><code><span class="prompt">$</span>sudo systemctl enable --now dassie-update.timer
+<span class="prompt">$</span>sudo dassie update</code></pre>
+
+      <h2 id="choosing-the-hour">Choosing the hour</h2>
+      <p>
+        If you run several nodes, you may want them to update at different
+        times, so that only one restarts at once. Change the timer in a
+        drop-in, which updates leave alone:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo systemctl edit dassie-update.timer</code></pre>
+      <figure class="file">
+        <figcaption>/etc/systemd/system/dassie-update.timer.d/override.conf</figcaption>
+        <pre><code>[Timer]
+<span class="comment"># Clear the release's time, then set your own.</span>
+OnCalendar=
+OnCalendar=*-*-* 05:00:00
+RandomizedDelaySec=30min</code></pre>
+      </figure>
+
+      <h2 id="keeping-up">Keeping up with the network</h2>
+      <p>
+        Nodes talk to each other in a protocol with a version, which the two
+        agree on when they connect. When a release brings a new version of
+        the protocol, it still speaks the one before, for one release cycle,
+        so updated nodes and nodes that haven't updated yet keep talking while
+        the network updates. The release after that drops the old version.
+      </p>
+      <p>
+        0.3.0 is the one exception. It speaks version 2,
+        <code>dassie/2</code>, and nothing else, so a node on 0.3.0 doesn't
+        talk to a node on a 0.2 release at all. The test network moved to
+        version 2 all at once, when it was reset
+        (<a href="#from-0-2">below</a>).
+      </p>
+      <p>
+        So a node that misses a whole release cycle, because it was down or
+        its updates were off or kept failing, can't reach updated nodes any
+        more. Its peerings end, and it peers again only once it updates. The
+        nightly update keeps this from happening; if you turn it off, update
+        by hand at least once per release.
+      </p>
+      <p>
+        <a href="/docs/concepts/versions/">Protocol versions</a> explains
+        more, and <a href="/docs/reference/releases/">Release notes</a> says
+        what each release changed.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/protocol-upgrades.md">Why it works this way</a>
+      </p>
+
+      <h3 id="from-0-2">A node from the 0.2 releases</h3>
+      <p>
+        A node still on a release before 0.3.0, a 0.2 one or a 0.1 one, can't
+        update to 0.3.0 in place. Those releases ran the early test network, and 0.3.0 reads neither
+        their database nor their recovery phrases. If the old updater
+        installs it, the new version refuses the database and doesn't start,
+        and the update goes back to the old release.
+      </p>
+      <p>
+        Staying on the old release doesn't work either. The test network was reset for
+        0.3.0: its bootstrap nodes have new IDs, and nodes on 0.3.0 don't
+        speak the protocol of the earlier releases, so the old node finds no one
+        to peer with.
+        <a href="/docs/reference/releases/#v0-3-0">The notes for 0.3.0</a>
+        say what else changed.
+      </p>
+      <p>
+        Set the node up again instead, with a new phrase. It starts with a new
+        node ID and empty books; nothing carries over from the old node. Its
+        data was test money only.
+      </p>
+      <ol class="steps">
+        <li>
+          <p>
+            Stop the node, its sockets and the updater, and move the node's
+            data aside:
+          </p>
+          <pre><code><span class="prompt">$</span>sudo systemctl stop dassie-update.timer dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie-feed.socket
+<span class="prompt">$</span>sudo mv /var/lib/private/dassie /var/lib/private/dassie-0.2</code></pre>
+        </li>
+        <li>
+          <p>Install the newest release, which starts the node on an empty data directory:</p>
+          <pre><code><span class="prompt">$</span>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh</code></pre>
+        </li>
+        <li>
+          <p>
+            Set the node up with a new phrase, as for a new node
+            (<a href="/docs/start/quick-start/">Quick Start</a>).
+          </p>
+        </li>
+      </ol>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/database-continuity.md">Why nothing carries over</a>
+      </p>
+
+      <h2 id="other-setups">On NixOS and in the desktop app</h2>
+      <p>
+        <code>dassie update</code> updates only a node the installer put in
+        <code>/opt/dassie</code>. On NixOS, the flake's version is the node's:
+        you update by changing the flake input, and go back by going back a
+        generation. <a href="/docs/node/nixos/">Dassie on NixOS</a> shows how.
+      </p>
+      <p class="not-yet">
+        The desktop app doesn't update itself yet.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Set up the repository, build Dassie, run its tests, and keep the spec, the architecture page and these docs current with your change."
+    />
+    <title>Contributing · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Contributing</h1>
+      <p class="lede">
+        Dassie is open source, and its code, its specification and these
+        docs all live in one
+        <a href="https://github.com/justmoon/dassie">repository on GitHub</a>.
+        This page gets you from a fresh clone to a change that builds, passes
+        its tests and keeps the spec in step.
+      </p>
+
+      <h2 id="before-you-start">Before you start</h2>
+      <p>
+        Dassie is a Rust workspace with a TypeScript side: the node, the
+        <code>dassie</code> command and the desktop app are Rust; the wallet,
+        the dev environment, the website and the tooling are TypeScript on
+        Node. The
+        <a href="/architecture/">architecture page</a> shows every crate,
+        app and package and how they connect, and the repository's
+        <a href="https://github.com/justmoon/dassie/blob/main/README.md">README</a>
+        lists them by path.
+      </p>
+      <p>
+        Read the spec for the part you want to change before you change it:
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/overview.md">the overview</a>,
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/engineering.md">engineering</a>,
+        and the area docs that
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/README.md#index">the index</a>
+        names for its paths. They say what the code cannot: what the part is
+        for, what must stay true, and why.
+        <a href="/docs/project/spec/">Specification</a> explains how it is
+        laid out.
+      </p>
+      <p>
+        Questions are welcome on
+        <a href="https://discord.gg/HqdGNfs9kq">Discord</a> at any point.
+      </p>
+
+      <h2 id="dev-environment">Set up your environment</h2>
+      <p>
+        The easiest way to get every tool at the right version is
+        <a href="https://nixos.org">Nix</a>, with flakes turned on. The
+        repository's flake has a development shell with all of them:
+      </p>
+      <pre><code><span class="prompt">$</span>git clone https://github.com/justmoon/dassie.git
+<span class="prompt">$</span>cd dassie
+<span class="prompt">$</span>nix develop
+<span class="prompt">$</span>pnpm install</code></pre>
+      <p>
+        The shell holds the Rust toolchain that
+        <code>rust-toolchain.toml</code> pins, with clippy, rustfmt and the
+        WebAssembly target; the <code>wasm-bindgen</code> CLI; Node and pnpm;
+        Chromium for the browser tests; Pebble and systemd's tools for the
+        end-to-end tests; mkcert for local certificates; minisign; and the
+        libraries the desktop app links. <code>pnpm install</code> installs
+        the npm and JSR packages exactly as <code>pnpm-lock.yaml</code> pins
+        them.
+      </p>
+      <h3>Without Nix</h3>
+      <p>You need, on Linux:</p>
+      <ul>
+        <li>
+          the Rust toolchain named in <code>rust-toolchain.toml</code>, with
+          the <code>wasm32-unknown-unknown</code> target;
+        </li>
+        <li>
+          the <code>wasm-bindgen</code> CLI, at the version in
+          <code>Cargo.lock</code>;
+        </li>
+        <li>Node 26 and pnpm 11, and Chrome or Chromium;</li>
+        <li>
+          for the desktop app, pkg-config, GTK 3, WebKitGTK 4.1, libsoup 3
+          and libayatana-appindicator
+          (<a href="https://github.com/justmoon/dassie/blob/main/nix/desktop-libs.nix"><code>nix/desktop-libs.nix</code></a>
+          lists them);
+        </li>
+        <li>
+          for the end-to-end tests, <code>pebble</code>,
+          <code>pebble-challtestsrv</code>,
+          <code>systemd-socket-activate</code> and <code>mkcert</code>.
+          Without them, those tests are skipped on your machine. In CI they
+          fail instead, so a missing tool never passes there quietly.
+        </li>
+      </ul>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/build-system.md">Why it works this way</a>:
+        Nix for CI and releases, plain <code>cargo</code> and
+        <code>node --run</code> on your machine.
+      </p>
+
+      <h2 id="building">Build</h2>
+      <p>
+        The Rust side builds with plain <code>cargo</code>. The TypeScript side
+        has a script for each part, run with <code>node --run</code>:
+      </p>
+      <pre><code><span class="prompt">$</span>cargo build
+<span class="prompt">$</span>node --run build:wasm        <span class="comment"># the WebAssembly modules and their bindings</span>
+<span class="prompt">$</span>node --run build:wallet      <span class="comment"># the wallet, into apps/wallet/dist</span>
+<span class="prompt">$</span>node --run build:dashboard   <span class="comment"># the dev dashboard</span>
+<span class="prompt">$</span>node --run build:website     <span class="comment"># dassie.land, into apps/website/dist</span>
+<span class="prompt">$</span>node --run build:e2e         <span class="comment"># target/e2e/dassie, with the wallet built in</span></code></pre>
+      <p>
+        Build the WebAssembly modules before the wallet and the website,
+        which use them, and the wallet before <code>build:e2e</code>, which
+        builds it into the binary. The release builds, static binaries for
+        x86-64 and arm64, come from the flake:
+        <code>nix build .#dassie-x64</code> or
+        <code>nix build .#dassie-arm64</code>.
+      </p>
+      <p>
+        To see your change run, <code>node --run dev</code> starts a small
+        network of nodes on your machine with a dashboard to watch it, and
+        rebuilds as you edit.
+        <a href="/docs/build/dev-network/">Local dev network</a> shows how to
+        use it.
+      </p>
+
+      <h2 id="tests">Run the tests and checks</h2>
+      <pre><code><span class="prompt">$</span>cargo fmt --check
+<span class="prompt">$</span>cargo clippy --all-targets -- -D warnings
+<span class="prompt">$</span>cargo test
+<span class="prompt">$</span>node --run check      <span class="comment"># formatting (dprint), lint (oxlint), types (tsc), the RPC contract (buf)</span>
+<span class="prompt">$</span>node --run test       <span class="comment"># the apps', packages' and scripts' tests</span>
+<span class="prompt">$</span>node --run test:e2e   <span class="comment"># WebAssembly vectors, STREAM interop, browser, end to end</span></code></pre>
+      <p>
+        <code>node --run ci</code> runs every Node step in order, building
+        what each needs first. With Nix, <code>nix flake check</code> runs
+        what CI runs, Rust and TypeScript alike, in the Nix sandbox.
+      </p>
+      <p>
+        Two more need something extra. The updater's tests need the test
+        release key built in:
+        <code>cargo test -p dassie-cli --features test-key</code>. If you
+        change a contract in <code>proto/</code>, run
+        <code>node --run gen</code> in <code>packages/rpc</code>; a test fails
+        until the generated code matches.
+      </p>
+      <h3>What each kind of test is for</h3>
+      <ul>
+        <li>
+          <strong>Unit and state-machine tests</strong> sit beside the code
+          they test, in every crate and package.
+        </li>
+        <li>
+          <strong>Golden vectors</strong> in
+          <a href="https://github.com/justmoon/dassie/tree/main/testdata"><code>testdata/</code></a>
+          pin the wire formats and key derivations that must never change.
+        </li>
+        <li>
+          <strong>Interop tests</strong> in
+          <a href="https://github.com/justmoon/dassie/tree/main/tests/interop"><code>tests/interop</code></a>
+          check STREAM against the reference implementation.
+        </li>
+        <li>
+          <strong>End-to-end tests</strong> in
+          <a href="https://github.com/justmoon/dassie/tree/main/tests/e2e"><code>tests/e2e</code></a>
+          run the real binaries: an install, the wallet in a browser,
+          payments over BTP and Open Payments, settlement over hubs on a fake
+          XRP Ledger, swaps between peers and the market maker. None of them
+          touches the public testnet.
+        </li>
+        <li>
+          <strong>The install tests</strong> run the installer and the
+          updater on several Linux distributions in containers. They run in
+          the release workflow, before a release is signed, and not on pull
+          requests; the repository's README shows how to run them yourself.
+        </li>
+      </ul>
+      <p>
+        CI runs every test on fixed seeds, so a random seed never fails a
+        pull request on a bug it did not touch.
+      </p>
+      <h3>Simulations</h3>
+      <p>
+        The core crates are deterministic: they never read a clock or the
+        operating system's randomness, and every table and queue is bounded.
+        That lets <code>dassie-sim</code> run whole networks of nodes from a
+        seed, with crashes, partitions and lying peers, and replay any run
+        exactly. It is a tool for building a feature, not a test:
+      </p>
+      <pre><code><span class="prompt">$</span>cargo run --profile sim -p dassie-sim -- run peer 0..1000
+<span class="prompt">$</span>cargo run --profile sim -p dassie-sim -- explain peer 42</code></pre>
+      <p>
+        No test runs a simulation, in CI or on your machine. When a seed finds
+        a bug, the fix comes with a targeted test that sets up that case
+        directly. A campaign runs the simulations on the latest code from
+        random seeds, outside CI, and files an issue for each new kind of
+        failure.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/no-simulations-in-tests.md">Why it works this way</a>:
+        a simulation is noise to a repro, and costs every pull request its
+        time.
+      </p>
+
+      <h2 id="style">How the code is written</h2>
+      <p>
+        The code follows a pragmatic version of TigerStyle, so that it can be
+        simulated and trusted with money:
+      </p>
+      <ul>
+        <li>
+          <strong>Deterministic.</strong> Protocol crates take the time and
+          their randomness as inputs. The same inputs give the same outputs.
+        </li>
+        <li>
+          <strong>Bounded.</strong> Every queue, table, buffer and loop has a
+          limit, named with its unit. Going past it is an error value.
+        </li>
+        <li>
+          <strong>Asserted.</strong> Invariants are checked, in release
+          builds too, and untrusted input gets an error value, never a
+          panic.
+        </li>
+        <li>
+          <strong>Simple.</strong> Short functions, no recursion, no
+          <code>unwrap</code> outside tests, units in names such as
+          <code>_ms</code> and <code>_bytes</code>.
+        </li>
+      </ul>
+      <p>
+        TypeScript is written so that Node can run it by stripping its types:
+        no enums, no parameter properties, imports with <code>.ts</code>
+        extensions. The type check, part of <code>node --run check</code>,
+        enforces most of this;
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/engineering.md">Engineering</a>
+        has the rest.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/tigerstyle.md">Why it works this way</a>
+      </p>
+
+      <h2 id="the-spec">Keep the spec current</h2>
+      <p>
+        A change to Dassie and the change to its spec go together, in the
+        same pull request:
+      </p>
+      <ul>
+        <li>
+          <strong>A change to what a part guarantees, or why</strong> updates
+          that part's area doc. A changed value or list does not touch the
+          spec: those live only in the code.
+        </li>
+        <li>
+          <strong>A choice between real alternatives</strong> gets a decision
+          in <code>spec/decisions/</code>, with the facts, what was chosen,
+          what it costs and what was rejected.
+          <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/README.md#adding-or-changing-a-decision">Adding or changing a decision</a>
+          says how.
+        </li>
+        <li>
+          <strong>Work you do not build yet</strong> becomes an open area in
+          the roadmap, never a numbered milestone.
+        </li>
+        <li>
+          <strong>A new crate, app, package or contract</strong> gets a row in
+          the spec's index.
+        </li>
+      </ul>
+      <p>
+        Cite the spec by path and heading, as
+        <code>spec/areas/peer-protocol.md#versions</code>, and a decision by
+        its file. Never write history into it: no dates, milestones or pull
+        request numbers. This test checks every link, citation and the
+        index:
+      </p>
+      <pre><code><span class="prompt">$</span>node --test scripts/spec_test.ts</code></pre>
+
+      <h2 id="architecture-page">Keep the architecture page current</h2>
+      <p>
+        <a href="/architecture/">The architecture page</a> draws everything
+        from one file,
+        <a href="https://github.com/justmoon/dassie/blob/main/apps/website/src/architecture/map.json"><code>apps/website/src/architecture/map.json</code></a>.
+        Update it with your change:
+      </p>
+      <ul>
+        <li>
+          <strong>A crate, app, package or contract is added, removed or
+          renamed:</strong> add, remove or rename its box in
+          <code>components</code>, with its path, a short label, its
+          subsystem, a place in its layer, what it is and what it does, and
+          its edges. Keep boxes apart and inside their layer.
+        </li>
+        <li>
+          <strong>What a part does, or what it builds on, changes:</strong>
+          update its description and edges, and any journey in
+          <code>flows</code> that passes through it.
+        </li>
+      </ul>
+      <p>
+        Write for someone new to Dassie, in the present tense. The test
+        fails when a box is missing, a path is wrong, boxes overlap, or a
+        box's links differ from its real dependencies:
+      </p>
+      <pre><code><span class="prompt">$</span>node --test apps/website/src/architecture/map_test.ts</code></pre>
+
+      <h2 id="these-docs">Keep these docs current</h2>
+      <p>
+        These pages are hand-written HTML in
+        <a href="https://github.com/justmoon/dassie/tree/main/apps/website/docs"><code>apps/website/docs/</code></a>,
+        one <code>index.html</code> per page. The list of pages, in the order
+        the sidebar shows them, is
+        <a href="https://github.com/justmoon/dassie/blob/main/apps/website/src/docs.ts"><code>apps/website/src/docs.ts</code></a>;
+        the build adds the header, sidebar, breadcrumbs and search. If your
+        change alters a command, a flag, a variable or what a node does,
+        update the pages that describe it. They describe what Dassie does
+        today, in Kopje's voice (calm, plain, present tense), and say "not
+        there yet" for what is not built. This test checks every page, its
+        links and the reference pages against the code:
+      </p>
+      <pre><code><span class="prompt">$</span>node --test apps/website/docs_test.ts</code></pre>
+      <p>
+        <code>node --run dev</code> in <code>apps/website</code> rebuilds the
+        site as you edit, and <code>node --run preview</code> beside it serves
+        it.
+      </p>
+
+      <h2 id="sending-a-change">Before you send a change</h2>
+      <ul>
+        <li>The Rust and Node checks above pass, or <code>nix flake check</code> does.</li>
+        <li>New behavior has a test, and a bug fix has the test that would have caught it.</li>
+        <li>The spec, the architecture page and these docs say what the code now does.</li>
+      </ul>
+
+      <h2 id="pull-requests">Send a pull request</h2>
+      <!-- TODO(Stefan): how outside PRs are taken -->
+      <p>
+        How we take pull requests from outside the project is not written
+        down yet.
+      </p>
+
+      <h2 id="license">License</h2>
+      <p>
+        Dassie is licensed under the Apache License 2.0. The full text is in
+        <a href="https://github.com/justmoon/dassie/blob/main/LICENSE"><code>LICENSE</code></a>.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

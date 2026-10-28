@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Keep your desktop node running from the tray, start it at login or not, and quit it cleanly."
+    />
+    <title>Tray, login and quitting · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Tray, login and quitting</h1>
+      <p class="lede">
+        Your node can be paid only while it runs. So the desktop app keeps
+        running when you close its window, lives in the tray, and starts
+        when you log in. This page shows how to look in on it, and how to
+        stop it when you want to.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="the-tray">The tray</h2>
+      <p>
+        Click Dassie's icon in the tray to open its menu. The first line says
+        how your node is doing, and the app brings it up to date every few
+        seconds.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>The menu says</th>
+              <th>What it means</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><em>Not set up yet</em></td>
+              <td>
+                Open the wallet and set your node up with your recovery
+                phrase.
+              </td>
+            </tr>
+            <tr>
+              <td><em>Online</em></td>
+              <td>
+                Your node is connected to its relay, the machine through
+                which other wallets reach your address: by default the
+                <code>dassiepay.net</code> front door.
+                <a href="/docs/desktop/reach/">How others reach you</a>
+                explains it.
+              </td>
+            </tr>
+            <tr>
+              <td><em>Connecting…</em></td>
+              <td>
+                It is dialing its relay, as it does right after it starts and
+                after a short drop. Give it a minute.
+              </td>
+            </tr>
+            <tr>
+              <td><em>Offline: the relay is unreachable</em></td>
+              <td>
+                It has been trying its relay for a while and gets no answer.
+                Check your internet connection. Your node keeps trying.
+              </td>
+            </tr>
+            <tr>
+              <td><em>Running, without a relay</em></td>
+              <td>
+                Your node runs, and keeps no relay, so nobody reaches it at
+                its name. You see this with <code>DASSIE_RELAY</code> set
+                empty, and then nothing is wrong. You also see it with a
+                hostname set in the wallet, since a node with a hostname
+                keeps no default relay: clear the hostname. In both cases,
+                <code>dassie status</code> and the wallet's Network page say
+                that <code>DASSIE_RELAY</code> names none.
+                <a href="/docs/desktop/reach/">How others reach you</a>
+                explains both.
+              </td>
+            </tr>
+            <tr>
+              <td><em>Stopped</em></td>
+              <td>The node stopped. Quit the app and start it again.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Below that line are three entries:</p>
+      <ul>
+        <li>
+          <strong>Open wallet</strong> opens the window again, or brings it
+          to the front.
+        </li>
+        <li>
+          <strong>Start at login</strong> turns starting at login on or off.
+        </li>
+        <li>
+          <strong>Quit Dassie</strong> stops your node and the app.
+        </li>
+      </ul>
+
+      <h2 id="closing-the-window">Closing the window</h2>
+      <p>
+        Closing the window only closes the window. Your node and the tray icon
+        stay, and the memory the window used is freed. Open the wallet again
+        from the tray, or start Dassie again from your applications: a second
+        start only shows the window of the app that runs already.
+      </p>
+      <p>
+        The exception is a node that has stopped. Then the window says why,
+        and closing it quits the app.
+      </p>
+
+      <h2 id="start-at-login">Start at login</h2>
+      <p>
+        When it is on, the app starts when you log in, in the tray, without a
+        window. It does this with an autostart entry, the standard way Linux
+        desktops start programs at login:
+        <code>~/.config/autostart/land.dassie.desktop.desktop</code>.
+      </p>
+      <ul>
+        <li>
+          <strong>It is on from the first start</strong> if you installed the
+          app, so that <code>dassie-desktop</code> is on your
+          <code>PATH</code>. It is off if you ran it with
+          <code>nix run</code>, since the path that runs from can go away.
+          Your choice is remembered from that first start, so turn it on in
+          the tray if you installed the app after trying it.
+        </li>
+        <li>
+          <strong>You can change it in either place:</strong> the tray's
+          <em>Start at login</em>, or your desktop's own settings for
+          programs that start at login. The app notices when you remove or
+          turn off its entry there, and leaves it off.
+        </li>
+        <li>
+          <strong>While it is on, the app writes the entry again at each
+          start,</strong> so that it always names the app as it is installed
+          now.
+        </li>
+      </ul>
+
+      <h2 id="quitting">Quitting</h2>
+      <p>
+        <em>Quit Dassie</em> closes the window and stops your node the same
+        way <code>dassie daemon</code> stops on a server: it finishes what it
+        is doing, within a bound, and then the app exits. That can take a
+        few seconds.
+      </p>
+      <p>
+        Logging out or shutting down quits the app the same way, since your
+        session sends it the signal to end. If the session sends a second one
+        while the node is still stopping, the app ends at once.
+      </p>
+      <p>While the app is not running, your node is offline:</p>
+      <ul>
+        <li>Nobody can pay you at your node's name.</li>
+        <li>You cannot send payments either.</li>
+        <li>
+          Your money stays where it is. Your node picks up where it left off
+          when you start it again.
+        </li>
+      </ul>
+      <p>
+        If you want your node reachable all day, leave the app running, or
+        run your node on a server instead:
+        <a href="/docs/start/pick-your-setup/">Pick your setup</a> compares
+        the two.
+      </p>
+
+      <h2 id="without-a-tray">Without a tray</h2>
+      <p>
+        Some desktops show no tray icons, GNOME among them unless you add an
+        extension for them, such as AppIndicator and KStatusNotifierItem
+        Support. The app runs all the same, and keeps running when you close
+        its window. Then:
+      </p>
+      <ul>
+        <li>
+          To open the window, start Dassie again from your applications, or
+          run <code>dassie-desktop</code>.
+        </li>
+        <li>
+          To quit, end the process, which stops the node cleanly:
+          <code>pkill -TERM -f dassie-desktop</code>.
+        </li>
+        <li>
+          To turn off starting at login, use your desktop's settings for
+          programs that start at login, or delete
+          <code>~/.config/autostart/land.dassie.desktop.desktop</code>.
+        </li>
+      </ul>
+
+      <h2 id="one-node-per-user">One node per user</h2>
+      <p>
+        The app runs one node, your user's. A second start shows the first
+        app's window and starts nothing. Underneath, one node at a time owns a
+        data directory, so a <code>dassie daemon</code> that you start as the
+        same user, on the same data, refuses to start while the app runs,
+        and the app refuses while that one runs.
+      </p>
+      <p>
+        If the node stops on its own, the window says why. If the tray says
+        <em>Stopped</em>, quit the app and start it again: that starts the
+        node again, from where it was.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/desktop.md#lifecycle">Why it works this way</a>:
+        a node on a laptop is reachable only while it runs.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

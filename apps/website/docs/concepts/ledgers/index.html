@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Where your money sits: an owner book per asset on the XRP Ledger, an account in a hub, your node's own books, and the test realm they run in."
+    />
+    <title>Ledgers, books and realms · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Ledgers, books and realms</h1>
+      <p class="lede">
+        Your node holds money in a few places and keeps careful books of all
+        of them. This page explains where your funds sit, how your node knows
+        what a ledger really holds, and why a dollar token can pause.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="three-words">Three words</h2>
+      <ul>
+        <li>
+          <strong>A ledger</strong> is somewhere money is held: an asset on
+          the XRP Ledger, or your account in a settlement hub. Your node
+          names each one by its scheme and its currency, such as
+          <code>xrpl-testnet-xrp+xrp</code>.
+        </li>
+        <li>
+          <strong>Books</strong> are your node's own records of what it holds
+          on each ledger and who owes what.
+        </li>
+        <li>
+          <strong>A realm</strong> is test or live: test money, or real
+          money. Every node runs in one realm for good.
+        </li>
+      </ul>
+
+      <h2 id="owner-books">Owner books</h2>
+      <p>
+        Your funds on the XRP Ledger sit in <strong>owner books</strong>, one
+        per asset. An owner book holds your money on its ledger, pays the
+        payments you make from it, and funds your settlement hubs. It never
+        settles with peers: peers settle only through hubs.
+      </p>
+      <p>On the test network there are two:</p>
+      <ul>
+        <li>
+          <code>xrpl-testnet-xrp</code>, your test XRP. A new account with no
+          funds asks the XRP Ledger testnet's faucet for some.
+        </li>
+        <li>
+          <code>xrpl-testnet-dsusd</code>, in DSUSD, Dassie's own test dollar.
+          DSUSD has no faucet: you buy it with test XRP on the testnet's
+          XRP/DSUSD pool, from any XRP Ledger wallet, and your node books
+          what arrives. Your node never buys any on the pool itself.
+        </li>
+      </ul>
+      <p>
+        Both live on one account of your node's on the XRP Ledger testnet,
+        derived from your <a href="/docs/concepts/phrase/">recovery phrase</a>.
+        One address holds your XRP and your DSUSD, and the XRP pays the
+        ledger's fees and reserves for the DSUSD too. To fund them, see
+        <a href="/docs/wallet/ledgers/">Add and fund a ledger</a>.
+      </p>
+      <p>
+        Mainnet's owner books, <code>xrpl-xrp</code> for XRP and
+        <code>xrpl-rlusd</code> for RLUSD, are real money, so they run only in
+        the live realm, which a node refuses. Test RLUSD is turned off: it
+        has no dollar price on the testnet, and DSUSD stands in for it.
+      </p>
+
+      <h2 id="hub-accounts">Accounts in hubs</h2>
+      <p>
+        Your account in a settlement hub is a ledger of its own, beside the
+        owner book of its asset, since what you hold there is a claim on the
+        hub's validators rather than a balance on the XRP Ledger. Money you
+        receive arrives there and stays there unless you choose to keep it on
+        your own account. Your node moves money between the two by itself,
+        as <a href="/docs/concepts/hubs/">Settlement hubs</a> explains.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Asset</th>
+              <th>Owner book</th>
+              <th>Hub</th>
+              <th>Wallet address</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Test XRP</td>
+              <td><code>xrpl-testnet-xrp+xrp</code></td>
+              <td><code>hub-xrpl-testnet-xrp+xrp</code></td>
+              <td><code>/pay/xrp</code></td>
+            </tr>
+            <tr>
+              <td>DSUSD</td>
+              <td><code>xrpl-testnet-dsusd+usd</code></td>
+              <td><code>hub-xrpl-testnet-dsusd+usd</code></td>
+              <td><code>/pay/dsusd</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        People pay you by asset, never by ledger: your node has one wallet
+        address per asset, and it books what arrives in the hub where your
+        node runs one. A dollar token is booked as US dollars, at par, which is
+        why the DSUSD ledgers end in <code>+usd</code>.
+      </p>
+
+      <h2 id="your-books">Your node's books</h2>
+      <p>
+        Your node keeps double-entry books: every transfer debits one account
+        and credits another, and every one it posts is written to a journal
+        on disk before it counts. For each ledger, the books know what each
+        peer owes your node and what it owes them, and which accounts are
+        yours.
+      </p>
+      <p>
+        Your funds on a ledger are everything your node holds there beyond
+        what it owes its peers. A ledger fee, or a loss on a peer, comes out
+        of them, and you can never spend money your node does not have.
+      </p>
+      <p>
+        Your node keeps its books alone. It does not ask its peers to agree
+        with them, and it bounds what any peer can cost it from its own
+        books. The ledger, not the books, says what an account on it really
+        holds: the books follow the ledger, and the wallet's
+        <a href="/docs/wallet/activity/#assets">Assets</a> page shows what
+        the ledger says.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/own-books.md">Why it works this way</a>
+      </p>
+
+      <h2 id="realms">Test and live</h2>
+      <p>
+        A realm is <code>test</code> or <code>live</code>. It decides which
+        ledgers a node may run and the start of its address: a node in the
+        test realm is <code>test.das.</code> followed by its node ID. Your
+        recovery phrase names its realm, and your node takes that realm at
+        setup, for good.
+      </p>
+      <p>
+        Dassie takes test money only. A node refuses the live realm, its
+        ledgers and a phrase that names it. What it takes before real money is
+        allowed is on <a href="/docs/start/early-days/">Early days</a>.
+      </p>
+
+      <h2 id="proof-servers">Checking what the ledger says</h2>
+      <p>
+        Your node does not take an XRP Ledger server's word for anything. It
+        books a payment, a balance or a missing account only once it has a
+        proof: that the ledger was signed by enough of the XRP Ledger's own
+        validators, and that what it reads is in that ledger.
+      </p>
+      <ul>
+        <li>
+          <strong>The validators it trusts</strong> come from signed lists,
+          which it fetches from their publishers, as XRP Ledger servers do,
+          and checks itself.
+        </li>
+        <li>
+          <strong>The proofs</strong> come from a proof server: an XRP Ledger
+          server with a small patch that answers three proof methods. Your
+          node uses the project's server for its network by default,
+          <code>wss://testnet.xrpl.dassieland.net</code> on the testnet, and
+          you can name another patched server.
+        </li>
+        <li>
+          <strong>A proof server is relied on to answer, never trusted.</strong>
+          A server that lies is caught. One that goes quiet stalls your
+          account until it answers again, and your node says why, but it
+          never falls back to trusting a server.
+        </li>
+      </ul>
+      <p>
+        The XRP Ledger testnet is reset now and then. Your node counts a
+        reset only once the testnet's validators have signed the new chain.
+        Then it writes off what the old chain held, and your account starts
+        again, from the faucet.
+        <a href="/docs/reference/proof-servers/">Proof servers</a> lists the
+        servers.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/verified-ledgers.md">Why it works this way</a>
+      </p>
+
+      <h2 id="peg-guard">The peg guard</h2>
+      <p>
+        Your node books a dollar token at a dollar. If the token drifted off
+        its dollar and your node kept converting it at par, others could buy
+        it cheap elsewhere and trade it to your node for something worth
+        more. So the owner book of a dollar token has a guard.
+      </p>
+      <ul>
+        <li>
+          Once a minute, it reads the token's price from its pool on the XRP
+          Ledger, proven like everything else, and turns it into dollars with
+          your node's own XRP rate. DSUSD reads the testnet's DSUSD/XRP pool.
+        </li>
+        <li>
+          When every reading for ten minutes is more than 3% off a dollar, up
+          or down, it pauses the token. It lets it go again once every reading
+          for an hour is within 1%.
+        </li>
+        <li>
+          With no reading it can count for ten minutes, it pauses too: it
+          fails closed.
+        </li>
+      </ul>
+      <p>
+        While a token is paused, your node converts nothing to or from it,
+        or to or from its hub. You can still pay out of it, what arrives is
+        still booked, and settling over its hub goes on. The wallet shows the
+        last price, and why a token is paused.
+        <a href="/docs/wallet/peg-guard/">Dollar tokens and the peg guard</a>
+        says what you see.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/issued-assets.md">Why it works this way</a>,
+        and the guard in full in
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/xrpl.md#the-peg-guard">the spec</a>
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

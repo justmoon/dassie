@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How a new node registers with the bootstrap nodes, finds peers that share a settlement hub with it, and becomes a place payments can be routed through."
+    />
+    <title>Joining the network · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Joining the network</h1>
+      <p class="lede">
+        A new node finds the network through a few bootstrap nodes, peers
+        with neighbors it can settle with, and from then on takes part in
+        routing like everyone else. This page walks through each step.
+      </p>
+
+      <aside class="early">
+        <p><strong>Early days.</strong> Dassie takes test money only: a node refuses the live realm. <a href="/docs/start/early-days/">How far along it is</a></p>
+      </aside>
+
+      <h2 id="the-journey">The journey in short</h2>
+      <ol class="steps">
+        <li>
+          Your node registers with each bootstrap node. Each one checks that
+          your node really answers at the address it gave, then lists it.
+        </li>
+        <li>
+          The other nodes read the bootstrap nodes' lists. Once most of the
+          bootstrap nodes list your node, the others count it as a member.
+        </li>
+        <li>
+          They learn your node's link state: its signed statement of where
+          it is, which hubs it settles over and who its neighbors are.
+        </li>
+        <li>
+          Your node looks for peers that share a settlement hub with it, and
+          they look for it.
+        </li>
+        <li>
+          Once its peers list your node as a neighbor too, the rest of the
+          network can route payments to it and through it.
+        </li>
+      </ol>
+      <p>
+        This is the journey of a node with a public hostname, a core node.
+        A node without one, such as the desktop app or a server behind a
+        router, joins as a periphery node: it registers nowhere and reaches
+        the network through the core nodes it peers with. See
+        <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>.
+      </p>
+      <p>
+        Wallets and apps reach a node without a hostname through a relay.
+        Dassie has the <code>dassiepay.net</code> front door built in as the
+        default one, so such a node is paid at
+        <code>&lt;node ID&gt;.dassiepay.net</code> with nothing to set, the
+        desktop app's node too. That front door is a machine the project
+        runs: it learns when your node is online, and reads the Open
+        Payments requests it passes on.
+        <a href="/docs/concepts/core-and-periphery/#relays-and-front-doors">Relays and front doors</a>
+        says how to choose another relay, or none.
+      </p>
+
+      <h2 id="bootstrap-nodes">Bootstrap nodes and the majority</h2>
+      <p>
+        Every node carries a list of bootstrap nodes, each named by its node
+        ID, its URL and its two public keys. The node checks every entry
+        against its ID when it starts, and refuses to start on a bad one.
+        Bootstrap nodes take registrations and serve a list of the nodes
+        registered with them.
+      </p>
+      <ul>
+        <li>
+          <strong>Registering.</strong> Your node registers with every
+          bootstrap node by itself when it starts, and renews before its
+          registration runs out a day later. Before it lists a new node, a
+          bootstrap node asks that node for its own link state at the URL it
+          gave, over a connection tied to its key. That proves the URL
+          really serves that node.
+        </li>
+        <li>
+          <strong>The majority.</strong> Nodes check the bootstrap nodes'
+          lists every minute. A node is a member once more than half of the
+          bootstrap nodes in the configured list name it. It is half of all
+          of them, not of those that happen to answer, so silencing a few
+          bootstrap nodes cannot change who is a member.
+        </li>
+        <li>
+          <strong>The freeze.</strong> When too many lists go stale, because
+          bootstrap nodes are down or a node is cut off from them, membership
+          freezes: nobody is dropped until most lists are fresh again, so a
+          few bootstrap nodes going offline never empties the network. New
+          members still join meanwhile.
+        </li>
+        <li>
+          <strong>Free, so throttled.</strong> Registration costs nothing
+          today. To keep it from being abused, bootstrap nodes limit how fast
+          new nodes register and how many come from one network or one
+          address.
+        </li>
+      </ul>
+      <p
+        class="not-yet">Registration fees, which would let bootstrap nodes take registrations without throttling them, are not there yet. <a href="/docs/project/roadmap/">What's next</a></p>
+      <p>
+        The project runs the public testnet's four bootstrap nodes,
+        <code>boot1</code> to <code>boot4.dassie.xyz</code>, in one cloud
+        region and spread over its zones, so that one of them down leaves
+        three of four, still a majority. Their entries are built into
+        <code>dassie</code>, so a new node finds the network by itself. The four also keep the
+        testnet's two settlement hubs, one for XRP and one for DSUSD, as
+        their validators.
+      </p>
+      <p>
+        You can replace the list with <code>DASSIE_BOOTSTRAP_NODES</code>,
+        or set it to <code>[]</code> to run a node on its own. Its format is
+        on <a href="/docs/reference/environment/">Environment variables</a>.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/membership-economics.md">Why membership works this way</a>, and <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/bootstrap-network.md">why the testnet runs four bootstrap nodes</a>.</p>
+
+      <h2 id="link-states">Link states</h2>
+      <p>
+        Each core node signs a short statement about itself, its link state,
+        and the network passes it around. It holds:
+      </p>
+      <ul>
+        <li>the node's public keys, from which its node ID follows;</li>
+        <li>its URL, where other nodes reach it;</li>
+        <li>its neighbors, the peers it is ready to route through;</li>
+        <li>
+          its settlement offers: each hub it takes peers over, with its
+          account there if it has one yet;
+        </li>
+        <li>
+          the UDP port where it answers requests for its
+          <a href="/docs/concepts/rates/#snapshots">snapshot</a>, if it
+          offers swaps.
+        </li>
+      </ul>
+      <p>
+        A node issues a new link state when it starts, when any of this
+        changes, and every hour anyway. It sends the new one to its peers at
+        once, and they pass it on to theirs. Peers also send each other
+        their link state every few seconds as a heartbeat, and every node
+        slowly sweeps through the nodes it knows, asking for anything it
+        missed. A link state is fresh for a few hours; routing uses only
+        fresh ones, so a node that goes away drops out by itself.
+      </p>
+      <p>
+        A node keeps only link states of nodes it has a reason to know:
+        itself, its bootstrap nodes, its peers, members of the majority, and,
+        on a bootstrap node, the nodes registered with it. Gossip alone
+        cannot fill its tables.
+      </p>
+
+      <h2 id="peering-needs-a-shared-hub">Peering needs a shared hub</h2>
+      <p>
+        Peers settle only over <a href="/docs/concepts/hubs/">settlement
+        hubs</a>, so two nodes peer only when they are in the same hub. One
+        of them at least must already have an account there: a node without
+        one is paid into the hub by its peer, once it is owed enough to open
+        an account.
+      </p>
+      <ul>
+        <li>
+          <strong>How many.</strong> Your node looks for two peers by itself
+          and holds at most eight. It accepts requests from others only up to
+          a cap below that, so requests alone cannot fill every place.
+        </li>
+        <li>
+          <strong>Whom it asks.</strong> Nodes it knows whose link states
+          are fresh and offer a hub your node is in, one at a time. Nodes its
+          routes cannot reach yet come first, so separate groups of nodes
+          find each other.
+        </li>
+        <li>
+          <strong>Not before the ledger is seen.</strong> A node takes no
+          peers on a hub until it has synced with it at least once, so it can
+          tell a peer's payment from its own deposit.
+        </li>
+        <li>
+          <strong>Every shared hub counts.</strong> Two nodes in more than one
+          hub together settle over each of them, within one peering. A hub
+          they both join later is added; a hub that has failed for a day is
+          dropped, and a peering left with no hub ends.
+        </li>
+        <li>
+          <strong>When it fails.</strong> A refused or failed request waits
+          longer before each new try. When two nodes ask each other at the
+          same moment, the request of the lower node ID wins.
+        </li>
+      </ul>
+      <p>
+        On the testnet, <code>dassie setup</code> joins the XRP hub unless
+        <code>--hub</code> names other hubs, or <code>none</code>. In the
+        wallet, your node joins a hub when you add it on
+        <strong>Ledgers</strong>: <strong>XRP in a settlement hub on the XRP
+        Ledger Testnet</strong> or <strong>DSUSD in a settlement hub on the
+        XRP Ledger Testnet</strong>. Either way, it then looks for
+        peers among the hub's other members, and
+        <a href="/docs/wallet/hubs/">Your hubs</a> shows where it stands.
+      </p>
+      <p
+        class="not-yet">Mainnet hubs are not built in, and a node refuses the live realm anyway. <a href="/docs/project/roadmap/#hubs">What's next</a></p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/settlement-methods.md">Why every shared hub is part of one peering</a></p>
+
+      <h2 id="routing">Routing</h2>
+      <p>
+        Each node works out its own routes from the link states it holds. It
+        searches outward from itself, breadth first, over links that both
+        ends list. A node cannot claim a link to someone who does not list
+        it back.
+      </p>
+      <ul>
+        <li>
+          For every node it can reach, your node keeps up to four first hops
+          on the shortest paths there. Where more peers would do, it keeps
+          its own few, chosen by a secret derived from its key.
+        </li>
+        <li>
+          Each packet draws its next hop from those, weighted by what each
+          peer earned your node. See
+          <a href="/docs/concepts/peers/#trust-grows-sideways">Trust grows sideways</a>.
+        </li>
+        <li>
+          A packet never goes back to the peer it came from, and never takes
+          a longer path than the shortest.
+        </li>
+        <li>
+          Routes are worked out again whenever a link state changes, and as
+          old ones go stale.
+        </li>
+        <li>
+          A periphery node routes everything through its uplinks, and nobody
+          routes to it directly: payments reach it at an address beneath one
+          of its uplinks.
+        </li>
+      </ul>
+      <p>
+        A peer that runs short of room or goes quiet is taken out of its
+        neighbors' link states quickly, which takes it out of everyone's
+        routes. Ending the peering takes much longer. See
+        <a href="/docs/concepts/peers/#withdraw-and-end">Withdraw readily, end reluctantly</a>.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/network.md#routing">How routing works in full</a></p>
+
+      <h2 id="watching-it-happen">Watching it happen</h2>
+      <p>
+        <code>dassie status</code> shows how many bootstrap nodes list your
+        node and who its peers are. Only if you set
+        <code>DASSIE_BOOTSTRAP_NODES</code> to <code>[]</code> does it say
+        that the node runs alone. The wallet's
+        <a href="/docs/wallet/network/">Network and peers</a> page shows each
+        node your node knows, how far away it is and which hubs it settles
+        over. If your node stays alone, start with
+        <a href="/docs/node/troubleshooting/">Troubleshooting</a>.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

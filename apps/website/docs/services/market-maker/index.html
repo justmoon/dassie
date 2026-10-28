@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Run dassie market-maker with one node of your own: swap with core nodes when their quotes and an XRP Ledger pool leave a margin, and keep your holdings within bands."
+    />
+    <title>Run a market maker · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Run a market maker</h1>
+      <p class="lede">
+        A core node that converts between XRP and dollars slowly runs out of
+        one of them. A market maker brings it back: it swaps with the node
+        when the node's quotes beat a pool on the XRP Ledger, and swaps the
+        difference back on the pool. This page sets one up, with one node of
+        your own.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm, and the market maker signs only on the XRP
+          Ledger testnet.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="how-it-works">How it works</h2>
+      <p>
+        Each core node prices what it converts by what it holds: it quotes
+        more for the asset it has least of. It signs a snapshot of its
+        quotes, and pushes it to its peers. Your market maker's node peers
+        with the core nodes it trades through, its <em>targets</em>, and
+        reads their snapshots. The market maker also reads the price of an
+        XRP Ledger pool between XRP and a dollar token. When a target's
+        quote and the pool's price differ by more than a margin, it:
+      </p>
+      <ol class="steps">
+        <li>
+          asks its node to swap with that target, from the XRP hub to the
+          dollar hub or back, at no worse than a rate that, swapped back on
+          the pool, still clears the margin;
+        </li>
+        <li>
+          swaps funds back on the pool, from one asset to the other on its
+          node's XRP Ledger account, when the node holds more of an asset
+          than its band allows.
+        </li>
+      </ol>
+      <p>
+        The node sends the swap only while the target's snapshot promises
+        at least that rate. So the target gets back the asset it ran short
+        of, and the market maker keeps the margin. It is a client of its
+        node, not a node: every amount it moves is moved by the node or by
+        the XRP Ledger.
+        <a href="/docs/concepts/rates/">Exchange rates</a> explains quotes
+        and snapshots.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/passive-rebalancing.md">Why market makers, not the nodes, rebalance</a>,
+        and
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peer-swaps.md">why
+        they swap with their peers</a>
+      </p>
+
+      <h2 id="one-node-pinned">One node, pinned</h2>
+      <p>
+        You run one node, in the settlement hubs of both of the pool's
+        assets:
+      </p>
+      <ul>
+        <li>
+          <strong>The testnet's XRP hub,</strong> funded from its XRP
+          ledger, <code>xrpl-testnet-xrp</code>.
+        </li>
+        <li>
+          <strong>The testnet's DSUSD hub,</strong> funded from its DSUSD
+          ledger, <code>xrpl-testnet-dsusd</code>. The XRP ledger pays this
+          hub's fees on the XRP Ledger too.
+        </li>
+      </ul>
+      <p>
+        Both ledgers are on the node's one XRP Ledger account, and peer with
+        no one. A swap with a target from one hub to the other makes that
+        target convert, so one node trades through any number of targets,
+        and its funds and bands are shared by all of them.
+      </p>
+      <p>
+        The node is a periphery node, with no hostname and no relay, and it
+        pins every target as an uplink. So it peers with the targets and no
+        one else, and each swap goes to the target it was meant for. Each
+        target must be a core node in both hubs that offers swaps, as core
+        nodes do unless their owner turns it off. On the testnet,
+        <code>boot1</code>, <code>boot2</code> and <code>boot3</code> are
+        such nodes. Your node pins each by its node ID, from its discovery
+        document:
+      </p>
+      <pre><code><span class="prompt">$</span>curl -fsS https://boot1.dassie.xyz/.well-known/dassie/node | jq -r .id</code></pre>
+
+      <h3 id="running-the-node">Running the node</h3>
+      <p>
+        This runs the node as your user, with a data directory, IPC socket
+        and ports of its own, apart from any other node on the machine:
+      </p>
+      <pre><code><span class="prompt">$</span>DASSIE_STATE_DIRECTORY=$HOME/mm/node \
+  DASSIE_IPC_SOCKET_PATH=$XDG_RUNTIME_DIR/mm.sock \
+  DASSIE_RELAY= \
+  DASSIE_UPLINKS=&lt;target node ID&gt;,&lt;another target's node ID&gt; \
+  dassie daemon --runtime standalone --http-port 4101 --https-port 5101 \
+    --feed-listen 127.0.0.1:0</code></pre>
+      <ul>
+        <li>
+          <code>DASSIE_RELAY=</code> keeps no relay. Nobody pays this node
+          at a name, so it needs none, and no front door learns when it is
+          online. Leave it out, and the node keeps
+          the <code>dassiepay.net</code> front door, as a node without a
+          hostname does by default.
+        </li>
+        <li>
+          <code>DASSIE_UPLINKS</code> pins the targets, by node ID, comma
+          separated.
+        </li>
+        <li>
+          <code>--feed-listen 127.0.0.1:0</code> keeps the node off the
+          snapshot port, 7768, which a periphery node never answers on
+          anyway.
+        </li>
+        <li>
+          Leave out <code>--listen</code>: the node's QUIC socket takes the
+          address of its HTTPS listener, and must reach the targets. Nothing
+          needs to reach the node's ports from outside, so keep them closed
+          in your firewall.
+        </li>
+      </ul>
+      <p>
+        For a server, the units Dassie's own market maker runs with are a
+        good model:
+        <a href="https://github.com/justmoon/dassie/tree/main/apps/market-maker/vm"><code>apps/market-maker/vm</code></a>.
+      </p>
+
+      <h3 id="setting-it-up">Setting it up</h3>
+      <p>
+        Keep the node's recovery phrase in a file of its own, and set the
+        node up from it. Setup joins both hubs, which are built into Dassie,
+        with the ledgers they are funded from, and keeps what the node is
+        paid on your own account, which the swaps on the pool spend from:
+      </p>
+      <pre><code><span class="prompt">$</span>DASSIE_IPC_SOCKET_PATH=$XDG_RUNTIME_DIR/mm.sock \
+  dassie setup --passphrase-file ~/mm/node.phrase \
+    --hub hub-xrpl-testnet-xrp --hub hub-xrpl-testnet-dsusd \
+    --keep-funds account</code></pre>
+      <p>
+        Running setup again changes nothing, so you can run it at every
+        start. The node asks the testnet's faucet for XRP while its account
+        does not exist yet. When it holds more XRP than its band, the
+        market maker's first swap on the pool buys DSUSD with the surplus,
+        so you need not buy DSUSD yourself.
+      </p>
+      <p>
+        Leave the node's <em>Swapping with peers</em> setting on, as it is
+        for a new node, so that it reads its targets' snapshots. Give it no
+        swap targets in its settings, so that it swaps only when the market
+        maker asks. The market maker refuses to start while swapping is
+        off.
+      </p>
+
+      <h2 id="config-and-secrets">Config and secrets</h2>
+      <p>
+        The market maker reads one JSON file, and checks all of it before it
+        connects to anything:
+      </p>
+      <figure class="file">
+        <figcaption>~/mm/config.json</figcaption>
+        <pre><code>{
+  "socket": "/run/user/1000/mm.sock",
+  "passphraseFile": "/home/me/mm/node.phrase",
+  "xrpl": {
+    "server": "wss://s.altnet.rippletest.net:51233",
+    "token": { "currency": "DSUSD", "issuer": "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M" }
+  },
+  "xrp": {
+    "ledger": "hub-xrpl-testnet-xrp+xrp",
+    "ownerBook": "xrpl-testnet-xrp+xrp",
+    "tradeSize": 2000000000,
+    "band": { "low": 20000000000, "high": 80000000000 }
+  },
+  "token": {
+    "ledger": "hub-xrpl-testnet-dsusd+usd",
+    "ownerBook": "xrpl-testnet-dsusd+usd",
+    "tradeSize": 2000000000,
+    "band": { "low": 5000000000, "high": 40000000000 }
+  },
+  "marginPpm": 10000,
+  "slippagePpm": 10000
+}</code></pre>
+      </figure>
+      <dl class="ref">
+        <dt id="socket"><code>socket</code></dt>
+        <dd>
+          <p>The node's IPC socket.</p>
+        </dd>
+        <dt id="passphrasefile"><code>passphraseFile</code></dt>
+        <dd>
+          <p>The file with the node's recovery phrase, <a href="#the-phrase">below</a>.</p>
+        </dd>
+        <dt id="xrpl"><code>xrpl</code></dt>
+        <dd>
+          <p>
+            The XRP Ledger server, <code>wss://</code>, on the testnet, and
+            the token the pool pairs with XRP: its currency code and issuer.
+            The market maker refuses to sign for a server that is not on the
+            testnet.
+          </p>
+        </dd>
+        <dt id="xrp-and-token"><code>xrp</code>, <code>token</code></dt>
+        <dd>
+          <p>Each of the pool's two assets:</p>
+          <ul>
+            <li>
+              <code>ledger</code>: the node's ledger of the asset's hub,
+              which its swaps with targets pay on and are paid back on.
+            </li>
+            <li>
+              <code>ownerBook</code>: the node's ledger of the same asset on
+              its XRP Ledger account, which funds the hub and which the swaps
+              on the pool spend.
+            </li>
+            <li>
+              <code>tradeSize</code>: the most one swap with a target pays of
+              the asset.
+            </li>
+            <li><code>band</code>: its band, <a href="#bands">below</a>.</li>
+          </ul>
+          <p>
+            Amounts are in the node's ledger units, a billion to one XRP or
+            one dollar: <code>2000000000</code> is 2.
+          </p>
+        </dd>
+        <dt id="marginppm"><code>marginPpm</code></dt>
+        <dd>
+          <p>
+            How much better than the pool a swap must be, in parts per
+            million: <code>10000</code> is one percent.
+          </p>
+        </dd>
+        <dt id="slippageppm"><code>slippagePpm</code></dt>
+        <dd>
+          <p>
+            How far the pool may move against a swap on it before that swap
+            fails rather than pays a worse price, in parts per million.
+          </p>
+        </dd>
+        <dt id="cafile"><code>caFile</code></dt>
+        <dd>
+          <p>
+            Optional: a file of root certificates to trust the XRP Ledger
+            server by, beside the system's, for a host that has none of its
+            own.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        The config names no targets: they are the node's uplinks, which
+        <code>DASSIE_UPLINKS</code> pins. These values are those of Dassie's
+        own market maker, and they are starting points. Its XRP band's top
+        is below what the faucet gives a new account, so its first swap on
+        the pool buys DSUSD, and the two bands together hold the whole
+        grant. <code>allowPrivate</code> is for dev networks and tests only.
+        A config in the format of 0.2.x, with <code>targets</code> or a
+        socket for each asset, is refused. The full rules are in
+        <a href="https://github.com/justmoon/dassie/blob/main/crates/dassie-cli/src/market_maker/config.rs"><code>config.rs</code></a>.
+      </p>
+      <h3 id="the-phrase">The phrase</h3>
+      <p>
+        The market maker signs its swaps on the pool with the node's account
+        key, so it needs the node's phrase, not only its socket. It checks
+        that the phrase opens the account both of the node's owner books are
+        on, keeps only the signing key in memory, and never logs a phrase.
+      </p>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> The phrase file is that node's money.
+          Make it readable by the market maker's user alone
+          (<code>chmod 600</code>), and keep it off shared disks. Dassie's own
+          market maker reads its phrase into a memory-backed file at start,
+          and removes it when it stops.
+        </p>
+      </aside>
+
+      <h2 id="run-it">Run it</h2>
+      <pre><code><span class="prompt">$</span>dassie market-maker --config ~/mm/config.json</code></pre>
+      <p>
+        It decides every ten seconds, and logs one line per decision: a swap
+        with a target, with what it paid and what came back, a swap on the
+        pool, or why it holds. It stops at start if something it needs is
+        missing, such as a ledger its config names that the node does not
+        run. Once it runs, it rides out outages and keeps going.
+      </p>
+      <p>
+        It trades only through targets whose snapshot is current, so a
+        target that has gone quiet is left out while the others trade.
+        Targets that pay alike take turns, so its swaps spread over them.
+      </p>
+
+      <h2 id="bands">Bands</h2>
+      <p>
+        Each asset has a band: the least and the most of it the node should
+        hold, counting its hub and its own account together.
+      </p>
+      <ul>
+        <li>
+          <strong>Below the band:</strong> no swap with a target takes an
+          asset below the bottom of its band. A swap that would is made
+          smaller.
+        </li>
+        <li>
+          <strong>Above the band:</strong> before any swap with a target,
+          the market maker swaps the asset back to the middle of its band on
+          the pool, from one owner book to the other, never delivering more
+          than the other asset's band has room for. So the two never swap
+          the same funds back and forth.
+        </li>
+        <li>
+          <strong>Both above:</strong> it holds, and trades nothing.
+        </li>
+      </ul>
+      <p>
+        Set each band's middle above what the node keeps in its hub, so that
+        what a swap on the pool spends is on its account. The bands are the
+        node's, whichever target a swap goes through, so adding a target
+        needs no more funds.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rate-feed.md#market-maker">The market maker in full</a>,
+        in the spec: what it trusts, and how it counts a swap on its way.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

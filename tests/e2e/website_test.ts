@@ -1,8 +1,9 @@
 // dassie.land in a headless browser: the built site (`node --run
-// build:website`), served as its bucket serves it: with the headers of
-// headers.json, so its CSP applies, and trailing slashes. The architecture map draws and answers
-// clicks, and the STREAM toy runs a payment on the WASM STREAM
-// implementation to the end.
+// build:website`), served as its bucket and load balancer serve it: with
+// the headers of headers.json, so its CSP applies, trailing slashes, and
+// the old paths of pages that moved redirected. The docs search finds a
+// page, the architecture map draws and answers clicks, and the STREAM toy
+// runs a payment on the WASM STREAM implementation to the end.
 
 import { test } from "node:test";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
@@ -15,6 +16,7 @@ import { serve, type Server } from "@dassie/dev/serve";
 import puppeteer, { type Page } from "puppeteer-core";
 import { click, count, text, type, until } from "./browser.ts";
 import { findChrome } from "./harness.ts";
+import { MOVED } from "../../apps/website/src/docs.ts";
 
 const site = new URL("../../apps/website/", import.meta.url).pathname;
 const dist = join(site, "dist");
@@ -52,8 +54,9 @@ const TYPES: Record<string, string> = {
 
 /**
  * Serves dist/ as the bucket behind the load balancer does: every response
- * with headers.json's headers, and a page's path without its slash
- * redirected to the path with it.
+ * with headers.json's headers, a page's path without its slash redirected
+ * to the path with it, and the old path of a page that moved, with its
+ * slash or without, to the new one (scripts/website/provision.sh).
  */
 async function serveSite(): Promise<Server> {
   const siteHeaders = JSON.parse(
@@ -64,6 +67,11 @@ async function serveSite(): Promise<Server> {
     async (request) => {
       const path = decodeURIComponent(new URL(request.url).pathname);
       if (path.includes("..")) return new Response("bad path", { status: 400 });
+      const moved = MOVED.find(({ from }) =>
+        path === from || path === from.slice(0, -1) ||
+        path === `${from}index.html`
+      );
+      if (moved) return Response.redirect(new URL(moved.to, request.url), 308);
       if (!path.endsWith("/") && extname(path) === "") {
         return Response.redirect(new URL(`${path}/`, request.url), 308);
       }
@@ -147,9 +155,17 @@ test("dassie.land: the pages, and a STREAM payment in the toy", {
         ),
         false,
       );
-      // Without the slash, as the original's links had it.
+      // Its old path, without the slash, as the original's links had it.
       await page.goto(`${base}/guides/quick-start`, { waitUntil: "load" });
-      assertEquals(new URL(page.url()).pathname, "/guides/quick-start/");
+      assertEquals(new URL(page.url()).pathname, "/docs/start/quick-start/");
+      // In the docs layout, marked in the sidebar.
+      assertEquals(
+        await page.evaluate(() =>
+          document.querySelector('.docs-nav [aria-current="page"]')
+            ?.getAttribute("href")
+        ),
+        "/docs/start/quick-start/",
+      );
       const body = await page.evaluate(() => document.body.innerText);
       assertMatch(
         body,
@@ -169,6 +185,30 @@ test("dassie.land: the pages, and a STREAM payment in the toy", {
           .map((font) => font.family.replaceAll('"', ""));
       });
       assert(loaded.includes("Fraunces"), loaded.join());
+      assertEquals(problems, []);
+    });
+
+    await t.test("the docs search finds a page, under the CSP", async () => {
+      await page.goto(`${base}/docs/search/?q=nixos`, { waitUntil: "load" });
+      const titles = () =>
+        page.evaluate(() =>
+          [...document.querySelectorAll('[data-testid="search-result"] a')]
+            .map((link) => link.textContent ?? "")
+        );
+      await until(
+        page,
+        "the NixOS guide is found",
+        titles,
+        (found) => found.includes("Dassie on NixOS"),
+      );
+      // Typing searches again.
+      await type(page, "search-q", "certificate");
+      await until(
+        page,
+        "the Quick Start is found",
+        titles,
+        (found) => found.includes("Quick Start"),
+      );
       assertEquals(problems, []);
     });
 

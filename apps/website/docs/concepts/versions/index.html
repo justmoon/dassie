@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How nodes that update on different days keep talking, why a node that stops updating loses its peers, and how hubs and snapshots are versioned."
+    />
+    <title>Protocol versions · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Protocol versions</h1>
+      <p class="lede">
+        Nodes update themselves, each on its own day and at its own hour. This
+        page explains how two nodes on different releases still understand
+        each other, and when they no longer can.
+      </p>
+
+      <h2 id="a-version-is-a-name">A version is a name in the handshake</h2>
+      <p>
+        Nodes talk to each other over QUIC. Every QUIC connection starts with
+        a handshake in which the two sides agree on a protocol name. Dassie
+        uses that name as the peer protocol's version: <code>dassie/2</code>
+        means version 2.
+      </p>
+      <ul>
+        <li>
+          Each node offers the versions it speaks, newest first, and the two
+          speak the newest one they share.
+        </li>
+        <li>
+          Two nodes that share none fail the handshake, before a single
+          message is read. A node never mistakes another version's bytes for
+          its own.
+        </li>
+        <li>
+          No message carries a version of its own. The connection already
+          says which layouts every message on it uses.
+        </li>
+      </ul>
+      <p>
+        Dassie 0.3.0 speaks <code>dassie/2</code> alone. The 0.2.x releases
+        spoke <code>dassie/1</code>, which differs from version 2 in more
+        than its layouts, above all in how a node proves who sent a message.
+        So a 0.2.x node cannot peer with a node on 0.3.0. The testnet was
+        reset for 0.3.0, and 0.3.0 reads neither the database nor the phrase
+        of a node from before it. So on a 0.2.x node the daily update to
+        0.3.0 doesn't start, and the updater goes back to 0.2.x. Such a node
+        is set up again, with a new phrase and a fresh database:
+        <a href="/docs/node/updates/#from-0-2">A node from the 0.2
+        releases</a> says how. The
+        <a href="/docs/reference/releases/#v0-3-0">release notes for 0.3.0</a>
+        say what else it brought.
+      </p>
+
+      <h2 id="one-release-of-overlap">One release of overlap</h2>
+      <p>
+        Once a release speaks a version, the layouts of its messages never
+        change. A change that both sides must agree on becomes a new version.
+        When a release brings version N, it also speaks version N−1, for one
+        release. The release after that drops N−1.
+      </p>
+      <p>
+        So while the network updates, a node that already has the new release
+        and a node that does not yet still talk, over the older version. What
+        the new version adds works only between nodes that both speak it.
+      </p>
+      <p>
+        Some additions need no new version at all. A new kind of message, a
+        new reason for a refusal or a new field in a link state needs none.
+        A node that does not know it refuses a message it does not know,
+        reads an unknown refusal reason as an unspecified one, and keeps and
+        passes on a link-state field without reading it. Nothing breaks.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/protocol-upgrades.md">Why it works this way</a>, and why a release does not speak every version since the first.</p>
+
+      <h2 id="falling-behind">Why a node that stops updating loses its peers</h2>
+      <p>
+        One release of overlap is enough for nodes that update every day,
+        and Dassie's updater does. A node that misses a whole release,
+        because it was down, its updates failed, or its owner stopped the
+        updater, ends up sharing no version with the nodes around it once
+        they move on. Then:
+      </p>
+      <ol class="steps">
+        <li>Every connection to an updated node fails in the handshake.</li>
+        <li>
+          Its peers hear nothing from it, take it out of their link states,
+          and route around it.
+        </li>
+        <li>
+          After a day without a word, they end their peerings with it. What
+          was owed stays in each side's books, for a later peering to
+          settle.
+        </li>
+      </ol>
+      <p>
+        The fix is to update. Once the node runs a release its neighbors
+        speak, it finds peers again as a new node would. <code>dassie
+        status</code> shows how the last update went, and
+        <a href="/docs/node/updates/">Updates and rollback</a> says how to
+        catch up by hand. Across the 0.3.0 reset, updating is not enough: a
+        0.2.x node is set up again, as above. On NixOS there is no updater: you move the flake
+        input forward yourself, so keep an eye on new releases.
+      </p>
+
+      <h2 id="hubs">Hubs have a version of their own</h2>
+      <p>
+        A <a href="/docs/concepts/hubs/">settlement hub</a> is run by
+        validators, which are different owners' nodes. They must all compute
+        exactly the same thing from the same blocks, or the hub splits
+        without a word. So a hub has a protocol version of its own, apart
+        from the release's.
+      </p>
+      <ul>
+        <li>
+          <strong>Named in the hub's terms, first,</strong> so the hub's ID
+          commits to it. A hub runs one version for its whole life.
+        </li>
+        <li>
+          <strong>A node runs only its own version.</strong> A validator
+          neither accepts nor signs a hub of another version, and a member
+          does not join one. A node never runs a hub its code would run
+          differently from the other validators.
+        </li>
+        <li>
+          <strong>Most releases keep it.</strong> A release that changes
+          nothing validators agree on keeps the hub version, so its nodes
+          run the same hubs as before. One that changes any of it, however
+          small, makes a new version, and hubs are founded again under it.
+        </li>
+      </ul>
+      <p
+        class="not-yet">Moving a running hub to a new version without founding it again is not there yet, and neither is moving your node's membership to a hub founded again. <a href="/docs/project/roadmap/#hubs">What's next</a></p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hub-protocol-version.md">Why a hub's ID commits to its version</a></p>
+
+      <h2 id="what-stays-put">What else stays put</h2>
+      <p>
+        A few things outside the release depend on Dassie staying the same,
+        so they change only by a new version, or not at all:
+      </p>
+      <ul>
+        <li>
+          <strong>A node's snapshot</strong> of its prices starts with a
+          version byte. A reader refuses a version it does not know, and a
+          new version is signed under a name of its own, so its signature
+          never passes for the old one's. Today's snapshot is version 2. See
+          the <a href="/docs/reference/snapshot-format/">snapshot wire
+          format</a>.
+        </li>
+        <li>
+          <strong>Your recovery phrase</strong> derives the same keys and the
+          same node ID in every release from 0.3.0 on. Phrases made before
+          the testnet's reset, which brought the twenty-word format, are
+          refused; see <a href="/docs/concepts/phrase/">Your recovery
+          phrase</a>.
+        </li>
+        <li>
+          <strong>The release mirror and the install layout</strong> keep
+          their names, so every installed updater can still update.
+        </li>
+      </ul>
+      <p>
+        The wallet and the node, on the other hand, ship together in one
+        binary, so they change freely together. Your node's database only
+        moves forward: a release migrates it when it starts, and an older
+        release refuses a database newer than it knows. That is why the node
+        keeps a copy from just before it migrates, for a rollback to put
+        back.
+        See <a href="/docs/concepts/releases/">Releases you can trust</a>.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/overview.md#frozen-surfaces">The full list of what must never change</a></p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Every DASSIE_* environment variable the node, the desktop app and the dassie command read: what it does, its default, and which are for development only."
+    />
+    <title>Environment variables · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Environment variables</h1>
+      <p class="lede">
+        Most of a node's settings live in its database, and you change them in
+        the wallet. A few are read from the environment when the node starts.
+        This page lists every one, what it does, and its default.
+      </p>
+
+      <h2 id="setting-them">Setting them</h2>
+      <p>
+        The node reads its environment once, at start, and checks every
+        variable before anything else runs. A value it cannot use stops it
+        with a message that names the variable, so you see the mistake at
+        once rather than later. After a change, restart the node.
+      </p>
+      <p>
+        On a server installed with the installer, put variables in a drop-in
+        for <code>dassie.service</code>, which updates leave alone.
+        <code>sudo systemctl edit dassie</code> opens one:
+      </p>
+      <figure class="file">
+        <figcaption>/etc/systemd/system/dassie.service.d/override.conf</figcaption>
+        <pre><code>[Service]
+Environment=DASSIE_LOG=info,dassie::peer=debug</code></pre>
+      </figure>
+      <pre><code><span class="prompt">$</span>sudo systemctl restart dassie</code></pre>
+      <p>
+        On NixOS, use <code>services.dassie.environment</code> and
+        <code>services.dassie.log</code>; see
+        <a href="/docs/reference/nixos-options/">NixOS module options</a>. The
+        desktop app reads the same variables as a server node, from the
+        environment it was started in.
+      </p>
+      <p>
+        For the node, a path that is set but empty counts as unset. A switch
+        is <code>1</code> for on and <code>0</code> or unset for off;
+        anything else stops the node. <code>dassie update</code> takes its
+        variables as they are, so leave one of them unset rather than empty:
+        an empty <code>DASSIE_MIRROR_URL</code> is an error there.
+      </p>
+
+      <h2 id="the-node">The node</h2>
+      <p>
+        Read by <code>dassie daemon</code> and the desktop app. The commands
+        that talk to the node read <code>DASSIE_IPC_SOCKET_PATH</code> too.
+      </p>
+      <dl class="ref">
+        <dt id="DASSIE_LOG"><code>DASSIE_LOG</code></dt>
+        <dd>
+          <p>
+            What the node writes to standard output. A level for everything:
+            <code>trace</code>, <code>debug</code>, <code>info</code>,
+            <code>warn</code>, <code>error</code> or <code>off</code>. Or,
+            separated by commas, a level for a part of the node, as
+            <code>&lt;target&gt;=&lt;level&gt;</code>, beside a level for
+            the rest:
+            <code>info,dassie::peer=debug</code>. A directive for a target
+            covers everything beneath it, so <code>dassie=debug</code> turns up
+            all of Dassie's own lines but not its libraries'. At most 64
+            directives.
+          </p>
+          <p>
+            The targets are <code>dassie::daemon</code>,
+            <code>dassie::database</code>, <code>dassie::http</code>,
+            <code>dassie::ipc</code>, <code>dassie::acme</code>,
+            <code>dassie::auth</code>, <code>dassie::rpc</code>,
+            <code>dassie::systemd</code>, <code>dassie::engine</code>,
+            <code>dassie::btp</code>, <code>dassie::peer</code>,
+            <code>dassie::routing</code>, <code>dassie::payment</code>,
+            <code>dassie::settlement</code>, <code>dassie::hub</code>,
+            <code>dassie::front_door</code>,
+            <code>dassie::market_maker</code> and
+            <code>dassie::desktop</code>.
+          </p>
+          <p>
+            Default: <code>info</code>. The installer's unit sets
+            <code>info</code>. The wallet's log page shows
+            <code>info</code> and above whatever this says. Also read by
+            <code>dassie front-door</code> and
+            <code>dassie market-maker</code>.
+          </p>
+        </dd>
+
+        <dt id="DASSIE_STATE_DIRECTORY"><code>DASSIE_STATE_DIRECTORY</code></dt>
+        <dd>
+          <p>
+            The data directory, which holds the database with the node's key
+            and books. If unset, the node takes systemd's
+            <code>STATE_DIRECTORY</code> (its first entry), then
+            <code>$XDG_DATA_HOME/dassie</code>, then
+            <code>~/.local/share/dassie</code>. Under the installer's unit
+            that is <code>/var/lib/dassie</code>.
+          </p>
+          <p>
+            <code>dassie update</code> reads it too, as the data directory of
+            <code>dassie.service</code>, whose database a rollback may put
+            back. There its default is <code>/var/lib/dassie</code>.
+          </p>
+        </dd>
+
+        <dt id="DASSIE_IPC_SOCKET_PATH"><code>DASSIE_IPC_SOCKET_PATH</code></dt>
+        <dd>
+          <p>
+            The IPC socket the node listens on when it binds its own sockets,
+            and the one the <code>dassie</code> command connects to. If unset,
+            a standalone node uses <code>$XDG_RUNTIME_DIR/dassie.sock</code>,
+            or else <code>/run/dassie.sock</code>, and the command tries
+            <code>/run/dassie.sock</code>, then
+            <code>$XDG_RUNTIME_DIR/dassie.sock</code>. Under systemd the
+            socket unit decides: <code>/run/dassie.sock</code>.
+          </p>
+        </dd>
+
+        <dt id="DASSIE_BOOTSTRAP_NODES"><code>DASSIE_BOOTSTRAP_NODES</code></dt>
+        <dd>
+          <p>
+            The nodes the node asks about the network, and whose name lists
+            it reads. A JSON list of at most 64 entries, each naming a node by
+            its ID, its URL and its two public keys:
+          </p>
+          <pre><code>[{"id":"&lt;node ID&gt;","url":"https://boot.example.net","publicKey":"&lt;base64url&gt;","slhDsaPublicKey":"&lt;base64url&gt;"}]</code></pre>
+          <p>
+            The URL must be <code>https://</code>, and each ID must be the one
+            its keys give, or the node does not start. So does a node listed
+            twice. <code>[]</code> makes the node run alone. A front door
+            reads it too, for the registrars whose name lists it reads.
+          </p>
+          <p>
+            Default: the public testnet's four bootstrap nodes,
+            <code>boot1.dassie.xyz</code> to <code>boot4.dassie.xyz</code>,
+            built into the binary. Leave it unset to join the testnet.
+          </p>
+        </dd>
+
+        <dt id="DASSIE_RELAY"><code>DASSIE_RELAY</code></dt>
+        <dd>
+          <p>
+            The relay the node keeps a connection to, so that others reach it
+            through the relay, even without a public address. A node keeps
+            one relay at a time. A relay is named by one entry in the format
+            of <code>DASSIE_BOOTSTRAP_NODES</code>, without the brackets; a
+            front door prints its own with
+            <a href="/docs/reference/cli/#dassie-front-door"><code>dassie front-door --make-key</code></a>.
+          </p>
+          <ul>
+            <li>
+              <strong>Unset</strong>, the default: the
+              <code>dassiepay.net</code> front door, at
+              <code>relay.dassiepay.net</code>, whose entry is built into the
+              release. The node keeps it only while it has no hostname, so
+              that it is reached at <code>&lt;node ID&gt;.dassiepay.net</code>
+              and at its names there. The desktop app's node and a server
+              without a public IP keep it. A node you give a hostname with
+              <code>dassie init</code> closes the connection, and dials again
+              if the hostname is cleared.
+            </li>
+            <li>
+              <strong>An entry:</strong> that relay, kept whether or not the
+              node has a hostname. If it names a relay outside
+              <code>dassiepay.net</code>, the <code>dassiepay.net</code> front
+              door no longer reaches the node, and the wallet says so beside
+              its <code>dassiepay.net</code> address.
+            </li>
+            <li>
+              <strong>Empty:</strong> no relay. The node still dials its
+              uplinks and pays, but no payment reaches it at its
+              <code>dassiepay.net</code> names, and the wallet says so.
+            </li>
+          </ul>
+          <p>
+            An entry naming the node itself keeps none and says so in the
+            log. <a href="/docs/reference/cli/#dassie-status"><code>dassie status</code></a>
+            shows the relay the node keeps, and whether it is connected.
+          </p>
+          <p>
+            <strong>What the default costs.</strong> The front door is a
+            machine the project runs. While your node keeps it, that machine
+            learns when your node is online, and from which address. It also
+            reads the Open Payments requests and answers it passes on, as
+            every front door does. Your node signs its answers, so a client
+            that checks the signature can tell if the front door made one
+            up. Other Open Payments clients take what the front door passes
+            on. If that isn't for you, set
+            <code>DASSIE_RELAY</code> empty, or name a front door you trust.
+          </p>
+          <p class="why">
+            <a
+              href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why there is a default relay</a>
+          </p>
+        </dd>
+
+        <dt id="DASSIE_PUBLIC_NAMES"><code>DASSIE_PUBLIC_NAMES</code></dt>
+        <dd>
+          <p>
+            For a node without a hostname: more names it answers Open
+            Payments under, beside its name at the default front door. Host
+            names, separated by commas, each once, at most 16, such as
+            another front door's name for the node, or a domain of yours that
+            a front door passes on. A node with a hostname answers under that
+            alone. Default: none.
+          </p>
+        </dd>
+
+        <dt id="DASSIE_UPLINKS"><code>DASSIE_UPLINKS</code></dt>
+        <dd>
+          <p>
+            For a node without a public IP: the only core nodes it asks to be
+            its uplinks, by node ID, separated by commas, each once, at most
+            128. The node looks for as many uplinks as you name, and asks no
+            other node. A core node ignores the list and warns that it does.
+            A market maker's node names the core nodes it trades through
+            here. Default: none, so the node picks its uplinks itself. See
+            <a href="/docs/node/periphery/">A server without a public IP</a>.
+          </p>
+        </dd>
+
+        <dt id="DASSIE_VALIDATOR_CONFIG"><code>DASSIE_VALIDATOR_CONFIG</code></dt>
+        <dd>
+          <p>
+            A JSON file, at most 256 KiB, that has the node validate
+            settlement hubs: the sponsors it validates for, the XRP Ledger
+            network, the XRP Ledger server it follows escrows on, the
+            validator list publishers, and hubs written in by hand. It is
+            read and checked at start; a file that is wrong stops the node. A
+            network of real money is refused. Default: unset, and the node
+            validates nothing. See
+            <a href="/docs/services/hub-validator/">Validate a settlement hub</a>.
+          </p>
+        </dd>
+      </dl>
+
+      <h2 id="updates">Installer and updater</h2>
+      <p>
+        Read by <code>install.sh</code> and <code>dassie update</code>.
+      </p>
+      <dl class="ref">
+        <dt id="DASSIE_MIRROR_URL"><code>DASSIE_MIRROR_URL</code></dt>
+        <dd>
+          <p>
+            The mirror releases come from, <code>https://</code> only. The
+            <code>--mirror</code> option overrides it. Default:
+            <code>https://get.dassie.land</code>. Whatever the mirror,
+            releases must be signed with the release key built into the
+            binary; see <a href="/docs/reference/mirror/">Release mirror and
+            key</a>.
+          </p>
+        </dd>
+        <dt id="DASSIE_MIRROR_CA_FILE"><code>DASSIE_MIRROR_CA_FILE</code></dt>
+        <dd>
+          <p>
+            A PEM file of more root certificates to trust the mirror's HTTPS
+            by, beside the system's: for a mirror of your own with a private
+            CA. <code>dassie update</code> only. Default: none.
+          </p>
+        </dd>
+        <dt id="DASSIE_SYSTEMD_UNIT_DIR"><code>DASSIE_SYSTEMD_UNIT_DIR</code></dt>
+        <dd>
+          <p>
+            Where <code>dassie update</code> installs a release's systemd
+            units. Default: <code>/etc/systemd/system</code>.
+          </p>
+        </dd>
+      </dl>
+
+      <h2 id="front-door">Front door</h2>
+      <p>
+        Read by <code>dassie front-door</code>, beside
+        <code>DASSIE_LOG</code>, <code>DASSIE_BOOTSTRAP_NODES</code>,
+        <code>DASSIE_DEV_TIMINGS</code> and
+        <code>DASSIE_PEER_ALLOW_PRIVATE</code>. Each
+        <code>DASSIE_FRONT_DOOR_*</code> variable below has an
+        <a href="/docs/reference/cli/#dassie-front-door">option</a> that
+        overrides it. See <a href="/docs/services/front-door/">Run a front
+        door</a>.
+      </p>
+      <dl class="ref">
+        <dt id="DASSIE_FRONT_DOOR_DOMAIN"><code>DASSIE_FRONT_DOOR_DOMAIN</code></dt>
+        <dd>
+          <p>
+            The domain it serves nodes under, as
+            <code>&lt;node ID&gt;.&lt;domain&gt;</code>, of at least two
+            labels. Default: <code>dassiepay.net</code>.
+          </p>
+        </dd>
+        <dt id="DASSIE_FRONT_DOOR_HTTPS_LISTEN"><code>DASSIE_FRONT_DOOR_HTTPS_LISTEN</code></dt>
+        <dd>
+          <p>
+            The address and TCP port for HTTPS. Default:
+            <code>[::]:443</code>.
+          </p>
+        </dd>
+        <dt id="DASSIE_FRONT_DOOR_QUIC_LISTEN"><code>DASSIE_FRONT_DOOR_QUIC_LISTEN</code></dt>
+        <dd>
+          <p>
+            The address and UDP port nodes reach it at over QUIC. Default:
+            <code>[::]:443</code>.
+          </p>
+        </dd>
+        <dt id="DASSIE_FRONT_DOOR_CERTIFICATE"><code>DASSIE_FRONT_DOOR_CERTIFICATE</code></dt>
+        <dd>
+          <p>
+            Required. The PEM certificate chain for
+            <code>*.&lt;domain&gt;</code>, leaf first.
+          </p>
+        </dd>
+        <dt id="DASSIE_FRONT_DOOR_CERTIFICATE_KEY"><code>DASSIE_FRONT_DOOR_CERTIFICATE_KEY</code></dt>
+        <dd>
+          <p>Required. The certificate's PEM key.</p>
+        </dd>
+        <dt id="DASSIE_FRONT_DOOR_KEY_FILE"><code>DASSIE_FRONT_DOOR_KEY_FILE</code></dt>
+        <dd>
+          <p>
+            The front door's own key, which its node ID comes from. Default:
+            <code>front-door.key</code> in systemd's
+            <code>STATE_DIRECTORY</code>; without either, it does not start.
+          </p>
+        </dd>
+        <dt id="DASSIE_FRONT_DOOR_RELAY_URL"><code>DASSIE_FRONT_DOOR_RELAY_URL</code></dt>
+        <dd>
+          <p>
+            The URL nodes dial its QUIC endpoint at, as
+            <code>https://host[:port]</code>, which goes into the entry it
+            prints for <code>DASSIE_RELAY</code>. Default:
+            <code>https://relay.&lt;domain&gt;</code>.
+          </p>
+        </dd>
+      </dl>
+
+      <h2 id="testing">Testing and development</h2>
+      <p>
+        These make a node trust or reach what a public node should not. If
+        <code>DASSIE_PEER_ALLOW_PRIVATE</code>,
+        <code>DASSIE_DEV_TIMINGS</code> or
+        <code>DASSIE_DEV_LIVE_REALM</code> is set while the node listens
+        beyond loopback, it warns at start, naming the variable; a front door
+        warns of the first two. A node serving
+        <code>DASSIE_DEV_WALLET_DIR</code> says so in its log.
+      </p>
+      <dl class="ref">
+        <dt id="DASSIE_ACME_CA_FILE"><code>DASSIE_ACME_CA_FILE</code></dt>
+        <dd>
+          <p>
+            A PEM file of a root the node's ACME client trusts, for a test CA
+            such as Pebble. Default: none.
+          </p>
+        </dd>
+        <dt id="DASSIE_EXTRA_CA_FILE"><code>DASSIE_EXTRA_CA_FILE</code></dt>
+        <dd>
+          <p>
+            A PEM file of roots the node trusts, beside the system's, for
+            the HTTPS and WebSocket servers it reaches: ledger servers, rate
+            sources and Open Payments servers, front doors among them. Peers
+            and relays need none, since QUIC checks their node keys. For a
+            dev or test CA. Default: none.
+          </p>
+        </dd>
+        <dt id="DASSIE_PEER_ALLOW_PRIVATE"><code>DASSIE_PEER_ALLOW_PRIVATE</code></dt>
+        <dd>
+          <p>
+            Dev only. <code>1</code> lets the node reach peers, ledgers and
+            other servers at private and loopback addresses, such as
+            <code>localhost</code>. Default: off.
+          </p>
+        </dd>
+        <dt id="DASSIE_DEV_TIMINGS"><code>DASSIE_DEV_TIMINGS</code></dt>
+        <dd>
+          <p>
+            Dev only. <code>1</code> runs the peer protocol and the peg guard
+            on dev timers, polling, settling and reading pools every second.
+            Default: off.
+          </p>
+        </dd>
+        <dt id="DASSIE_DEV_LIVE_REALM"><code>DASSIE_DEV_LIVE_REALM</code></dt>
+        <dd>
+          <p>
+            Dev only. <code>1</code> lets a node be set up in the live realm,
+            for development and tests against a fake ledger. Only a build with
+            debug assertions takes it. A release refuses to start with it set,
+            since the live realm is not supported yet.
+          </p>
+          <aside class="early">
+            <p>
+              <strong>Early days.</strong> Dassie takes test money only: a
+              node refuses the live realm.
+              <a href="/docs/start/early-days/">How far along it is</a>
+            </p>
+          </aside>
+        </dd>
+        <dt id="DASSIE_DEV_WALLET_DIR"><code>DASSIE_DEV_WALLET_DIR</code></dt>
+        <dd>
+          <p>
+            Dev only. An absolute path to a directory that exists, holding a
+            build of the wallet, which the node serves instead of the one
+            built into the binary. The dev environment points it at a watch
+            build. Default: none.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        The <a href="/docs/build/dev-network/">local dev network</a> sets
+        these for you.
+      </p>
+
+      <h2 id="build-time">Build time</h2>
+      <p>
+        Read when the binary is built, not when it runs. See
+        <a href="/docs/project/contributing/">Contributing</a>.
+      </p>
+      <dl class="ref">
+        <dt id="DASSIE_BUILD_VERSION"><code>DASSIE_BUILD_VERSION</code></dt>
+        <dd>
+          <p>
+            The version the binary names, as a release build stamps it.
+            Without it, the workspace's version.
+          </p>
+        </dd>
+        <dt id="DASSIE_RELEASE_KEY"><code>DASSIE_RELEASE_KEY</code></dt>
+        <dd>
+          <p>
+            A minisign public key file the binary trusts for updates. Without
+            it, <code>resources/minisign.pub</code>. A key that is missing or
+            does not parse fails the build.
+          </p>
+        </dd>
+        <dt id="DASSIE_WALLET_DIST"><code>DASSIE_WALLET_DIST</code></dt>
+        <dd>
+          <p>
+            The wallet's build output, which the binary embeds. A binary built
+            without it fails <code>dassie verify-install</code>.
+          </p>
+        </dd>
+      </dl>
+
+      <h2 id="other-variables">Other variables</h2>
+      <p>Variables the node reads that other programs set too.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Variable</th>
+              <th>What Dassie does with it</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>STATE_DIRECTORY</code></td>
+              <td>
+                Set by systemd: the data directory when
+                <code>DASSIE_STATE_DIRECTORY</code> is unset, and where a
+                front door keeps its key.
+              </td>
+            </tr>
+            <tr>
+              <td><code>XDG_DATA_HOME</code>, <code>HOME</code></td>
+              <td>The data directory's fallbacks.</td>
+            </tr>
+            <tr>
+              <td><code>XDG_RUNTIME_DIR</code></td>
+              <td>Where a standalone node puts its IPC socket.</td>
+            </tr>
+            <tr>
+              <td>
+                <code>LISTEN_PID</code>, <code>LISTEN_FDS</code>,
+                <code>LISTEN_FDNAMES</code>, <code>NOTIFY_SOCKET</code>
+              </td>
+              <td>
+                Set by systemd: the sockets it passes, and where the node
+                reports that it is ready.
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>https_proxy</code> or <code>HTTPS_PROXY</code>,
+                <code>no_proxy</code> or <code>NO_PROXY</code>
+              </td>
+              <td>
+                An <code>http://</code> proxy the node's QUIC tunnels go
+                through, for a node without a public IP on a network that lets
+                nothing out but through a proxy, and the hosts it reaches
+                directly. What the node cannot use of them, it warns of at
+                start and leaves out; they never stop it.
+              </td>
+            </tr>
+            <tr>
+              <td><code>XDG_CONFIG_HOME</code></td>
+              <td>
+                The desktop app's autostart entry goes in its
+                <code>autostart/</code>, or in
+                <code>~/.config/autostart/</code>.
+              </td>
+            </tr>
+            <tr>
+              <td><code>NO_COLOR</code></td>
+              <td><code>install.sh</code> prints without color.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/node.md#dev-switches-warn-on-a-public-node">Why dev switches warn</a>
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

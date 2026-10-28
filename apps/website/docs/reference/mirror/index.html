@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="What get.dassie.land holds and where, the key every release is signed with, and how to check a download by hand."
+    />
+    <title>Release mirror and key · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Release mirror and key</h1>
+      <p class="lede">
+        Every release of Dassie is published on
+        <code>get.dassie.land</code> and signed with one key. The installer
+        and the updater check that signature before they unpack anything.
+        This page shows what is where, and how to check a download yourself.
+      </p>
+
+      <h2 id="layout">What is where</h2>
+      <p>
+        Each release has a directory of its own, named by its version, such as
+        <code>0.3.0</code>:
+      </p>
+      <dl class="ref">
+        <dt><code>https://get.dassie.land/meta/latest</code></dt>
+        <dd>
+          <p>
+            The newest release's version, as plain text. It is not signed, so
+            it never decides the direction: the installer and the updater move
+            to it only if it is newer than what you run.
+          </p>
+        </dd>
+        <dt><code>https://get.dassie.land/&lt;version&gt;/dassie-&lt;version&gt;-linux-x64.tar.gz</code></dt>
+        <dd>
+          <p>
+            The bundle for x86-64 Linux. Inside, <code>dassie/bin/dassie</code>
+            is the one static binary, with the wallet built in, and
+            <code>dassie/share/systemd/</code> holds the release's systemd
+            units.
+          </p>
+        </dd>
+        <dt><code>https://get.dassie.land/&lt;version&gt;/dassie-&lt;version&gt;-linux-arm64.tar.gz</code></dt>
+        <dd>
+          <p>The same for 64-bit ARM Linux.</p>
+        </dd>
+        <dt><code>https://get.dassie.land/&lt;version&gt;/flake.tar.gz</code></dt>
+        <dd>
+          <p>
+            The flake for NixOS: a module, and a package made from the
+            release's own bundles, by their sums. See
+            <a href="/docs/node/nixos/">Dassie on NixOS</a>.
+          </p>
+        </dd>
+        <dt><code>https://get.dassie.land/&lt;version&gt;/SHA256SUMS</code></dt>
+        <dd>
+          <p>The SHA-256 sum of each bundle and of the flake.</p>
+        </dd>
+        <dt><code>https://get.dassie.land/&lt;version&gt;/SHA256SUMS.minisig</code></dt>
+        <dd>
+          <p>
+            The release key's minisign signature of <code>SHA256SUMS</code>.
+            Its trusted comment is <code>dassie &lt;version&gt;</code>, so the
+            signed sums of one release cannot pass for another's.
+          </p>
+        </dd>
+        <dt><code>https://get.dassie.land/flake/latest.tar.gz</code></dt>
+        <dd>
+          <p>
+            The newest release's flake. It is served with a
+            <code>Link: &lt;https://get.dassie.land/&lt;version&gt;/flake.tar.gz&gt;; rel="immutable"</code>
+            header, so Nix locks the version it named, and your lock stays
+            good once the next release is out.
+          </p>
+        </dd>
+        <dt><code>https://sh.dassie.land</code></dt>
+        <dd>
+          <p>
+            The installer, <code>install.sh</code>, with the release key built
+            in. The mirror holds the same script at
+            <code>https://get.dassie.land/install.sh</code>.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        These names never change. Every node's updater fetches
+        <code>meta/latest</code> and its own platform's bundle by them, so a
+        rename would leave the nodes before it unable to update.
+      </p>
+      <p>
+        The desktop app is not on the mirror: you build it with Nix. See
+        <a href="/docs/desktop/install/">Install the desktop app</a>.
+      </p>
+
+      <h2 id="release-key">The release key</h2>
+      <p>
+        Releases are signed with one minisign key, whose ID is
+        <code>5D960652FE941432</code>:
+      </p>
+      <figure class="file">
+        <figcaption>resources/minisign.pub</figcaption>
+        <pre><code>untrusted comment: minisign public key 5D960652FE941432
+RWQyFJT+UgaWXQaBu5IkTRgPZjjYDNcCm4Sl6Wci0znLMDI0mJEoN3h2</code></pre>
+      </figure>
+      <p>
+        The key is
+        <a href="https://github.com/justmoon/dassie/blob/main/resources/minisign.pub">in
+        the repository</a>, built into every <code>dassie</code> binary, which
+        trusts it alone for updates, and written into the installer.
+        <code>dassie verify-install</code> names the key its binary trusts:
+      </p>
+      <pre><code><span class="prompt">$</span>dassie verify-install
+<span class="output">…
+Updates are verified with release key 5D960652FE941432.
+Success! Dassie appears to be installed correctly.</span></code></pre>
+      <p>
+        The secret half is used only by the release workflow, for a version
+        tag, and is never on a developer's machine or in CI.
+      </p>
+
+      <h2 id="what-it-protects">What it protects against</h2>
+      <p>
+        The mirror and its HTTPS certificate are not trusted. A mirror can
+        hold a release back, or offer an old one, but it cannot make your node
+        install anything the key did not sign for that version, nor move it
+        back to an older one. Only you can, by naming a version.
+      </p>
+      <ul>
+        <li>
+          <code>SHA256SUMS</code> is read only once its signature checks out.
+        </li>
+        <li>
+          A bundle is unpacked only once it matches its signed sum, and only
+          into a staging directory, which takes plain files and directories
+          under <code>dassie/</code> and nothing else.
+        </li>
+        <li>
+          The new binary must name the version it was installed as, and pass
+          <code>dassie verify-install</code>, before anything switches to it.
+        </li>
+      </ul>
+      <p>
+        So you can use another mirror, with
+        <a href="/docs/reference/cli/#dassie-update"><code>--mirror</code></a>
+        or
+        <a href="/docs/reference/environment/#DASSIE_MIRROR_URL"><code>DASSIE_MIRROR_URL</code></a>,
+        and still run only what the key signed. A mirror must be
+        <code>https://</code>.
+      </p>
+      <p class="not-yet">
+        Rebuilding a release elsewhere, to check that it comes out byte for
+        byte the same, is not there yet: the signature vouches for what the
+        one release build made.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/release-integrity.md">Why it works this way</a>
+      </p>
+
+      <h2 id="checking-by-hand">Checking a download by hand</h2>
+      <p>
+        The installer and the updater do this for you. To do it yourself, you
+        need <code>curl</code>, <code>minisign</code> and
+        <code>sha256sum</code>.
+      </p>
+      <ol class="steps">
+        <li>
+          <p>Find the version, or pick one:</p>
+          <pre><code><span class="prompt">$</span>VERSION=$(curl -fsS https://get.dassie.land/meta/latest)
+<span class="prompt">$</span>echo $VERSION
+<span class="output">0.3.0</span></code></pre>
+        </li>
+        <li>
+          <p>Download the sums, their signature and your platform's bundle:</p>
+          <pre><code><span class="prompt">$</span>for file in SHA256SUMS SHA256SUMS.minisig dassie-$VERSION-linux-x64.tar.gz; do curl -fsSO https://get.dassie.land/$VERSION/$file; done</code></pre>
+        </li>
+        <li>
+          <p>Check the signature with the release key:</p>
+          <pre><code><span class="prompt">$</span>minisign -Vm SHA256SUMS -P RWQyFJT+UgaWXQaBu5IkTRgPZjjYDNcCm4Sl6Wci0znLMDI0mJEoN3h2
+<span class="output">Signature and comment signature verified
+Trusted comment: dassie 0.3.0</span></code></pre>
+          <p>
+            The trusted comment must name the version you asked for. If it
+            names another, or the signature does not verify, stop.
+          </p>
+        </li>
+        <li>
+          <p>Check the bundle against its signed sum:</p>
+          <pre><code><span class="prompt">$</span>sha256sum --check --ignore-missing SHA256SUMS
+<span class="output">dassie-0.3.0-linux-x64.tar.gz: OK</span></code></pre>
+        </li>
+      </ol>
+      <p>
+        Without minisign, the installer checks the same signature with OpenSSL
+        1.1.1 or later, reading minisign's format by hand; its
+        <a href="https://github.com/justmoon/dassie/blob/main/resources/installer/install.sh"><code>verify_with_openssl</code></a>
+        shows how. To check a NixOS flake you locked, check its
+        <code>flake.tar.gz</code> the same way; see
+        <a href="/docs/node/nixos/">Dassie on NixOS</a>.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

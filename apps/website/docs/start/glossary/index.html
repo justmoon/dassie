@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="The words Dassie uses, each in a sentence or two, with a link to the page that explains it."
+    />
+    <title>Glossary · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Glossary</h1>
+      <p class="lede">
+        The words Dassie uses, each in a sentence or two. Each entry links to
+        the page that explains it. The spec keeps the precise definitions in
+        its
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/overview.md#concepts">concepts</a>.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="your-node">Your node</h2>
+      <dl class="ref">
+        <dt id="node">Node</dt>
+        <dd>
+          <p>
+            One running Dassie program, on a server or in the desktop app.
+            Each person on the network runs their own.
+            <a href="/docs/start/what-is-dassie/">What is Dassie?</a>
+          </p>
+        </dd>
+        <dt id="owner">Owner</dt>
+        <dd>
+          <p>
+            The person who set a node up with their recovery phrase and logs
+            in to its wallet.
+          </p>
+        </dd>
+        <dt id="node-id">Node ID</dt>
+        <dd>
+          <p>
+            Your node's name on the network: a hash of its two public keys,
+            one Ed25519 and one post-quantum (SLH-DSA). It comes from your
+            recovery phrase, so the same phrase always gives the same node
+            ID.
+          </p>
+        </dd>
+        <dt id="recovery-phrase">Recovery phrase</dt>
+        <dd>
+          <p>
+            Twenty words that every key of your node comes from. They name
+            their realm and the day they were made, and fix a word or two
+            you misread. Anyone who knows them controls your node and its
+            money.
+            <a href="/docs/concepts/phrase/">Your recovery phrase</a>
+          </p>
+        </dd>
+        <dt id="realm">Realm</dt>
+        <dd>
+          <p>
+            <code>test</code>, with test money, or <code>live</code>, with
+            real money. A node keeps the realm it was set up in for good.
+            Today every node refuses the live realm.
+            <a href="/docs/concepts/ledgers/">Ledgers, books and realms</a>
+          </p>
+        </dd>
+        <dt id="wallet">Wallet</dt>
+        <dd>
+          <p>
+            The web app your node serves you, where you send and receive,
+            watch your ledgers and hubs, and decide which apps may pay
+            through your node. <a href="/docs/wallet/setup/">Set up your wallet</a>
+          </p>
+        </dd>
+        <dt id="setup-url">Setup URL</dt>
+        <dd>
+          <p>
+            The one-time link where you finish setting up a new node in your
+            browser. <code>dassie init</code> prints it, and
+            <code>dassie setup-url</code> prints it again. Whoever opens it
+            first sets the node up.
+            <a href="/docs/start/quick-start/">Quick Start</a>
+          </p>
+        </dd>
+        <dt id="headless-setup">Headless setup</dt>
+        <dd>
+          <p>
+            Setting a node up with <code>dassie setup</code> from a phrase in a
+            file on its server, for a node nobody sets up in a browser.
+            <a href="/docs/node/headless/">Headless setup</a>
+          </p>
+        </dd>
+      </dl>
+
+      <h2 id="money-and-ledgers">Money and ledgers</h2>
+      <dl class="ref">
+        <dt id="underlying-ledger">Underlying ledger</dt>
+        <dd>
+          <p>
+            A ledger outside Dassie where money really lives. Today that is
+            the XRP Ledger's test network.
+            <a href="/docs/concepts/ledgers/">Ledgers, books and realms</a>
+          </p>
+        </dd>
+        <dt id="owner-book">Owner book</dt>
+        <dd>
+          <p>
+            Your node's own account on an underlying ledger, such as the XRP
+            Ledger Testnet ledger. It holds your money, funds your hubs and
+            takes what they pay out, and never settles with a peer itself.
+            <a href="/docs/wallet/ledgers/">Add and fund a ledger</a>
+          </p>
+        </dd>
+        <dt id="external-asset">External asset</dt>
+        <dd>
+          <p>
+            Something your node holds outside its own books, such as its
+            account on the XRP Ledger testnet or its account in a hub. The
+            ledger, not the books, says what it holds. The wallet lists them
+            under <strong>Assets</strong>.
+            <a href="/docs/wallet/activity/">Activity and assets</a>
+          </p>
+        </dd>
+        <dt id="settlement-scheme">Settlement scheme</dt>
+        <dd>
+          <p>
+            The part of a node that holds or moves money on one ledger, named
+            by an ID such as <code>xrpl-testnet-xrp</code> or
+            <code>hub-xrpl-testnet-xrp</code>. The wallet calls them ledgers.
+            <a href="/docs/reference/schemes/">Schemes and hubs</a>
+          </p>
+        </dd>
+        <dt id="settlement-hub">Settlement hub</dt>
+        <dd>
+          <p>
+            A small ledger that a few validators keep together, backed by an
+            escrow on the XRP Ledger. Peers settle what they owe each other
+            through a hub they share, and only there. The testnet's XRP hub
+            and DSUSD hub are built into every node.
+            <a href="/docs/concepts/hubs/">Settlement hubs</a>
+          </p>
+        </dd>
+        <dt id="validator">Validator</dt>
+        <dd>
+          <p>
+            One of the nodes that keep a settlement hub's ledger. A hub has
+            3f + 1 of them and keeps working with f of them faulty: four
+            tolerate one. <a href="/docs/services/hub-validator/">Validate a settlement hub</a>
+          </p>
+        </dd>
+        <dt id="escrow">Escrow</dt>
+        <dd>
+          <p>
+            The account on the XRP Ledger that holds a hub's money. Only its
+            validators together can move it.
+            <a href="/docs/concepts/hubs/">Settlement hubs</a>
+          </p>
+        </dd>
+        <dt id="hold">Hold</dt>
+        <dd>
+          <p>
+            Money your node sets aside in a hub for one peer. It is all the
+            credit that peer gets from you, and the hub pays the peer from it
+            even if your node goes away.
+            <a href="/docs/concepts/peers/">Peers and holds</a>
+          </p>
+        </dd>
+        <dt id="credit">Credit</dt>
+        <dd>
+          <p>
+            What your node lets a peer owe it. Over a hub it is your hold
+            toward that peer, nothing more. A node knows only the credit it
+            extends, never the credit it gets.
+            <a href="/docs/concepts/peers/">Peers and holds</a>
+          </p>
+        </dd>
+        <dt id="settlement-method">Settlement method</dt>
+        <dd>
+          <p>
+            One way two peers settle with each other: a hub they are both in.
+            Two peers in several hubs have one method for each.
+            <a href="/docs/concepts/peers/">Peers and holds</a>
+          </p>
+        </dd>
+        <dt id="largest-packet">Largest packet</dt>
+        <dd>
+          <p>
+            The most one packet of a payment may carry. A node counts when to
+            ask a peer to settle in largest packets, never as a share of
+            credit. <a href="/docs/concepts/payments/">How a payment travels</a>
+          </p>
+        </dd>
+        <dt id="faucet">Faucet</dt>
+        <dd>
+          <p>
+            A service of the XRP Ledger testnet that hands out test XRP for
+            free. Your node asks it for you, at most once a minute.
+            <a href="/docs/start/first-payment/">Your first payment</a>
+          </p>
+        </dd>
+        <dt id="dsusd">DSUSD</dt>
+        <dd>
+          <p>
+            Dassie's test dollar, a token on the XRP Ledger testnet. It has no
+            faucet: you buy it with test XRP on the testnet's XRP/DSUSD pool.
+            It stands in for Ripple's RLUSD on the test network.
+            <a href="/docs/wallet/peg-guard/">Dollar tokens and the peg guard</a>
+          </p>
+        </dd>
+        <dt id="peg-guard">Peg guard</dt>
+        <dd>
+          <p>
+            What stops your node converting a dollar token while its pool on
+            the XRP Ledger prices it off a dollar, so nobody can drain your
+            node at the wrong price.
+            <a href="/docs/wallet/peg-guard/">Dollar tokens and the peg guard</a>
+          </p>
+        </dd>
+      </dl>
+
+      <h2 id="the-network">The network</h2>
+      <dl class="ref">
+        <dt id="peer">Peer</dt>
+        <dd>
+          <p>
+            A node your node trades with directly, over a hub they share.
+            Payments travel only from peer to peer. Your node finds its peers
+            on its own. <a href="/docs/concepts/peers/">Peers and holds</a>
+          </p>
+        </dd>
+        <dt id="core-node">Core node</dt>
+        <dd>
+          <p>
+            A node with a domain name. Others dial it, it forwards payments
+            for them, and nodes without a public address connect to it.
+            <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>
+          </p>
+        </dd>
+        <dt id="periphery-node">Periphery node</dt>
+        <dd>
+          <p>
+            A node without a domain name, such as the desktop app. It
+            connects out to a few core nodes, gets its addresses beneath
+            theirs, and forwards nothing.
+            <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>
+          </p>
+        </dd>
+        <dt id="uplink">Uplink</dt>
+        <dd>
+          <p>
+            A core node that a periphery node peers with and reaches the
+            network through. From the core node's side, the periphery node is
+            its downlink.
+            <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>
+          </p>
+        </dd>
+        <dt id="relay">Relay</dt>
+        <dd>
+          <p>
+            A node or a front door that your node keeps a connection to, so
+            that apps and wallets reach it even without a public address.
+            A node without a domain name keeps the front door at
+            <code>dassiepay.net</code> by default; its owner can name
+            another, or none.
+            <a href="/docs/concepts/core-and-periphery/#relays-and-front-doors">Core and periphery</a>
+          </p>
+        </dd>
+        <dt id="front-door">Front door</dt>
+        <dd>
+          <p>
+            A relay that answers Open Payments under a domain for the nodes
+            that keep it as their relay, at
+            <code>&lt;node ID&gt;.example.com</code>. The project runs the
+            one at <code>dassiepay.net</code>, the default relay.
+            <a href="/docs/services/front-door/">Run a front door</a>
+          </p>
+        </dd>
+        <dt id="name">Name</dt>
+        <dd>
+          <p>
+            A word people can say for your node, held for its node ID by the
+            bootstrap nodes. Names run on the test network only, and may be
+            reset there. <a href="/docs/concepts/names/">Names and addresses</a>
+          </p>
+        </dd>
+        <dt id="bootstrap-node">Bootstrap node</dt>
+        <dd>
+          <p>
+            One of the few nodes that keep the list of who is on the network.
+            The testnet's four are built into every node. A new node asks
+            them first, and a core node registers with them.
+            <a href="/docs/concepts/network/">Joining the network</a>
+          </p>
+        </dd>
+        <dt id="majority">Majority</dt>
+        <dd>
+          <p>
+            The nodes that more than half of the bootstrap nodes list. They
+            are the network's members.
+            <a href="/docs/concepts/network/">Joining the network</a>
+          </p>
+        </dd>
+        <dt id="link-state">Link state</dt>
+        <dd>
+          <p>
+            A node's signed description of itself: its address, its two
+            keys, its neighbors and the hubs it settles in. Nodes pass link states on,
+            and route payments by them.
+            <a href="/docs/concepts/network/">Joining the network</a>
+          </p>
+        </dd>
+        <dt id="ilp-address">ILP address</dt>
+        <dd>
+          <p>
+            Where Interledger packets go. A node in the test realm is
+            <code>test.das.&lt;node ID&gt;</code>; a periphery node's
+            addresses lie beneath its uplinks'.
+            <a href="/docs/concepts/payments/">How a payment travels</a>
+          </p>
+        </dd>
+        <dt id="swap">Swap</dt>
+        <dd>
+          <p>
+            A packet your node sends a peer that comes back to it in another
+            asset, over another hub the two share, converted at the peer's
+            rate. Nodes swap with their peers to keep what they hold in
+            balance.
+            <a href="/docs/concepts/rates/">Exchange rates</a>
+          </p>
+        </dd>
+        <dt id="snapshot">Snapshot</dt>
+        <dd>
+          <p>
+            A core node's signed statement of the quotes it swaps at, each
+            with a ladder: how much a swap can take before its price falls by
+            more than each of a few set steps. Its peers get it over the
+            peer protocol, and anyone may ask for it on UDP port 7768.
+            <a href="/docs/build/snapshots/">Read a node's snapshot</a>
+          </p>
+        </dd>
+        <dt id="market-maker">Market maker</dt>
+        <dd>
+          <p>
+            Someone who runs <code>dassie market-maker</code> on a node of
+            their own in two hubs. It swaps with its peers when their
+            snapshots and a pool on the XRP Ledger leave a margin, and so
+            brings their holdings back toward balance.
+            <a href="/docs/services/market-maker/">Run a market maker</a>
+          </p>
+        </dd>
+      </dl>
+
+      <h2 id="payments-and-apps">Payments and apps</h2>
+      <dl class="ref">
+        <dt id="interledger">Interledger</dt>
+        <dd>
+          <p>
+            The open protocol Dassie routes payments with. A payment travels
+            as many small packets, each paid only once the receiver confirms
+            it. <a href="/docs/concepts/payments/">How a payment travels</a>
+          </p>
+        </dd>
+        <dt id="payment-pointer">Payment pointer</dt>
+        <dd>
+          <p>
+            A short way to write a wallet address, starting with
+            <code>$</code>, such as <code>$pay.example.com</code>. Your node's
+            is on your wallet's Dashboard.
+            <a href="/docs/wallet/receive/">Receive money</a>
+          </p>
+        </dd>
+        <dt id="wallet-address">Wallet address</dt>
+        <dd>
+          <p>
+            A URL that other wallets pay, one for each currency your node
+            holds, such as <code>https://pay.example.com/pay/xrp</code>.
+            <a href="/docs/wallet/receive/">Receive money</a>
+          </p>
+        </dd>
+        <dt id="payment-request">Payment request</dt>
+        <dd>
+          <p>
+            A link to one payment you are waiting for, with its amount and
+            description, which you hand to whoever pays you.
+            <a href="/docs/wallet/receive/">Receive money</a>
+          </p>
+        </dd>
+        <dt id="open-payments">Open Payments</dt>
+        <dd>
+          <p>
+            The open standard that other wallets and apps use to pay your
+            node, and, with your consent, to pay from it.
+            <a href="/docs/build/open-payments/">Accept payments with Open Payments</a>
+          </p>
+        </dd>
+        <dt id="grant">Grant</dt>
+        <dd>
+          <p>
+            Your consent for an app to read or spend from your node, within
+            limits you approve in the wallet. You can revoke it at any time.
+            <a href="/docs/wallet/grants/">Connect apps</a>
+          </p>
+        </dd>
+        <dt id="stream">STREAM</dt>
+        <dd>
+          <p>
+            The Interledger protocol that splits a payment into packets and
+            puts it back together at the receiver.
+            <a href="/docs/build/stream/">STREAM on Dassie</a>
+          </p>
+        </dd>
+        <dt id="btp">BTP</dt>
+        <dd>
+          <p>
+            The protocol an ILP client uses to connect to your node and spend
+            through it. You make a BTP token for each client in the wallet,
+            under <strong>API Keys</strong>.
+            <a href="/docs/build/btp/">Connect an ILP client over BTP</a>
+          </p>
+        </dd>
+      </dl>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

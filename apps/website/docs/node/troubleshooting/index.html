@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Fixes for what goes wrong most often: a node that won't start, blocked UDP, certificates, not being listed, no peers, an unreachable relay."
+    />
+    <title>Troubleshooting · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Troubleshooting</h1>
+      <p class="lede">
+        Start with <code>dassie status</code>: it gives a hint wherever
+        something needs you, and
+        <a href="/docs/node/status/#hints">Check on your node</a> says what
+        each one means. This page goes further, for the problems people run
+        into most.
+      </p>
+
+      <aside class="early">
+        <p><strong>Early days.</strong> Dassie takes test money only: a node refuses the live realm. <a href="/docs/start/early-days/">How far along it is</a></p>
+      </aside>
+
+      <h2 id="reading-the-journal">Reading the journal</h2>
+      <p>
+        The node logs to systemd's journal. These show its recent lines, and
+        follow new ones as they come:
+      </p>
+      <pre><code><span class="prompt">$</span>journalctl -u dassie -n 50
+<span class="prompt">$</span>journalctl -u dassie -f</code></pre>
+      <p>Some lines are worth knowing:</p>
+      <ul>
+        <li>
+          <strong><samp>listening</samp></strong>, at every start, names the
+          version, the HTTP and HTTPS ports, the QUIC endpoint
+          (<code>quic=</code>) and the UDP socket that answers requests for
+          the node's snapshot (<code>feed=</code>, or <code>none</code>). It
+          is the quickest way to see what the node listens on:
+          <code>journalctl -u dassie | grep listening</code>.
+        </li>
+        <li>
+          <strong><samp>could not start</samp></strong> comes with the
+          reason the node stopped. See
+          <a href="#node-does-not-start">The node does not start</a>.
+        </li>
+        <li>
+          <strong><samp>no bootstrap nodes: the node runs alone</samp></strong>
+          means <code>DASSIE_BOOTSTRAP_NODES</code> is set to
+          <code>[]</code>. The testnet's bootstrap nodes are built in, so
+          remove the variable to join the testnet
+          (<a href="/docs/node/configure/#other-settings">Configure your
+          node</a>).
+        </li>
+        <li>
+          <strong><samp>It is for development; unset it on a public
+          node</samp></strong> ends a warning about a dev switch: see
+          <a href="/docs/node/configure/#dev-switches">Dev switches</a>.
+        </li>
+      </ul>
+      <p>
+        To hear more from one part of the node, raise its log level with
+        <code>DASSIE_LOG</code>, such as <code>dassie::peer=debug</code> for
+        everything about peers:
+        <a href="/docs/node/configure/#log-level">How much it logs</a>.
+      </p>
+
+      <h2 id="cannot-reach-the-node">dassie cannot reach the node</h2>
+      <p>The <code>dassie</code> command talks to the node over a socket, <code>/run/dassie.sock</code>. It says which of two things went wrong:</p>
+      <ul>
+        <li>
+          <samp>You may not use the Dassie daemon's socket</samp>: you are
+          not in the group <code>dassie-users</code> yet. The installer adds
+          the user who ran it, but the change counts only from your next
+          login. Log out and in again, or use <code>sudo</code>.
+        </li>
+        <li>
+          <samp>The Dassie daemon is not running</samp>: start it with
+          <code>sudo systemctl start dassie</code>. If it does not stay up,
+          read on.
+        </li>
+      </ul>
+
+      <h2 id="node-does-not-start">The node does not start</h2>
+      <p>
+        The node checks everything before it starts, and if something is
+        wrong it stops with a message rather than run half started. Find it
+        with:
+      </p>
+      <pre><code><span class="prompt">$</span>systemctl status dassie
+<span class="prompt">$</span>journalctl -u dassie -n 50</code></pre>
+      <p>The most common messages:</p>
+      <ul>
+        <li>
+          <strong>A variable's name, then what is wrong with it</strong>,
+          such as <samp>DASSIE_UPLINKS has an invalid node ID</samp>: fix or
+          remove it in your drop-in, then restart.
+          <a href="/docs/node/configure/">Configure your node</a> shows where.
+        </li>
+        <li>
+          <strong>A socket unit failed</strong>, as
+          <code>systemctl status dassie</code> shows: another program holds
+          one of the node's ports. Nodes need TCP 80 and 443 and UDP 443 for
+          themselves, and <code>dassie.service</code> doesn't start while
+          UDP 443 is taken, since QUIC is the only way nodes talk. A web
+          server on the same machine is the usual cause, and some web
+          servers take UDP 443 for HTTP/3 by default. Run
+          <code>sudo ss -tulpn</code> to see who holds which port. UDP 7768
+          is different: without it the node starts all the same.
+        </li>
+        <li>
+          <samp>another Dassie node runs on this data directory</samp>: a
+          second node was started on the same data, perhaps by hand with
+          <code>dassie daemon</code> and <code>DASSIE_STATE_DIRECTORY</code>
+          set to the node's directory. Stop it; one node runs per data
+          directory.
+        </li>
+        <li>
+          <samp>the database is from a newer version of Dassie</samp>: you
+          went back to an older version after a newer one changed the
+          database. Put back the copy the newer version kept, or update
+          again: <a href="/docs/node/updates/">Updates and rollback</a>.
+        </li>
+        <li>
+          <samp>a rollback stopped half way</samp>: the message says which
+          files to put back to return to the database from before the
+          update. <a href="/docs/node/updates/">Updates and rollback</a>
+          explains it.
+        </li>
+        <li>
+          <samp>this database was made by a release of Dassie for the early
+          testnet</samp>: the node's data is from a 0.2 release, before the
+          testnet was reset, and this version cannot read it, nor the phrase
+          that made it. Move the data aside, then configure and set up the
+          node again, with a new phrase:
+          <pre><code><span class="prompt">$</span>sudo systemctl stop dassie
+<span class="prompt">$</span>sudo mv /var/lib/private/dassie /var/lib/private/dassie-0.2
+<span class="prompt">$</span>sudo systemctl start dassie
+<span class="prompt">$</span>sudo dassie init</code></pre>
+          <a href="/docs/node/updates/#from-0-2">A node from the 0.2 releases</a>
+          says more.
+        </li>
+      </ul>
+
+      <h2 id="certificates">Certificates</h2>
+      <p>
+        <code>sudo dassie init</code> gets a certificate from Let's Encrypt.
+        Let's Encrypt checks that you control the domain by fetching a file
+        from your node over plain HTTP, on port 80. When that fails,
+        <code>dassie init</code> says <samp>The certificate could not be
+        obtained</samp>, with Let's Encrypt's reason; a renewal that fails
+        later shows on the Certificate line of <code>dassie status</code>.
+      </p>
+      <p>Check, in this order:</p>
+      <ol class="steps">
+        <li>
+          <p>
+            <strong>The name points at this server.</strong> Look the name up
+            and compare it with the server's public address:
+            <code>dig +short node.example.com</code>. Remember both
+            <code>A</code> (IPv4) and <code>AAAA</code> (IPv6): Let's Encrypt
+            tries IPv6 when there is an <code>AAAA</code> record, so a stale
+            one fails the check.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Port 80 is open</strong> in the server's firewall and in
+            your cloud provider's. From another machine,
+            <code>curl -I http://node.example.com/</code> should get an answer
+            from the node, a redirect to HTTPS.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Nothing else holds port 80.</strong> The node takes port
+            80 itself, through <code>dassie-http.socket</code>; a web server
+            on the same machine keeps it from starting.
+          </p>
+        </li>
+      </ol>
+      <p>
+        Then run <code>sudo dassie init</code> again. Let's Encrypt limits
+        how often a name may fail. While you try things out,
+        <code>sudo dassie init --acme-staging</code> uses its staging
+        service, whose certificates browsers don't trust but whose limits are
+        generous. The node keeps the server it got its certificate from,
+        and renews there, so once staging works, name Let's Encrypt's
+        production server, in a terminal:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie init --acme-directory https://acme-v02.api.letsencrypt.org/directory</code></pre>
+      <p>
+        It finds the staging certificate and asks whether to skip getting
+        one: answer No. Without the flag it would order from staging again.
+        Run from a script, it orders nothing while the node has a
+        certificate. More in
+        <a href="/docs/node/certificates/#staging">Certificates</a>.
+      </p>
+
+      <h2 id="udp-and-quic">UDP and QUIC</h2>
+      <p>
+        Nodes talk to each other over QUIC only, which runs on UDP port 443.
+        Many firewalls, and many cloud providers' presets for "HTTPS", open
+        only TCP 443. A node whose UDP 443 is closed runs, serves its wallet
+        and gets its certificate, but no other node can reach it: it is not
+        listed, and it gets no peers.
+      </p>
+      <ol class="steps">
+        <li>
+          <p>Check that the node listens on UDP 443: the <samp>listening</samp> line in the journal names it, as <code>quic=[::]:443</code>.</p>
+          <pre><code><span class="prompt">$</span>journalctl -u dassie | grep listening</code></pre>
+        </li>
+        <li>
+          <p>Open UDP 443 in the server's firewall, for example:</p>
+          <pre><code><span class="comment"># ufw (Debian, Ubuntu)</span>
+<span class="prompt">$</span>sudo ufw allow 443/udp
+<span class="comment"># firewalld (Fedora, CentOS Stream)</span>
+<span class="prompt">$</span>sudo firewall-cmd --permanent --add-port=443/udp
+<span class="prompt">$</span>sudo firewall-cmd --reload</code></pre>
+        </li>
+        <li>
+          <p>Open it in your cloud provider's firewall or security group too: an inbound rule for UDP, port 443, from anywhere.</p>
+        </li>
+        <li>
+          <p>Restart the node, so that it registers again at once: <code>sudo systemctl restart dassie</code>.</p>
+        </li>
+      </ol>
+      <p>
+        If you cannot open UDP on this server, run it as a periphery node
+        instead, without a domain name: it reaches the network through
+        connections it opens itself, and where UDP is blocked, through QUIC
+        over a WebSocket on its uplinks' HTTPS port, through an HTTP proxy
+        where the network sets one. Only a node without a domain name falls
+        back this way. See <a href="/docs/node/periphery/">A server without a public IP</a>.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/quic-only.md">Why it works this way</a>: QUIC is the only transport between nodes.</p>
+
+      <h2 id="not-listed">Not listed</h2>
+      <p>
+        <code>dassie status</code> says <samp>not a member yet, listed by 0
+        of 4 bootstrap nodes</samp>, counting the testnet's four, or those
+        you named in <code>DASSIE_BOOTSTRAP_NODES</code>. A node becomes a member of the network
+        once more than half of the bootstrap nodes list it. It registers with
+        each of them when it starts, and each one first checks that it can
+        reach your node at its domain name, over QUIC.
+      </p>
+      <ul>
+        <li>Right after the first start, give it a few minutes.</li>
+        <li>
+          If it stays at 0: UDP 443 is the usual cause, see
+          <a href="#udp-and-quic">UDP and QUIC</a>. Check too that the domain
+          name points at this server, as for
+          <a href="#certificates">certificates</a>.
+        </li>
+        <li>
+          If some list it and others don't, the others may still be checking,
+          or be down. The node registers again by itself, more slowly after
+          each failure.
+        </li>
+        <li>
+          Registration is free, so bootstrap nodes take only so many new
+          nodes at a time, and a few from each network. Several nodes on one
+          small network may have to wait their turn.
+        </li>
+      </ul>
+      <p>
+        A periphery node registers nowhere, by design: its status says
+        <samp>a periphery node</samp> instead.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/network.md#registration">Why it works this way</a>: how bootstrap nodes check and list a node.</p>
+
+      <h2 id="no-peers">No peers</h2>
+      <p>
+        Your node is a member, but <code>dassie status</code> says
+        <samp>peers: 0</samp>. Nodes peer only where they can settle, and
+        they settle only through a settlement hub they share. So:
+      </p>
+      <ol class="steps">
+        <li>
+          <p>
+            <strong>Is your node in a hub?</strong> <code>dassie status</code>
+            has a <samp>Hub</samp> line for each. With none, join the
+            testnet's XRP hub, which the four bootstrap nodes keep: in the
+            wallet, add <strong>XRP in a settlement hub on the XRP Ledger
+            Testnet</strong> (<a href="/docs/wallet/hubs/">Your hubs</a>),
+            or run <code>dassie setup</code>, which joins it unless you tell
+            it otherwise (<a href="/docs/node/headless/#choosing-hubs">Choosing
+            hubs</a>). Your peers must be in the same hub.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Does the node follow the hub?</strong> A node offers to
+            peer over a hub only once it knows where its account there
+            stands. The <samp>Hub</samp> line should say <samp>in sync</samp>,
+            or <samp>waiting for the first deposit to open it</samp>, and not
+            <samp>connecting</samp> or <samp>failed</samp>.
+          </p>
+        </li>
+        <li>
+          <p>
+            <strong>Wait a little.</strong> Other nodes add yours to their
+            tables only once they see a majority list it, and may refuse to
+            peer until then. Your node asks again by itself.
+          </p>
+        </li>
+      </ol>
+      <p>
+        Peers and the hubs they settle through are explained in
+        <a href="/docs/concepts/peers/">Peers and holds</a> and
+        <a href="/docs/concepts/hubs/">Settlement hubs</a>.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hubs-only.md">Why it works this way</a>: peers settle only over hubs.</p>
+
+      <h2 id="relay-not-connected">The relay is not connected</h2>
+      <p>
+        <code>dassie status</code> says the relay is <samp>not connected, so
+        Open Payments clients cannot reach the node through it</samp>. Right
+        after a start the node says <samp>connecting</samp>, which is fine;
+        this hint comes only once it has failed to reach the relay for a
+        while. Payments over Interledger don't need the relay, and the node
+        can still send.
+      </p>
+      <p>
+        The relay is the built-in front door, which the line names as
+        <samp>… at https://relay.dassiepay.net</samp>, unless
+        <code>DASSIE_RELAY</code> names another.
+      </p>
+      <ul>
+        <li>
+          Check that the server can reach the relay. The node connects over
+          UDP to the port in the relay's URL. Where UDP is blocked, a node
+          without a domain name tries a WebSocket over TCP to the same port
+          instead, through a proxy if the network sets one
+          (<a href="/docs/node/periphery/#behind-a-proxy">Behind a
+          proxy</a>). A node with a domain name uses UDP only.
+        </li>
+        <li>
+          For the built-in front door: if the server reaches the internet
+          and the line still says <samp>not connected</samp>, the front door
+          may be down. Then there is nothing to fix on your side. The node
+          dials again by itself, about once a minute, and connects once the
+          front door is back. If it stays this way, update the node
+          (<a href="/docs/node/updates/#update-now">Update now</a>). The
+          front door's key is built into each release, so a node keeps
+          dialing an old key until a newer release brings the new one.
+        </li>
+        <li>
+          For a relay you named: check that <code>DASSIE_RELAY</code> is
+          exactly the entry the front door logs, with all four fields: the
+          node ID, the URL and both keys. An entry whose ID does not match
+          its keys stops the node at start, with a message naming
+          <code>DASSIE_RELAY</code>
+          (<a href="#node-does-not-start">The node does not start</a>). An
+          entry that is whole but names another node than the relay at that
+          URL fails to connect. Check, too, that the relay runs 0.3.0 or
+          later. Nodes speak peer protocol <code>dassie/2</code>, which 0.2
+          releases don't.
+        </li>
+        <li>
+          A <code>DASSIE_RELAY</code> that names your own node keeps no
+          relay connection, and the log says so.
+        </li>
+      </ul>
+      <p>
+        See <a href="/docs/node/configure/#a-relay">A relay</a> for how to
+        name another relay, or none.
+      </p>
+
+      <h2 id="ledgers">A ledger that won't sync</h2>
+      <p>
+        A ledger that stays at <samp>connecting</samp>, or says
+        <samp>failed</samp>, cannot reach its server, or reaches the wrong
+        one. The node connects out to the XRP Ledger's server over a secure
+        WebSocket, on port 443: check that outgoing connections are
+        allowed. A <samp>failed</samp>
+        line says why, such as a server on the wrong network. To use
+        another server, set the account's config with
+        <code>dassie setup</code>, which reads your phrase from a file on
+        the server:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file /etc/dassie/phrase \
+    --asset 'xrpl-testnet-account/0={"server":"wss://xrpl.example.net"}'
+<span class="prompt">$</span>sudo systemctl restart dassie</code></pre>
+      <p>
+        An account the node already uses takes the new server when the node
+        next starts, hence the restart. The server must serve the proofs the
+        node checks. More in
+        <a href="/docs/node/headless/#assets-and-schemes">Headless setup</a>.
+      </p>
+
+      <h2 id="asking-for-help">Still stuck?</h2>
+      <p>
+        Ask. Paste the output of <code>dassie status</code>, which names no
+        secret, and the lines of <code>journalctl -u dassie</code> around the
+        problem. The node never logs its setup link, and never sees your
+        phrase. <a href="/docs/project/help/">Get help</a> says where to ask.
+        Dassie is early, and every question tells us what to make clearer.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

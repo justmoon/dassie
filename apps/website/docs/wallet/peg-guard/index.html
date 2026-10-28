@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="What the wallet shows when DSUSD leaves its dollar peg, what pauses while it does, and when it runs again."
+    />
+    <title>Dollar tokens and the peg guard · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Dollar tokens and the peg guard</h1>
+      <p class="lede">
+        Your node counts a dollar token as one dollar. While the token is
+        worth clearly more or less than that, a guard pauses it. This page
+        shows you what the wallet says then, and when the token runs again.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="what-the-guard-watches">What the guard watches</h2>
+      <p>
+        On the XRP Ledger testnet, your dollar token is DSUSD, Dassie's own
+        test dollar. Your node books it as <code>USD</code>, one to one with
+        every other dollar. That only works while a DSUSD really is worth
+        about a dollar. If it were worth 90 cents, someone could pay your
+        node DSUSD and take a full dollar's worth of XRP back out.
+      </p>
+      <p>
+        So the node checks. Once a minute it reads the testnet's XRP/DSUSD
+        AMM pool, proven from the ledger itself, and works out what one DSUSD
+        costs in dollars: the pool's ratio of XRP to DSUSD, times the node's
+        own XRP rate. A reading counts only when it is recent, the pool holds
+        enough XRP to be a real price, and the node's XRP rate is less than
+        ten minutes old.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>The guard</th>
+              <th>When</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Pauses DSUSD</td>
+              <td>
+                Every reading for ten minutes was more than 3% off a dollar,
+                below $0.97 or above $1.03.
+              </td>
+            </tr>
+            <tr>
+              <td>Runs it again</td>
+              <td>
+                Every reading for an hour was within 1% of a dollar, between
+                $0.99 and $1.01.
+              </td>
+            </tr>
+            <tr>
+              <td>Pauses it, unread</td>
+              <td>
+                No reading counted for ten minutes: the pool could not be
+                read, held too little, or the XRP rate was stale.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The bands and holds are in
+        <a href="https://github.com/justmoon/dassie/blob/main/crates/dassie-xrpl/src/peg.rs"><code>peg.rs</code></a>.
+        The narrower band for coming back keeps a price that hovers near
+        the edge from pausing and resuming over and over. Off upward and off
+        downward are the same pause. A gap in the readings longer than ten
+        minutes starts either hold again.
+      </p>
+      <p>
+        On the XRP Ledger mainnet the same guard watches RLUSD, through
+        mainnet's XRP/RLUSD pool. Dassie does not run on mainnet yet, so
+        today you only meet the guard with DSUSD.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/issued-assets.md">Why it works this way</a>:
+        what an off-peg token can cost, and why the guard fails closed.
+      </p>
+
+      <h2 id="what-you-see">What you see in the wallet</h2>
+      <p>
+        Open <strong>Ledgers</strong>. The card for
+        <em>DSUSD on the XRP Ledger Testnet</em> shows the guard's last
+        reading in small print, such as:
+      </p>
+      <pre><code><span class="output">DSUSD on its XRP/DSUSD pool: $1.0002, as of ledger 12345678</span></code></pre>
+      <p>
+        The card for <em>DSUSD in a settlement hub on the XRP Ledger
+        Testnet</em> shows the same guard, but for now it names the token by
+        its ledger's currency, USD, and the pool as XRP/USD:
+        <em>USD on its XRP/USD pool</em>, and <em>USD</em> in its notices.
+        It is the same DSUSD and the same XRP/DSUSD pool.
+      </p>
+      <p>
+        The price is cut to four decimals, never rounded, so it never looks
+        closer to a dollar than it is. While the guard pauses the token, a
+        red notice sits above that line. It says which of two things
+        happened:
+      </p>
+      <ul>
+        <li>
+          <strong>Paused: DSUSD is off its dollar peg.</strong> The pool
+          prices it too far from a dollar, for too long. The notice gives the
+          price.
+        </li>
+        <li>
+          <strong>Paused: the price of DSUSD cannot be read.</strong> The
+          node has had no reading that counts for too long. The pool could
+          not be read or holds too little, or the node's XRP rate is stale.
+        </li>
+      </ul>
+      <p>
+        On the hub's card, the notices say USD where these say DSUSD.
+        While your node keeps what it receives in the DSUSD hub, and its
+        account there has its number, the DSUSD tab under
+        <strong>Receive</strong> shows the hub's deposit details and no
+        notice; the hub's card under <strong>Ledgers</strong> still has it.
+        Otherwise that tab shows your own DSUSD account, with the same
+        notice, since what arrives there is still booked while the token is
+        paused. The node also writes each pause and each recovery to its log.
+      </p>
+
+      <h2 id="while-paused">What pauses, and what goes on</h2>
+      <p>While DSUSD is paused:</p>
+      <ul>
+        <li>
+          Your node converts nothing into or out of DSUSD: not on your DSUSD
+          ledger, and not on the DSUSD hub's ledger. Payments that would turn
+          XRP or another currency into DSUSD, or DSUSD into anything else,
+          are refused.
+        </li>
+        <li>
+          Peers can't swap into or out of DSUSD with your node: a core
+          node's snapshot still lists the DSUSD hub, but closed. Nor does your
+          node swap into or out of it by itself.
+        </li>
+        <li>
+          A payment that stays in DSUSD all the way needs no conversion, so
+          it can still pass. Settling with your peers over the DSUSD hub goes
+          on: the hub moves DSUSD as it is.
+        </li>
+        <li>
+          DSUSD that arrives on your account is still booked, at par. You can
+          still move your DSUSD, for example between your account and the
+          hub on the <a href="/docs/wallet/hubs/">Hubs</a> page. A token
+          off its peg is still yours.
+        </li>
+      </ul>
+      <p>
+        The ledger stays connected and in sync the whole time. Nothing needs
+        to be done on your side.
+      </p>
+
+      <h2 id="when-it-resumes">When it runs again</h2>
+      <ul>
+        <li>
+          <strong>Off its peg:</strong> once every reading for an hour has
+          been within 1% of a dollar. A price that comes back for twenty
+          minutes and leaves again starts the hour over.
+        </li>
+        <li>
+          <strong>Price unread:</strong> with the next reading within 3% of a
+          dollar. A reading further off counts as the start of a de-peg
+          instead.
+        </li>
+      </ul>
+      <p>
+        The notice goes away by itself once the node says the token runs.
+        The guard's state survives a restart, so restarting your node neither
+        skips a recovery nor pauses the token again.
+      </p>
+
+      <h2 id="if-it-stays-paused">If it stays paused</h2>
+      <p>
+        On the testnet, a keeper holds DSUSD's pool near the market, and
+        corrects most excursions within minutes. If the notice says the price
+        cannot be read, the trouble is more likely on your node's side. Check
+        these, in order:
+      </p>
+      <ol class="steps">
+        <li>
+          <strong>The XRP rate.</strong> On <strong>Ledgers</strong>, the
+          Exchange Rates card shows how old the XRP rate is. If it is more
+          than ten minutes old, or says stale, the guard cannot read the
+          price, so check your rate sources; see
+          <a href="/docs/wallet/rates/">Exchange-rate settings</a>.
+        </li>
+        <li>
+          <strong>The ledger connection.</strong> A DSUSD ledger that says
+          it is connecting or catching up has no fresh readings. See
+          <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> and
+          <a href="/docs/node/troubleshooting/">Troubleshooting</a>.
+        </li>
+        <li>
+          <strong>The node's clock.</strong> A reading counts only from a
+          recent ledger, judged by your node's clock. A clock that runs far
+          behind or ahead makes every reading look old. Keep the server's
+          time synced.
+        </li>
+      </ol>
+      <p class="not-yet">
+        You cannot turn the guard off. Taking XRP's rate from mainnet's
+        XRP/RLUSD pool, which turns the guard off, is not there yet.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/xrpl.md#the-peg-guard">The peg guard in the spec</a>:
+        the readings, the holds and the hub's ledger in full.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

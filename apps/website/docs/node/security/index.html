@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Who may talk to your node, how systemd fences it in, what it shows the internet, and what a peer can cost you."
+    />
+    <title>Security for operators · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Security for operators</h1>
+      <p class="lede">
+        What protects a node on a server, and what is up to you: who on the
+        machine counts as the owner, how the node is fenced in, what it shows
+        the internet, and how much a peer can cost it.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+      <p>
+        Dassie is young, and its code changes every week. Run it on a server
+        that holds nothing else you care about, and if you find a weakness,
+        please <a href="/docs/project/security/">report it privately</a>.
+      </p>
+
+      <h2 id="the-owner-on-the-machine">The owner on the machine</h2>
+      <p>
+        The <code>dassie</code> command talks to the node over a local socket,
+        <code>/run/dassie.sock</code>. Whoever can open that socket is the
+        node's owner: every call on it may do what you can do in the wallet,
+        with no login.
+      </p>
+      <p>
+        systemd makes the socket with mode <code>0660</code>, owned by root
+        and the group <code>dassie-users</code>, so root and that group's
+        members can use it. The installer creates the group and adds the
+        user who ran it. A member of the group can:
+      </p>
+      <ul>
+        <li>
+          print the setup link of a node not set up yet, and with it claim
+          the node (<code>dassie setup-url</code>);
+        </li>
+        <li>
+          pair an app that then acts as the owner from anywhere, until you
+          remove it (<code>dassie pair</code>);
+        </li>
+        <li>
+          move the node's money between its hubs and its XRP Ledger account
+          (<code>dassie hub</code>), and change its settings.
+        </li>
+      </ul>
+      <p>
+        So add to <code>dassie-users</code> only people you'd give your
+        wallet. To see who is in it, and to take someone out:
+      </p>
+      <pre><code><span class="prompt">$</span>getent group dassie-users
+<span class="prompt">$</span>sudo gpasswd -d &lt;user&gt; dassie-users</code></pre>
+      <p>
+        <code>dassie status</code> names no secret, so you can paste its
+        output when you ask for help. The setup link has a command of its own
+        for that reason, and the node never writes it to its log: the journal
+        is often readable by people who don't run the node. Open the link soon
+        after you install: until someone does, whoever opens it first claims
+        the node.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rpc.md#ipc-socket">Why it works this way</a>
+      </p>
+
+      <h2 id="the-sandbox">The sandbox</h2>
+      <p>
+        The node runs as <code>dassie.service</code>, fenced in by systemd.
+        It doesn't start as root and never becomes root: systemd opens its
+        ports, including the privileged ones, and hands them over.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Setting</th>
+              <th>What it means</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>DynamicUser=yes</code></td>
+              <td>
+                The node runs as a user systemd makes for it, which owns
+                nothing else on the machine.
+              </td>
+            </tr>
+            <tr>
+              <td><code>CapabilityBoundingSet=</code> (empty), <code>NoNewPrivileges=yes</code></td>
+              <td>It holds no privilege, and can't gain any.</td>
+            </tr>
+            <tr>
+              <td><code>ProtectSystem=strict</code>, <code>ProtectHome=yes</code></td>
+              <td>
+                It can write only its own data directory, and can't see home
+                directories at all.
+              </td>
+            </tr>
+            <tr>
+              <td><code>StateDirectoryMode=0700</code>, <code>UMask=0077</code></td>
+              <td>What it writes, only it can read.</td>
+            </tr>
+            <tr>
+              <td><code>PrivateTmp</code>, <code>PrivateDevices</code>, <code>PrivateUsers</code>, <code>ProtectProc=invisible</code></td>
+              <td>
+                It has its own <code>/tmp</code>, no devices, and sees no other
+                users or their processes.
+              </td>
+            </tr>
+            <tr>
+              <td><code>RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6</code></td>
+              <td>It can open only local sockets and internet connections.</td>
+            </tr>
+            <tr>
+              <td><code>SystemCallFilter=@system-service</code>, <code>MemoryDenyWriteExecute=yes</code></td>
+              <td>
+                It can make only the system calls an ordinary service needs,
+                and can't write memory it then runs.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The unit file, <code>/etc/systemd/system/dassie.service</code>, lists
+        the rest. To see how systemd rates it:
+      </p>
+      <pre><code><span class="prompt">$</span>systemd-analyze security dassie.service</code></pre>
+      <p>
+        Put your own changes in a drop-in
+        (<code>sudo systemctl edit dassie.service</code>), which updates leave
+        alone, and don't loosen these settings: the node needs none of what
+        they take away.
+      </p>
+      <p>
+        The updater, <code>dassie-update.service</code>, runs as root, since
+        it installs units and restarts the node, but it too may write only
+        <code>/opt/dassie</code>, the units and the node's data. It installs
+        only a release signed with the release key built into the binary, and
+        checks it before it unpacks anything
+        (<a href="/docs/concepts/releases/">Releases you can trust</a>).
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/release.md#systemd-units">Why it works this way</a>
+      </p>
+
+      <h2 id="what-the-internet-sees">What the internet sees</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Port</th>
+              <th>What answers there</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>TCP 80</td>
+              <td>Let's Encrypt's checks, and a redirect to HTTPS.</td>
+            </tr>
+            <tr>
+              <td>TCP 443</td>
+              <td>
+                The wallet, Open Payments, BTP for ILP clients, and a
+                WebSocket that carries QUIC for nodes without a domain name
+                whose UDP is blocked.
+              </td>
+            </tr>
+            <tr>
+              <td>UDP 443</td>
+              <td>
+                Other nodes, over QUIC. The node doesn't start without this
+                port.
+              </td>
+            </tr>
+            <tr>
+              <td>UDP 7768</td>
+              <td>
+                Requests for the node's snapshot: the quotes it swaps at,
+                signed with its key. Only a core node that offers swaps
+                answers, with one datagram no larger than the request, and
+                only as many per second as its budget allows (<a href="/docs/build/snapshots/">Read a node's
+                snapshot</a>).
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The wallet is on the public port, behind a login that only your
+        recovery phrase can make. Your phrase never leaves your browser: the
+        browser sends a proof derived from it, never the phrase. The node
+        limits how fast any one client may try setup and login. Owner
+        requests are taken only from pages the node served itself, so
+        another site can't act for you in your browser.
+      </p>
+      <p>
+        Apps that pay with Open Payments spend only what the grant you
+        approved allows, within the limits it names
+        (<a href="/docs/wallet/grants/">Connect apps</a>). A BTP client
+        spends without limit unless you give its token a cap in the wallet
+        (<a href="/docs/wallet/api-keys/">API keys</a>), so give each token
+        one.
+      </p>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Don't put a proxy on the node's own server
+          that takes connections from the internet and passes them on from
+          <code>localhost</code>, such as a reverse proxy or a TLS
+          passthrough on a public address. The node trusts a connection from
+          its own machine as yours, for pairing apps, so such a proxy would
+          let every visitor look local. The node terminates TLS itself and
+          needs no proxy.
+        </p>
+      </aside>
+      <p>
+        A few environment variables exist for development and testing:
+        <code>DASSIE_PEER_ALLOW_PRIVATE</code>, <code>DASSIE_DEV_TIMINGS</code>
+        and <code>DASSIE_DEV_LIVE_REALM</code>. Never set them on a node that
+        faces the internet. If you set either of the first two while the node
+        listens beyond <code>localhost</code>, it warns in its log at startup.
+        The third works only in a development build: a released node refuses
+        to start with it set.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/http.md#security-model">Why it works this way</a>
+      </p>
+
+      <h2 id="what-a-peer-can-cost">What a peer can cost you</h2>
+      <p>
+        Your node keeps its own books of what each peer owes it, and decides
+        everything from them: whether to take a payment, when to ask for
+        settlement, when to end a peering. Nothing a peer says is trusted past
+        your node's own limits, so however a peer behaves, by mistake or on
+        purpose, what it can cost you is bounded.
+      </p>
+      <p>
+        Peers settle through settlement hubs. Over a hub, the credit your node
+        gives a peer is its own hold toward that peer: money set aside in
+        advance, from which the peer takes only what your node owes it. What
+        the peer owes your node is backed the other way round, by the peer's
+        hold toward yours, and your node is paid from that hold whether the
+        peer cooperates or not. So what a peer can cost you is about:
+      </p>
+      <ul>
+        <li>
+          what is on its way between you at that moment, which the node caps
+          at two and a half of the largest packets on each hub, each way;
+        </li>
+        <li>
+          the fees of claiming what you're owed from a hold, which the node
+          books as a loss on that peer.
+        </li>
+      </ul>
+      <p>
+        A swap with a peer is a payment through it like any other, within the
+        same bounds. A peer that claims what it rejected loses its peering.
+        If you want a
+        node kept away for good, ban it in the wallet's
+        <a href="/docs/wallet/network/">Network</a> page: only you ban, the
+        node never does it by itself.
+      </p>
+      <p>
+        Being in a hub has costs of its own: its reserve, its fees, and the
+        ledger's fees to move money in and out. You also trust the hub's
+        validators with what your node keeps in the hub.
+        <a href="/docs/concepts/hubs/">Settlement hubs</a> explains what they
+        can and can't do, and <a href="/docs/concepts/peers/">Peers and
+        holds</a> how credit follows the hold.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/own-books.md">Why it works this way</a>,
+        and why <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hubs-only.md">peers settle only over hubs</a>.
+      </p>
+
+      <h2 id="what-you-look-after">What you look after</h2>
+      <ul>
+        <li>
+          <strong>Your recovery phrase.</strong> Everything secret derives
+          from it. Keep it offline.
+        </li>
+        <li>
+          <strong>The node's data and its backups.</strong> The database holds
+          the node key unencrypted
+          (<a href="/docs/node/backup/#secrets-at-rest">The data holds the
+          node key</a>).
+        </li>
+        <li>
+          <strong>Root and <code>dassie-users</code>.</strong> Both are the
+          owner.
+        </li>
+        <li>
+          <strong>Updates.</strong> Leave the nightly update on, so fixes
+          reach your node (<a href="/docs/node/updates/">Updates and
+          rollback</a>).
+        </li>
+      </ul>
+      <p class="not-yet">
+        A wallet you can trust without trusting the node that serves it is
+        not there yet: today your browser runs the wallet your node sends it.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

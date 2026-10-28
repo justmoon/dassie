@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Every Open Payments route a node serves, who may call it, and what Dassie adds to the specs: signed answers, the dassie field and a wallet address per asset."
+    />
+    <title>Open Payments endpoints · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Open Payments endpoints</h1>
+      <p class="lede">
+        A Dassie node serves
+        <a href="https://github.com/interledger/open-payments-specifications">Open Payments</a>
+        1.4.0 as its specs define it: wallet addresses, a GNAP authorization
+        server and a resource server. This page lists the routes and the few
+        things Dassie adds.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+      <p>
+        To build on these routes, start with
+        <a href="/docs/build/open-payments/">Accept payments with Open Payments</a>.
+      </p>
+
+      <h2 id="where-they-are-served">Where they are served</h2>
+      <p>
+        Every route is under the origin of one of the node's names, and the
+        node writes that origin into every URL it answers with:
+      </p>
+      <ul>
+        <li>
+          <strong>A node with a hostname</strong> answers under that
+          hostname alone, such as <code>https://pay.example.com</code>.
+        </li>
+        <li>
+          <strong>A node without one</strong> answers through a front door:
+          at <code>https://&lt;node ID&gt;.dassiepay.net</code>, at the
+          names its owner adds in
+          <a href="/docs/reference/environment/#DASSIE_PUBLIC_NAMES"><code>DASSIE_PUBLIC_NAMES</code></a>,
+          and at <code>&lt;name&gt;.&lt;domain&gt;</code> for each name it
+          holds, such as <code>https://alice.dassiepay.net</code>. Those
+          domains are <code>dassiepay.net</code> and the domain of each
+          other front door whose <code>&lt;node ID&gt;.&lt;domain&gt;</code>
+          its owner added, up to four front doors in all.
+          <a href="/docs/reference/domains/#payment-names">Payment names</a>
+          has more.
+        </li>
+      </ul>
+      <p>
+        A front door reaches the node only while the node keeps a
+        connection to it, as its relay. By default, a node without a
+        hostname keeps the <code>dassiepay.net</code> front door, at
+        <code>relay.dassiepay.net</code>.
+        <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
+        names another relay, or none. While the node holds no connection
+        to a front door, that front door answers requests for it with
+        <code>503</code>.
+      </p>
+      <p>
+        A request for a name the node doesn't answer to gets
+        <code>421</code> with the code <code>misdirected_request</code>.
+        Before the node is set up, every route answers <code>404</code>.
+      </p>
+
+      <h2 id="wallet-addresses">Wallet addresses</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Path</th>
+              <th>What it answers</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>GET</code>, <code>HEAD</code></td>
+              <td><code>/.well-known/pay</code></td>
+              <td>
+                The wallet address of the default asset, which the payment
+                pointer <code>$host</code> names
+              </td>
+            </tr>
+            <tr>
+              <td><code>GET</code>, <code>HEAD</code></td>
+              <td><code>/pay/&lt;asset&gt;</code></td>
+              <td>
+                The wallet address of one asset: <code>xrp</code>,
+                <code>dsusd</code>, or <code>usd</code> for the stub in
+                development builds. <code>rlusd</code> belongs to the live
+                realm, which a node refuses
+              </td>
+            </tr>
+            <tr>
+              <td><code>GET</code>, <code>HEAD</code></td>
+              <td><code>&lt;wallet address&gt;/jwks.json</code></td>
+              <td>
+                The key that signs the node's own requests to other
+                wallets, such as <code>/pay/xrp/jwks.json</code>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        There is one wallet address per asset the node is paid in. A
+        wallet address names an asset, never a hub or another place the
+        owner keeps money, so where the owner keeps it never shows in a URL.
+        The default asset is the one the owner chose, or else the first
+        active one. Wallet address documents may be cached for 60 seconds,
+        key sets for 300.
+      </p>
+
+      <h2 id="authorization-server">Authorization server</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Path</th>
+              <th>What it does</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/gnap</code></td>
+              <td>Asks for a grant</td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/gnap/interact/&lt;id&gt;/&lt;key&gt;</code></td>
+              <td>
+                Sends the owner on to the wallet's consent page
+                (<code>302</code>). A request that is no longer waiting
+                answers <code>404</code> in plain text.
+              </td>
+            </tr>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/gnap/continue/&lt;id&gt;</code></td>
+              <td>Continues a grant once the owner has decided</td>
+            </tr>
+            <tr>
+              <td><code>DELETE</code></td>
+              <td><code>/gnap/continue/&lt;id&gt;</code></td>
+              <td>Revokes the grant</td>
+            </tr>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/gnap/token/&lt;id&gt;</code></td>
+              <td>Rotates an access token</td>
+            </tr>
+            <tr>
+              <td><code>DELETE</code></td>
+              <td><code>/gnap/token/&lt;id&gt;</code></td>
+              <td>Revokes an access token</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Grants for incoming payments and quotes are approved at once.
+        Anything that moves the owner's money or shows more than the
+        client's own resources waits for the owner: outgoing payments, any
+        <code>list-all</code>, <code>read-all</code> on quotes, and a
+        subject request. Reading any incoming payment needs no owner,
+        since a sender's wallet reads one it didn't create to learn how to
+        pay it. A consent
+        request lapses after 10 minutes.
+        <a href="/docs/build/grants/">Grants and limits</a> covers the
+        rules, such as which limits a grant may set.
+      </p>
+      <p class="not-yet">
+        Under a front door's name, grants that wait for the owner can't be
+        approved yet: the front door answers
+        <code>/gnap/interact/</code> itself, with <code>501</code> and the
+        code <code>interaction_unavailable</code>, since the owner's app it
+        would send the owner to isn't there yet. They work at a node with a
+        hostname of its own.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+
+      <h2 id="resource-server">Resource server</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Path</th>
+              <th>What it does</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/incoming-payments</code></td>
+              <td>Creates an incoming payment</td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/incoming-payments?wallet-address=…</code></td>
+              <td>Lists incoming payments, newest first</td>
+            </tr>
+            <tr>
+              <td><code>GET</code>, <code>HEAD</code></td>
+              <td><code>/incoming-payments/&lt;id&gt;</code></td>
+              <td>
+                Reads one. Without a token, anyone gets what it has received
+                and where to get a grant; with a token whose grant may read
+                it, the full payment, and fresh credentials while it still
+                takes money
+              </td>
+            </tr>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/incoming-payments/&lt;id&gt;/complete</code></td>
+              <td>Completes it, so it takes no more money</td>
+            </tr>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/quotes</code></td>
+              <td>Measures the route to a receiver, and quotes it</td>
+            </tr>
+            <tr>
+              <td><code>GET</code>, <code>HEAD</code></td>
+              <td><code>/quotes/&lt;id&gt;</code></td>
+              <td>Reads a quote</td>
+            </tr>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/outgoing-payments</code></td>
+              <td>
+                Creates an outgoing payment, from a quote or from an
+                incoming payment with an amount to debit
+              </td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/outgoing-payments?wallet-address=…</code></td>
+              <td>Lists outgoing payments, newest first</td>
+            </tr>
+            <tr>
+              <td><code>GET</code>, <code>HEAD</code></td>
+              <td><code>/outgoing-payments/&lt;id&gt;</code></td>
+              <td>Reads one</td>
+            </tr>
+            <tr>
+              <td><code>GET</code>, <code>HEAD</code></td>
+              <td><code>/outgoing-payment-grant</code></td>
+              <td>
+                What the token's grant has spent in the current window of
+                its interval
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Each payment method is <code>ilp</code>: STREAM credentials, an ILP
+        address and a shared secret. Every read of an incoming payment hands
+        out fresh credentials, so each sender gets a STREAM connection of
+        its own, and credentials pay one outgoing payment only. An incoming
+        payment counts as paid in full once what it received is within a
+        small tolerance of its amount, so <code>receivedAmount</code> can be
+        a little over <code>incomingAmount</code>.
+        <a href="/docs/build/stream/">STREAM on Dassie</a> explains why.
+      </p>
+
+      <h2 id="requests">Requests</h2>
+      <ul>
+        <li>
+          <strong>Signed as the specs say.</strong> Every call the specs
+          protect carries a GNAP token and an HTTP message signature by the
+          client's key. The signature covers the URL at the name the request
+          is answered under, so a request signed for another server never
+          verifies here.
+        </li>
+        <li>
+          <strong>Read strictly.</strong> Request bodies are JSON
+          (<code>application/json</code>) of at most 16 KiB, and unknown
+          fields are refused where the schemas forbid them.
+        </li>
+        <li>
+          <strong>Open to every origin.</strong> The routes check no
+          <code>Origin</code> and answer CORS for any origin, without
+          credentials: a client proves itself by its token and signature,
+          never by a cookie. A preflight allows <code>GET</code>,
+          <code>HEAD</code>, <code>POST</code>, <code>DELETE</code> and
+          <code>OPTIONS</code>, and the headers <code>Accept</code>,
+          <code>Authorization</code>, <code>Content-Type</code>,
+          <code>Content-Digest</code>, <code>Content-Length</code>,
+          <code>Signature</code>, <code>Signature-Input</code> and
+          <code>Dassie-Nonce</code>.
+        </li>
+        <li>
+          <strong>Rate-limited per client</strong>, an IPv4 address or an
+          IPv6 /56: a burst of 120 requests, then one every 250 ms. Requests
+          that create something (grants, incoming payments, quotes and
+          outgoing payments) have a tighter limit on top: a burst of 20,
+          then one every 3 seconds. Past a limit, the node answers
+          <code>429</code>. Through a front door, the front door limits
+          each client as the node does for all requests, and to a quarter of
+          that for each node: a burst of 30, then one a second. It sets no
+          limit of its own on creating. The node counts the front door as
+          one client, so every client that comes through it shares the
+          node's budget, its limit on creating included.
+        </li>
+      </ul>
+
+      <h2 id="errors">Errors</h2>
+      <p>
+        An error has the specs' shape,
+        <code>{"error": {"code": "…", "description": "…"}}</code>. The
+        resource server's <code>401</code> carries
+        <code>WWW-Authenticate: GNAP as_uri=…</code>, naming the grant
+        endpoint; the authorization server's does not.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Code</th>
+              <th>When</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>400</code></td>
+              <td><code>invalid_request</code></td>
+              <td>The request is malformed</td>
+            </tr>
+            <tr>
+              <td><code>401</code></td>
+              <td><code>unauthorized</code></td>
+              <td>
+                At the resource server: no usable token or signature, or a
+                grant that isn't approved
+              </td>
+            </tr>
+            <tr>
+              <td><code>401</code></td>
+              <td>
+                <code>invalid_client</code>,
+                <code>invalid_continuation</code>
+              </td>
+              <td>
+                At the authorization server: no usable token or signature,
+                or a continuation the node doesn't know
+              </td>
+            </tr>
+            <tr>
+              <td><code>403</code></td>
+              <td><code>forbidden</code></td>
+              <td>The grant doesn't allow this</td>
+            </tr>
+            <tr>
+              <td><code>403</code></td>
+              <td><code>invalid_request</code></td>
+              <td>
+                An outgoing payment the grant's limits don't leave room for,
+                such as one to another receiver than the grant names, or in
+                another asset than its debit limit
+              </td>
+            </tr>
+            <tr>
+              <td><code>404</code></td>
+              <td><code>not_found</code></td>
+              <td>No such route or resource, or the node isn't set up</td>
+            </tr>
+            <tr>
+              <td>
+                <code>408</code>, <code>413</code>, <code>415</code>
+              </td>
+              <td><code>invalid_request</code></td>
+              <td>
+                The body took too long, was over 16 KiB, or wasn't JSON
+              </td>
+            </tr>
+            <tr>
+              <td><code>421</code></td>
+              <td><code>misdirected_request</code></td>
+              <td>The node doesn't answer to that name</td>
+            </tr>
+            <tr>
+              <td><code>429</code></td>
+              <td><code>too_many_requests</code></td>
+              <td>
+                A rate limit, or too many live grants or quotes from one
+                client
+              </td>
+            </tr>
+            <tr>
+              <td><code>502</code></td>
+              <td><code>unreachable</code></td>
+              <td>
+                A quote's receiver can't be read, has no route, or its path
+                delivers nothing
+              </td>
+            </tr>
+            <tr>
+              <td><code>503</code></td>
+              <td><code>unavailable</code></td>
+              <td>The node isn't ready to answer yet</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Under a front door's name, the front door answers some requests
+        itself, in the same shape. These answers carry no node signature.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Code</th>
+              <th>When</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>404</code></td>
+              <td><code>not_found</code></td>
+              <td>No node has that name, or the path isn't an Open Payments route</td>
+            </tr>
+            <tr>
+              <td><code>421</code></td>
+              <td><code>misdirected_request</code></td>
+              <td>
+                The name isn't under the front door's domain, or names a
+                port other than 443
+              </td>
+            </tr>
+            <tr>
+              <td><code>429</code></td>
+              <td><code>too_many_requests</code></td>
+              <td>The front door's own rate limit</td>
+            </tr>
+            <tr>
+              <td><code>501</code></td>
+              <td><code>interaction_unavailable</code></td>
+              <td>A request for <code>/gnap/interact/</code></td>
+            </tr>
+            <tr>
+              <td><code>502</code></td>
+              <td><code>bad_gateway</code></td>
+              <td>The node's answer broke, or wasn't JSON</td>
+            </tr>
+            <tr>
+              <td><code>503</code></td>
+              <td><code>unavailable</code></td>
+              <td>
+                The node holds no connection to the front door, or is busy
+              </td>
+            </tr>
+            <tr>
+              <td><code>504</code></td>
+              <td><code>gateway_timeout</code></td>
+              <td>The node didn't answer in time</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A browser that opens a name at <code>/</code> gets a short page
+        from the front door instead: the name, the node's ID, whether the
+        node is connected to the front door now, and its wallet address.
+      </p>
+      <p>
+        The authorization server also answers with GNAP's other codes where
+        they fit, such as <code>request_denied</code>,
+        <code>too_fast</code> and <code>invalid_rotation</code>.
+        <a href="/docs/build/errors/">Error codes</a> also covers the
+        Interledger and STREAM errors a payment can end with.
+      </p>
+
+      <h2 id="dassies-additions">Dassie's additions</h2>
+      <p>
+        These add to what the specs say, and a client that knows nothing
+        of Dassie can ignore every one of them.
+      </p>
+      <dl class="ref">
+        <dt id="signed-answers">Signed answers</dt>
+        <dd>
+          <p>
+            The node signs every answer it gives under a name with its node
+            key, errors included, by
+            <a href="https://www.rfc-editor.org/rfc/rfc9421">RFC 9421</a>.
+            The signature is tagged <code>dassie</code>, its
+            <code>alg</code> is <code>ed25519</code>, and its
+            <code>keyid</code> is the node's two public keys in base64url.
+            It covers <code>@status</code>, the answer's
+            <code>Content-Digest</code> (SHA-512), and the request's
+            <code>@method</code>, <code>@target-uri</code> and
+            <code>Dassie-Nonce</code>. Send a fresh <code>Dassie-Nonce</code>
+            header with your request so an old answer can't be replayed.
+            Only CORS preflights and the refusals of an unknown name or of
+            a node not set up go unsigned.
+            <a href="/docs/build/signed-responses/">Signed responses and names</a>
+            shows how to check one.
+          </p>
+        </dd>
+        <dt id="dassie-field">The <code>dassie</code> field</dt>
+        <dd>
+          <p>
+            A wallet address document carries
+            <code>"dassie": {"nodeId": "…"}</code>, the ID of the node whose
+            key signs its answers. The specs' schema allows extra
+            properties, so other clients ignore it.
+          </p>
+        </dd>
+        <dt id="per-asset-addresses">A wallet address per asset</dt>
+        <dd>
+          <p>
+            <code>/pay/&lt;asset&gt;</code>, beside
+            <code>/.well-known/pay</code> for the default. Grants and
+            payments record the <code>/pay/&lt;asset&gt;</code> form, so
+            changing the default never moves them to another asset.
+          </p>
+        </dd>
+        <dt id="names-421">One node, several names</dt>
+        <dd>
+          <p>
+            Each request is answered under the name it came through, and a
+            name the node doesn't hold gets <code>421</code>, so whoever
+            passes requests on can't make the node sign for a name its owner
+            never chose.
+          </p>
+        </dd>
+      </dl>
+
+      <h2 id="not-supported">Not supported</h2>
+      <ul>
+        <li>
+          <strong>SPSP.</strong> Wallets that speak only SPSP can't pay a
+          Dassie node. Payment pointers work as another way to write a
+          wallet address.
+        </li>
+        <li><strong>Card authorization:</strong> a node has no cards.</li>
+        <li>
+          <strong>STREAM receipts</strong>, which are not part of Open
+          Payments.
+        </li>
+      </ul>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/open-payments.md"
+          >Why it works this way</a
+        >
+        and, for each choice the specs leave open,
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/payments.md#http-routes"
+          >the payments spec</a
+        >.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

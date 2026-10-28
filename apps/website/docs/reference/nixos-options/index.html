@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Every option of the NixOS module, services.dassie, with its type and default, and what the module sets up."
+    />
+    <title>NixOS module options · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>NixOS module options</h1>
+      <p class="lede">
+        Each Dassie release publishes a flake with a NixOS module. These are
+        its options, under <code>services.dassie</code>.
+        <a href="/docs/node/nixos/">Dassie on NixOS</a> walks through
+        setting it up.
+      </p>
+
+      <h2 id="using-the-module">Using the module</h2>
+      <p>
+        Import <code>nixosModules.default</code> from the release's flake
+        (<code>nixosModules.dassie</code> is the same module). It sets
+        <code>services.dassie.package</code> to that release, so a minimal
+        setup is:
+      </p>
+      <figure class="file">
+        <figcaption>flake.nix</figcaption>
+        <pre><code>{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    dassie.url = "https://get.dassie.land/flake/latest.tar.gz";
+    dassie.inputs.nixpkgs.follows = "nixpkgs";
+  };
+
+  outputs = { nixpkgs, dassie, ... }: {
+    nixosConfigurations.my-server = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ./configuration.nix
+        dassie.nixosModules.default
+        { services.dassie.enable = true; }
+      ];
+    };
+  };
+}</code></pre>
+      </figure>
+      <p>
+        The flake also has <code>packages.&lt;system&gt;.dassie</code>
+        and an overlay, <code>overlays.default</code>, which adds
+        <code>pkgs.dassie</code>.
+      </p>
+
+      <h2 id="services.dassie.enable"><code>services.dassie.enable</code></h2>
+      <dl class="ref">
+        <dt>Type</dt>
+        <dd>
+          <p>boolean</p>
+        </dd>
+        <dt>Default</dt>
+        <dd>
+          <p><code>false</code></p>
+        </dd>
+      </dl>
+      <p>
+        Runs the Dassie node, on ports 80 and 443. It installs the release's
+        own systemd units and enables them as the installer does:
+        <code>dassie.service</code> and its sockets
+        <code>dassie-http</code> (TCP 80), <code>dassie-https</code>
+        (TCP 443), <code>dassie-quic</code> (UDP 443),
+        <code>dassie-feed</code> (UDP 7768, for requests for the node's
+        snapshot) and <code>dassie-ipc</code>
+        (<code>/run/dassie.sock</code>). It also creates the group
+        <code>dassie-users</code>, whose members may use the IPC socket and
+        so administer the node, and puts <code>dassie</code> on the system
+        path.
+      </p>
+      <p>
+        QUIC is the peer protocol's only transport, so
+        <code>dassie.service</code> doesn't start without its QUIC socket:
+        while something else holds UDP 443, the node doesn't start. The
+        snapshot socket is optional: if UDP 7768 is taken, the
+        node warns and runs without it.
+      </p>
+      <p>
+        The units keep their sandbox, so the node runs as it does on any
+        other Linux, with its data in <code>/var/lib/private/dassie</code>.
+        The updater's units are left out: the version is the one your flake
+        locks, and you update by updating the flake input.
+      </p>
+
+      <h2 id="services.dassie.package"><code>services.dassie.package</code></h2>
+      <dl class="ref">
+        <dt>Type</dt>
+        <dd>
+          <p>package</p>
+        </dd>
+        <dt>Default</dt>
+        <dd>
+          <p>
+            The flake's release, set by <code>nixosModules.default</code>.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        The Dassie package the units run: the release's own signed binary,
+        fetched by the sum the release key signed, and never compiled or
+        patched.
+      </p>
+
+      <h2 id="services.dassie.log"><code>services.dassie.log</code></h2>
+      <dl class="ref">
+        <dt>Type</dt>
+        <dd>
+          <p>string</p>
+        </dd>
+        <dt>Default</dt>
+        <dd>
+          <p><code>"info"</code></p>
+        </dd>
+        <dt>Example</dt>
+        <dd>
+          <p><code>"info,dassie::peer=debug"</code></p>
+        </dd>
+      </dl>
+      <p>
+        What the node logs, as
+        <a href="/docs/reference/environment/#DASSIE_LOG"><code>DASSIE_LOG</code></a>:
+        a level (<code>trace</code>, <code>debug</code>, <code>info</code>,
+        <code>warn</code>, <code>error</code> or <code>off</code>), or
+        directives per target, separated by commas. The example logs
+        <code>info</code> and above everywhere, and the peer protocol's
+        debug events too. Read the log with <code>journalctl -u dassie</code>.
+      </p>
+
+      <h2 id="services.dassie.environment">
+        <code>services.dassie.environment</code>
+      </h2>
+      <dl class="ref">
+        <dt>Type</dt>
+        <dd>
+          <p>attribute set of strings</p>
+        </dd>
+        <dt>Default</dt>
+        <dd>
+          <p><code>{ }</code></p>
+        </dd>
+        <dt>Example</dt>
+        <dd>
+          <p><code>{ DASSIE_RELAY = ""; }</code></p>
+        </dd>
+      </dl>
+      <p>
+        More environment variables for the node.
+        <a href="/docs/reference/environment/">Environment variables</a>
+        lists them all. A variable set here wins over
+        <code>services.dassie.log</code>, so set <code>DASSIE_LOG</code>
+        through <code>log</code>. The example is the module's own: an empty
+        <code>DASSIE_RELAY</code> means no relay. Without it, a node without
+        a hostname keeps the front door at <code>relay.dassiepay.net</code>
+        as its relay. That front door is a machine the project runs: it
+        learns when the node is online, and reads the Open Payments requests
+        it passes on.
+        A node with a hostname keeps none either way, so on a server you
+        give a hostname the example changes nothing.
+        <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
+        has the details.
+      </p>
+
+      <h2 id="services.dassie.openFirewall">
+        <code>services.dassie.openFirewall</code>
+      </h2>
+      <dl class="ref">
+        <dt>Type</dt>
+        <dd>
+          <p>boolean</p>
+        </dd>
+        <dt>Default</dt>
+        <dd>
+          <p><code>false</code></p>
+        </dd>
+      </dl>
+      <p>
+        Opens the node's ports in the NixOS firewall: TCP 80 and 443, UDP
+        443 for QUIC, and UDP 7768, where anyone may ask the node for its
+        snapshot.
+        <a href="/docs/reference/files-and-ports/">Files, ports and sockets</a>
+        says what each one is for.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

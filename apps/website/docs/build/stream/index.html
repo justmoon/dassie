@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How Dassie speaks STREAM, where it behaves differently from other implementations, and how to watch it work in your browser."
+    />
+    <title>STREAM on Dassie · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>STREAM on Dassie</h1>
+      <p class="lede">
+        STREAM is how money and data travel over Interledger: it splits a
+        payment into small packets, encrypts what rides in them, and has the
+        receiver say what arrived. Dassie speaks it the standard way, so the
+        Interledger tools you know can pay a Dassie node and be paid by one.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="compatibility">Compatibility</h2>
+      <p>
+        Dassie implements STREAM as
+        <a href="https://interledger.org/developers/rfcs/stream-protocol/">RFC 29</a>
+        describes it, in one Rust crate,
+        <a href="https://github.com/justmoon/dassie/tree/main/crates/dassie-stream"><code>dassie-stream</code></a>.
+        Everything in Dassie that speaks STREAM runs that one crate: a node's
+        receivers, which take payments into its ledgers; its payers, which
+        send them; the quotes that measure a route's rate; and the
+        <a href="/tools/stream-toy/">STREAM Toy</a> on this site.
+      </p>
+      <p>
+        On the wire it matches <code>ilp-protocol-stream</code>, the
+        reference implementation most Interledger software runs. Three kinds
+        of test keep it that way:
+      </p>
+      <ul>
+        <li>
+          <strong>Interop tests</strong> run <code>dassie-stream</code>
+          against <code>ilp-protocol-stream</code> in both directions, as a
+          native build and as the WebAssembly build browsers load.
+        </li>
+        <li>
+          <strong>End-to-end tests</strong> pay real Dassie nodes with
+          <code>ilp-protocol-stream</code> over <code>ilp-plugin-btp</code>,
+          across one node and across several.
+        </li>
+        <li>
+          <strong>Golden vectors</strong> pin the bytes of STREAM packets
+          and their encryption.
+        </li>
+      </ul>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/testing.md#interop">How Dassie is tested against the reference implementations</a>
+      </p>
+
+      <h2 id="paying-a-dassie-node">Paying a Dassie node</h2>
+      <p>
+        You get STREAM credentials from a node through
+        <a href="/docs/build/open-payments/">Open Payments</a>: an incoming
+        payment lists a method of type <code>ilp</code>, with an
+        <code>ilpAddress</code> and a <code>sharedSecret</code> in base64url.
+        Hand both to your STREAM sender.
+      </p>
+      <ul>
+        <li>
+          <strong>One set of credentials, one payment.</strong> Each time you
+          read an incoming payment, the node hands out fresh credentials, and
+          each set is a STREAM connection of its own. The receiver tells each
+          connection what <em>it</em> delivered, so two payments never take
+          each other's money for their own. Do not pay twice with the same
+          credentials: read the incoming payment again.
+        </li>
+        <li>
+          <strong>Money from the first packet.</strong> The receiver accepts
+          money on a new stream right away. The incoming payment, not
+          STREAM's stream limit, bounds what the connection may deliver.
+        </li>
+        <li>
+          <strong>Paid within a tolerance.</strong> Hops round down, so no
+          sender can hit an amount to the unit. An incoming payment counts as
+          paid once what it received is within a tiny tolerance of its
+          amount, under or over.
+        </li>
+        <li>
+          <strong>Too much is refused and explained.</strong> A packet over
+          what the receiver told its streams, by more than the tolerance, is
+          refused with F99, and the reply says how much it still takes. Send
+          that instead.
+        </li>
+        <li>
+          <strong>Full or stopped, said plainly.</strong> When nothing is
+          left, the receiver closes the connection: with
+          <code>NoError</code> when the incoming payment got all it asked
+          for, and with <code>ApplicationError</code> when it was completed
+          or closed before it got that.
+        </li>
+        <li>
+          <strong>No receipts.</strong> Dassie issues no STREAM receipts
+          (RFC 39 is deprecated in favor of Open Payments). It still reads
+          them, so a Dassie payer can pay a receiver that sends them.
+        </li>
+      </ul>
+      <p>
+        From your own code, the shortest path is a BTP connection to a node
+        and <code>ilp-protocol-stream</code> on top of it. With a BTP token
+        from the node's owner (see
+        <a href="/docs/build/btp/">Connect an ILP client over BTP</a>) and an
+        incoming payment's credentials, after
+        <code>npm install ilp-plugin-btp ilp-protocol-stream</code>:
+      </p>
+      <figure class="file">
+        <figcaption>pay.mjs</figcaption>
+        <pre><code>import BtpPlugin from "ilp-plugin-btp";
+import { createConnection } from "ilp-protocol-stream";
+
+// The btp+wss:// URL of your token, and the incoming payment's ilp method.
+const plugin = new BtpPlugin({ server: process.env.BTP_URL });
+await plugin.connect();
+const connection = await createConnection({
+  plugin,
+  destinationAccount: process.env.ILP_ADDRESS,
+  sharedSecret: Buffer.from(process.env.SHARED_SECRET, "base64url"),
+});
+const stream = connection.createStream();
+await stream.sendTotal(1_000_000_000); // in the ledger's smallest units
+await connection.end();
+await plugin.disconnect();</code></pre>
+      </figure>
+      <p>
+        The script may stay alive for about 35 seconds after the payment.
+        <code>ilp-protocol-stream</code> sends a last packet or two as it
+        closes, and <code>ilp-plugin-btp</code> waits for answers that cannot
+        come once it is disconnected. Exit with <code>process.exit()</code>
+        once the payment is done, or answer those calls yourself, as
+        <a href="https://github.com/justmoon/dassie/blob/main/tests/e2e/btp.ts"><code>tests/e2e/btp.ts</code></a>
+        does.
+      </p>
+      <p>
+        On a <a href="/docs/build/dev-network/">local dev network</a> you can
+        do this without touching a public network.
+      </p>
+
+      <h2 id="where-it-differs">Where it differs</h2>
+      <p>
+        Dassie keeps to the wire format exactly. Where RFC 29 leaves room, or
+        where <code>ilp-protocol-stream</code> does something that works less
+        well, Dassie chooses on its own. None of it changes a byte another
+        implementation reads.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Dassie</th>
+              <th>Why it helps</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Sends several packets at once, and adjusts how many by how they fare.</td>
+              <td><code>ilp-protocol-stream</code> sends one at a time. Several are faster on a slow path.</td>
+            </tr>
+            <tr>
+              <td>Every response, Fulfill or Reject, carries every open stream's limits and totals.</td>
+              <td>The sender always knows where it stands, whatever happened to its packet.</td>
+            </tr>
+            <tr>
+              <td>When one stream in a packet is full, its share goes to the others.</td>
+              <td>A packet fails only when all its streams together cannot take it.</td>
+            </tr>
+            <tr>
+              <td>Small leftover amounts wait only while other money is in flight.</td>
+              <td>A payment below the usual threshold still completes.</td>
+            </tr>
+            <tr>
+              <td>After a too-low rate or a final error from the path, sends the money again, and stops after a long run of failures with nothing delivered.</td>
+              <td>Each packet may take a different path, so one poor node does not end a payment.</td>
+            </tr>
+            <tr>
+              <td>Takes a receive maximum that went down, from the receiver's latest reply.</td>
+              <td>A refused packet costs one round trip, and the next one fits.</td>
+            </tr>
+            <tr>
+              <td>Measures a rate only when asked, with exact integer amounts throughout.</td>
+              <td>No rounding surprises, and no probes nobody needs.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        One rule shows when a sender that is not Dassie meets a Dassie
+        receiver. RFC 29 says the most a stream is told it may receive never
+        goes down, and a Dassie receiver keeps to that. So when two payments
+        race for the last part of one incoming payment, the receiver does not
+        tell the slower one less. It closes that connection with
+        <code>NoError</code>, which every sender understands, and its reply
+        still says what arrived. The incoming payment may then stay a little
+        short, and open for the rest.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/stream.md#differences-from-rfc-29-and-ilp-protocol-stream">Every difference, and the reasons for each</a>
+      </p>
+      <p>
+        The codes a node or its receivers send, and what a sender does about
+        each, are on <a href="/docs/build/errors/">Error codes</a>.
+      </p>
+
+      <h2 id="the-stream-toy">The STREAM Toy</h2>
+      <p>
+        The <a href="/tools/stream-toy/">STREAM Toy</a> lets you watch a
+        STREAM payment cross a network, packet by packet, in your browser.
+        The sender and the receiver are <code>dassie-stream</code>'s real
+        state machines, compiled to WebAssembly, the same build the tests
+        load. So what you see is what Dassie does, not a picture of it.
+      </p>
+      <p>
+        Between them sits a simulated connector. You choose:
+      </p>
+      <ul>
+        <li>
+          <strong>The network:</strong> the largest packet the connector
+          takes (larger ones get F08), the median round trip, how much round
+          trips vary, and how many packets may be in flight (more get T03).
+        </li>
+        <li><strong>The payment:</strong> how much the sender sends.</li>
+        <li>
+          <strong>The simulation:</strong> how fast it plays, and a seed. The
+          same settings and seed always play the same run.
+        </li>
+      </ul>
+      <p>
+        The log decrypts the STREAM packets inside each ILP packet with the
+        connection's shared secret, so you can read every frame: the money,
+        the limits each side announces, and the close at the end. Try a small
+        largest packet to watch the sender learn it from F08, or few packets
+        in flight to watch it back off.
+      </p>
+      <p>
+        Everything runs on the page. Nothing leaves your browser, and no money
+        moves, test or otherwise.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

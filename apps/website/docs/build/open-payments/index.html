@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Take a payment through a node with the Open Payments client, step by step."
+    />
+    <title>Accept payments with Open Payments · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Accept payments with Open Payments</h1>
+      <p class="lede">
+        In this tutorial your app asks a Dassie node to be paid, watches the
+        money arrive, and then pays from a node with its owner's consent. You
+        use the reference client, <code>@interledger/open-payments</code>,
+        the same one Dassie's own tests run.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="what-you-need">What you need</h2>
+      <ul>
+        <li>
+          A Dassie node with a hostname on the testnet, that you own, with
+          test money in its XRP hub. The
+          <a href="/docs/start/quick-start/">Quick Start</a> sets one up, and
+          <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> puts money
+          in. This page uses <code>node.example.com</code> for its name.
+        </li>
+        <li>
+          Node.js, and the client library:
+          <pre><code><span class="prompt">$</span>npm install @interledger/open-payments</code></pre>
+        </li>
+        <li>
+          A web server on the public internet where your app can put two small
+          files. The node fetches your app's key from it. This page uses
+          <code>app.example.com</code>.
+        </li>
+      </ul>
+      <p>
+        If you would rather not touch the testnet yet, the
+        <a href="/docs/build/dev-network/">local dev network</a> runs the same
+        flow on your machine, and its nodes also reach a server on
+        <code>localhost</code>, over HTTPS with a certificate from the dev
+        network's mkcert CA.
+      </p>
+
+      <h2 id="give-your-app-a-key">Give your app a key</h2>
+      <p>
+        Open Payments knows an app by a wallet address of its own, whose key
+        set holds the app's public key. The app signs every request with the
+        private half, and the node checks each signature against that key.
+      </p>
+      <ol class="steps">
+        <li>
+          <p>Make an Ed25519 key pair, once, and keep the private key secret:</p>
+          <figure class="file">
+            <figcaption>make-key.mjs</figcaption>
+            <pre><code>import { generateKeyPairSync } from "node:crypto";
+import { writeFileSync } from "node:fs";
+
+const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+writeFileSync("key.pem", privateKey.export({ format: "pem", type: "pkcs8" }), {
+  mode: 0o600,
+});
+const jwk = {
+  ...publicKey.export({ format: "jwk" }),
+  kid: "my-app-key",
+  alg: "EdDSA",
+  use: "sig",
+};
+console.log(JSON.stringify({ keys: [jwk] }, null, 2));</code></pre>
+          </figure>
+          <pre><code><span class="prompt">$</span>node make-key.mjs &gt; jwks.json</code></pre>
+        </li>
+        <li>
+          <p>
+            Serve your app's wallet address. The node shows its
+            <code>publicName</code> to the owner when it asks for consent:
+          </p>
+          <figure class="file">
+            <figcaption>https://app.example.com/client</figcaption>
+            <pre><code>{
+  "id": "https://app.example.com/client",
+  "publicName": "My App",
+  "assetCode": "XRP",
+  "assetScale": 9,
+  "authServer": "https://app.example.com/auth",
+  "resourceServer": "https://app.example.com"
+}</code></pre>
+          </figure>
+        </li>
+        <li>
+          <p>
+            Serve <code>jwks.json</code> beside it, at
+            <code>https://app.example.com/client/jwks.json</code>. The node
+            fetches the key from there, over the public internet: it never
+            fetches from a private address, so a server on your laptop does
+            not work against a node on the testnet.
+          </p>
+        </li>
+      </ol>
+      <p>Now make a client that signs as your app:</p>
+      <figure class="file">
+        <figcaption>app.mjs</figcaption>
+        <pre><code>import { createHash, randomBytes } from "node:crypto";
+import {
+  createAuthenticatedClient,
+  isFinalizedGrantWithAccessToken,
+  isPendingGrant,
+} from "@interledger/open-payments";
+
+const client = await createAuthenticatedClient({
+  walletAddressUrl: "https://app.example.com/client",
+  privateKey: "key.pem",
+  keyId: "my-app-key",
+});</code></pre>
+      </figure>
+      <p>The snippets below go on in the same file.</p>
+
+      <h2 id="read-the-wallet-address">Read the node's wallet address</h2>
+      <p>
+        A node has one wallet address per asset:
+        <code>https://node.example.com/pay/xrp</code> for XRP and
+        <code>https://node.example.com/pay/dsusd</code> for DSUSD, the
+        testnet's dollar. The payment pointer <code>$node.example.com</code>
+        means <code>https://node.example.com/.well-known/pay</code>, the asset
+        the owner picked as the default.
+      </p>
+      <pre><code>const wallet = await client.walletAddress.get({
+  url: "https://node.example.com/pay/xrp",
+});
+console.log(wallet);</code></pre>
+      <pre><code><span class="output">{
+  id: 'https://node.example.com/pay/xrp',
+  assetCode: 'XRP',
+  assetScale: 9,
+  authServer: 'https://node.example.com/gnap',
+  resourceServer: 'https://node.example.com',
+  dassie: { nodeId: 'hauavng4okp6d55tghlsiqvnn6j5v6mpmktgnfq' }
+}</span></code></pre>
+      <p>
+        Every asset counts in billionths: an <code>assetScale</code> of 9
+        means that 1 XRP is <code>1000000000</code>. The
+        <code>dassie</code> field names the node, for clients that check its
+        signatures; other clients ignore it.
+        <a href="/docs/build/signed-responses/">Signed responses and names</a>
+        shows how to use it. A <code>publicName</code> appears too once the
+        owner gives the node an alias.
+      </p>
+      <p>
+        A node without a hostname, such as the
+        <a href="/docs/desktop/install/">desktop app</a>, has its wallet
+        addresses at <code>https://&lt;node ID&gt;.dassiepay.net/pay/xrp</code>.
+        The <code>dassiepay.net</code> front door passes your requests there
+        on to the node, over a connection the node keeps to it as its relay.
+        A node without a hostname keeps that connection by default, so asking
+        to be paid, below, works there too, while the node is connected. If it
+        is not, the front door answers <code>503</code>.
+      </p>
+
+      <h2 id="ask-to-be-paid">Ask to be paid</h2>
+      <p>
+        To create an incoming payment, your app needs a grant from the node's
+        authorization server. A grant to create and read incoming payments
+        moves no money, so the node gives it at once, without asking the
+        owner.
+      </p>
+      <pre><code>const incomingGrant = await client.grant.request(
+  { url: wallet.authServer },
+  {
+    access_token: {
+      access: [{ type: "incoming-payment", actions: ["create", "read"] }],
+    },
+  },
+);
+if (!isFinalizedGrantWithAccessToken(incomingGrant)) {
+  throw new Error("expected the grant at once");
+}
+const incomingToken = incomingGrant.access_token.value;</code></pre>
+      <p>
+        Now ask for 2 XRP. The amount must be in the wallet address's own
+        asset and scale:
+      </p>
+      <pre><code>const incoming = await client.incomingPayment.create(
+  { url: wallet.resourceServer, accessToken: incomingToken },
+  {
+    walletAddress: wallet.id,
+    incomingAmount: {
+      value: "2000000000",
+      assetCode: wallet.assetCode,
+      assetScale: wallet.assetScale,
+    },
+    metadata: { description: "Order 1042" },
+  },
+);
+console.log(incoming.id);</code></pre>
+      <pre><code><span class="output">https://node.example.com/incoming-payments/…</span></code></pre>
+      <p>
+        The URL in <code>incoming.id</code> is a payment request. Hand it to
+        whoever pays you. The incoming payment also carries its STREAM
+        credentials, in <code>incoming.methods</code>: an
+        <code>ilpAddress</code> and a <code>sharedSecret</code>. Each read of
+        the payment hands out fresh ones, so every payer has a connection of
+        its own.
+      </p>
+      <p>
+        It stays open for a day unless you say otherwise with
+        <code>expiresAt</code>, at most seven days ahead. The money lands in
+        the node's account in the settlement hub of that asset, where
+        everything the node receives arrives.
+      </p>
+
+      <h2 id="watch-the-money-arrive">Watch the money arrive</h2>
+      <p>
+        To try it, pay the request yourself: in the wallet of any node on the
+        testnet, yours too, open <a href="/docs/wallet/send/">Send</a> and
+        paste the URL. Then watch the payment:
+      </p>
+      <pre><code>let payment = incoming;
+while (!payment.completed &amp;&amp; new Date(payment.expiresAt) &gt; new Date()) {
+  await new Promise((resolve) =&gt; setTimeout(resolve, 2000));
+  payment = await client.incomingPayment.get({
+    url: incoming.id,
+    accessToken: incomingToken,
+  });
+}
+console.log(payment.completed, payment.receivedAmount);</code></pre>
+      <pre><code><span class="output">true { value: '2000000000', assetCode: 'XRP', assetScale: 9 }</span></code></pre>
+      <p>
+        <code>completed</code> turns true once what arrived is within a tiny
+        tolerance of what you asked for, a ten-thousandth of a unit at most.
+        So <code>receivedAmount</code> can be a hair under or over
+        <code>incomingAmount</code>; it is always what really arrived.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/paid-within-a-tolerance.md">Why it works this way</a>
+      </p>
+
+      <h2 id="pay-from-a-node">Pay from a node, with its owner's consent</h2>
+      <p>
+        Paying moves the owner's money, so the owner decides. Your app asks
+        for an outgoing-payment grant with a limit, the node holds it until
+        the owner answers, and the owner approves or denies it in their
+        wallet.
+      </p>
+      <p class="not-yet">
+        Consent through a front door is not there yet. So a node without a
+        hostname, such as the desktop app, takes payments at
+        <code>&lt;node ID&gt;.dassiepay.net</code>, but it cannot grant your
+        app outgoing payments: use a node with a hostname for this part.
+        <a href="/docs/project/roadmap/#periphery">What's next</a>
+      </p>
+      <ol class="steps">
+        <li>
+          <p>
+            Ask for the grant. This one lets the app spend up to 5 XRP a day
+            from the node's XRP wallet address, fees and exchange included,
+            and make quotes:
+          </p>
+          <pre><code>const payer = await client.walletAddress.get({
+  url: "https://node.example.com/pay/xrp",
+});
+const clientNonce = randomBytes(16).toString("base64url");
+// A minute back, so that the node's clock is surely in the first window.
+const start = new Date(Date.now() - 60_000).toISOString();
+const pending = await client.grant.request(
+  { url: payer.authServer },
+  {
+    access_token: {
+      access: [
+        {
+          type: "outgoing-payment",
+          actions: ["create", "read"],
+          identifier: payer.id,
+          limits: {
+            debitAmount: {
+              value: "5000000000",
+              assetCode: payer.assetCode,
+              assetScale: payer.assetScale,
+            },
+            interval: `R/${start}/P1D`,
+          },
+        },
+        { type: "quote", actions: ["create", "read"] },
+      ],
+    },
+    interact: {
+      start: ["redirect"],
+      finish: {
+        method: "redirect",
+        uri: "https://app.example.com/finish",
+        nonce: clientNonce,
+      },
+    },
+  },
+);
+if (!isPendingGrant(pending)) throw new Error("expected the grant to wait");
+console.log("Send the owner to", pending.interact.redirect);</code></pre>
+          <p>
+            The debit limit must be in the wallet address's asset. A grant
+            for outgoing payments waits for the owner for ten minutes.
+            <a href="/docs/build/grants/">Grants and limits</a> lists what a
+            grant may ask for.
+          </p>
+        </li>
+        <li>
+          <p>
+            Send the owner to <code>pending.interact.redirect</code>. The
+            node takes them to the consent page in their wallet, which names
+            your app and says what it may spend. To try it, be the owner
+            yourself: open the link in a browser where you are signed in to
+            your node's wallet. <a href="/docs/wallet/grants/">Connect apps</a>
+            shows the owner's side.
+          </p>
+        </li>
+        <li>
+          <p>
+            The wallet sends the owner back to your finish URI with
+            <code>hash</code> and <code>interact_ref</code> in the query.
+            Check the hash before you go on, so that nobody else's
+            interaction is passed off as yours:
+          </p>
+          <pre><code>// In your handler for https://app.example.com/finish
+const back = new URL(request.url);
+const interactRef = back.searchParams.get("interact_ref");
+const expected = createHash("sha256")
+  .update(
+    [clientNonce, pending.interact.finish, interactRef, payer.authServer].join(
+      "\n",
+    ),
+  )
+  .digest("base64url");
+if (back.searchParams.get("hash") !== expected) {
+  throw new Error("this is not the interaction the app started");
+}</code></pre>
+          <p>
+            If the owner denied the request, the query says
+            <code>result=grant_rejected</code> instead, and the grant cannot
+            be continued.
+          </p>
+        </li>
+        <li>
+          <p>Continue the grant to get its access token:</p>
+          <pre><code>await new Promise((resolve) =&gt;
+  setTimeout(resolve, (pending.continue.wait ?? 0) * 1000)
+);
+const grant = await client.grant.continue(
+  {
+    url: pending.continue.uri,
+    accessToken: pending.continue.access_token.value,
+  },
+  { interact_ref: interactRef },
+);
+if (!isFinalizedGrantWithAccessToken(grant)) throw new Error("not approved");
+const accessToken = grant.access_token.value;</code></pre>
+        </li>
+        <li>
+          <p>
+            Quote, then pay. The incoming payment above is paid already, and
+            the node quotes nothing for a payment that takes no more money.
+            So to try it, make a fresh one with the incoming grant and pay
+            that. Any incoming payment URL works, on any node:
+          </p>
+          <pre><code>const toPay = await client.incomingPayment.create(
+  { url: wallet.resourceServer, accessToken: incomingToken },
+  {
+    walletAddress: wallet.id,
+    incomingAmount: {
+      value: "1000000000",
+      assetCode: wallet.assetCode,
+      assetScale: wallet.assetScale,
+    },
+  },
+);
+const quote = await client.quote.create(
+  { url: payer.resourceServer, accessToken },
+  { walletAddress: payer.id, receiver: toPay.id, method: "ilp" },
+);
+const outgoing = await client.outgoingPayment.create(
+  { url: payer.resourceServer, accessToken },
+  { walletAddress: payer.id, quoteId: quote.id },
+);
+console.log(outgoing.grantSpentDebitAmount);</code></pre>
+          <p>
+            To one of the node's own wallet addresses, as here, the rate is
+            one for one: the quote's <code>debitAmount</code> equals its
+            <code>receiveAmount</code>. To another node, it measures the path
+            with a small probe before it quotes, even between two wallets of
+            one asset, since nodes on the way may charge a fee. Then
+            <code>debitAmount</code> is a little more than
+            <code>receiveAmount</code>, room for the rate to move on the way;
+            what the payment does not need, it does not debit, and the grant
+            gets back. A quote lasts five minutes.
+          </p>
+        </li>
+        <li>
+          <p>
+            Watch it. An outgoing payment says <code>failed: true</code> if
+            it gives up, which it does after ten minutes at the latest. Its
+            <code>sentAmount</code> is what it debited so far. Whether the
+            money arrived, the incoming payment says: here,
+            <code>toPay</code> turns <code>completed</code>, as in
+            <a href="#watch-the-money-arrive">Watch the money arrive</a>.
+          </p>
+        </li>
+      </ol>
+      <p>
+        The owner sees your app, and what it spent, on the wallet's Connected
+        Apps page, and can revoke it there at any time. From then on, your
+        token gets 401.
+      </p>
+
+      <h2 id="when-something-goes-wrong">When something goes wrong</h2>
+      <p>
+        Every error comes in the Open Payments error form, with a code and a
+        description in plain words. The ones you are most likely to meet:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Status and code</th>
+              <th>What happened</th>
+              <th>What to do</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>401 invalid_client</code></td>
+              <td>
+                The node could not fetch your key set, or it has no key with
+                your <code>keyId</code>, or the signature does not verify.
+              </td>
+              <td>
+                Check that <code>/client/jwks.json</code> is on the public
+                internet, and that its <code>kid</code> matches.
+              </td>
+            </tr>
+            <tr>
+              <td><code>401 unauthorized</code></td>
+              <td>
+                The token is unknown, revoked or expired. Access tokens last
+                an hour.
+              </td>
+              <td>
+                Rotate it with <code>client.token.rotate</code>, or ask for a
+                new grant.
+              </td>
+            </tr>
+            <tr>
+              <td><code>400 invalid_request</code></td>
+              <td>
+                The request does not fit the node: an amount in another asset
+                than the wallet address's, a limit on what is received alone,
+                an expired quote, or funds that do not cover the payment. The
+                description says which.
+              </td>
+              <td>Fix what the description names.</td>
+            </tr>
+            <tr>
+              <td><code>403 invalid_request</code></td>
+              <td>The payment would go past the grant's limits.</td>
+              <td>
+                Wait for the next window of the interval, or ask for a new
+                grant.
+              </td>
+            </tr>
+            <tr>
+              <td><code>421 misdirected_request</code></td>
+              <td>
+                A node reached at <code>&lt;node ID&gt;.dassiepay.net</code>
+                or at a name it holds does not answer to the name you used.
+                A node with a hostname answers under it whatever name you
+                use, so it never returns this.
+              </td>
+              <td>Use the name in the wallet address's <code>id</code>.</td>
+            </tr>
+            <tr>
+              <td><code>429 too_many_requests</code></td>
+              <td>
+                Too many requests from your address, or too many grants from
+                your app or your network.
+              </td>
+              <td>Slow down, and try again later.</td>
+            </tr>
+            <tr>
+              <td><code>503 unavailable</code></td>
+              <td>
+                The node is not ready yet. Or, at
+                <code>&lt;node ID&gt;.dassiepay.net</code> or a name there,
+                the front door can't reach it: the node is not connected to
+                it now, or is busy.
+              </td>
+              <td>
+                Try again later. The node's owner sees in their wallet whether
+                it is connected.
+              </td>
+            </tr>
+            <tr>
+              <td><code>502 unreachable</code></td>
+              <td>
+                The node found no route to the receiver, or could not measure
+                the rate.
+              </td>
+              <td>
+                Try again in a while: the testnet is small, and routes come
+                and go.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The <a href="/docs/reference/open-payments/">Open Payments endpoints</a>
+        reference lists every route the node serves.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/payments.md#grants">Why it works this way</a>:
+        what the node decides where the specs leave it room.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

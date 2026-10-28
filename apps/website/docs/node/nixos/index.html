@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Run a Dassie node on NixOS, from the flake each release publishes: install, check the signature, set up, update and go back."
+    />
+    <title>Dassie on NixOS · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Dassie on NixOS</h1>
+      <p class="lede">
+        Each Dassie release publishes a flake next to its downloads on
+        <code>get.dassie.land</code>. It holds a NixOS module and a package
+        made from the release's own signed binary, so nothing is compiled.
+      </p>
+      <p>
+        The node runs with the same systemd units and sandbox as on any other
+        Linux. What your server needs is on
+        <a href="/docs/node/requirements/">Requirements</a>: here, NixOS with
+        flakes, on x86-64 or arm64, takes the place of the installer.
+      </p>
+
+      <aside class="early">
+        <p><strong>Early days.</strong> Dassie takes test money only: a node refuses the live realm. <a href="/docs/start/early-days/">How far along it is</a></p>
+      </aside>
+
+      <h2 id="installation">Installation</h2>
+      <p>Add Dassie's flake to your system's flake, and enable the node:</p>
+      <figure class="file">
+        <figcaption>flake.nix</figcaption>
+        <pre><code>{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    dassie.url = "https://get.dassie.land/flake/latest.tar.gz";
+    dassie.inputs.nixpkgs.follows = "nixpkgs";
+  };
+
+  outputs = { nixpkgs, dassie, ... }: {
+    nixosConfigurations.my-server = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ./configuration.nix
+        dassie.nixosModules.default
+        {
+          services.dassie.enable = true;
+          services.dassie.openFirewall = true;
+          users.users.alice.extraGroups = [ "dassie-users" ];
+        }
+      ];
+    };
+  };
+}</code></pre>
+      </figure>
+      <p>Then rebuild:</p>
+      <pre><code><span class="prompt">$</span>sudo nixos-rebuild switch</code></pre>
+      <p>
+        The node listens on TCP ports 80 and 443, UDP port 443 for QUIC, and
+        UDP port 7768 for requests for its snapshot, the signed quotes it
+        swaps assets at. <code>openFirewall</code> opens all four. The node
+        doesn't start while another program holds UDP port 443. Members of the group
+        <code>dassie-users</code> may talk to the node, and the
+        <code>dassie</code> command is on everyone's path.
+      </p>
+      <p>
+        <code>flake/latest.tar.gz</code> is the newest release's flake, and
+        your <code>flake.lock</code> records the release it was, such as
+        <code>https://get.dassie.land/0.3.0/flake.tar.gz</code>. To stay on
+        one release, use that URL instead.
+      </p>
+      <p>
+        The module's options are <code>enable</code>, <code>package</code>,
+        <code>log</code>, <code>environment</code> and
+        <code>openFirewall</code>, all under <code>services.dassie</code>.
+        <a href="/docs/reference/nixos-options/">NixOS module options</a>
+        describes each.
+      </p>
+
+      <h2 id="verifying">Checking the signature</h2>
+      <p>
+        Nix checks the flake by the hash in your <code>flake.lock</code>, not
+        by the Dassie release key. To check once that what you locked is what
+        the release key signed, download the flake and the release's signed
+        sums, with <code>VERSION</code> the release your lock names, and check
+        both:
+      </p>
+      <pre><code><span class="prompt">$</span>curl -sSO https://get.dassie.land/VERSION/flake.tar.gz
+<span class="prompt">$</span>curl -sSO https://get.dassie.land/VERSION/SHA256SUMS
+<span class="prompt">$</span>curl -sSO https://get.dassie.land/VERSION/SHA256SUMS.minisig
+<span class="prompt">$</span>minisign -Vm SHA256SUMS -P %RELEASE_KEY%
+<span class="prompt">$</span>sha256sum -c --ignore-missing SHA256SUMS</code></pre>
+      <p>
+        <code>minisign</code> prints the signature's trusted comment, but
+        does not compare it: check that it says
+        <code>dassie VERSION</code>, for the version you locked. Otherwise
+        another release's signed sums would pass. The flake names each
+        platform's download by the sum the release key signed, so from there
+        on, Nix installs only the signed binary.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/nix-flake-on-the-mirror.md">Why it works this way</a>: the flake carries the signed binaries, not a build of its own.</p>
+
+      <h2 id="configuration">Setting it up</h2>
+      <p>
+        From here it is the same as on any server. Give the node its domain
+        name and a certificate, then set it up:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie init</code></pre>
+      <p>
+        It asks for the domain name, your agreement to Let's Encrypt's terms
+        and an email address, gets the certificate, and prints a link. Open
+        it in your browser: the wallet makes your recovery phrase there and
+        sets the node up. Write the phrase down; it is the only way back into
+        your node. The <a href="/docs/start/quick-start/">Quick Start</a> walks
+        through it, and <a href="/docs/wallet/setup/">Set up your wallet</a>
+        covers the wallet's side.
+      </p>
+      <p>
+        To set the node up from a phrase on the server instead, with no
+        browser, use <code>dassie setup</code>: see
+        <a href="/docs/node/headless/#on-nixos">Headless setup</a>, which has
+        a unit for NixOS too.
+      </p>
+      <p>
+        The node's environment comes from the module, not from drop-ins:
+      </p>
+      <pre><code>services.dassie.log = "dassie::peer=debug";
+services.dassie.environment = {
+  DASSIE_EXTRA_CA_FILE = "/etc/dassie-roots.pem";
+};</code></pre>
+      <p>
+        <a href="/docs/node/configure/">Configure your node</a> explains the
+        variables. <code>dassie status</code> shows how your node is doing,
+        and its log is in <code>journalctl -u dassie</code>.
+      </p>
+
+      <h2 id="updating">Updating Dassie</h2>
+      <p>
+        On NixOS, Dassie does not update itself: the version is the one your
+        flake locks. To update to the newest release, run:
+      </p>
+      <pre><code><span class="prompt">$</span>nix flake update dassie
+<span class="prompt">$</span>sudo nixos-rebuild switch</code></pre>
+      <p>
+        <code>dassie status</code> says that this binary was not installed
+        by the installer, so it is not updated. That is about Dassie's own
+        updater: Nix updates it instead.
+      </p>
+      <p>
+        Coming from a 0.2 release? Its database and phrase don't work with
+        0.3.0, and a 0.2 node can't peer with a newer one. Set the node up
+        again, with a new phrase, from a fresh database:
+        <a href="/docs/node/updates/#from-0-2">A node from the 0.2 releases</a>.
+      </p>
+
+      <h2 id="rolling-back">Going back to an older version</h2>
+      <p>
+        A newer version may change the format of the node's database, and an
+        older one refuses a database newer than it knows. If you go back to an
+        older generation after such an update, the node does not start, and
+        you put back the copy of the database it kept from before the change:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo systemctl stop dassie
+<span class="prompt">$</span>sudo sh -c 'cd /var/lib/private/dassie &amp;&amp; mkdir newer &amp;&amp;
+  for file in dassie.sqlite3 dassie.sqlite3-wal dassie.sqlite3-shm; do
+    [ ! -e "$file" ] || mv "$file" newer/
+  done &amp;&amp;
+  cp -p dassie.sqlite3.pre-migration dassie.sqlite3'
+<span class="prompt">$</span>sudo systemctl start dassie</code></pre>
+      <p>
+        Only root may enter the node's data directory, so the commands run
+        in one root shell. The newer database stays in
+        <code>newer/</code>. The copy is from just before the newer version
+        changed the database, so it goes back one version only.
+      </p>
+
+      <h2 id="uninstallation">Uninstallation</h2>
+      <p>
+        Remove the module from your configuration and rebuild. The node's
+        data stays in <code>/var/lib/private/dassie</code>, in case you change
+        your mind. It holds your node's key and books; see
+        <a href="/docs/node/uninstall/">Uninstall</a> before you delete it.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

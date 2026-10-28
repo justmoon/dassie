@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How a release is signed, checked before anything unpacks, and rolled back when it fails to start, and what the download mirror can and cannot do."
+    />
+    <title>Releases you can trust · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Releases you can trust</h1>
+      <p class="lede">
+        Your node updates itself every day, from a mirror on the internet.
+        This page explains why it installs only what the Dassie release key
+        signed, and how it gets back on its feet when a new release does not
+        start.
+      </p>
+
+      <h2 id="the-release-key">One key signs every release</h2>
+      <p>
+        Each release on the mirror at <code>get.dassie.land</code> comes as
+        one bundle per platform and a Nix flake, and a file of their
+        checksums,
+        <code>SHA256SUMS</code>. That file is signed with
+        <a href="https://jedisct1.github.io/minisign/">minisign</a>, using the
+        release key. The signature's trusted comment reads
+        <code>dassie &lt;version&gt;</code>, so the signed checksums of one
+        release can never pass for another's.
+      </p>
+      <ul>
+        <li>
+          <strong>The public key</strong> is in the repository, in
+          <a href="https://github.com/justmoon/dassie/blob/main/resources/minisign.pub"><code>resources/minisign.pub</code></a>.
+          It is built into every <code>dassie</code> binary and into the
+          install script. Nothing else is trusted.
+        </li>
+        <li>
+          <strong>The secret key</strong> lives only in the release workflow
+          on GitHub, which only a version tag can run. It is never on a
+          developer's machine or in ordinary CI.
+        </li>
+        <li>
+          <strong>Nothing is signed untested.</strong> The workflow signs a
+          release only after the install tests pass on every Linux
+          distribution it tests, and checks its own signature, with the code
+          the updater uses, before it uploads anything.
+        </li>
+        <li>
+          <strong>Published files never change.</strong> Once a version is
+          on the mirror, its files stay exactly as they were signed.
+        </li>
+      </ul>
+      <p
+        class="not-yet">Each release is built once, on one builder, and its signature vouches for what that build made. A second, independent build to compare it against is not there yet. <a href="/docs/project/roadmap/">What's next</a></p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/release-integrity.md">Why minisign, and why it works this way</a></p>
+
+      <h2 id="checked-before-it-unpacks">Checked before anything unpacks</h2>
+      <p>
+        The installer and the updater follow the same order, and stop at the
+        first thing that does not check out:
+      </p>
+      <ol class="steps">
+        <li>
+          Download <code>SHA256SUMS</code> and its signature, and verify the
+          signature against the built-in key, for the version asked for.
+          Nothing in the file is read before that.
+        </li>
+        <li>Download the bundle and check it against its sum.</li>
+        <li>
+          Unpack it into a staging directory, taking only plain files and
+          folders: no links, and no path that leads outside the bundle.
+        </li>
+        <li>
+          Run the new binary's own check, <code>dassie verify-install</code>,
+          and make sure it names the version it was installed as.
+        </li>
+      </ol>
+      <p>
+        Only then does anything switch. The installer needs no extra tool for
+        this: it uses minisign if you have it, and OpenSSL 1.1.1 or later if
+        you do not.
+      </p>
+
+      <h2 id="what-the-mirror-can-do">What the mirror can and cannot do</h2>
+      <p>
+        The mirror is not trusted, and neither is its HTTPS certificate. It
+        names the newest release in a file, <code>meta/latest</code>, which
+        is not signed. So it never decides which way a node moves:
+      </p>
+      <ul>
+        <li>
+          On its own, the updater only ever moves to a later release than
+          the one it runs. A mirror cannot take a node back to an old
+          version.
+        </li>
+        <li>
+          A mirror can hold a release back, or keep offering an old one. It
+          cannot make a node install anything the key did not sign for that
+          version.
+        </li>
+        <li>
+          Only you can move a node to an older release, by naming the version
+          yourself.
+        </li>
+      </ul>
+      <p>
+        There is one channel, the newest release, and every version on it is
+        a signed release. There are no nightly builds.
+      </p>
+      <p
+        class="not-yet">Pre-releases, on a channel a node joins only when its owner asks, are not there yet. <a href="/docs/project/roadmap/">What's next</a></p>
+
+      <h2 id="updating-and-rolling-back">Updating and rolling back</h2>
+      <p>
+        A systemd timer, <code>dassie-update.timer</code>, runs
+        <code>dassie update</code> once a day, at a random moment in the hour
+        after 03:20. Each version is unpacked into a folder of its own under
+        <code>/opt/dassie</code>, and a link, <code>/opt/dassie/current</code>,
+        names the one that runs. The switch is a single rename of that link,
+        and the version before stays beside it.
+      </p>
+      <p>
+        After the switch, the updater restarts the node and waits for it to
+        say it is ready. If it does not come up, the updater rolls back by
+        itself:
+      </p>
+      <ul>
+        <li>
+          It points <code>current</code> back at the old version, with the old
+          version's systemd units, and starts it again.
+        </li>
+        <li>
+          If the new version had already moved your database forward, the
+          old version could not open it. The node keeps a copy from just
+          before it migrates, and the updater puts that copy back, keeping
+          the newer database beside it as
+          <code>dassie.sqlite3.rolled-back</code>. The copy was taken before
+          the new version served anything, so nothing it is missing ever
+          reached a peer.
+        </li>
+        <li>
+          If the database cannot be put back safely, the updater does not
+          start the old version at all, and tells you where each copy is, so
+          you can choose. A node never starts afresh with a new identity and
+          empty books by accident.
+        </li>
+        <li>
+          A version that failed to start is not tried again until the mirror
+          offers a newer one. You can still install it on purpose with
+          <code>--force</code> or <code>--target-version</code>.
+        </li>
+      </ul>
+      <p>
+        If you installed with <code>--no-service</code>, there is no timer,
+        and you run the update yourself:
+        <code>dassie update --unit &lt;name&gt;.service=&lt;data
+        directory&gt;</code>, once for each unit that runs a node. It checks
+        every release the same way. It then installs none of the release's
+        units and restarts yours, and on a rollback it stops them, puts back
+        each node's database and starts them again. A plain
+        <code>dassie update</code> installs the release's units and restarts
+        <code>dassie.service</code>, as on a normal install.
+      </p>
+      <p>
+        Every run is recorded, and <code>dassie status</code> shows how the
+        last one went. See <a href="/docs/node/updates/">Updates and
+        rollback</a> for the commands.
+      </p>
+
+      <h2 id="on-nixos">On NixOS</h2>
+      <p>
+        Each release also publishes a Nix flake. Its package is the same
+        signed bundle, fetched by the checksum in <code>SHA256SUMS</code>:
+        nothing is compiled or patched. Nix checks the flake by your lock
+        file, not by the release key, so check the flake once against the
+        signed checksums, and your lock holds you to the signed binaries from
+        then on. There is no updater on NixOS: you update by moving the flake
+        input forward, and go back by going back a generation. If the newer
+        release migrated your database, put back the copy it kept before
+        migrating, by hand, before the older generation can start. See
+        <a href="/docs/node/nixos/">Dassie on NixOS</a> for the steps.
+      </p>
+      <p>
+        The <a href="/docs/desktop/">desktop app</a> does not come from the
+        mirror. You build it from the repository with Nix, and it does not
+        update itself.
+      </p>
+
+      <h2 id="check-it-yourself">Check a release yourself</h2>
+      <p>
+        You can check any release by hand, with the same key the installer
+        uses. For example, for the x86-64 bundle of 0.3.0:
+      </p>
+      <pre><code><span class="prompt">$</span>curl -sSfO https://get.dassie.land/0.3.0/SHA256SUMS
+<span class="prompt">$</span>curl -sSfO https://get.dassie.land/0.3.0/SHA256SUMS.minisig
+<span class="prompt">$</span>curl -sSfO https://get.dassie.land/0.3.0/dassie-0.3.0-linux-x64.tar.gz
+<span class="prompt">$</span>minisign -V -H -P RWQyFJT+UgaWXQaBu5IkTRgPZjjYDNcCm4Sl6Wci0znLMDI0mJEoN3h2 -m SHA256SUMS
+<span class="output">Signature and comment signature verified
+Trusted comment: dassie 0.3.0</span>
+<span class="prompt">$</span>sha256sum --check --ignore-missing SHA256SUMS
+<span class="output">dassie-0.3.0-linux-x64.tar.gz: OK</span></code></pre>
+      <p>
+        Make sure the trusted comment names the version you asked for. The
+        mirror's layout and the key's details are on
+        <a href="/docs/reference/mirror/">Release mirror and key</a>.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/areas/release.md#trust">What the release process trusts, in full</a></p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

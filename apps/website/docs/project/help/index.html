@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Where to ask about Dassie, and what to send along so that someone can help: your node's status, its version and its log."
+    />
+    <title>Get help · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Get help</h1>
+      <p class="lede">
+        Stuck, or something looks wrong? Ask. Dassie is early and the group
+        around it is small, so you will usually reach the people who build
+        it. A few lines from your node help them answer quickly.
+      </p>
+
+      <h2 id="look-first">Look here first</h2>
+      <ul>
+        <li>
+          <a href="/docs/node/troubleshooting/">Troubleshooting</a> covers
+          the problems people run into most, and what to do about each.
+        </li>
+        <li>
+          <a href="/docs/node/status/">Check on your node</a> explains each
+          line of <code>dassie status</code>, which often names the problem
+          and what to do about it.
+        </li>
+        <li>
+          The search box in the sidebar searches every page of these docs.
+        </li>
+        <li>
+          <a href="/docs/start/early-days/">Early days</a> lists what Dassie
+          does not do yet, so you know whether you hit a bug or a gap.
+        </li>
+        <li>
+          Coming from a 0.2 release? A node on 0.3.0 doesn't peer with 0.2
+          nodes, and reads none of their phrases or databases. Set it up
+          again with a new phrase, from a fresh database:
+          <a href="/docs/node/updates/#from-0-2">A node from the 0.2 releases</a>
+          shows how, and the
+          <a href="/docs/reference/releases/#v0-3-0">0.3.0 release notes</a>
+          say what else changed.
+        </li>
+      </ul>
+
+      <h2 id="where-to-ask">Where to ask</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Where</th>
+              <th>For</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><a href="https://discord.gg/HqdGNfs9kq">Discord</a></td>
+              <td>
+                Questions, setup trouble, "is this normal?", and talking
+                about Dassie with others who run it.
+              </td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/justmoon/dassie/issues">GitHub issues</a></td>
+              <td>
+                Bugs you can describe: what you did, what you expected, what
+                happened instead. Look through the open issues first; yours
+                may be there already.
+              </td>
+            </tr>
+            <tr>
+              <td><a href="/docs/project/security/">Report a security issue</a></td>
+              <td>
+                Anything someone could use to attack a node, a wallet or a
+                release. Report it privately, never in an issue or on
+                Discord.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Everyone who answers does so in their own time, so a reply can take a
+        while. A clear question with the lines below gets one sooner.
+      </p>
+
+      <h2 id="what-to-send">What to send along</h2>
+      <p>
+        On a server, run these and paste what they print.
+      </p>
+      <h3>Your node's status</h3>
+      <pre><code><span class="prompt">$</span>dassie status</code></pre>
+      <p>
+        It shows the version, the node's address and certificate, setup, the
+        network, its peers, ledgers and hubs, and how the last update went.
+        It names no secret, so its output is safe to paste as it is. If it
+        says you may not use the daemon's socket, run it with
+        <code>sudo</code>, or join the <code>dassie-users</code> group and log
+        in again.
+      </p>
+      <h3>The version</h3>
+      <pre><code><span class="prompt">$</span>dassie --version</code></pre>
+      <p>
+        The first line of <code>dassie status</code> names it too, but this
+        works even when the node is not running.
+      </p>
+      <h3>The log around the problem</h3>
+      <pre><code><span class="prompt">$</span>sudo journalctl -u dassie --since "1 hour ago" --no-pager</code></pre>
+      <p>
+        Change the time to cover when the problem happened. For trouble with
+        an update, if you installed with the installer, the updater has a
+        log of its own:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo journalctl -u dassie-update --since "2 days ago" --no-pager</code></pre>
+      <p>
+        Read the lines before you paste them. They hold your node ID and the
+        addresses it talks to, which are public anyway, but you may still
+        want to trim them to the part that matters.
+      </p>
+      <h3>In the desktop app, or without a terminal</h3>
+      <p>
+        The wallet shows the same things. <strong>Settings</strong> lists the
+        Dassie version, and <strong>Debug</strong> then <strong>Logs</strong>
+        shows the node's recent log.
+      </p>
+      <h3>And in your own words</h3>
+      <ul>
+        <li>how you run Dassie: the installer, NixOS or the desktop app, and on which system;</li>
+        <li>what you did, step by step;</li>
+        <li>what you expected, and what happened instead.</li>
+      </ul>
+
+      <h2 id="never-share">Never share these</h2>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Nobody who helps you needs any of these,
+          and anyone who has one can take over your node or spend through it.
+          If someone asks for one, they are not helping you.
+        </p>
+      </aside>
+      <ul>
+        <li>
+          your <a href="/docs/concepts/phrase/">recovery phrase</a>, or a
+          file that holds it;
+        </li>
+        <li>
+          the setup link that <code>dassie setup-url</code> prints, while
+          setup is not done;
+        </li>
+        <li>
+          an <a href="/docs/wallet/api-keys/">API key</a>, a BTP token or the
+          code that <code>dassie pair</code> prints;
+        </li>
+        <li>
+          anything from your node's data directory.
+        </li>
+      </ul>
+      <p>
+        If one of them leaked, say so when you ask, without pasting it, and
+        someone will help you work out what to do next.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

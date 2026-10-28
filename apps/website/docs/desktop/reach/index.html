@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How a node on a laptop joins the network through its uplinks and is paid at its name through the built-in relay, what that relay learns, and how to choose another or none."
+    />
+    <title>How others reach you · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>How others reach you</h1>
+      <p class="lede">
+        Your laptop has no public address, and nobody can dial it. So your
+        node does the dialing: it connects out to a few nodes on servers,
+        and keeps a connection open to one machine through which other
+        wallets reach your address. This page explains both, and what they
+        cost you.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="a-node-at-the-edge">A node at the edge</h2>
+      <p>
+        The node in the desktop app is always a <em>periphery</em> node.
+        Its wallet listens on your own computer only, and nothing outside
+        can open a connection to it. Nodes on servers with a public address
+        and a domain name are <em>core</em> nodes, and your node reaches the
+        network through them.
+      </p>
+      <p>
+        That is a choice of the app, not of your settings. Even with a
+        hostname set in the wallet, the app's node stays at the edge.
+        <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>
+        explains the two kinds of node.
+      </p>
+      <aside class="note">
+        <p>
+          Leave the hostname empty in the desktop app. A hostname is for a
+          node that others reach directly, on a server. A desktop node with
+          one still cannot be reached there, and it then answers under that
+          hostname alone. So it drops the built-in relay, below, and no
+          relay reaches it either.
+        </p>
+      </aside>
+
+      <h2 id="uplinks">Uplinks</h2>
+      <p>
+        Your node looks up core nodes in the network's node list, which it
+        gets from the testnet's bootstrap nodes, built into Dassie, and asks
+        a few of them to peer. Those that agree are its <em>uplinks</em>.
+        Your node gets an address beneath each of them, sends its payments
+        through them, and receives through them. It never forwards anyone
+        else's payments.
+      </p>
+      <p>
+        Peers settle only through settlement hubs, so your node asks only
+        core nodes that are in a hub it is in. Until you join one, such as
+        the testnet's XRP hub, it has no uplinks.
+        <a href="/docs/wallet/hubs/#joining-a-hub">Joining a hub</a> shows
+        how.
+      </p>
+      <ul>
+        <li>
+          <strong>It connects over QUIC, on UDP.</strong> Where your network
+          blocks UDP, as some office and hotel networks do, it carries the
+          same connection over a WebSocket on TCP instead, to the core node's
+          HTTPS port. It tries UDP first each time, and the WebSocket a
+          moment later, if UDP has not connected by then.
+        </li>
+        <li>
+          <strong>Behind a proxy,</strong> it sends those WebSocket
+          connections through the proxy that <code>https_proxy</code> names,
+          as other programs do.
+        </li>
+        <li>
+          <strong>You can choose your uplinks</strong> by their node IDs, in
+          <code>DASSIE_UPLINKS</code>. Your node then asks only those, and
+          waits for them rather than peer with others.
+        </li>
+      </ul>
+      <p>
+        <code>dassie status</code> lists your uplinks and whether each is
+        connected. <a href="/docs/wallet/network/">Network and peers</a>
+        shows them in the wallet.
+      </p>
+
+      <h2 id="your-name-and-your-relay">Your name and your relay</h2>
+      <p>
+        Other wallets pay you through Open Payments, which finds a wallet by
+        a web address. Your node's address is
+        <code>https://&lt;node ID&gt;.dassiepay.net</code>, with one address
+        beneath it for each asset. The wallet's Receive page shows them, and
+        the shorter payment pointers that mean the same.
+      </p>
+      <p>
+        Nobody can reach your laptop at an address directly. A <em>front
+        door</em> does it for you: a machine that serves a domain, such as
+        <code>dassiepay.net</code>, and that your node keeps a connection
+        open to, as its <em>relay</em>. The front door passes each request
+        for your address down that connection and your node's answer back.
+        It never dials your node. It reaches it only while that connection
+        is open, so only while the app runs.
+      </p>
+      <ul>
+        <li>
+          <strong>The default is <code>dassiepay.net</code>.</strong>
+          Dassie has that front door built in, with its key, so your node
+          dials it as soon as it is set up. You set nothing.
+        </li>
+        <li>
+          You can choose another relay, or none, in
+          <code>DASSIE_RELAY</code>.
+          <a href="#another-relay-or-none">Below</a> shows how.
+        </li>
+        <li>
+          The connection is pinned to the relay's key, the built-in one or
+          the one in the line you set. Nobody else can pose as your relay.
+        </li>
+        <li>
+          Your node answers each request itself, and signs its answer with
+          its own key. A Dassie client checks that signature against your
+          node ID, so even the front door cannot change an answer unseen.
+          <a href="/docs/build/signed-responses/">Signed responses and
+          names</a> says more.
+        </li>
+        <li>
+          If you register a <a href="/docs/wallet/names/">name</a>, your
+          node is also reached at <code>&lt;name&gt;.&lt;domain&gt;</code>
+          at its front door, the same way.
+        </li>
+      </ul>
+      <p>
+        <code>dassie status</code> names your relay and whether it is
+        connected, and so does the tray: <em>Online</em> means connected,
+        and <em>Connecting…</em> is what you see right after a start. The
+        wallet's Receive page says whether the <code>dassiepay.net</code>
+        address reaches you. Without a relay, the tray says <em>Running,
+        without a relay</em>, and you can still send.
+      </p>
+      <p class="not-yet">
+        Front doors reach only the nodes that keep them as their relay:
+        finding a node through any relay is not there yet. The wallet does
+        not ask you about your relay yet either; a guided setup that does is
+        still to be built. Later, testnet addresses move to
+        <code>&lt;node ID&gt;.test.dassiepay.net</code>, so that
+        <code>dassiepay.net</code> is left for the live realm.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+
+      <h2 id="what-the-front-door-learns">What the front door learns</h2>
+      <p>
+        A relay is a machine someone else runs, and it sees some of what you
+        do. The default one, <code>dassiepay.net</code>, is a machine the
+        Dassie project runs. By keeping a front door as your relay, you let
+        its operator learn:
+      </p>
+      <ul>
+        <li>that your node is online, since when, and from which IP address;</li>
+        <li>
+          every Open Payments request that comes for you, and your node's
+          answer. It holds the secure connection to the payer, so it reads
+          them in full, including the secret that sets up an incoming
+          payment.
+        </li>
+      </ul>
+      <p>
+        It does not see your recovery phrase, your wallet, your balances, or
+        the payments you send. Peering, sending and your wallet work without
+        it: while it is down, only payments to your address there fail. If
+        that is more than you want to share, choose another front door, or
+        none, below.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/default-relay.md">Why it works this way</a>:
+        a new node is meant to be reachable with no setup, and its owner
+        can always say no.
+      </p>
+
+      <h2 id="another-relay-or-none">Another relay, or none</h2>
+      <p>
+        Two environment variables choose your relay. The node reads them
+        when the app starts, and a second start only shows the window of the
+        app that runs already. So quit Dassie from the tray first, with
+        <em>Quit Dassie</em>, and then start it with the variable set.
+      </p>
+      <h3>No relay</h3>
+      <p>
+        Set <code>DASSIE_RELAY</code> to nothing. Your node then keeps no
+        relay, not even the built-in one. Nobody can pay you at an address
+        under a front door, and the tray says <em>Running, without a
+        relay</em>. You can still send.
+      </p>
+      <pre><code><span class="prompt">$</span>DASSIE_RELAY= dassie-desktop</code></pre>
+      <h3>A front door</h3>
+      <p>
+        Anyone can <a href="/docs/services/front-door/">run a front
+        door</a> for a domain of their own. Its operator gives you one line
+        of JSON that names it. Put that line in
+        <code>DASSIE_RELAY</code>, and add your name under its domain,
+        <code>&lt;node ID&gt;.&lt;domain&gt;</code>, to
+        <code>DASSIE_PUBLIC_NAMES</code>:
+      </p>
+      <pre><code><span class="prompt">$</span>DASSIE_RELAY='{"id":"…","url":"https://relay.example.com","publicKey":"…","slhDsaPublicKey":"…"}' \
+  DASSIE_PUBLIC_NAMES=&lt;node ID&gt;.example.com dassie-desktop</code></pre>
+      <p>
+        Your node then keeps that front door as its relay, and is reached at
+        the new address. Its <code>dassiepay.net</code> address does not
+        reach it, and the wallet says so.
+      </p>
+      <h3>Keeping the setting</h3>
+      <p>
+        A variable you set in a terminal holds for that start only. The app
+        also starts at login, so put the variable where your desktop session
+        takes its environment from, and log in again. On most desktops that
+        run on systemd, that is a file in
+        <code>~/.config/environment.d/</code>, such as:
+      </p>
+      <figure class="file">
+        <figcaption>~/.config/environment.d/dassie.conf</figcaption>
+        <pre><code>DASSIE_RELAY=</code></pre>
+      </figure>
+      <p>
+        To go back to the built-in relay, remove the line and log in again.
+        An empty value means no relay; only a variable that is not set at
+        all means the default.
+      </p>
+      <p>
+        <a href="/docs/reference/environment/">Environment variables</a>
+        describes every variable the node reads.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/node.md#a-chosen-relay">How a node keeps its relay</a>,
+        in the spec.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="How your node keeps its own books with each peer, why the hold in a hub is all the credit it gives, and how it decides which peers to send more through."
+    />
+    <title>Peers and holds · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Peers and holds</h1>
+      <p class="lede">
+        Your node peers with a few neighbors and passes payments through them.
+        This page explains how it keeps track of what each one owes, how much
+        it puts at stake with each, and how it chooses between them.
+      </p>
+
+      <aside class="early">
+        <p><strong>Early days.</strong> Dassie takes test money only: a node refuses the live realm. <a href="/docs/start/early-days/">How far along it is</a></p>
+      </aside>
+
+      <h2 id="own-books">Each node keeps its own books</h2>
+      <p>
+        Dassie is not a consensus system. There is no shared record that all
+        nodes agree on. Each node writes down what it saw happen with each
+        peer, in its own books, and decides everything from them: whether to
+        take a payment, when to ask a peer to settle, how much to pay when
+        asked, and when to stop peering.
+      </p>
+      <p>
+        Two peers' books can drift apart. A node can crash with payments in
+        flight, an answer can arrive late, an amount can be too small for the
+        ledger to move, or a peer can simply lie. Your node cannot tell these
+        apart, and it does not try. It does not keep a copy of the peer's
+        books, and it never reconciles with them. What a peer says is taken as
+        a hint, never trusted past your node's own limits.
+      </p>
+      <p>
+        That gives one simple promise: however a peer behaves, honest, broken
+        or hostile, it can cost your node at most what your node's limits
+        allow. The next sections say what those limits are.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/own-books.md">Why it works this way</a>, and why drift and malice are treated as one case.</p>
+
+      <h2 id="holds">Holds are the credit</h2>
+      <p>
+        Peers settle only over
+        <a href="/docs/concepts/hubs/">settlement hubs</a>. A hub keeps an
+        account for each member, and inside it a member can set money aside
+        for one peer: a <em>hold</em>. The peer is paid from that hold for the
+        payments it carries for you, with the promise your node signed for
+        each one, whether or not your node is still around to agree.
+      </p>
+      <p>
+        Your node's hold toward a peer is money it paid in advance. It is all
+        the credit your node gives that peer, and nothing more. The same goes
+        the other way: what a peer may run up with your node is what it has
+        set aside for you. Neither side lends the other anything beyond the
+        holds.
+      </p>
+      <ul>
+        <li>
+          <strong>A hold starts at nothing.</strong> A new peering has no
+          credit either way, whichever node asked, so your node asks a new
+          peer to fund its hold right away.
+        </li>
+        <li>
+          <strong>The creditor asks, the debtor decides.</strong> Your node
+          checks every few seconds. When a peer's room with you falls to one
+          and a half of the largest packets, your node asks it to top up its
+          hold. The peer decides how much from its own books, and settles
+          nothing smaller than one largest packet, so nobody can make it pay
+          a ledger fee for every few drops. Your node answers the same way
+          when asked, and never settles on its own.
+        </li>
+        <li>
+          <strong>Nothing about credit is announced.</strong> No message
+          tells a peer how much your node will let it owe. More credit only
+          means your node asks later.
+        </li>
+        <li>
+          <strong>Each hub stands on its own.</strong> Two nodes that share
+          more than one hub settle over each of them, each with its own hold,
+          its own room and its own requests to settle. No budget spans hubs,
+          since that would need exchange rates.
+        </li>
+      </ul>
+      <p>
+        The largest packet is the unit all of these limits are counted in.
+        It is how much your node is prepared to lose on one link, so every
+        threshold scales with it.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hubs-only.md">Why peers settle only over hubs</a>, and why a hold is all the credit a node extends.</p>
+
+      <h2 id="what-a-peer-can-cost">What a peer can cost you</h2>
+      <p>
+        Put together, the most a peer can cost your node is bounded by three
+        things:
+      </p>
+      <ul>
+        <li>
+          <strong>Its room with you,</strong> which over a hub is the hold
+          the peer set aside for you, and your own hold toward it.
+        </li>
+        <li>
+          <strong>What is in flight.</strong> Your node lets at most two and
+          a half of the largest packets be in flight with a peer, each way,
+          on each hub you share. A crash can lose the answers to those
+          packets, so that is how far one crash can drift two nodes' books.
+          A payment that would pass the cap is turned away with a temporary
+          error, and the sender slows down.
+        </li>
+        <li>
+          <strong>The hub itself.</strong> What your node keeps in a hub,
+          its own holds included, is at risk if the hub fails. Your node tops
+          its hub account up from its own account on the ledger when it runs
+          low, and never deposits past a ceiling of a hundred of the largest
+          packets. What peers pay you arrives in the hub and, by default,
+          stays there; you can choose to keep it on your own account instead.
+          <a href="/docs/wallet/hubs/">Your hubs</a> shows where each one
+          stands.
+        </li>
+      </ul>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/thresholds-in-packets.md">Why every threshold is counted in packets</a></p>
+
+      <h2 id="trust-grows-sideways">Trust grows sideways</h2>
+      <p>
+        Nobody hands out trust from above. Your node learns which peers to
+        rely on from what they did for it, and it sends more payments through
+        the peers that earn it the most.
+      </p>
+      <p>
+        For each destination, your node keeps up to four first hops on the
+        shortest paths there. It draws the next hop for every packet at
+        random among them, so no single peer carries a whole payment, and a
+        packet sent again after a failure may take another path. The draw is
+        weighted:
+      </p>
+      <ul>
+        <li>
+          <strong>By the fees a peer earned you.</strong> A peer's weight is
+          the fees your node earned on packets that went through it and were
+          fulfilled, counted on each ledger apart. Fees are money someone
+          really paid, so they are hard to fake. A packet that fails counts
+          for nothing, so nobody can make a peer look bad by sending it
+          payments that fail.
+        </li>
+        <li>
+          <strong>With room to explore.</strong> One draw in ten ignores the
+          weights and gives every first hop the same chance, so a new or
+          quiet peer still gets a chance to earn.
+        </li>
+        <li>
+          <strong>Fading over time.</strong> What a peer earned counts half
+          as much after an hour, so a peer that stops delivering loses its
+          weight. A restart starts every weight from nothing: weights only
+          pace routing, they hold no money.
+        </li>
+        <li>
+          <strong>Keeping the ledger where it can.</strong> A packet goes to
+          a peer it can pay on the ledger it came in on, if any first hop
+          has one. Only when none does is it converted, and then every first
+          hop has the same chance. Your own payments never convert on their
+          way out.
+        </li>
+      </ul>
+      <p>
+        Fees are zero unless you set one, and with no fee charged nobody
+        earns anything, so every draw is even. Fees are set under
+        <a href="/docs/wallet/rates/">Exchange-rate settings</a>.
+      </p>
+      <p>
+        Your node also keeps its first hops its own way. Where more peers
+        reach a destination than it keeps, it chooses by a secret derived
+        from its own key, so each node keeps a different few, and nobody can
+        make up a node ID that every node prefers.
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/weighted-next-hops.md">Why it works this way</a>, and what it accepts in return.</p>
+
+      <h2 id="withdraw-and-end">Withdraw readily, end reluctantly</h2>
+      <p>
+        Your node lists the peers it is ready to route through in its
+        signed link state, which the rest of the network reads (see
+        <a href="/docs/concepts/network/">Joining the network</a>). It takes
+        a peer out of that list quickly, and ends a peering only slowly.
+      </p>
+      <h3>Withdrawing a peer</h3>
+      <p>
+        A peer is listed only while your node has heard from it recently,
+        while you have not banned it, and while it has room. A peer whose room
+        stays below one largest packet for about three minutes without
+        settling is withdrawn: still peered, still asked to settle, but no
+        packet crosses the link until its room is back. Each time a peer is
+        withdrawn it is held out a little longer before it can come back,
+        from thirty seconds up to an hour, so a peer that comes and goes does
+        not shake the whole network's routes.
+      </p>
+      <h3>Ending a peering</h3>
+      <p>
+        Ending a peering is for good, so it takes much stronger evidence:
+      </p>
+      <ul>
+        <li>you end it, or ban the peer;</li>
+        <li>the peer has not been heard from for a day;</li>
+        <li>its room has stayed short for a day while it could be reached;</li>
+        <li>or the two of you no longer share a hub to settle over.</li>
+      </ul>
+      <p>
+        Before your node tells the peer, it waits for its own settlements to
+        arrive and asks the peer to settle once more. Then the two stop. A
+        ban skips this: your node tells the peer at once, and what it owes
+        stays on the books. After you end a peering, or after one ends for
+        room, the two nodes do not peer again for up to a day (a restart
+        ends the wait sooner); to keep a node away for good, ban it. A ban
+        lasts until you lift it, and only you can ban: a node never bans a
+        peer for what it cost.
+      </p>
+      <p>
+        Ending a peering is not the end of the relationship. Each side's
+        books keep what was owed, and a later peering between the same two
+        nodes settles it as usual. Your node also keeps the settlement
+        channel with every node it has peered with, so a settlement that
+        arrives after the end is still counted, exactly once.
+      </p>
+      <p>
+        You can watch all of this, and end a peering or ban a node yourself,
+        on the wallet's <strong>Network</strong> page (see
+        <a href="/docs/wallet/network/">Network and peers</a>).
+      </p>
+      <p
+        class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peering-lifecycle.md">Why it works this way</a>, and how <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/ending-a-peering.md">a peering ends</a>.</p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

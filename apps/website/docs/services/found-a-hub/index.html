@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Found a settlement hub as its sponsor with dassie hub found: pick validators, set the terms, fund the escrow, and see the payouts once it ends."
+    />
+    <title>Found a hub · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Found a hub</h1>
+      <p class="lede">
+        Anyone can start a settlement hub. The node that does is its
+        <em>sponsor</em>: it picks the validators, proposes the terms, and
+        pays for the hub's account on the XRP Ledger. This page walks
+        through it with <code>dassie hub found</code>.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="before-you-start">Before you start</h2>
+      <p>
+        <a href="/docs/concepts/hubs/">Settlement hubs</a> explains what a
+        hub is for. To found one, you need:
+      </p>
+      <ul>
+        <li>
+          <strong>Your node, set up,</strong> with its XRP ledger
+          <code>xrpl-testnet-xrp</code> running and funded. The hub's
+          account on the XRP Ledger, its <em>escrow</em>, is paid for from
+          it: 2 XRP unless you say otherwise.
+          <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> shows how
+          to add it. It need not peer with anyone.
+        </li>
+        <li>
+          <strong>Four to sixteen validators,</strong> each a node on a
+          server with a hostname, whose operator has turned the validator on
+          and lists your node ID as a sponsor.
+          <a href="/docs/services/hub-validator/">Validate a settlement
+          hub</a> is the page to send them. Your own node can be one of them,
+          if it is on a server and lists itself.
+        </li>
+        <li>
+          <strong>Each validator's node ID and its host and port,</strong>
+          such as <code>v1.example.com:443</code>.
+        </li>
+      </ul>
+      <p>
+        Pick validators run by different people, in different places, who
+        keep their servers up. A hub needs most of them to agree on each
+        block; if too many are gone at once it stops, and if one is gone
+        for too long it shuts down and pays its members out.
+      </p>
+      <p>
+        The hub runs on the XRP Ledger network of your node's realm, the
+        testnet. A node of the live realm, which would found on mainnet, is
+        refused.
+      </p>
+
+      <h2 id="terms">Terms</h2>
+      <p>
+        The terms are the hub's fees, the bounds of its tables and its
+        timers. Without a file of terms, your node proposes Dassie's
+        starting terms, which are a fine place to begin. To change some,
+        write the ones that differ in a JSON file:
+      </p>
+      <figure class="file">
+        <figcaption>terms.json</figcaption>
+        <pre><code>{
+  "fees": { "operation": 10 },
+  "limits": { "accounts": 2000 },
+  "timers": { "stall": 7200000 }
+}</code></pre>
+      </figure>
+      <ul>
+        <li>
+          <strong>Fees</strong> are amounts in the smallest unit of the
+          hub's asset: drops of XRP in an XRP hub, millionths of the token
+          in a token hub. Two are not: <code>gas</code> is always in drops of
+          XRP, and <code>reserve_share_ppm</code> is a share, in parts per
+          million.
+          <code>operation</code>, <code>ledger</code>, <code>gas</code>,
+          <code>reserve_share_ppm</code>, <code>account_reserve</code>,
+          <code>hold_reserve</code>, <code>starting_balance</code>,
+          <code>least_payout</code>.
+        </li>
+        <li>
+          <strong>Limits</strong> bound the hub's tables:
+          <code>accounts</code>, <code>holds</code>,
+          <code>holds_per_account</code>, <code>withdrawals</code>,
+          <code>pending_deposits</code>, <code>recent_deposits</code>,
+          <code>block_operations</code>, <code>deadline_operations</code>,
+          <code>claimed_per_hold</code>, <code>commitments_per_claim</code>,
+          <code>vote_window</code>.
+        </li>
+        <li>
+          <strong>Timers</strong> are in milliseconds:
+          <code>hold_notice</code>, <code>shutdown_notice</code>,
+          <code>reconfigure_notice</code>, <code>absence</code>,
+          <code>stall</code>, <code>margin</code>, <code>allowance</code>.
+          <code>absence</code> is how long a validator may be gone before
+          the hub shuts down.
+        </li>
+      </ul>
+      <p>
+        A field the terms do not have is refused, so a typo never founds a
+        hub on a value nobody chose. Terms that do not add up are refused
+        too, with the reason. The starting values are in
+        <a href="https://github.com/justmoon/dassie/blob/main/crates/dassie-hub/src/founding/mod.rs"><code>crates/dassie-hub/src/founding/mod.rs</code></a>,
+        and what each one means in
+        <a href="https://github.com/justmoon/dassie/blob/main/crates/dassie-hub/src/rules.rs"><code>crates/dassie-hub/src/rules.rs</code></a>.
+      </p>
+
+      <h3 id="token-hubs">Token hubs</h3>
+      <p>
+        A hub holds XRP unless its terms name a token. On the testnet, the
+        one token a hub may hold is DSUSD, Dassie's test dollar, named by
+        its currency code in hex and its issuer:
+      </p>
+      <figure class="file">
+        <figcaption>terms.json</figcaption>
+        <pre><code>{
+  "asset": {
+    "currency": "4453555344000000000000000000000000000000",
+    "issuer": "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M"
+  }
+}</code></pre>
+      </figure>
+      <p>
+        A token hub's escrow pays the XRP Ledger's fees in XRP, never out of
+        the token. So it takes no ledger fee from its members, and instead
+        names a <code>gas</code> fee in drops of XRP, at least enough for the
+        largest set of validators it could come to have. Your XRP ledger
+        still pays for the escrow, and the escrow needs a little more XRP,
+        for its trust line to the token. Before a member's node withdraws
+        from a token hub, it checks the escrow's XRP, and tops it up from its
+        own XRP ledger when it runs low.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/token-hubs.md">Why token hubs work this way</a>
+      </p>
+
+      <h2 id="found-it">Found it</h2>
+      <p>Name every validator, each as its node ID, <code>@</code>, and its host and port:</p>
+      <pre><code><span class="prompt">$</span>dassie hub found \
+    &lt;node ID 1&gt;@v1.example.com:443 \
+    &lt;node ID 2&gt;@v2.example.com:443 \
+    &lt;node ID 3&gt;@v3.example.com:443 \
+    &lt;node ID 4&gt;@v4.example.com:443 \
+    --terms terms.json
+<span class="output">Founding the hub 9c4e…: `dassie hub foundings` shows how far it is.</span></code></pre>
+      <p>Two more options:</p>
+      <dl class="ref">
+        <dt id="escrow-funding"><code>--escrow-funding &lt;XRP&gt;</code></dt>
+        <dd>
+          <p>
+            What your node pays the escrow, in XRP, such as
+            <code>2.5</code>. It covers the escrow's reserves on the XRP
+            Ledger and the fees of the hub's own transactions. 2 XRP unless
+            you say otherwise, and never less than the reserves and setup
+            fees need: your node says how many drops that is if you ask for
+            less.
+          </p>
+        </dd>
+        <dt id="xrpl-server"><code>--xrpl &lt;url&gt;</code></dt>
+        <dd>
+          <p>
+            The XRP Ledger server to set the escrow up on. By default, the
+            server your node's XRP ledger uses.
+          </p>
+        </dd>
+      </dl>
+
+      <h2 id="watch-it">Watch it</h2>
+      <p>A founding goes through these stages, on its own:</p>
+      <ol class="steps">
+        <li>
+          <strong>Asking the validators to accept the terms.</strong> Every
+          one must accept. A validator that does not answer, or refuses, is
+          asked again after a wait that doubles, up to a minute.
+        </li>
+        <li>
+          <strong>The rules are fixed; asking for the genesis.</strong> Your
+          node fixes the rules and the time of the first block, and asks each
+          validator to sign that block.
+        </li>
+        <li>
+          <strong>The genesis is certified; starting the hub.</strong> Once
+          enough have signed, your node hands each the certificate, and they
+          start the hub.
+        </li>
+        <li>
+          <strong>The hub runs; setting up its escrow.</strong> Your node
+          pays the escrow from its XRP ledger, and sets it up so that only a
+          quorum of the validators can move what it holds.
+        </li>
+        <li>
+          <strong>Founded: the escrow is checked.</strong> Enough validators
+          have checked the escrow on the XRP Ledger, and the hub credits
+          deposits.
+        </li>
+      </ol>
+      <pre><code><span class="prompt">$</span>dassie hub foundings
+<span class="output">
+  Founding     9c4e…
+  Stage        the hub runs; setting up its escrow
+  Started      …
+  Hub          …
+  Escrow       r…, funded, being set up; 0 of 4 validators say it is checked
+  Validator    &lt;node ID 1&gt; at v1.example.com:443: accepted
+               signed the genesis
+               runs the hub
+  …
+  Rules        …</span></code></pre>
+      <p>
+        <code>dassie status</code> sums each founding up in one
+        <em>Founding</em> line. Your node keeps every founding on disk, so a
+        restart picks it up where it stopped.
+      </p>
+      <h3 id="if-it-gets-stuck">If it gets stuck</h3>
+      <ul>
+        <li>
+          <strong>A validator refused.</strong> The <em>Validator</em> line
+          says why, such as a sponsor it does not list, or no place for
+          another hub. Ask its operator, then wait: your node asks again.
+        </li>
+        <li>
+          <strong>The escrow's payment failed.</strong> The
+          <em>Problem</em> line says so. Your node never pays it twice:
+          drop the founding and found again, with more
+          <code>--escrow-funding</code> if the reserve was the problem.
+        </li>
+      </ul>
+      <p>
+        <code>dassie hub drop &lt;nonce&gt;</code> drops a founding, by the
+        ID that <code>dassie hub foundings</code> shows. Your node keeps up
+        to eight foundings, until you drop them.
+      </p>
+      <p class="not-yet">
+        Replacing a validator that refuses or fails before the hub starts,
+        and seeing foundings in the wallet, are not there yet.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+
+      <h2 id="members">Members</h2>
+      <p>
+        Once the rules are fixed, <code>dassie hub foundings</code> shows
+        them on its <em>Rules</em> line, as hex. That is what a node needs to
+        join your hub: it adds the hub's scheme,
+        <code>hub-xrpl-testnet-xrp</code> for an XRP hub or
+        <code>hub-xrpl-testnet-dsusd</code> for a DSUSD hub, with
+        <code>{"rules": "&lt;hex&gt;"}</code> as its config.
+      </p>
+      <p>
+        The wallet offers only the testnet's default hubs, which are built
+        into Dassie, so today a member adds another hub's scheme with
+        <a href="/docs/reference/cli/#dassie-setup"><code>dassie setup --scheme</code></a>,
+        after the owner book the hub is funded from:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file &lt;file&gt; \
+    --scheme xrpl-testnet-xrp \
+    --scheme 'hub-xrpl-testnet-xrp={"rules": "&lt;hex&gt;"}'</code></pre>
+      <p>
+        A DSUSD hub's member adds <code>xrpl-testnet-xrp</code> and then
+        <code>xrpl-testnet-dsusd</code> before
+        <code>hub-xrpl-testnet-dsusd</code>. Without <code>--hub none</code>,
+        setup on the testnet also joins the default XRP hub, so a member that
+        wants only your hub passes it:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file &lt;file&gt; --hub none \
+    --scheme xrpl-testnet-xrp \
+    --scheme xrpl-testnet-dsusd \
+    --scheme 'hub-xrpl-testnet-dsusd={"rules": "&lt;hex&gt;"}'</code></pre>
+      <p>
+        A node is in one hub per asset, so a node already in the testnet's
+        default XRP hub is not in yours as well. A new member needs no money
+        in your hub to start: a member with an account there pays it in.
+        <a href="/docs/reference/schemes/">Schemes and hubs</a> lists the
+        schemes.
+      </p>
+
+      <h2 id="payouts">Payouts</h2>
+      <p>
+        When a hub ends, or stalls for good, each validator signs one last
+        set of XRP Ledger transactions: the payments of every member's
+        balance out of the escrow. A member's node fetches these from the
+        validators every minute and keeps them. Once enough validators have
+        signed the same set, it puts the transactions together:
+      </p>
+      <pre><code><span class="prompt">$</span>dassie hub payout hub-xrpl-testnet-xrp
+<span class="output">  Hub          …
+  Signed       validator 1 signed the payout of block 5210, 3 transactions
+  …
+  Ready        a quorum signed the payout of block 5210: submit these to the XRP Ledger in order</span></code></pre>
+      <p>
+        Anyone can submit them, in order, to an XRP Ledger server, so
+        members are paid out even when no validator is left. The wallet's
+        Hubs page shows them too.
+      </p>
+      <p class="not-yet">
+        A node submitting the payout itself, once its hub's validators are
+        gone, is not there yet. <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/hub-founding.md">Why founding works this way</a>,
+        and <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/hubs.md#founding-a-hub">the details</a>
+        in the spec.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

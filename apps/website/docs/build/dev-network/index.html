@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Run a small network of real Dassie nodes on your own machine, settlement hubs included, and watch it on the dev dashboard."
+    />
+    <title>Local dev network · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Local dev network</h1>
+      <p class="lede">
+        One command runs a network of real Dassie nodes on your machine, sets
+        each one up as its owner would, and opens a dashboard that shows them
+        all. Use it to build against Dassie, or to work on Dassie itself,
+        without touching a public network.
+      </p>
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+      <p>
+        On the dev network, even the test money is pretend. The simple
+        scenarios run on a stub ledger that settles nothing, and the ones on
+        the XRP Ledger run on a fake XRP Ledger the dev environment builds
+        and runs on your machine.
+      </p>
+
+      <h2 id="what-you-need">What you need</h2>
+      <ul>
+        <li>Linux or macOS. On Windows, use WSL, a container or a VM.</li>
+        <li>
+          A clone of the
+          <a href="https://github.com/justmoon/dassie">repository</a>.
+        </li>
+        <li>
+          The tools at the versions the repository pins. On Linux, the
+          easiest way is <a href="https://nixos.org">Nix</a>:
+          <code>nix develop</code> in the repository gives you a shell with
+          Rust, Node, pnpm and mkcert. On macOS, or without Nix, the
+          <a href="https://github.com/justmoon/dassie/blob/main/README.md">README</a>
+          lists what to install, and
+          <a href="/docs/project/contributing/">Contributing</a> says more.
+        </li>
+      </ul>
+
+      <h2 id="starting-it">Starting it</h2>
+      <ol class="steps">
+        <li>
+          <p>Open the development shell, and install the packages:</p>
+          <pre><code><span class="prompt">$</span>nix develop
+<span class="prompt">$</span>pnpm install</code></pre>
+        </li>
+        <li>
+          <p>
+            Build the WebAssembly modules the wallet uses. Do it again when
+            you change the Rust crates they come from.
+          </p>
+          <pre><code><span class="prompt">$</span>node --run build:wasm</code></pre>
+        </li>
+        <li>
+          <p>
+            Let your browser trust the dev certificates. You do this once per
+            machine:
+          </p>
+          <pre><code><span class="prompt">$</span>mkcert -install</code></pre>
+        </li>
+        <li>
+          <p>
+            On Linux, let it listen on port 443, so every node gets a name of
+            its own in your browser. Without this, the dev server says so and
+            runs without its proxy, and you reach the pages at their own
+            ports.
+          </p>
+          <pre><code><span class="prompt">$</span>sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0</code></pre>
+        </li>
+        <li>
+          <p>Start it:</p>
+          <pre><code><span class="prompt">$</span>node --run dev
+<span class="output">Dassie//dev  Starting the development environment…
+building the node…
+building the fake XRP Ledger…
+building the wallet and the dashboard…
+
+  Dashboard: https://localhost/  &lt;- Start here
+  If the browser warns about the certificate, run `mkcert -install` once.
+  Keys: space opens the dashboard, r restarts the nodes, q quits</span></code></pre>
+          <p>
+            The first build takes a while. Later starts reuse it.
+          </p>
+        </li>
+        <li>
+          <p>
+            Press <kbd>Space</kbd> to open the dashboard, or go to
+            <code>https://localhost</code>. Without the proxy, it is at
+            <code>https://localhost:10100</code>.
+          </p>
+        </li>
+      </ol>
+      <p>
+        The first time, it runs the <code>two-nodes</code> scenario: two
+        nodes, <code>d1</code> and <code>d2</code>, that find each other and
+        peer. After that it runs whichever scenario you chose last.
+      </p>
+      <p>
+        <strong>If it does not start:</strong> it checks what it needs first
+        and prints what is missing, such as mkcert. "another dev environment
+        (PID …) runs on …: stop it first" means one is already running on the
+        same state; stop it, or
+        give this one its own with <code>--state-dir</code> and
+        <code>--port-offset</code>. A port in use often means another
+        checkout of Dassie runs its dev network or its tests.
+      </p>
+
+      <h2 id="the-dashboard">The dashboard</h2>
+      <p>
+        The dashboard shows the whole network at once. Its sidebar has three
+        pages and the list of nodes:
+      </p>
+      <ul>
+        <li>
+          <strong>Dashboard:</strong> the network as a graph, two nodes linked
+          once each lists the other as its peer, and the links light up as
+          packets cross them. Below it, every node's log in one place.
+        </li>
+        <li><strong>Logs:</strong> the logs on a page of their own.</li>
+        <li>
+          <strong>Scenarios:</strong> every scenario, with
+          <strong>Run</strong> to switch to it. On the one running,
+          <strong>Start over</strong> wipes its nodes' data and starts it
+          fresh, and <strong>Restart the nodes</strong> restarts them with
+          their data.
+        </li>
+        <li>
+          <strong>Nodes:</strong> <code>host</code> is the dev server's own
+          log. Each node opens its page with the wallet's debug views: logs,
+          nodes, ledger, routing, packets, state and database. The
+          <strong>↗</strong> next to a node opens its wallet, signed in.
+          <strong>+</strong> adds a node to the scenario.
+        </li>
+      </ul>
+      <p>
+        A node that does not start, or stops on its own, shows as failed, with
+        the end of its output.
+      </p>
+
+      <h2 id="a-first-payment">A first payment</h2>
+      <p>In the <code>two-nodes</code> scenario:</p>
+      <ol class="steps">
+        <li>
+          <p>
+            Open <code>d1</code>'s wallet with its <strong>↗</strong>. It has a
+            stub ledger with 100 test dollars on it.
+          </p>
+        </li>
+        <li>
+          <p>
+            Choose <strong>Send</strong>, enter <code>d2</code>'s wallet
+            address, <code>$d2.localhost:5002</code>, and choose
+            <strong>Continue</strong>. Enter an amount, choose
+            <strong>Review</strong>, then <strong>Send</strong>.
+          </p>
+        </li>
+        <li>
+          <p>
+            Watch the link between <code>d1</code> and <code>d2</code> light
+            up on the dashboard. The payment shows in <code>d1</code>'s
+            activity, and the money in <code>d2</code>'s wallet.
+          </p>
+        </li>
+      </ol>
+      <p>
+        From your own code, the same nodes take a BTP client and STREAM. The
+        dev network's certificates come from mkcert's local CA, so tell your
+        client to trust it: its file is in the directory
+        <code>mkcert -CAROOT</code> prints. See
+        <a href="/docs/build/btp/">Connect an ILP client over BTP</a> and
+        <a href="/docs/build/stream/">STREAM on Dassie</a>.
+      </p>
+
+      <h2 id="scenarios">Scenarios, with hubs</h2>
+      <p>
+        A scenario says how many nodes run, which ledgers each one uses, and
+        which of them validate or join a settlement hub. Pick one on the
+        dashboard's Scenarios page, or start with one:
+      </p>
+      <pre><code><span class="prompt">$</span>node --run dev -- --scenario hub</code></pre>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Scenario</th>
+              <th>What runs</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>two-nodes</code></td>
+              <td>Two nodes on the stub with unlimited trust, which never settles. The default.</td>
+            </tr>
+            <tr>
+              <td><code>six-nodes</code></td>
+              <td>Six such nodes, so payments cross several hops.</td>
+            </tr>
+            <tr>
+              <td><code>one-node</code></td>
+              <td>One node on the stub, with no peers.</td>
+            </tr>
+            <tr>
+              <td><code>hub</code></td>
+              <td>Four nodes, <code>d1</code> to <code>d4</code>, found a settlement hub on the fake XRP Ledger and validate it. Two members, <code>d5</code> and <code>d6</code>, fund their accounts in it from their own XRP and peer over it alone.</td>
+            </tr>
+            <tr>
+              <td><code>two-hubs</code></td>
+              <td>The same four validators found an XRP hub and a DSUSD hub. One member joins each alone, and two join both and convert between them, so a payment crosses from one hub to the other.</td>
+            </tr>
+            <tr>
+              <td><code>cross-currency</code></td>
+              <td>A node with dollars on the stub, a node with XRP in a hub, and a node with both that converts between them.</td>
+            </tr>
+            <tr>
+              <td><code>dsusd-owner-book</code></td>
+              <td>One node holding test DSUSD in its owner book, beside a DSUSD pool on the fake ledger.</td>
+            </tr>
+            <tr>
+              <td><code>market-maker</code></td>
+              <td>An XRP hub and a DSUSD hub beside an XRP/DSUSD pool, a core node in both, and a market maker's node without a domain name, pinned to it and in both hubs too, for <code>dassie market-maker</code> to trade from.</td>
+            </tr>
+            <tr>
+              <td><code>market-maker-two-targets</code></td>
+              <td>The same with two core nodes, which peer with each other, and the market maker's node pinned to both, for a market maker that trades through several.</td>
+            </tr>
+            <tr>
+              <td><code>peer-swaps</code></td>
+              <td>The two core nodes in both hubs, alone, which swap with each other once their holdings are skewed apart.</td>
+            </tr>
+            <tr>
+              <td><code>live-owner-books</code>, <code>live-hub</code></td>
+              <td>Nodes in the live realm, on the fake ledger's pretend mainnet, with XRP and RLUSD in owner books, and in hubs for <code>live-hub</code>.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The dev network does not start <code>dassie market-maker</code>
+        itself. To watch it trade, run it with a config for the market
+        maker's node. <a href="/docs/services/market-maker/">Run a market maker</a>
+        describes the config, and
+        <a href="https://github.com/justmoon/dassie/blob/main/tests/e2e/market_maker.ts"><code>tests/e2e/market_maker.ts</code></a>
+        writes one for these scenarios.
+      </p>
+      <p>
+        The live scenarios hold no real money. Their nodes enter the live
+        realm through a dev switch that only a debug build honors, and settle
+        only on the fake ledger. A released node refuses the live realm.
+      </p>
+      <p>
+        <strong>Every scenario with a hub, and both live scenarios, start
+        from scratch on every run,</strong> a restart too. The fake ledger is
+        a new chain each time. A hub's escrow cannot move to a new chain, so
+        the scenario founds a new hub, and a live scenario runs on a new fake
+        mainnet, which never resets. The other scenarios keep their data
+        across restarts, until you pick another scenario or start over.
+      </p>
+      <p>
+        Peers in the dev network settle only over hubs, as everywhere in
+        Dassie. Each scenario also serves its own fixed exchange rates, so no
+        run depends on an outside rate service.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/dev.md#scenarios">How each scenario is set up</a>
+      </p>
+
+      <h2 id="talking-to-a-node">Talking to a node</h2>
+      <p>
+        Each node is the real <code>dassie</code> binary, with its own data,
+        IPC socket and ports, at <code>https://dN.localhost</code> through the
+        proxy. A node without a domain name, such as a market maker's, answers
+        its owner only at <code>localhost</code>, so the dashboard opens its
+        wallet at <code>https://localhost:</code> and its own HTTPS port. Run
+        the <code>dassie</code> command against any node with:
+      </p>
+      <pre><code><span class="prompt">$</span>node --run cli -- d1 status</code></pre>
+      <p>
+        For a dev network started with <code>--state-dir</code>, set
+        <code>DASSIE_DEV_STATE_DIR</code> to the same directory first.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Port</th>
+              <th>What</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>443</td>
+              <td>The proxy: the dashboard at <code>localhost</code>, and each node at <code>dN.localhost</code></td>
+            </tr>
+            <tr>
+              <td>10100</td>
+              <td>The dashboard, directly</td>
+            </tr>
+            <tr>
+              <td>4000 + N</td>
+              <td>Node <code>dN</code>'s HTTP</td>
+            </tr>
+            <tr>
+              <td>5000 + N</td>
+              <td>Node <code>dN</code>'s HTTPS, and its QUIC endpoint on UDP</td>
+            </tr>
+            <tr>
+              <td>6000 + N</td>
+              <td>Node <code>dN</code>'s answers to requests for its snapshot, on UDP</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <code>--port-offset</code> moves every one of them by the same
+        amount. Everything listens on loopback only: the dev nodes' keys come
+        from a table in the repository, so anyone could act as them.
+      </p>
+
+      <h2 id="changing-the-code">Changing the code</h2>
+      <p>
+        The dev network rebuilds what you change while it runs:
+      </p>
+      <ul>
+        <li>
+          <strong>Rust or the RPC contract</strong> (<code>crates/</code>,
+          <code>proto/</code>): it rebuilds the node and restarts every node,
+          with its data except in the scenarios that start from scratch. If
+          the build fails, the dashboard shows the error and
+          the nodes keep running the last build.
+        </li>
+        <li>
+          <strong>The wallet and the dashboard</strong> are watch builds in
+          development mode. Reload the page to see your change; the nodes
+          serve the wallet from that build.
+        </li>
+      </ul>
+
+      <h2 id="flags">Flags</h2>
+      <p>Pass them after <code>--</code>, as in <code>node --run dev -- --no-proxy</code>.</p>
+      <dl class="ref">
+        <dt id="flag-scenario"><code>--scenario &lt;id&gt;</code></dt>
+        <dd>
+          <p>Run this scenario instead of the one chosen last.</p>
+        </dd>
+        <dt id="flag-dassie"><code>--dassie &lt;path&gt;</code></dt>
+        <dd>
+          <p>
+            Run this binary, without building or watching the node. The
+            scenarios on the XRP Ledger then use the fake ledger built last,
+            if there is one.
+          </p>
+        </dd>
+        <dt id="flag-no-watch"><code>--no-watch</code></dt>
+        <dd>
+          <p>Build the wallet and the dashboard once, and watch nothing.</p>
+        </dd>
+        <dt id="flag-no-proxy"><code>--no-proxy</code></dt>
+        <dd>
+          <p>Run without the proxy on port 443.</p>
+        </dd>
+        <dt id="flag-headless"><code>--headless</code></dt>
+        <dd>
+          <p>No keys and no hints, for scripts and tests.</p>
+        </dd>
+        <dt id="flag-port-offset"><code>--port-offset &lt;n&gt;</code></dt>
+        <dd>
+          <p>Move every port by <code>n</code>, from 0 to 40000.</p>
+        </dd>
+        <dt id="flag-state-dir"><code>--state-dir &lt;dir&gt;</code></dt>
+        <dd>
+          <p>
+            Keep the state there instead of <code>local/dev/</code> in the
+            repository. <code>DASSIE_DEV_STATE_DIR</code> does the same.
+          </p>
+        </dd>
+      </dl>
+
+      <h2 id="stopping">Stopping and starting over</h2>
+      <p>
+        Press <kbd>q</kbd> or <kbd>Ctrl</kbd>+<kbd>C</kbd> to stop the dev
+        network and every node; press it twice to quit at once. The nodes'
+        data stays in <code>local/dev/</code>, and the next start resumes
+        where you left off. To begin again from nothing, use
+        <strong>Start over</strong> on the dashboard's Scenarios page. If a
+        run crashed, the next start stops whatever it left behind.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

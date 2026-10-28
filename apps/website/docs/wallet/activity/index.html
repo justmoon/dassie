@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Read your balances, the payments coming in and going out, and what your node holds on the XRP Ledger and in its hubs."
+    />
+    <title>Activity and assets · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Activity and assets</h1>
+      <p class="lede">
+        Three places in the wallet tell you where your money is: the
+        Dashboard, Activity and Assets. This page shows you how to read each,
+        and what is still on its way.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="balances">Your balances</h2>
+      <p>
+        The <strong>Dashboard</strong> is the first page after you log in. Its
+        Balance card lists each of your ledgers by name, such as
+        <em>XRP Ledger Testnet</em> or
+        <em>XRP in a settlement hub on the XRP Ledger Testnet</em>, with what
+        you hold on it, in its own currency. The numbers update as payments
+        move.
+      </p>
+      <ul>
+        <li>
+          <strong>In flight.</strong> A small figure in brackets, such as
+          <em>(XRP 0.25 in flight)</em>, is the part of that balance that
+          payments under way hold right now. It is still yours until those
+          payments finish, usually within seconds.
+        </li>
+        <li>
+          <strong>In all.</strong> Below the list, the wallet adds your
+          ledgers up in one currency. You choose that currency in
+          <a href="/docs/wallet/rates/">Exchange-rate settings</a>. The total
+          shows only while every rate it needs is fresh: with one missing or
+          stale, there is no total rather than a wrong one.
+        </li>
+      </ul>
+      <p>
+        Amounts are exact. The wallet cuts digits it does not show and never
+        rounds up, so a balance never looks larger than it is. Each amount
+        shows its currency first, then two decimals, then up to two more
+        muted ones.
+      </p>
+      <p>
+        <strong>Ledgers</strong> shows each ledger in more detail: the same
+        balance, and below it what the account on the underlying ledger
+        holds, less what that ledger holds back as a reserve. The two differ
+        while settlements are on their way, and by what you owe peers or
+        they owe you. <a href="/docs/wallet/ledgers/">Add and fund a ledger</a>
+        explains that page.
+      </p>
+      <aside class="note">
+        <p>
+          A balance can go below zero if the underlying ledger lost money,
+          for example when a token's issuer takes some back. Your node stops
+          spending on that ledger until it is above zero again.
+        </p>
+      </aside>
+
+      <h2 id="activity">Payments in and out</h2>
+      <p>
+        Open <strong>Activity</strong> in the top menu. It has two lists,
+        newest first, each with the last 100 payments.
+      </p>
+      <h3>Incoming payments</h3>
+      <p>
+        Each incoming payment is a request to be paid: one you made under
+        <a href="/docs/wallet/receive/">Receive</a>, or one an app or another
+        wallet made through Open Payments to pay you. Each row shows:
+      </p>
+      <ul>
+        <li>
+          what it is for, if whoever made it said so, else
+          <em>Incoming payment</em>;
+        </li>
+        <li>
+          what has arrived, and of how much, if it asked for a set amount,
+          such as <em>$ 4.20 of $ 10.00</em>;
+        </li>
+        <li>
+          who requested it: <em>You</em>, an app by its address, or
+          <em>A client known by its key</em>; and when.
+        </li>
+      </ul>
+      <p>Its badge says where it stands:</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Badge</th>
+              <th>Means</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>open</code></td>
+              <td>It still takes money.</td>
+            </tr>
+            <tr>
+              <td><code>completed</code></td>
+              <td>It takes no more: it was paid in full, or someone completed it.</td>
+            </tr>
+            <tr>
+              <td><code>expired</code></td>
+              <td>Its time ran out. What arrived before stays yours.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        An open payment has a <strong>Complete</strong> button. Use it when
+        you have what you need, say a payer sent less than you asked and you
+        are fine with that. It takes no more money after that, whatever it
+        asked for.
+      </p>
+      <h3>Outgoing payments</h3>
+      <p>
+        Outgoing payments are the ones you sent with
+        <a href="/docs/wallet/send/">Send</a>, and the ones apps you approved
+        sent for you (see <a href="/docs/wallet/grants/">Connect apps</a>).
+        Each row shows who it went to, what it has sent of the most it may
+        take from you, such as <em>$ 9.80 of $ 10.00</em>, and who sent it.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Badge</th>
+              <th>Means</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>sending</code></td>
+              <td>It is still under way.</td>
+            </tr>
+            <tr>
+              <td><code>completed</code></td>
+              <td>It delivered what it was meant to.</td>
+            </tr>
+            <tr>
+              <td><code>failed</code></td>
+              <td>It stopped. The row says why, in plain words.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Select the recipient to open the payment's own page. It follows the
+        payment live until it completes or fails, and shows what the receiver
+        gets, when it started and when it finished.
+      </p>
+      <p>
+        If a list says <em>Reconnecting</em> or <em>Not available</em>, the
+        wallet has lost its live view of your node, and shows that rather than
+        old numbers as current. It reconnects by itself.
+      </p>
+
+      <h2 id="assets">What your node holds outside its books</h2>
+      <p>
+        Your balances are your node's books. The money behind them sits in
+        accounts outside it: your account on the XRP Ledger testnet, and your
+        account in each settlement hub you are in. Open
+        <strong>Assets</strong> in the top menu to see them, on a page called
+        External Assets.
+      </p>
+      <p>
+        Each card is one account. The XRP Ledger account is called
+        <em>XRP Ledger Testnet account</em>. A hub account shows under the
+        ID of the scheme over it, such as <code>hub-xrpl-testnet-xrp</code>.
+        Each card shows:
+      </p>
+      <ul>
+        <li>
+          its address, where it has one, as text and as a QR code: where
+          you send money to fund it;
+        </li>
+        <li>
+          what it holds of each asset, as the ledger last said, never added up
+          from the books: XRP, and each token on a trust line, with its
+          issuer;
+        </li>
+        <li>the reserve the ledger holds back, which is never spent;</li>
+        <li>
+          a red notice if a token's issuer froze your line or the whole
+          token, and what that stops;
+        </li>
+        <li>
+          which of your ledgers settle through it, each a link to its
+          Receive tab.
+        </li>
+      </ul>
+      <p>
+        The testnet account also has a <strong>Get test XRP</strong> button,
+        which asks the testnet faucet for free test XRP, once a minute at
+        most. If the card says the account does not exist yet, send it XRP
+        or wait for the faucet.
+      </p>
+      <p>
+        For your hub accounts in detail (balance, holds toward peers,
+        deposits and withdrawals) use the
+        <a href="/docs/wallet/hubs/">Hubs</a> page.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/external-assets.md">Why it works this way</a>:
+        holdings as the ledger reports them, never as the books add them up.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

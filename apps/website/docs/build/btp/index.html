@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Connect an ILP client to a node with an API key, learn its address through ILDCP, and keep its spending capped."
+    />
+    <title>Connect an ILP client over BTP · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Connect an ILP client over BTP</h1>
+      <p class="lede">
+        Interledger software such as <code>ilp-plugin-btp</code> and
+        <code>ilp-protocol-stream</code> can use a Dassie node as its parent.
+        This page gets your client an API key, connects it, and shows what
+        the node lets it do.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> A client with an API key spends the
+          owner's money on the key's ledger, and nobody approves each payment.
+          Give every key a spending cap, and keep its URL as secret as a
+          password: the token is in it.
+        </p>
+      </aside>
+
+      <h2 id="make-an-api-key">Make an API key</h2>
+      <p>The owner makes keys in the node's wallet.</p>
+      <ol class="steps">
+        <li>
+          <p>
+            Open <strong>Settings</strong>, and find the
+            <strong>API Keys</strong> card.
+          </p>
+        </li>
+        <li>
+          <p>
+            Under <strong>Create BTP Token</strong>, give the key a label, so
+            that you know it again, up to 64 bytes.
+          </p>
+        </li>
+        <li>
+          <p>
+            Pick its <strong>Ledger</strong>. The client pays and is paid in
+            that ledger's asset, and its packets never change ledger. On the
+            testnet, pick the ledger of a settlement hub, such as
+            <code>hub-xrpl-testnet-xrp+xrp</code>: nodes pay each other over
+            hubs, so only a hub's ledger reaches other nodes.
+          </p>
+        </li>
+        <li>
+          <p>
+            Set a <strong>Spending cap</strong>: an amount per hour, per day
+            or per week. Leave it empty for no limit.
+          </p>
+        </li>
+        <li>
+          <p>
+            Press <strong>Create BTP Token</strong>, and copy the URL. The
+            wallet shows the token once: the node keeps only its hash.
+          </p>
+        </li>
+      </ol>
+      <p>The URL looks like this:</p>
+      <pre><code>btp+wss://:&lt;token&gt;@node.example.com/btp</code></pre>
+      <p>
+        On a node whose HTTPS port is not 443, the port follows the host. A
+        node without a hostname, such as the desktop app, names
+        <code>localhost</code> and its port, for a client on the same
+        computer. BTP is served only on the node's own HTTPS port: a front
+        door never passes it on.
+      </p>
+      <p>
+        A node keeps up to 64 keys. The owner can change a key's cap, or
+        revoke it, on the same card at any time.
+        <a href="/docs/wallet/api-keys/">API keys</a> shows the owner's side.
+      </p>
+
+      <h2 id="connect">Connect</h2>
+      <p>Install the client libraries:</p>
+      <pre><code><span class="prompt">$</span>npm install ilp-plugin-btp ilp-protocol-ildcp ilp-protocol-stream ws</code></pre>
+      <p>
+        Pass the URL in an environment variable, so that it stays out of your
+        code, and connect:
+      </p>
+      <figure class="file">
+        <figcaption>client.mjs</figcaption>
+        <pre><code>import BtpPlugin from "ilp-plugin-btp";
+import ILDCP from "ilp-protocol-ildcp";
+
+const plugin = new BtpPlugin({ server: process.env.BTP_URL });
+await plugin.connect();
+
+const { clientAddress, assetCode, assetScale } = await ILDCP.fetch((data) =&gt;
+  plugin.sendData(data)
+);
+console.log(clientAddress, assetCode, assetScale);</code></pre>
+      </figure>
+      <pre><code><span class="prompt">$</span>BTP_URL='btp+wss://:&lt;token&gt;@node.example.com/btp' node client.mjs
+<span class="output">test.das.hauavng4okp6d55tghlsiqvnn6j5v6mpmktgnfq.k3x9qa XRP 9</span></code></pre>
+      <p>
+        The plugin sends the token in BTP's <code>auth</code> message. The
+        node expects it within ten seconds of the WebSocket opening.
+      </p>
+
+      <h3 id="self-signed">A node on its own certificate</h3>
+      <p>
+        A node without a hostname, such as the desktop app, serves a
+        certificate it made itself, for <code>localhost</code>. A server
+        node serves one too, for its domain name, until Let's Encrypt has given it one
+        (<a href="/docs/node/certificates/">Certificates</a>). No certificate
+        authority vouches for it, and the plugin checks certificates, so the
+        snippet above fails the TLS handshake. Fetch the node's certificate
+        once, with the host and port of the BTP URL, over a network you
+        trust; the port is 443 when the URL names none. For the desktop app
+        the host is <code>localhost</code>:
+      </p>
+      <pre><code><span class="prompt">$</span>openssl s_client -connect &lt;host&gt;:&lt;port&gt; -servername &lt;host&gt; &lt;/dev/null | openssl x509 &gt; node.pem</code></pre>
+      <p>
+        Then hand the plugin a WebSocket that trusts exactly that
+        certificate. It comes from the <code>ws</code> package, which the
+        plugin uses too:
+      </p>
+      <figure class="file">
+        <figcaption>client.mjs</figcaption>
+        <pre><code>import { readFileSync } from "node:fs";
+import BtpPlugin from "ilp-plugin-btp";
+import WebSocket from "ws";
+
+const ca = readFileSync("node.pem", "utf8");
+class TrustingWebSocket extends WebSocket {
+  constructor(url) {
+    super(url, { ca });
+  }
+}
+
+const plugin = new BtpPlugin(
+  { server: process.env.BTP_URL },
+  { WebSocket: TrustingWebSocket },
+);
+await plugin.connect();</code></pre>
+      </figure>
+      <p>
+        The node keeps that certificate across restarts. It makes a new one
+        only when it nears its end or when the node's names change; fetch it
+        again then.
+      </p>
+
+      <h2 id="your-address">The address ILDCP gives you</h2>
+      <p>
+        ILDCP answers with an address below the node's own,
+        <code>test.das.&lt;node ID&gt;</code> on the testnet, with a segment
+        of six random letters and digits for this connection. Each
+        connection gets a new one, so do not hand it out as a lasting
+        address. Packets sent to it reach your client while it is connected;
+        when it goes away, the packets on their way to it fail.
+      </p>
+      <p>
+        A node without a hostname, such as the desktop app, is a periphery
+        node: it has no route of its own, and other nodes reach it beneath
+        one of its uplinks. So they reach your client at
+        <code>&lt;uplink's address&gt;.&lt;node ID&gt;.&lt;segment&gt;</code>,
+        not at the address ILDCP gives. Sending works the same either way.
+      </p>
+      <p>
+        The asset is the key's ledger's: its code, and a scale of 9. XRP and
+        the testnet's dollar both count in billionths.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/owner-ledger.md">Why it works this way</a>:
+        why each endpoint gets its own ledger's asset.
+      </p>
+
+      <h2 id="pay-with-stream">Pay with STREAM</h2>
+      <p>
+        With the plugin connected, any STREAM sender can pay. Here it pays an
+        incoming payment's credentials, the <code>ilpAddress</code> and
+        <code>sharedSecret</code> from its <code>methods</code>
+        (<a href="/docs/build/open-payments/#ask-to-be-paid">how to get them</a>):
+      </p>
+      <pre><code>import { createConnection } from "ilp-protocol-stream";
+
+const connection = await createConnection({
+  plugin,
+  destinationAccount: method.ilpAddress,
+  sharedSecret: Buffer.from(method.sharedSecret, "base64url"),
+});
+const stream = connection.createStream();
+await stream.sendTotal(500_000_000);
+await connection.end();
+await plugin.disconnect();</code></pre>
+      <p>
+        <code>createConnection</code> asks ILDCP for your address itself.
+        Disconnect the plugin when you are done: otherwise it reconnects on
+        its own. <a href="/docs/build/stream/">STREAM on Dassie</a> says more
+        about the STREAM side.
+      </p>
+
+      <h2 id="what-your-client-may-do">What your client may do</h2>
+      <ul>
+        <li>
+          <strong>Money moves only in ILP packets.</strong> A BTP
+          <code>Transfer</code> is refused with an error that says so.
+        </li>
+        <li>
+          <strong>It spends from the owner's funds</strong> on the key's
+          ledger. Each key has an account of its own under them, which only
+          records what went through it. A packet the owner's funds cannot
+          cover gets <code>T04</code>.
+        </li>
+        <li>
+          <strong>Its packets never change ledger.</strong> The node sends
+          them only to next hops it shares the key's ledger with. A
+          destination with no such route gets <code>F02</code>.
+        </li>
+        <li>
+          <strong>No packet may carry more than the node's largest
+          packet,</strong> 0.1 of a unit, such as 0.1 XRP. A larger one gets
+          <code>F08</code>, with the most that would pass, and STREAM splits
+          what it sends to fit.
+        </li>
+      </ul>
+
+      <h3>The spending cap</h3>
+      <p>
+        A cap allows at most an amount per window, and refills continuously,
+        not all at once when the window ends. Over any stretch of time, a key
+        spends at most the amount, plus the amount again for each window that
+        passes.
+      </p>
+      <ul>
+        <li>
+          Only money that leaves the owner's funds counts. Paying the node's
+          own wallet, or another key's client on the same node, does not.
+        </li>
+        <li>
+          Every connection made with one key shares its cap, and packets in
+          flight count as if they arrived.
+        </li>
+        <li>
+          A packet the cap has no room for now gets <code>T04</code>, which
+          STREAM waits out and tries again. A packet larger than the whole cap
+          gets <code>F08</code>.
+        </li>
+      </ul>
+      <p>
+        <a href="/docs/build/errors/">Error codes</a> says what to do about
+        each code.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/connector.md#spending-caps">Why it works this way</a>
+      </p>
+
+      <h2 id="when-it-does-not-connect">When it does not connect</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>What you see</th>
+              <th>Why</th>
+              <th>What to do</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                The WebSocket closes with <code>authentication failed</code>
+              </td>
+              <td>The token is wrong, or the owner revoked it.</td>
+              <td>Ask the owner for a new key.</td>
+            </tr>
+            <tr>
+              <td>HTTP <code>429</code>, <code>Too many failed attempts</code></td>
+              <td>
+                Your address failed to log in too often. Only failures count,
+                so a client may reconnect as often as it needs.
+              </td>
+              <td>Wait a while, and use the right token.</td>
+            </tr>
+            <tr>
+              <td>
+                The WebSocket closes with
+                <code>the token's ledger does not run</code>
+              </td>
+              <td>
+                The owner turned off the scheme of the key's ledger. The key
+                works again once it runs.
+              </td>
+              <td>Ask the owner.</td>
+            </tr>
+            <tr>
+              <td>HTTP <code>503</code>, <code>Too many BTP clients</code></td>
+              <td>The node holds as many BTP connections as it takes.</td>
+              <td>Try again later.</td>
+            </tr>
+            <tr>
+              <td>
+                HTTP <code>503</code>, <code>The ledger is not running</code>
+              </td>
+              <td>The node is not set up, or is starting.</td>
+              <td>Try again in a moment.</td>
+            </tr>
+            <tr>
+              <td>
+                The WebSocket closes with <code>no authentication</code>
+              </td>
+              <td>The client sent no token within ten seconds.</td>
+              <td>
+                Check that the URL has the token before the
+                <code>@</code>.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        When the owner revokes a key, its connections close, and from that
+        moment they take no new packets.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/areas/connector.md#the-btp-server">Why it works this way</a>
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>
