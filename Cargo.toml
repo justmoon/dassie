@@ -62,6 +62,15 @@ unreachable = "deny"
 [profile.dev]
 overflow-checks = true
 
+# The dependencies compile at opt-level 3 here too, so in the binaries dev
+# and the end-to-end tests run (`e2e` inherits it), as in CI's (nix/rust):
+# unoptimized, a hub member's engine spends nearly all its time checking
+# the validators' signatures, and every packet waits behind it, which made a
+# swap between two nodes take a second rather than tens of milliseconds.
+# The workspace's own crates stay unoptimized, with their checks.
+[profile.dev.package."*"]
+opt-level = 3
+
 # Crypto, property tests and simulations are unbearably slow unoptimized,
 # so the dependencies, where crypto and SQLite are, compile at opt-level 3.
 # The workspace's own crates compile at 1, as CI's do (nix/rust): the tests
