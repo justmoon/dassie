@@ -72,6 +72,7 @@ Every queue, stream and socket is bounded ([tigerstyle](../decisions/tigerstyle.
 
 - **A lost connection fails the calls in flight** with `UNAVAILABLE`; they are not sent again, since a call may have changed the node. The client reconnects with a jittered backoff, and calls made meanwhile wait for the connection.
 - **Cancelling** a call (an `AbortSignal`, or its timeout) sends `Cancel`, so the node stops working on it too.
+- **A call that waits on the network** says how long in its `.proto`, as `SwapWithPeer`, a swap the owner asks of a peer, does; its caller gives it a timeout to match, since the client's default is for calls the node answers at once.
 - **`SESSION_ENDED`** calls `onSessionEnded`.
 
 ## Decisions
