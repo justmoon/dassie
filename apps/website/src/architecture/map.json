@@ -1823,6 +1823,18 @@
   ],
   "releases": [
     {
+      "version": "0.3.1",
+      "date": "2026-10-28",
+      "changes": [
+        "Settlement hubs run a new version of their protocol, which a hub's validators move it to with a vote. In it, a peer that rejects a packet signs a release with its Reject, and can no longer take the packet's money from the hub after rejecting it: the payer disputes such a claim with the release, and a claim waits a minute before it pays. The testnet's two hubs move to it a day after their validators vote, so update every node in them before then: a node still on 0.3.0 stops following the hubs once they move.",
+        "A validator votes to move its hubs only where its owner names the version in its validator config, as `hubVersion`, and `dassie status` shows each hub's version and when a move takes effect.",
+        "The owner sees one balance per asset, in the wallet and in `dassie status`, and Send pays in an asset. The hub account is the node's to manage, like a hold: deposits go to the owner's own XRP Ledger account, and a payment over a hub that needs more than the hub holds has the node deposit the rest first. The setting for where received money is kept is gone.",
+        "Peers top up each other's holds sooner: a node asks a peer to settle as soon as its room runs low, and a peer that could not pay at once pays as soon as it can.",
+        "Every node works out which nodes are in the core from the signed data the network shares, and the wallet's Network page shows whether yours is.",
+        "A node without a hostname is reached through the `dassiepay.net` relay again with no configuration, and dassie.land has a docs section for running and using Dassie."
+      ]
+    },
+    {
       "version": "0.3.0",
       "date": "2026-10-28",
       "changes": [
