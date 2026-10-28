@@ -402,6 +402,16 @@ Environment=DASSIE_LOG=info,dassie::peer=debug</code></pre>
             </p>
           </aside>
         </dd>
+        <dt id="DASSIE_DEV_CORE_NODES"><code>DASSIE_DEV_CORE_NODES</code></dt>
+        <dd>
+          <p>
+            Dev only. Node IDs, separated by commas, that a dev network
+            counts as core nodes from the start, without the time it takes
+            to be promoted. Every node of the network is given the same list.
+            Only a build with debug assertions takes it. A release refuses to
+            start with it set. Default: none.
+          </p>
+        </dd>
         <dt id="DASSIE_DEV_WALLET_DIR"><code>DASSIE_DEV_WALLET_DIR</code></dt>
         <dd>
           <p>
