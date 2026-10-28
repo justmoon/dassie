@@ -49,7 +49,7 @@ pub fn xrpl_config(server: &dassie_node::fake_ledger::Server) -> String {
 }
 
 pub fn key(seed: u8) -> IdentityKey {
-    IdentityKey::from_bytes(&[seed; 32])
+    dassie_identity::TableKeygen::identity_key(&[seed; 32])
 }
 
 /// `DASSIE_BOOTSTRAP_NODES` naming `node` at `port`.

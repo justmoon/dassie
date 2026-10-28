@@ -62,27 +62,11 @@ unreachable = "deny"
 [profile.dev]
 overflow-checks = true
 
-# The node's SLH-DSA key takes most of a second to generate unoptimized,
-# which every debug node, the end-to-end tests' and the dev network's,
-# does at its start (spec/decisions/post-quantum-node-id.md). Its code is
-# `slh-dsa`'s generics, compiled where dassie-identity instantiates them,
-# so that crate is optimized too; nix/rust/default.nix does the same.
-[profile.dev.package.dassie-identity]
-opt-level = 3
-
-[profile.dev.package.slh-dsa]
-opt-level = 3
-
-[profile.dev.package.sha2]
-opt-level = 3
-
 # Crypto, property tests and simulations are unbearably slow unoptimized,
 # so the dependencies, where crypto and SQLite are, compile at opt-level 3.
 # The workspace's own crates compile at 1, as CI's do (nix/rust): the tests
 # run as fast as at 3 and their first build takes a third less time; at 0
-# they ran four times as long. dassie-identity stays at 3, through dev's
-# override above, which a named package keeps over `"*"` and this level.
-# Line tables keep file:line in backtraces.
+# they ran four times as long. Line tables keep file:line in backtraces.
 [profile.test]
 opt-level = 1
 debug = "line-tables-only"

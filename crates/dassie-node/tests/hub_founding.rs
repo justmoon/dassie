@@ -204,7 +204,7 @@ impl Net {
         .unwrap();
         let clock = ManualClock::new(START_MS);
         xrpl.close_on(std::sync::Arc::new(clock.clone()));
-        let sponsor_key = IdentityKey::from_bytes(&[70; 32]);
+        let sponsor_key = dassie_identity::TableKeygen::identity_key(&[70; 32]);
         let files = tempfile::tempdir().unwrap();
         let file = validator_file(
             files.path(),
@@ -217,7 +217,7 @@ impl Net {
         validator_env.push(("DASSIE_VALIDATOR_CONFIG", file.as_str()));
         let mut validators = Vec::new();
         let keys: Vec<IdentityKey> = (71..=74)
-            .map(|seed| IdentityKey::from_bytes(&[seed; 32]))
+            .map(|seed| dassie_identity::TableKeygen::identity_key(&[seed; 32]))
             .collect();
         for (key, seed) in keys.iter().zip(71_u64..) {
             let node = Bound::new()
@@ -642,7 +642,7 @@ async fn a_live_realm_sponsor_founds_hubs_on_mainnet() {
     use dassie_hub::rules::Asset;
 
     let net = Net::start_on(&MAINNET, |_| {}).await;
-    let sponsor_key = IdentityKey::from_bytes(&[70; 32]);
+    let sponsor_key = dassie_identity::TableKeygen::identity_key(&[70; 32]);
     let entropy = sponsor_key.xrpl_account_entropy(MAINNET.id, 0);
     let mainnet_account = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account();
     let funded = net.xrpl.ledger().balance(mainnet_account).unwrap();
@@ -763,7 +763,7 @@ async fn found_as(
     use dassie_oer::Encode;
     let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     let (identity, receiver) = tokio::sync::watch::channel(Some(std::sync::Arc::new(
-        IdentityKey::from_bytes(key.as_bytes()),
+        dassie_identity::TableKeygen::identity_key(key.as_bytes()),
     )));
     let quic = std::sync::Arc::new(dassie_node::quic::Quic::new(socket, receiver, true).unwrap());
     tokio::spawn(std::sync::Arc::clone(&quic).serve(std::sync::Arc::new(Dialer), shutdown.clone()));
@@ -792,8 +792,8 @@ async fn a_strangers_founding_stream_is_reset_unread() {
 
     let shutdown = tokio_util::sync::CancellationToken::new();
     let clock = ManualClock::new(START_MS);
-    let sponsor = IdentityKey::from_bytes(&[80; 32]);
-    let stranger = IdentityKey::from_bytes(&[81; 32]);
+    let sponsor = dassie_identity::TableKeygen::identity_key(&[80; 32]);
+    let stranger = dassie_identity::TableKeygen::identity_key(&[81; 32]);
     let files = tempfile::tempdir().unwrap();
     let file = validator_file(files.path(), &sponsor, (&TESTNET, "ws://127.0.0.1:1"), None);
     let env = [
@@ -806,8 +806,8 @@ async fn a_strangers_founding_stream_is_reset_unread() {
         ("DASSIE_VALIDATOR_CONFIG", file.as_str()),
     ];
     let (validator_key, plain_key) = (
-        IdentityKey::from_bytes(&[82; 32]),
-        IdentityKey::from_bytes(&[83; 32]),
+        dassie_identity::TableKeygen::identity_key(&[82; 32]),
+        dassie_identity::TableKeygen::identity_key(&[83; 32]),
     );
     let validator = Bound::new()
         .start(clock.clone(), 82, Policies::DEV, &validator_env)
@@ -980,7 +980,8 @@ async fn a_cancelled_funding_is_paid_again() {
         panic!("no account");
     };
     let sequence = api::account_info_result(&result).unwrap().sequence;
-    let entropy = IdentityKey::from_bytes(&[70; 32]).xrpl_account_entropy(TESTNET.id, 0);
+    let entropy =
+        dassie_identity::TableKeygen::identity_key(&[70; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let wallet = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes());
     assert_eq!(wallet.account(), sponsor);
     let other = Payment {

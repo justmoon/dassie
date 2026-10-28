@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn reads_hosts_at_the_default_front_door() {
-        let id = IdentityKey::from_bytes(&[3; 32]).node_id();
+        let id = dassie_identity::TableKeygen::identity_key(&[3; 32]).node_id();
         let alice = Name::parse("alice").unwrap();
         for (url, host) in [
             (
@@ -746,9 +746,9 @@ mod tests {
     #[test]
     fn takes_only_the_signers_answer_to_this_request() {
         const URL: &str = "https://alice.dassiepay.net/.well-known/pay";
-        let key = IdentityKey::from_bytes(&[4; 32]);
+        let key = dassie_identity::TableKeygen::identity_key(&[4; 32]);
         let id = key.node_id();
-        let other = IdentityKey::from_bytes(&[5; 32]).node_id();
+        let other = dassie_identity::TableKeygen::identity_key(&[5; 32]).node_id();
         let body = br#"{"id":"https://alice.dassiepay.net/.well-known/pay"}"#;
         let signed = answer(&key, URL, "n1", body);
         let get = http::Method::GET;

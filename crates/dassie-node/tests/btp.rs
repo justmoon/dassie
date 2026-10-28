@@ -31,7 +31,7 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 const PAYMENT: u64 = 250_000_000;
 
 fn key() -> IdentityKey {
-    IdentityKey::from_bytes(&[9; 32])
+    dassie_identity::TableKeygen::identity_key(&[9; 32])
 }
 
 /// Sets the node up and waits for its ledger, then activates the stub.

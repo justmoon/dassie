@@ -131,7 +131,7 @@ fn side_with(
     idle: Option<Duration>,
     shutdown: &CancellationToken,
 ) -> Side {
-    let key = Arc::new(IdentityKey::from_bytes(&[seed; 32]));
+    let key = Arc::new(dassie_identity::TableKeygen::identity_key(&[seed; 32]));
     let id = key.node_id();
     let (identity, receiver) = watch::channel(Some(key));
     let mut quic = Quic::new(socket, receiver, true).unwrap();
@@ -330,7 +330,7 @@ async fn a_relay_refuses_a_node_it_holds_no_connection_to() {
         .open_relayed(relay.relay(), destination.id, Purpose::Payments, &client())
         .await;
     assert_eq!(result.err(), Some(RelayError::UnknownDestination));
-    let nobody = IdentityKey::from_bytes(&[9; 32]).node_id();
+    let nobody = dassie_identity::TableKeygen::identity_key(&[9; 32]).node_id();
     let result = from
         .quic
         .open_relayed(relay.relay(), nobody, Purpose::Payments, &client())
@@ -500,7 +500,7 @@ async fn a_node_does_not_choose_itself_as_its_relay() {
 async fn a_relay_out_of_reach_reads_as_unreachable_once_its_dials_slow_down() {
     let shutdown = CancellationToken::new();
     let node = side(1, &shutdown);
-    let relay = IdentityKey::from_bytes(&[2; 32]).node_id();
+    let relay = dassie_identity::TableKeygen::identity_key(&[2; 32]).node_id();
     // An IPv6 address, which an endpoint on IPv4 cannot reach: each dial
     // fails at once.
     tokio::spawn(Arc::clone(&node.quic).keep_relay(
@@ -523,14 +523,14 @@ async fn a_relay_out_of_reach_reads_as_unreachable_once_its_dials_slow_down() {
 async fn a_relay_out_of_reach_is_not_backed_off_from_for_peer_requests() {
     let shutdown = CancellationToken::new();
     let from = side(1, &shutdown);
-    let relay = IdentityKey::from_bytes(&[2; 32]).node_id();
+    let relay = dassie_identity::TableKeygen::identity_key(&[2; 32]).node_id();
     // An IPv6 address, which an endpoint on IPv4 cannot reach: the dial
     // fails at once.
     let result = from
         .quic
         .open_relayed(
             (relay, &Endpoint::parse("[::1]:9").unwrap()),
-            IdentityKey::from_bytes(&[3; 32]).node_id(),
+            dassie_identity::TableKeygen::identity_key(&[3; 32]).node_id(),
             Purpose::Payments,
             &client(),
         )
@@ -550,7 +550,9 @@ async fn a_client_must_reach_the_node_it_asked_for() {
     // fails the client's TLS: here, the destination swaps its key.
     destination
         .identity
-        .send_replace(Some(Arc::new(IdentityKey::from_bytes(&[4; 32]))));
+        .send_replace(Some(Arc::new(dassie_identity::TableKeygen::identity_key(
+            &[4; 32],
+        ))));
     let result = from
         .quic
         .open_relayed(relay.relay(), destination.id, Purpose::Payments, &client())
@@ -675,7 +677,7 @@ fn signed_by(
 async fn a_relayed_payments_stream_serves_only_open_payments() {
     let shutdown = CancellationToken::new();
     let (relay, from) = (side(1, &shutdown), side(3, &shutdown));
-    let key = IdentityKey::from_bytes(&[31; 32]);
+    let key = dassie_identity::TableKeygen::identity_key(&[31; 32]);
     let entry = support::pair::bootstrap(&relay_key(1), 0)
         .trim_start_matches('[')
         .trim_end_matches(']')
@@ -739,7 +741,7 @@ async fn a_relayed_payments_stream_serves_only_open_payments() {
 }
 
 fn relay_key(seed: u8) -> IdentityKey {
-    IdentityKey::from_bytes(&[seed; 32])
+    dassie_identity::TableKeygen::identity_key(&[seed; 32])
 }
 
 /// A request to `to` as to a periphery node: without a URL.

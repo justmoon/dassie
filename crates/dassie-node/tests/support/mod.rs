@@ -361,7 +361,8 @@ impl Bound {
         let (node_out, node_handed) = tokio::sync::oneshot::channel();
         let mut prepared = Prepared::from_parts(settings, store, (http, https), ipc, quic)
             .handing_out(hand_out)
-            .handing_out_node(node_out);
+            .handing_out_node(node_out)
+            .with_keygen(Arc::new(dassie_identity::TableKeygen));
         if with_feed {
             prepared = prepared.with_feed(feed);
         }

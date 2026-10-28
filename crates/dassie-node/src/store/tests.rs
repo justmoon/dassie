@@ -789,8 +789,8 @@ fn each_hubs_funding_is_kept_on_its_own() {
 #[test]
 fn a_channel_stored_with_the_mark_of_an_end_for_room_loads_without_it() {
     let temp = tempfile::tempdir().unwrap();
-    let open = dassie_identity::IdentityKey::from_bytes(&[10; 32]);
-    let closed = dassie_identity::IdentityKey::from_bytes(&[11; 32]);
+    let open = dassie_identity::TableKeygen::identity_key(&[10; 32]);
+    let closed = dassie_identity::TableKeygen::identity_key(&[11; 32]);
     {
         let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
         schema::prepare(&mut connection, &schema::MIGRATIONS[..3]).unwrap();

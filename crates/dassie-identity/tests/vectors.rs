@@ -18,9 +18,9 @@ mod support;
 use std::collections::BTreeMap;
 
 use dassie_identity::{
-    Created, Error, HubKey, NodeId, NodeIdentity, NodeKey, NodeSecret, Phrase, PhraseSecret,
-    Positions, PublicKey, QuicEndpoint, Reading, Realm, Segment, Signature, SlhDsaPublicKey,
-    SlhDsaSeed,
+    Created, Error, Fips205Keygen, HubKey, NodeId, NodeIdentity, NodeKey, NodeSecret, Phrase,
+    PhraseSecret, Positions, PublicKey, QuicEndpoint, Reading, Realm, Segment, Signature,
+    SlhDsaPublicKey, SlhDsaSeed,
 };
 use serde_json::Value;
 use support::{hex, hex_array, str_field, to_hex, vectors};
@@ -93,7 +93,7 @@ fn derivation_chain() {
         assert_eq!(to_hex(node_key.as_bytes()), str_field(entry, "nodeKey"));
         let public_key = node_key.public_key();
         assert_eq!(to_hex(public_key.as_bytes()), str_field(entry, "publicKey"));
-        let identity = node_key.identity();
+        let identity = node_key.identity(&Fips205Keygen);
         assert_eq!(
             to_hex(identity.slh_dsa().as_bytes()),
             str_field(entry, "slhDsaPublicKey")
@@ -412,7 +412,7 @@ fn every_path_below_the_node_key() {
     );
     // The SLH-DSA key of the seeds at its paths.
     assert_eq!(
-        to_hex(key.slh_dsa_public_key().as_bytes()),
+        to_hex(key.slh_dsa_public_key(&Fips205Keygen).as_bytes()),
         str_field(&vectors, "slhDsaPublicKey")
     );
 }
@@ -445,9 +445,9 @@ fn keys() {
         let public_key = key.public_key();
         assert_eq!(to_hex(public_key.as_bytes()), str_field(entry, "publicKey"));
         let slh_dsa: [u8; 32] = hex_array(str_field(entry, "slhDsaPublicKey"));
-        assert_eq!(key.slh_dsa_public_key().as_bytes(), &slh_dsa);
+        assert_eq!(key.slh_dsa_public_key(&Fips205Keygen).as_bytes(), &slh_dsa);
         assert_eq!(
-            key.identity().node_id().as_str(),
+            key.identity(&Fips205Keygen).node_id().as_str(),
             str_field(entry, "nodeId")
         );
         let id = NodeId::from_keys(public_key.as_bytes(), &slh_dsa);

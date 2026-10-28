@@ -138,8 +138,8 @@ mod tests {
 
     #[test]
     fn an_acceptance_verifies() {
-        let node = IdentityKey::from_bytes(&[1; 32]);
-        let terms = terms(crate::rules::tests::node_key(9));
+        let node = dassie_identity::TableKeygen::identity_key(&[1; 32]);
+        let terms = terms(&crate::rules::tests::node_key(9));
         let keys = ValidatorKeys::derive(&node, terms.network, &terms.nonce).unwrap();
         let acceptance = keys.accept(&node, &terms, "v1.example:443".into()).unwrap();
         assert!(acceptance.verifies(&terms.digest(), &terms.nonce));

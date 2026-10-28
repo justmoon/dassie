@@ -11,7 +11,7 @@
     clippy::panic
 )]
 
-use dassie_identity::{IdentityKey, NodeId};
+use dassie_identity::NodeId;
 use dassie_kit::sim::SeededRng;
 use dassie_peer::sim::{Faults, Network, SECOND, START, STUB, StubHooks, key, scheme};
 use dassie_peer::wire::{
@@ -522,7 +522,7 @@ fn a_late_acceptance_answers_no_later_request() {
 // it how it peers.
 #[test]
 fn a_scheme_offered_again_is_one_method() {
-    let mallory = IdentityKey::from_bytes(&[91; 32]);
+    let mallory = dassie_identity::TableKeygen::identity_key(&[91; 32]);
     let offer = |scheme| SettlementOffer {
         scheme,
         details: &[],

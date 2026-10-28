@@ -68,7 +68,7 @@ pub async fn start_with(policies: Policies) -> (TestNode, IdentityKey) {
 
 /// As [`start`], with the node key made from `seed`: for a second node.
 pub async fn start_keyed(policies: Policies, seed: u8) -> (TestNode, IdentityKey) {
-    let key = IdentityKey::from_bytes(&[seed; 32]);
+    let key = dassie_identity::TableKeygen::identity_key(&[seed; 32]);
     let env = [
         ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
@@ -97,7 +97,7 @@ pub async fn start_keyed(policies: Policies, seed: u8) -> (TestNode, IdentityKey
 /// stub ledger, and `names` added to its default one: an Open Payments
 /// server that clients reach through front doors.
 pub async fn start_unnamed(seed: u8, names: &str) -> (TestNode, IdentityKey) {
-    let key = IdentityKey::from_bytes(&[seed; 32]);
+    let key = dassie_identity::TableKeygen::identity_key(&[seed; 32]);
     let env = [
         ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),

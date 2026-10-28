@@ -626,7 +626,7 @@ mod tests {
     fn a_hub_no_scheme_joins_is_not_founded() {
         use dassie_hub::rules::Asset;
 
-        let key = dassie_identity::IdentityKey::from_bytes(&[3; 32]);
+        let key = dassie_identity::TableKeygen::identity_key(&[3; 32]);
         let terms = |network: &dassie_xrpl::network::Network, asset| {
             let mut terms =
                 dassie_hub::founding::starting_terms([1; 32], key.identity(), network.id, [2; 20]);

@@ -1,6 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
-use dassie_identity::IdentityKey;
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
     Channel, Closed, Method, Outgoing, PeerBatch, Peering, Registration, Sources, StoredChannel,
@@ -250,7 +249,7 @@ fn terminations_channels_and_bans_round_trip() {
         by_us: true,
         acknowledged: false,
     });
-    let key = IdentityKey::from_bytes(&[3; 32]);
+    let key = dassie_identity::TableKeygen::identity_key(&[3; 32]);
     let channel = StoredChannel {
         node: key.node_id(),
         channel: Channel {
@@ -316,7 +315,7 @@ fn terminations_channels_and_bans_round_trip() {
 #[test]
 fn a_closed_channel_stays_on_disk() {
     let store = Store::open_in_memory().unwrap();
-    let key = IdentityKey::from_bytes(&[4; 32]);
+    let key = dassie_identity::TableKeygen::identity_key(&[4; 32]);
     let open = StoredChannel {
         node: key.node_id(),
         channel: Channel {
@@ -393,7 +392,7 @@ fn closing_a_channel_without_its_row_is_refused() {
     let batch = LedgerBatch {
         peer: PeerBatch {
             closed: vec![StoredClosed {
-                node: IdentityKey::from_bytes(&[5; 32]).node_id(),
+                node: dassie_identity::TableKeygen::identity_key(&[5; 32]).node_id(),
                 closed: Closed::NEW,
             }],
             ..PeerBatch::default()
@@ -426,7 +425,7 @@ fn logged(seed: u8, position: u64, unsealed: bool) -> dassie_peer::names::Logged
 fn granted(name: &str, freed_ms: Option<u64>) -> dassie_peer::names::Granted {
     dassie_peer::names::Granted {
         name: dassie_peer::names::Name::parse(name).unwrap(),
-        holder: IdentityKey::from_bytes(&[9; 32]).node_id(),
+        holder: dassie_identity::TableKeygen::identity_key(&[9; 32]).node_id(),
         granted_ms: 3_000,
         expires_ms: 4_000,
         freed_ms,

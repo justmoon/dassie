@@ -951,7 +951,7 @@ mod tests {
     #[test]
     fn a_sender_holds_only_its_share_of_members_places() {
         let hubs = Hubs::default();
-        let key = |seed| Sender(dassie_identity::IdentityKey::from_bytes(&[seed; 32]).identity());
+        let key = |seed| Sender(dassie_identity::TableKeygen::identity_key(&[seed; 32]).identity());
         let share = MAX_MEMBER_REQUESTS_PER_SENDER as usize;
         let one = key(1);
         let held: Vec<HubPermit> = (0..share)
@@ -1024,12 +1024,12 @@ mod tests {
         let key = dassie_identity::NodeKey::from_bytes(&[1; 32]).public_key();
         let request = dassie_hub::client::Request::Account(key);
         let message = dassie_oer::Encode::to_vec(&Message::Request(request));
-        let from = Sender(dassie_identity::IdentityKey::from_bytes(&[3; 32]).identity());
+        let from = Sender(dassie_identity::TableKeygen::identity_key(&[3; 32]).identity());
         let unknown = hubs.answer(from, &encode_request(&hub, &message)).await;
         assert_eq!(unknown, HubAnswer::UnknownHub);
         let (members, mut queue) = mpsc::channel(1);
         let (validators, mut theirs) = mpsc::channel(1);
-        let co_key = dassie_identity::IdentityKey::from_bytes(&[2; 32]).identity();
+        let co_key = dassie_identity::TableKeygen::identity_key(&[2; 32]).identity();
         let co_validator = co_key.node_id();
         let route = Route {
             validators,
@@ -1069,8 +1069,8 @@ mod tests {
             boundaries: &[],
         };
         store.save_hub_step(hub.0.as_bytes(), 1, step).unwrap();
-        let co = dassie_identity::IdentityKey::from_bytes(&[2; 32]).identity();
-        let stranger = dassie_identity::IdentityKey::from_bytes(&[3; 32]).identity();
+        let co = dassie_identity::TableKeygen::identity_key(&[2; 32]).identity();
+        let stranger = dassie_identity::TableKeygen::identity_key(&[3; 32]).identity();
         let request = encode_state_request(&hub, 5);
         let ask = |from, request: Vec<u8>| {
             let (hubs, store) = (&hubs, Arc::clone(&store));

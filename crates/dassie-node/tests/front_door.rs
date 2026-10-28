@@ -175,7 +175,7 @@ impl Door {
         let dir = tempfile::tempdir().unwrap();
         let (certificate, roots) = wildcard(dir.path());
         let address = https.local_addr().unwrap();
-        let door_key = IdentityKey::from_bytes(&[90; 32]);
+        let door_key = dassie_identity::TableKeygen::identity_key(&[90; 32]);
         let id = door_key.node_id();
         let entry = key::relay_entry(&door_key, &url);
         let parts = Parts {
@@ -354,7 +354,7 @@ fn name_of(id: &NodeId) -> String {
 /// A node without a hostname that names `door` as its relay, with the
 /// stub ledger.
 async fn node_behind(door: &Door, seed: u8) -> (TestNode, IdentityKey) {
-    let key = IdentityKey::from_bytes(&[seed; 32]);
+    let key = dassie_identity::TableKeygen::identity_key(&[seed; 32]);
     let env = [
         ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
@@ -678,7 +678,7 @@ async fn the_front_door_serves_only_its_names_and_open_payments() {
         StatusCode::NOT_FOUND
     );
     // Names under the domain that are no node's label find nothing.
-    let other = IdentityKey::from_bytes(&[63; 32]).node_id();
+    let other = dassie_identity::TableKeygen::identity_key(&[63; 32]).node_id();
     let deeper = format!("x.{name}");
     // Their roots show no page either.
     for (host, path) in hosts_and_paths(&["nope.dassiepay.net", DOMAIN, deeper.as_str()]) {
@@ -800,7 +800,7 @@ async fn the_root_of_a_name_is_a_page_the_front_door_writes() {
     );
     assert!(reply.body.is_empty());
     // A node that never connected has its page too, which says so.
-    let other = IdentityKey::from_bytes(&[69; 32]).node_id();
+    let other = dassie_identity::TableKeygen::identity_key(&[69; 32]).node_id();
     page_of(&door.get(&name_of(&other), "/").await, &other, false);
     // And so does one that stopped, once the front door has seen it go.
     node.stop().await;
@@ -1239,7 +1239,7 @@ async fn misbehave(
 async fn the_front_door_passes_back_only_json_without_cookies() {
     let shutdown = CancellationToken::new();
     let door = Door::start(&shutdown).await;
-    let key = Arc::new(IdentityKey::from_bytes(&[65; 32]));
+    let key = Arc::new(dassie_identity::TableKeygen::identity_key(&[65; 32]));
     let id = key.node_id();
     let (_identity, keys) = watch::channel(Some(key));
     let quic = Arc::new(Quic::new(UdpSocket::bind("127.0.0.1:0").unwrap(), keys, true).unwrap());
@@ -1328,7 +1328,9 @@ async fn the_front_door_passes_back_only_json_without_cookies() {
     }
     // The front door carries no relay requests: it is no node's relay but
     // its own.
-    let (_other, other_keys) = watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[66; 32]))));
+    let (_other, other_keys) = watch::channel(Some(Arc::new(
+        dassie_identity::TableKeygen::identity_key(&[66; 32]),
+    )));
     let client =
         Arc::new(Quic::new(UdpSocket::bind("127.0.0.1:0").unwrap(), other_keys, true).unwrap());
     tokio::spawn(Arc::clone(&client).serve(Arc::new(Misbehaving::default()), shutdown.clone()));

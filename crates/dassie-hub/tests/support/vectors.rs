@@ -37,7 +37,7 @@ pub fn hex(bytes: &[u8]) -> String {
 
 /// The node key of the seed `byte` repeated, with its identity.
 fn key(byte: u8) -> IdentityKey {
-    IdentityKey::from_bytes(&[byte; 32])
+    dassie_identity::TableKeygen::identity_key(&[byte; 32])
 }
 
 /// The key of the account a deposit opens: the node key of the seed 0 to

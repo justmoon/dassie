@@ -34,7 +34,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::{self, Message};
 
 fn key() -> IdentityKey {
-    IdentityKey::from_bytes(&[7; 32])
+    dassie_identity::TableKeygen::identity_key(&[7; 32])
 }
 
 /// The close code the socket gets next, skipping other messages. What

@@ -16,7 +16,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 |---|---|
 | `crates/dassie-oer` | [Encoding](areas/encoding.md) |
 | `crates/dassie-base64url` | [Encoding](areas/encoding.md#base64url), [Identity](areas/identity.md), [STREAM](areas/stream.md) |
-| `crates/dassie-identity` | [Identity](areas/identity.md) |
+| `crates/dassie-identity` | [Identity](areas/identity.md), `src/test_keys.rs` [Testing](areas/testing.md#slh-dsa-keys-in-tests) |
 | `crates/dassie-ilp` | [ILP](areas/ilp.md) |
 | `crates/dassie-stream` | [STREAM](areas/stream.md) |
 | `crates/dassie-ledger` | [Ledger](areas/ledger.md) |

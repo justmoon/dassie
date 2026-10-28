@@ -90,10 +90,11 @@ fn endpoint(
     handler: Option<Arc<dyn Handler>>,
     shutdown: &CancellationToken,
 ) -> (Arc<Quic>, IdentityKey, String) {
-    let key = IdentityKey::from_bytes(&[seed; 32]);
+    let key = dassie_identity::TableKeygen::identity_key(&[seed; 32]);
     // The endpoint keeps the last key its sender held.
-    let (_identity, receiver) =
-        watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[seed; 32]))));
+    let (_identity, receiver) = watch::channel(Some(Arc::new(
+        dassie_identity::TableKeygen::identity_key(&[seed; 32]),
+    )));
     let quic =
         Arc::new(Quic::new(UdpSocket::bind("127.0.0.1:0").unwrap(), receiver, true).unwrap());
     let url = format!("https://{}", quic.local_addr().unwrap());
@@ -124,7 +125,7 @@ async fn node_with(policies: Policies, env: &[(&str, &str)]) -> (TestNode, NodeI
     let node = Bound::new()
         .start(ManualClock::new(START_MS), 5, policies, env)
         .await;
-    let key = IdentityKey::from_bytes(&[50; 32]);
+    let key = dassie_identity::TableKeygen::identity_key(&[50; 32]);
     set_up(&node, &key).await;
     (node, key.node_id())
 }
@@ -404,7 +405,11 @@ async fn only_the_owner_on_this_machine_starts_a_pairing() {
         ),
         ErrorCode::FailedPrecondition
     );
-    let cookie = set_up(&node, &IdentityKey::from_bytes(&[50; 32])).await;
+    let cookie = set_up(
+        &node,
+        &dassie_identity::TableKeygen::identity_key(&[50; 32]),
+    )
+    .await;
     // A browser on loopback may; the tests have no other address to come
     // from, so the rule for others is the handlers' unit test.
     let socket = websocket(&node, Some(&cookie), &node.origin())

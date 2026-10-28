@@ -113,7 +113,7 @@ mod tests {
 
     #[test]
     fn a_key_reads_as_seed_pem_or_der() {
-        let key = IdentityKey::from_bytes(&[7; 32]);
+        let key = dassie_identity::TableKeygen::identity_key(&[7; 32]);
         let der = key.to_pkcs8_der();
         let pem = format!(
             "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn the_relay_entry_is_one_a_node_takes() {
-        let key = IdentityKey::from_bytes(&[8; 32]);
+        let key = dassie_identity::TableKeygen::identity_key(&[8; 32]);
         let entry = relay_entry(&key, "https://relay.dassiepay.net");
         let env = Env::from_pairs([
             ("DASSIE_STATE_DIRECTORY", "/tmp/unused"),

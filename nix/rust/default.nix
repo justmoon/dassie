@@ -115,19 +115,13 @@ let
   # test's failure name `crates/<name>/src/...`, as the simulation
   # campaign's failure signatures do; buildRustCrate compiles from the
   # crate's directory, and the paths are remapped to Cargo's.
-  # dassie-identity is the one member optimized fully: the node's SLH-DSA
-  # key generation is `slh-dsa`'s generic code, which is compiled where it
-  # is instantiated, in dassie-identity, and takes most of a second at
-  # opt-level 1 (spec/decisions/post-quantum-node-id.md), as Cargo's dev
-  # profile says too.
-  optimizedMembers = [ "dassie-identity" ];
   memberFlags = name: crate: {
     codegenUnits = 16;
     extraRustcOpts =
       (crate.extraRustcOpts or [ ])
       ++ [
         "-C"
-        "opt-level=${if lib.elem name optimizedMembers then "3" else "1"}"
+        "opt-level=1"
       ]
       ++ map (dir: "--remap-path-prefix=${dir}=crates/${name}/${dir}") [
         "src"

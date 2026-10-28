@@ -175,7 +175,7 @@ mod tests {
         }
         rules.terms.asset = asset;
         let terms = rules.terms.clone();
-        let keys: Vec<&IdentityKey> = (1..=4).map(crate::rules::tests::node_key).collect();
+        let keys: Vec<IdentityKey> = (1..=4).map(crate::rules::tests::node_key).collect();
         for (acceptance, key) in rules.validators.iter_mut().zip(&keys) {
             *acceptance = acceptance.clone().sign(key, &terms);
         }

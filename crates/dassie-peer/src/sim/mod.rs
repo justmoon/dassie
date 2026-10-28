@@ -225,7 +225,10 @@ pub fn key(index: usize) -> Arc<IdentityKey> {
     static KEYS: [std::sync::OnceLock<Arc<IdentityKey>>; 255] =
         [const { std::sync::OnceLock::new() }; 255];
     let seed = u8::try_from(index + 1).unwrap();
-    Arc::clone(KEYS[index].get_or_init(|| Arc::new(IdentityKey::from_bytes(&[seed; 32]))))
+    Arc::clone(
+        KEYS[index]
+            .get_or_init(|| Arc::new(dassie_identity::TableKeygen::identity_key(&[seed; 32]))),
+    )
 }
 
 /// Node `index`'s URL.
@@ -270,7 +273,9 @@ impl Arriving {
 /// (spec/areas/peer-protocol.md#authentication).
 pub fn forger() -> Arc<IdentityKey> {
     static FORGER: std::sync::OnceLock<Arc<IdentityKey>> = std::sync::OnceLock::new();
-    Arc::clone(FORGER.get_or_init(|| Arc::new(IdentityKey::from_bytes(&[0xf0; 32]))))
+    Arc::clone(
+        FORGER.get_or_init(|| Arc::new(dassie_identity::TableKeygen::identity_key(&[0xf0; 32]))),
+    )
 }
 
 /// Whether a request of `kind` may be taken from anyone, a node it holds

@@ -114,7 +114,7 @@ proptest! {
         let mut network = Network::new(1, 2, 1, Config::DEV);
         settle(&mut network, 30_000);
         prop_assert!(network.node(0).peering_of(&key(1).node_id()).is_some());
-        let stranger = Arc::new(IdentityKey::from_bytes(&[90; 32]));
+        let stranger = Arc::new(dassie_identity::TableKeygen::identity_key(&[90; 32]));
         let senders = [
             Sender::new(key(1), url(1)),
             Sender::new(stranger, "https://stranger.test".to_owned()),
