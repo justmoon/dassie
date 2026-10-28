@@ -964,6 +964,9 @@ pub struct Sim {
     /// Differences between a node's books and its ledger that no reserve
     /// explains (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
     pub unexplained: Vec<String>,
+    /// Each peer's settlement message a node refused, which the peer sends
+    /// again until it is taken (spec/areas/settlement.md#incoming-settlements).
+    pub settlements_refused: Vec<String>,
     /// The peer protocol's settings.
     peer: dassie_peer::Config,
     /// Each withdrawal of a peer short of room.
@@ -1128,6 +1131,7 @@ impl Sim {
             lying: BTreeMap::new(),
             proofs_seen: BTreeMap::new(),
             unexplained: Vec::new(),
+            settlements_refused: Vec::new(),
             peer,
             withdrawn: Vec::new(),
             latency_ms: (1, 200),
@@ -1765,6 +1769,13 @@ impl Sim {
                 by: index,
                 peer: *peer,
             });
+        }
+        if matches!(
+            event,
+            Event::Settlement(SettlementEvent::PeerSettlementRefused { .. })
+        ) {
+            self.settlements_refused
+                .push(format!("{} node {index}: {event:?}", self.now));
         }
         if let Event::Settlement(SettlementEvent::Reconciled {
             cause: dassie_settlement::ReconcileCause::Unexplained,

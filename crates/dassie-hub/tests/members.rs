@@ -841,6 +841,22 @@ impl World {
         for effect in effects {
             member.books.apply(effect);
         }
+        // Its message is a bare notice, which the payee takes and books
+        // nothing on: the hub says what arrived
+        // (spec/areas/settlement.md#settlement-hubs).
+        assert!(prepared.message.is_empty(), "a bare notice carries no data");
+        let name_a = self.members[a].name;
+        let payee = &mut self.members[b];
+        let state = payee.peer_states[&name_a].clone();
+        let mut effects = Vec::new();
+        payee.scheme.handle_settlement(
+            name_a,
+            prepared.amount,
+            &prepared.message,
+            &state,
+            &mut effects,
+        )?;
+        assert!(effects.is_empty(), "the notice booked {effects:?}");
         self.heard(a);
         Ok(prepared.id)
     }

@@ -384,6 +384,8 @@ pub enum SettlementEvent {
     PeerSettlementRefused {
         /// The peer.
         from: NodeId,
+        /// The scheme it named.
+        scheme: dassie_peer::wire::SchemeId,
         /// Why.
         error: EngineError,
     },

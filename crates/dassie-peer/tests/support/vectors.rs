@@ -67,7 +67,8 @@ pub const RESERVED: [usize; 2] = [5, 12];
 /// Every message of the protocol, by name: one of each kind, as the
 /// never-panics properties send them, carrying [`link_state`]; and a
 /// `methodPacket` on a method not over a hub, with no commitment, beside
-/// the one over a hub.
+/// the one over a hub; and a `settlement` over a hub, a bare notice with no
+/// data, beside the stub's.
 #[must_use]
 pub fn messages() -> BTreeMap<String, Vec<u8>> {
     let state = link_state();
@@ -85,6 +86,15 @@ pub fn messages() -> BTreeMap<String, Vec<u8>> {
         commitment: &[],
     };
     messages.insert("methodPacketWithoutCommitment".to_owned(), without.to_vec());
+    // Over a hub, a settlement message is a bare notice, with no data
+    // (spec/areas/settlement.md#settlement-hubs).
+    let notice = Content::Settlement {
+        scheme: SchemeId::parse("hub-stub").unwrap(),
+        amount: 1_000,
+        data: &[],
+        sequence: 2,
+    };
+    messages.insert("settlementOverHub".to_owned(), notice.to_vec());
     messages
 }
 

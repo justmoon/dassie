@@ -152,9 +152,8 @@ pub struct PreparedSettlement {
     /// underlying ledger cannot represent. The node books this.
     pub amount: u64,
     /// The proof or claim to send the peer with the settlement message:
-    /// for a scheme whose messages are bare notices
-    /// ([`SettlementScheme::books_messages`]), empty or only what that
-    /// scheme reads in one.
+    /// empty for a scheme whose messages are bare notices
+    /// ([`SettlementScheme::books_messages`]), as the node asserts.
     pub message: Vec<u8>,
 }
 
@@ -601,9 +600,10 @@ pub trait SettlementScheme: Send {
     /// Whether a `settlement` message on this scheme books what it states.
     /// The stub's does. A scheme whose ledger says what arrived, as a
     /// hub's, sends a bare notice instead, which only moves the settlement
-    /// channel on, with no data or only what the scheme itself reads: the
-    /// node neither checks nor books the amount a peer's states, so the
-    /// amount the node states in its own only says what is on its way. The
+    /// channel on, with no data, and takes a peer's whatever it states or
+    /// carries: the node neither checks nor books the amount a peer's
+    /// states, so the amount the node states in its own only says what is
+    /// on its way. The
     /// node posts such a settlement as the scheme finalizes it, and only
     /// its notice waits for the channel; one whose message books goes
     /// with its message, in one batch.
