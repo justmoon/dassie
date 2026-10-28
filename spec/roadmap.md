@@ -36,8 +36,7 @@ Hubs that hold an issued token: DSUSD on the XRP Ledger testnet, RLUSD on mainne
 
 - **What is left:**
   - a payer's hold reduction pending at a freeze, in `node-hub-dsusd`: the `hub` simulation shows that such a reduction falls due only after the thaw, but no member's node runs one there yet. It waits for a decision on how a payer's node books a reduction of its hold that it did not make itself;
-  - a least gas that also covers the reserve of the escrow's signer list and trust line, which the payout set's change of signer list needs, so that an escrow a member topped up only to the least gas can still pay out (`LEAST_ESCROW_GAS_DROPS`, [In the node](areas/hubs.md#in-the-node)). Its amount waits for a decision;
-  - the operator's steps on the testnet: once the least gas is decided, boot1–4 found the DSUSD hub and its genesis is built in (`member::DEFAULT_TESTNET_DSUSD_HUB`); then, once a release builds in the testnet's default hubs, the market maker's VM starts again from a fresh node database ([Market maker VM](areas/market-maker-vm.md)), as below.
+  - the operator's steps on the testnet: boot1–4 found the DSUSD hub and its genesis is built in (`member::DEFAULT_TESTNET_DSUSD_HUB`); then, once a release builds in the testnet's default hubs, the market maker's VM starts again from a fresh node database ([Market maker VM](areas/market-maker-vm.md)), as below.
 - RLUSD's hub comes with [Mainnet hubs](#mainnet-hubs).
 - **Done when:** in a `node-hub-dsusd` simulation, members lose nothing they had not redeemed when a reduction was pending at a freeze; and on the testnet, nodes peered over the DSUSD hub pay each other, and a payment crosses from the XRP hub to the DSUSD hub.
 

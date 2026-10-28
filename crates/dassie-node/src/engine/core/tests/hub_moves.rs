@@ -299,7 +299,7 @@ fn a_frozen_token_hub_moves_nothing_until_the_thaw() {
 }
 
 /// Brings the escrow of `hub` on `ledger` into being, then low: its fees
-/// burnt what it held above 0.6 XRP, short of the least gas by 0.4 XRP.
+/// burnt what it held above 1.6 XRP, short of the least gas by 0.4 XRP.
 fn low_escrow(ledger: &mut FakeLedger, hub: &Hub) -> u64 {
     use dassie_hub::member::LEAST_ESCROW_GAS_DROPS;
 
@@ -345,6 +345,15 @@ fn withdraws_once_the_escrow_has_its_gas(
     };
     assert!(refused >= 1, "refused until the top-up applied");
     assert_eq!(ledger.balance(escrow), Some(LEAST_ESCROW_GAS_DROPS));
+    // The top-up leaves the escrow the reserve of its account and of the
+    // two objects it owns, its signer list and its trust line, and more
+    // for fees, so the payout set's change of signer list, which needs the
+    // reserve met, goes through (spec/decisions/token-hubs.md).
+    let reserve = dassie_xrpl::fake::RESERVE_BASE + 2 * dassie_xrpl::fake::RESERVE_INC;
+    assert!(
+        ledger.balance(escrow).unwrap() > reserve,
+        "the least gas covers the escrow's reserve"
+    );
     // The shortfall, from the XRP book's account, tagged with the node's
     // account in the hub, as the escrow reads an XRP payment.
     let paid: Vec<_> = super::deposits(ledger, escrow)

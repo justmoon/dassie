@@ -13,11 +13,10 @@
 //! the least the hub's crate fixes, as the fees of a long life would bring
 //! it, and a member's withdrawal first tops it up from its XRP book, and
 //! goes only once that applied. Then someone sends the escrow XRP, as
-//! anyone may: it is gas, and credits no account. The run keeps that gift
-//! for the payout at its end: the least gas does not cover the reserve of
-//! the escrow's signer list and trust line, which the payout set's change
-//! of signer list needs, so an escrow topped up only to it could not pay
-//! out (spec/roadmap.md#token-hubs).
+//! anyone may: it is gas, and credits no account. The gift is too small to
+//! matter: the payout at the run's end, whose change of signer list needs
+//! the reserve of the escrow's signer list and trust line, is paid from
+//! what the members' top-ups to the least gas left the escrow.
 //!
 //! Before the escrow's XRP falls, the issuer holds the escrow, a moment
 //! into a round of payments, by a seed's draw: it freezes the escrow's
@@ -108,8 +107,9 @@ const SETTLED_WITHIN_MS: u64 =
 /// book to apply first; and the check's first backoff once if one failed.
 const GAS_WITHIN_MS: u64 = 5 * 60_000;
 
-/// What someone sends the escrow, in drops: gas, never a deposit.
-const GIFT_DROPS: u64 = 5_000_000;
+/// What someone sends the escrow, in drops: gas, never a deposit, and too
+/// little for the payout at the run's end to need it.
+const GIFT_DROPS: u64 = 1_000;
 
 /// The owner's withdrawal once the escrow's XRP fell, as the ledger stood
 /// when the node took it.
@@ -258,10 +258,6 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
     freeze(sim, rng, setup.hold)?;
     refuse_far_ahead(sim)?;
     let asked = withdraw_low(sim, setup)?;
-    // The least gas a member tops the escrow up to is below the reserve
-    // of the escrow's signer list and trust line, which the payout set's
-    // change of signer list needs: someone sends the escrow more, as
-    // anyone may (spec/roadmap.md#token-hubs).
     gift(sim, setup);
     settle(sim);
     check_topped_up(sim, setup.withdrawer, asked)?;

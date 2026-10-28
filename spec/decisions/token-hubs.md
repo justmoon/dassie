@@ -1,6 +1,6 @@
 # A hub may hold an issued token; its issuer's freeze pauses it, a clawback ends it, and its fees are paid in XRP anyone may send
 
-**Areas:** [Settlement hubs](../designs/settlement-hubs.md#6-deposits-and-withdrawals), [XRPL](../areas/xrpl.md#tokens), [Settlement](../areas/settlement.md). Built ([Settlement hubs](../areas/hubs.md), [A frozen hub](../areas/hubs.md#a-frozen-hub)), but for a payer's hold reduction pending at a freeze in a member's node, a least gas that also covers the escrow's reserve, and the testnet's DSUSD hub, which its operators found ([roadmap](../roadmap.md#token-hubs)).
+**Areas:** [Settlement hubs](../designs/settlement-hubs.md#6-deposits-and-withdrawals), [XRPL](../areas/xrpl.md#tokens), [Settlement](../areas/settlement.md). Built ([Settlement hubs](../areas/hubs.md), [A frozen hub](../areas/hubs.md#a-frozen-hub)), but for a payer's hold reduction pending at a freeze in a member's node, and the testnet's DSUSD hub, which its operators found ([roadmap](../roadmap.md#token-hubs)).
 
 ## Facts
 
@@ -15,6 +15,7 @@
 - A withdrawal's Payment and a payout set's Payments are public once q validators signed them, and have no last ledger, so anyone, the issuer included, can submit them whenever they like. One that fails uses its sequence ([the design](../designs/settlement-hubs.md#6-deposits-and-withdrawals)).
 - Every transaction on the XRP Ledger pays its fee in XRP, from the account that sends it. A token escrow's own fees, for withdrawals, signer lists and payout sets, so come from its XRP, while the hub's own fees are in the token. The XRP Ledger lets an account pay fees from XRP its reserve locks.
 - Anyone can send XRP to any account. Only the escrow's own objects raise its reserve; objects others create that name it are charged to their creator ([the design](../designs/settlement-hubs.md#2-founding-a-hub)). The reserve each object costs is the network's, which its validators vote to change.
+- A token escrow owns two objects, its signer list and its trust line, so its reserve is the base reserve and an owner reserve for each. A transaction that changes an account's signer list, as a payout set's first does, fails unless the account holds its reserve, though any other transaction may burn the reserve for fees.
 - Whether a dollar token is worth a dollar is a price, which no ledger proves to the validators; the nodes already watch it ([issued-assets](issued-assets.md)).
 
 ## Decision
@@ -28,7 +29,8 @@
 - **A frozen hub's method is unavailable,** as a failed hub's is ([hubs-only](hubs-only.md)): from the freeze's block on, members send no Prepare over it, take none, sign no new commitment and deposit nothing, and a peering keeps its methods over other hubs. Once the thaw is final, the method is available again.
 - **Nothing is submitted to a frozen escrow.** Validators and members submit nothing while the escrow's line or the issuer is frozen, or the issuer charges a transfer fee, as of the latest ledger they proved, and a validator signs no payout set until the thaw: a stall or shutdown during a freeze pays out after it. A deposit that lands during a freeze is credited once the hub resumes, and a withdrawal someone submits anyway fails and is returned, less its fee, as any failed withdrawal.
 - **XRP sent to a token escrow is gas, never a deposit.** Anyone may send it; it credits no account and is never paid out as a balance. The escrow's XRP pays the XRP Ledger's fees for the hub's transactions.
-- **A member tops up the gas before it asks for a withdrawal.** It reads the escrow's absolute XRP balance, and if that is below the least gas the hub's crate fixes for an escrow (a constant to be defined there, whose value lives in the code), it first sends the escrow enough XRP itself. The minimum is absolute: no reserve is counted from the escrow's objects, since the XRP Ledger lets the reserve pay fees.
+- **A member tops up the gas before it asks for a withdrawal.** It reads the escrow's absolute XRP balance, and if that is below the least gas the hub's crate fixes for an escrow (`LEAST_ESCROW_GAS_DROPS`, whose value lives in the code), it first sends the escrow enough XRP itself. The minimum is absolute: no reserve is counted from the escrow's objects, since the XRP Ledger lets the reserve pay fees.
+- **The least gas covers the escrow's reserve.** It is the reserve of the escrow's account at the network's reserves, the base reserve and an owner reserve each for its signer list and its trust line, and a margin above that for fees. The payout set's change of signer list needs that reserve met, so it goes through on an escrow a member topped up only to the least gas, with no one sending it more first. It stays a constant fixed in the code: no member counts the reserve or reads the network's reserve settings.
 - **A de-peg is the nodes' business.** The hub moves the token as it is; each node decides what it converts at and whether it converts at all ([issued-assets](issued-assets.md)). Nothing in the hub reacts to a de-peg, and the first release with real money adds nothing for it. In a node, the peg guard of the token's owner book halts the conversions of the hub's ledger, while settling over the hub goes on.
 
 ## Accepted
@@ -41,6 +43,8 @@
 - **A set signed before a freeze can still be failed.** A payout set that reached q signatures before the escrow froze is public, so anyone can submit its Payments during the freeze; each fails and uses its sequence, and what it would have paid stays in the escrow for good. Members submit a set as soon as it has q signatures, which keeps that window short.
 - **A pending withdrawal paid in full ahead of a clawback:** its Payment is signed and public, so anyone can submit it whatever the hub decides. If the escrow holds less than such withdrawals need, the ones that fail leave their amounts in the escrow.
 - **A member that withdraws pays the gas for everyone,** a small cost on each withdrawal, and XRP sent to the escrow stays there.
+- **The least gas holds the reserve beyond what fees need,** XRP a member sends the escrow once and never sees again.
+- **A raise of the reserves outdates the least gas.** If the network's validators vote the reserves up, the least gas falls short of the escrow's reserve until a release raises it, and meanwhile a payout from an escrow topped up only to it waits until someone sends the escrow more, as anyone may.
 - **The issuer is every member's counterparty** for the whole of what the hub holds, as it is for any holder of its token ([issued-assets](issued-assets.md)).
 
 ## Rejected
@@ -55,4 +59,5 @@
 - *Validators with exchange rates,* to price the token or react to a de-peg: a rate no ledger proves, agreed in consensus, when each node already prices the token itself.
 - *A float of XRP the sponsor funds:* the sponsor has no part in a running hub, and the float would run dry with no one bound to refill it.
 - *A separate XRP pool for fees:* another account to found, check and pay out, with keys of its own, for what the escrow's own XRP does.
-- *A minimum counted from the escrow's reserve:* every member would have to read the reserve from proven state and the network's reserve settings, which change by vote, and agree on it, and XRP above a counted reserve would look like a balance someone could claim.
+- *A least gas below the escrow's reserve:* the payout set's change of signer list would fail on an escrow topped up only to it, so a payout, which must go through when a hub stalls or ends, would first need someone to top the escrow up by hand.
+- *A minimum counted from the escrow's reserve,* the network's reserve settings times the escrow's objects: always right, even after a vote changes the reserves, but every member would have to read the reserve from proven state and the network's reserve settings and agree on it, which is reserve arithmetic for a constant that changes rarely, and XRP above a counted reserve would look like a balance someone could claim.
