@@ -10,18 +10,19 @@ use dassie_oer::{
 };
 
 use super::{
-    MAX_ALIAS_BYTES, MAX_ENTRIES, MAX_EXTENSION_BYTES, MAX_NODE_INFO_BYTES, MAX_URL_BYTES,
-    NODE_INFO_OID, SchemeId, expect_tag, is_valid_url, node_id_len, read_fixed, read_node_id,
-    write_node_id,
+    MAX_ALIAS_BYTES, MAX_ENTRIES, MAX_EXTENSION_BYTES, MAX_NODE_INFO_BYTES, MAX_OFFER_DETAILS,
+    MAX_OFFERS, MAX_URL_BYTES, NODE_INFO_OID, SchemeId, expect_tag, is_valid_url, node_id_len,
+    read_fixed, read_node_id, write_node_id,
 };
 
 /// An entry of a link state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Entry<'a> {
-    /// `neighbor [0]`: a node this one is peered with and advertises.
+    /// `neighbor [0]`: a node this one is peered with and advertises. Tag 1
+    /// follows it unused: it was `settlementScheme`, which the settlement
+    /// list replaced ([`NodeInfo::settlement`]), and is reserved, never
+    /// given to another entry.
     Neighbor(NodeId),
-    /// `settlementScheme [1]`: a scheme this node settles with.
-    Scheme(SchemeId),
     /// `extension [2]`: anything later versions add, such as a post-quantum
     /// key (type 1). Unknown types are kept, since the signature covers
     /// them, and otherwise ignored.
@@ -38,7 +39,6 @@ impl Encode for Entry<'_> {
         size::tag(0)
             + match self {
                 Self::Neighbor(id) => node_id_len(id),
-                Self::Scheme(scheme) => scheme.encoded_len(),
                 Self::Extension { value, .. } => 2 + size::prefixed(value.len()),
             }
     }
@@ -48,10 +48,6 @@ impl Encode for Entry<'_> {
             Self::Neighbor(id) => {
                 writer.write_context_tag(0);
                 write_node_id(writer, id);
-            }
-            Self::Scheme(scheme) => {
-                writer.write_context_tag(1);
-                scheme.write(writer);
             }
             Self::Extension { kind, value } => {
                 writer.write_context_tag(2);
@@ -69,7 +65,6 @@ impl<'a> Decode<'a> for Entry<'a> {
         let offset = reader.offset();
         match reader.read_context_tag()? {
             0 => Ok(Self::Neighbor(read_node_id(reader)?)),
-            1 => Ok(Self::Scheme(SchemeId::read(reader)?)),
             2 => Ok(Self::Extension {
                 kind: reader.read_u16()?,
                 value: reader.read_octets(Size::range(0, MAX_EXTENSION_BYTES))?,
@@ -79,31 +74,67 @@ impl<'a> Decode<'a> for Entry<'a> {
     }
 }
 
-/// The value of a hub extension ([`EXTENSION_HUB`](super::EXTENSION_HUB)):
-/// the settlement hub a node is a member of
-/// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+/// `SettlementOffer`: a scheme a node takes peers on, with the scheme's own
+/// details in their canonical OER
+/// (spec/areas/peer-protocol.md#settlement-offers). What the details say is
+/// the scheme's: a node reads them only on a scheme it knows, and keeps and
+/// forwards every other offer unread, since the signature covers it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SettlementOffer<'a> {
+    /// The scheme.
+    pub scheme: SchemeId,
+    /// The scheme's details, at most [`MAX_OFFER_DETAILS`] bytes: a
+    /// [`HubDetails`] on a scheme over a settlement hub, and nothing on the
+    /// stub.
+    pub details: &'a [u8],
+}
+
+impl Encode for SettlementOffer<'_> {
+    fn encoded_len(&self) -> usize {
+        self.scheme.encoded_len() + size::prefixed(self.details.len())
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        self.scheme.write(writer);
+        writer.write_octets(self.details, Size::range(0, MAX_OFFER_DETAILS));
+    }
+}
+
+impl<'a> Decode<'a> for SettlementOffer<'a> {
+    type Error = DecodeError;
+
+    fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            scheme: SchemeId::read(reader)?,
+            details: reader.read_octets(Size::range(0, MAX_OFFER_DETAILS))?,
+        })
+    }
+}
+
+/// The details of an offer on a scheme over a settlement hub
+/// ([`SettlementOffer::details`]): the hub the node is a member of
+/// (spec/designs/settlement-hubs.md#11-choosing-a-hub), and its account
+/// there.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct HubMembership {
+pub struct HubDetails {
     /// The hub's ID: the hash of its rules.
     pub hub_id: [u8; 32],
     /// The node's account number in the hub, or
     /// [`NO_ACCOUNT`](Self::NO_ACCOUNT).
     pub account: u32,
-    /// Whether it takes new peers over the hub.
-    pub takes_peers: bool,
 }
 
-impl HubMembership {
+impl HubDetails {
     /// The account number of a member the hub has no account for yet, to
     /// be paid in by a peer with one
     /// (spec/designs/settlement-hubs.md#5-joining): a hub never gives out 0.
     pub const NO_ACCOUNT: u32 = 0;
 
-    /// The bytes of its encoding: the ID, the account and the flag.
-    pub const ENCODED_BYTES: usize = 32 + 4 + 1;
+    /// The bytes of its encoding: the ID and the account.
+    pub const ENCODED_BYTES: usize = 32 + 4;
 }
 
-impl Encode for HubMembership {
+impl Encode for HubDetails {
     fn encoded_len(&self) -> usize {
         Self::ENCODED_BYTES
     }
@@ -111,122 +142,17 @@ impl Encode for HubMembership {
     fn encode_to(&self, writer: &mut Writer<'_>) {
         writer.write_bytes(&self.hub_id);
         writer.write_u32(self.account);
-        writer.write_bool(self.takes_peers);
     }
 }
 
-impl<'a> Decode<'a> for HubMembership {
+impl<'a> Decode<'a> for HubDetails {
     type Error = DecodeError;
 
     fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
         Ok(Self {
             hub_id: read_fixed::<32>(reader)?,
             account: reader.read_u32()?,
-            takes_peers: reader.read_bool()?,
         })
-    }
-}
-
-/// A settlement hub a node is a member of, with the scheme it settles on
-/// over the hub, which names its asset: an item of a hub list
-/// ([`EXTENSION_HUBS`](super::EXTENSION_HUBS)).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct HubListing {
-    /// The scheme.
-    pub scheme: SchemeId,
-    /// The hub, the node's account in it and whether it takes new peers
-    /// over it, as the hub extension names them.
-    pub membership: HubMembership,
-}
-
-impl HubListing {
-    /// The most bytes of its encoding: the longest scheme ID and the
-    /// membership.
-    pub const MAX_ENCODED_BYTES: usize =
-        size::prefixed(super::MAX_SCHEME_ID) + HubMembership::ENCODED_BYTES;
-}
-
-impl Encode for HubListing {
-    fn encoded_len(&self) -> usize {
-        self.scheme.encoded_len() + HubMembership::ENCODED_BYTES
-    }
-
-    fn encode_to(&self, writer: &mut Writer<'_>) {
-        self.scheme.write(writer);
-        self.membership.encode_to(writer);
-    }
-}
-
-impl<'a> Decode<'a> for HubListing {
-    type Error = DecodeError;
-
-    fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
-        Ok(Self {
-            scheme: SchemeId::read(reader)?,
-            membership: HubMembership::decode(reader)?,
-        })
-    }
-}
-
-/// The value of a hub list extension ([`EXTENSION_HUBS`](super::EXTENSION_HUBS)):
-/// the hubs a node is a member of, in its order, from one to
-/// [`MAX_HUBS`](super::MAX_HUBS), no scheme and no hub twice. A node in
-/// none leaves the extension out, so an empty list is not one.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HubList(pub Vec<HubListing>);
-
-/// The most bytes a hub list of `hubs` hubs takes: what a node budgets for
-/// its own.
-#[must_use]
-pub const fn hub_list_bytes(hubs: usize) -> usize {
-    size::quantity(hubs).saturating_add(hubs.saturating_mul(HubListing::MAX_ENCODED_BYTES))
-}
-
-impl HubList {
-    /// Whether it keeps the list's rules: one to [`MAX_HUBS`](super::MAX_HUBS)
-    /// hubs, no scheme and no hub twice, since a hub settles one asset.
-    #[must_use]
-    pub fn is_valid(&self) -> bool {
-        let hubs = &self.0;
-        (1..=super::MAX_HUBS).contains(&hubs.len())
-            && hubs.iter().enumerate().all(|(index, hub)| {
-                hubs.iter().skip(index + 1).all(|other| {
-                    other.scheme != hub.scheme && other.membership.hub_id != hub.membership.hub_id
-                })
-            })
-    }
-}
-
-impl Encode for HubList {
-    fn encoded_len(&self) -> usize {
-        size::quantity(self.0.len()) + self.0.iter().map(Encode::encoded_len).sum::<usize>()
-    }
-
-    fn encode_to(&self, writer: &mut Writer<'_>) {
-        writer.write_quantity(self.0.len());
-        for hub in &self.0 {
-            hub.encode_to(writer);
-        }
-    }
-}
-
-impl<'a> Decode<'a> for HubList {
-    type Error = DecodeError;
-
-    /// Reads a list, refusing one that breaks its rules
-    /// ([`HubList::is_valid`]).
-    fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
-        let offset = reader.offset();
-        let count = reader.read_quantity(super::MAX_HUBS)?;
-        let mut hubs = Vec::with_capacity(count);
-        for _ in 0..count {
-            hubs.push(HubListing::decode(reader)?);
-        }
-        let list = Self(hubs);
-        if !list.is_valid() {
-            return Err(DecodeError::new(offset, DecodeErrorKind::SizeOutOfRange));
-        }
-        Ok(list)
     }
 }
 
@@ -245,38 +171,48 @@ pub struct NodeInfo<'a> {
     /// Its SLH-DSA public key, which signs nothing yet, and from which its
     /// ID derives with the Ed25519 key (spec/areas/identity.md#node-id).
     pub slh_dsa_public_key: [u8; SLH_DSA_PUBLIC_KEY_BYTES],
-    /// Its neighbors, schemes and extensions.
+    /// The schemes it takes peers on, each with its details, in its order
+    /// of preference: at most [`MAX_OFFERS`]
+    /// (spec/areas/peer-protocol.md#settlement-offers).
+    pub settlement: Vec<SettlementOffer<'a>>,
+    /// Its neighbors and extensions.
     pub entries: Vec<Entry<'a>>,
 }
 
 /// The most bytes the signed part of a node info takes with `neighbors`
-/// neighbors, `schemes` schemes and `extensions` extensions whose values
-/// take `extension_bytes` together, at the longest URL, alias, node IDs
-/// and scheme IDs: what a node checks its own link state against, so it
-/// never signs one that others cannot decode.
+/// neighbors, `offers` settlement offers whose details take
+/// `details_bytes` together, and `extensions` extensions whose values take
+/// `extension_bytes` together, at the longest URL, alias, node IDs and
+/// scheme IDs: what a node checks its own link state against, so it never
+/// signs one that others cannot decode.
 #[must_use]
 pub const fn max_node_info_bytes(
     neighbors: usize,
-    schemes: usize,
+    offers: usize,
+    details_bytes: usize,
     extensions: usize,
     extension_bytes: usize,
 ) -> usize {
-    let entries = neighbors.saturating_add(schemes).saturating_add(extensions);
+    let entries = neighbors.saturating_add(extensions);
     let fixed = NODE_INFO_OID.len()
         + 8
         + size::prefixed(MAX_URL_BYTES)
         + size::prefixed(MAX_ALIAS_BYTES)
         + size::prefixed(32)
         + SLH_DSA_PUBLIC_KEY_BYTES
+        + size::quantity(offers)
         + size::quantity(entries);
+    // Each offer: its scheme and its details' length, at most as long as
+    // the longest details'.
+    let offer = size::prefixed(super::MAX_SCHEME_ID) + size::length_determinant(MAX_OFFER_DETAILS);
     let neighbor = size::tag(0) + dassie_identity::NODE_ID_BYTES;
-    let scheme = size::tag(0) + size::prefixed(super::MAX_SCHEME_ID);
     // Each extension: its tag, its type and its value's length, at most as
     // long as the longest value's.
     let extension = size::tag(0) + 2 + size::length_determinant(MAX_EXTENSION_BYTES);
     fixed
+        .saturating_add(offers.saturating_mul(offer))
+        .saturating_add(details_bytes)
         .saturating_add(neighbors.saturating_mul(neighbor))
-        .saturating_add(schemes.saturating_mul(scheme))
         .saturating_add(extensions.saturating_mul(extension))
         .saturating_add(extension_bytes)
 }
@@ -292,14 +228,6 @@ impl NodeInfo<'_> {
     pub fn neighbors(&self) -> impl Iterator<Item = NodeId> + '_ {
         self.entries.iter().filter_map(|entry| match entry {
             Entry::Neighbor(id) => Some(*id),
-            _ => None,
-        })
-    }
-
-    /// The schemes it settles with, in its order.
-    pub fn schemes(&self) -> impl Iterator<Item = SchemeId> + '_ {
-        self.entries.iter().filter_map(|entry| match entry {
-            Entry::Scheme(id) => Some(*id),
             _ => None,
         })
     }
@@ -325,40 +253,6 @@ impl NodeInfo<'_> {
         (port != 0).then_some(port)
     }
 
-    /// The settlement hub it is a member of, if it names one: the first hub
-    /// extension's, when that is a canonical [`HubMembership`]. One that is
-    /// not names none; it is still kept and forwarded, as the signature
-    /// covers it.
-    #[must_use]
-    pub fn hub(&self) -> Option<HubMembership> {
-        let value = self.entries.iter().find_map(|entry| match entry {
-            Entry::Extension { kind, value } if *kind == super::EXTENSION_HUB => Some(*value),
-            _ => None,
-        })?;
-        HubMembership::decode_exact(value).ok()
-    }
-
-    /// The settlement hubs it is a member of, each with its scheme: the
-    /// first hub list extension's, when that is a canonical [`HubList`]
-    /// that keeps its rules and whose first is the hub extension's
-    /// ([`NodeInfo::hub`]), so that nodes that read the list and nodes that
-    /// do not see the same first hub; empty otherwise. A node that names
-    /// its hub only in the hub extension is of a version before hub lists,
-    /// and settles over it on the hub scheme both nodes run.
-    #[must_use]
-    pub fn hubs(&self) -> Vec<HubListing> {
-        self.entries
-            .iter()
-            .find_map(|entry| match entry {
-                Entry::Extension { kind, value } if *kind == super::EXTENSION_HUBS => Some(*value),
-                _ => None,
-            })
-            .and_then(|value| HubList::decode_exact(value).ok())
-            .filter(|list| list.0.first().map(|first| first.membership) == self.hub())
-            .map(|list| list.0)
-            .unwrap_or_default()
-    }
-
     fn has_extension(&self, wanted: u16) -> bool {
         self.entries
             .iter()
@@ -374,6 +268,12 @@ impl Encode for NodeInfo<'_> {
             + size::prefixed(self.alias.len())
             + size::prefixed(32)
             + SLH_DSA_PUBLIC_KEY_BYTES
+            + size::quantity(self.settlement.len())
+            + self
+                .settlement
+                .iter()
+                .map(Encode::encoded_len)
+                .sum::<usize>()
             + size::quantity(self.entries.len())
             + self.entries.iter().map(Encode::encoded_len).sum::<usize>()
     }
@@ -385,6 +285,10 @@ impl Encode for NodeInfo<'_> {
         writer.write_utf8(self.alias, Size::range(0, MAX_ALIAS_BYTES));
         writer.write_octets(&self.public_key, Size::exact(32));
         SlhDsaPublicKey::from_bytes(self.slh_dsa_public_key).encode_to(writer);
+        writer.write_quantity(self.settlement.len());
+        for offer in &self.settlement {
+            offer.encode_to(writer);
+        }
         writer.write_quantity(self.entries.len());
         for entry in &self.entries {
             entry.encode_to(writer);
@@ -404,6 +308,11 @@ impl<'a> Decode<'a> for NodeInfo<'a> {
         let mut public_key = [0u8; 32];
         public_key.copy_from_slice(key);
         let slh_dsa_public_key = *SlhDsaPublicKey::decode(reader)?.as_bytes();
+        let count = reader.read_quantity(MAX_OFFERS)?;
+        let mut settlement = Vec::with_capacity(count);
+        for _ in 0..count {
+            settlement.push(SettlementOffer::decode(reader)?);
+        }
         let count = reader.read_quantity(MAX_ENTRIES)?;
         let mut entries = Vec::with_capacity(count);
         for _ in 0..count {
@@ -415,6 +324,7 @@ impl<'a> Decode<'a> for NodeInfo<'a> {
             alias,
             public_key,
             slh_dsa_public_key,
+            settlement,
             entries,
         })
     }

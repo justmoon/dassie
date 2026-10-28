@@ -30,8 +30,7 @@ use crate::names::{Commitment, Holders, Name, Registrant, Registrar};
 use crate::routing::{RouteKey, Routes};
 use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
 use crate::wire::{
-    Content, Endpoint, HubList, HubListing, HubMembership, MAX_CLAIM_BYTES, MAX_COMMITMENT_BYTES,
-    SchemeId,
+    Content, Endpoint, HubDetails, MAX_CLAIM_BYTES, MAX_COMMITMENT_BYTES, MAX_OFFERS, SchemeId,
 };
 
 pub use lifecycle::BanError;
@@ -53,18 +52,18 @@ const MAX_EVENTS: usize = 1024;
 /// ([`Config::max_core_peers`]).
 pub const MAX_UPLINKS: usize = 128;
 
-/// Most settlement schemes a node peers on, each listed in its link
+/// Most settlement schemes a node peers on, each offered in its link
 /// state: with them, its link state always fits what every node decodes
-/// ([`Config::validate`]).
+/// ([`Config::validate`]). Within the protocol's
+/// [`MAX_OFFERS`](crate::wire::MAX_OFFERS), which every node decodes.
 pub const MAX_SCHEMES: usize = 16;
 
-/// Most settlement hubs a node is a member of, each listed in its link
-/// state: one per asset, for the few assets hubs settle
-/// (spec/areas/peer-protocol.md#link-states). Within the protocol's
-/// [`MAX_HUBS`](crate::wire::MAX_HUBS), which every node decodes.
+/// Most settlement hubs a node is a member of, each offered in its link
+/// state on its scheme: one per asset, for the few assets hubs settle
+/// (spec/areas/peer-protocol.md#settlement-offers).
 pub const MAX_OWN_HUBS: usize = 4;
 
-const _: () = assert!(MAX_OWN_HUBS <= crate::wire::MAX_HUBS);
+const _: () = assert!(MAX_OWN_HUBS <= MAX_SCHEMES && MAX_SCHEMES <= MAX_OFFERS);
 
 /// Most settlement methods a peering has: one per scheme, and a node peers
 /// on at most [`MAX_SCHEMES`], so what a peer can cost, summed over its
@@ -72,6 +71,66 @@ const _: () = assert!(MAX_OWN_HUBS <= crate::wire::MAX_HUBS);
 /// method stays while its scheme runs, though the node may no longer peer
 /// on it anew, so the bound is checked as each is added.
 pub const MAX_METHODS: usize = MAX_SCHEMES;
+
+/// A settlement offer of our own: a scheme the node takes peers on, as its
+/// link state offers it (spec/areas/peer-protocol.md#settlement-offers).
+/// The node offers a scheme exactly while it takes peers on it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Offer {
+    /// The scheme.
+    pub scheme: SchemeId,
+    /// On a scheme over a settlement hub, the hub and our account in it,
+    /// its details; on any other, such as the stub, none, and its details
+    /// are empty.
+    pub hub: Option<HubDetails>,
+}
+
+impl Offer {
+    /// An offer on `scheme`, whose details are empty, as the stub's.
+    #[must_use]
+    pub const fn plain(scheme: SchemeId) -> Self {
+        Self { scheme, hub: None }
+    }
+
+    /// An offer on `scheme` over the settlement hub `hub`.
+    #[must_use]
+    pub const fn over_hub(scheme: SchemeId, hub: HubDetails) -> Self {
+        Self {
+            scheme,
+            hub: Some(hub),
+        }
+    }
+
+    /// Its details, in canonical OER: the hub's, or none.
+    #[must_use]
+    pub fn details(&self) -> Vec<u8> {
+        self.hub.map(|hub| hub.to_vec()).unwrap_or_default()
+    }
+}
+
+/// Whether `offers` keep the rules of a node's own list
+/// (spec/areas/peer-protocol.md#settlement-offers): at most
+/// [`MAX_SCHEMES`], no scheme twice, and at most [`MAX_OWN_HUBS`] over
+/// hubs, no hub twice.
+#[must_use]
+pub fn offers_keep_the_rules(offers: &[Offer]) -> bool {
+    let hubs: Vec<[u8; 32]> = offers
+        .iter()
+        .filter_map(|offer| offer.hub.map(|hub| hub.hub_id))
+        .collect();
+    offers.len() <= MAX_SCHEMES
+        && hubs.len() <= MAX_OWN_HUBS
+        && offers.iter().enumerate().all(|(index, offer)| {
+            offers
+                .iter()
+                .skip(index + 1)
+                .all(|other| other.scheme != offer.scheme)
+        })
+        && hubs
+            .iter()
+            .enumerate()
+            .all(|(index, hub)| hubs.iter().skip(index + 1).all(|other| other != hub))
+}
 
 /// What this node says about itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,14 +145,6 @@ pub struct OwnInfo {
     /// one (spec/areas/rate-feed.md#finding-a-feed). Only a node with a URL
     /// names it.
     pub feed_port: Option<u16>,
-    /// The settlement hub it is a member of, if any, which its link state
-    /// names (spec/designs/settlement-hubs.md#11-choosing-a-hub): the first
-    /// of its hubs ([`PeerNode::set_own_hubs`]), which the hub extension
-    /// names for nodes that read no hub list. The first of its hubs set
-    /// here, with another account or `takes_peers`, changes it in the list;
-    /// any other hub set here replaces them, and is named alone, without a
-    /// list.
-    pub hub: Option<HubMembership>,
 }
 
 impl OwnInfo {
@@ -122,7 +173,6 @@ impl OwnInfo {
             url,
             alias,
             feed_port,
-            hub: self.hub,
         }
     }
 }
@@ -247,11 +297,10 @@ pub struct PeerNode {
     pub(crate) key: Arc<IdentityKey>,
     pub(crate) own: NodeId,
     pub(crate) own_info: OwnInfo,
-    /// The hubs our link state lists, each with its scheme, at most
-    /// [`MAX_OWN_HUBS`]; empty for none, or for a hub named only in
-    /// `own_info`, without its scheme.
-    pub(crate) own_hubs: Vec<HubListing>,
-    pub(crate) schemes: Vec<SchemeId>,
+    /// The schemes we take peers on, as our link state offers them, in
+    /// order of preference: they keep the rules of a node's own list
+    /// ([`offers_keep_the_rules`]).
+    pub(crate) offers: Vec<Offer>,
     pub(crate) rng: Box<dyn CryptoRng + Send>,
     pub(crate) now_ms: u64,
     pub(crate) table: BTreeMap<NodeId, Entry>,
@@ -358,8 +407,7 @@ impl PeerNode {
             key: Arc::clone(&key),
             own,
             own_info: own_info.checked(),
-            own_hubs: Vec::new(),
-            schemes: Vec::new(),
+            offers: Vec::new(),
             rng,
             now_ms,
             table: BTreeMap::new(),
@@ -457,71 +505,47 @@ impl PeerNode {
         self.advance(now_ms);
         let info = info.checked();
         if info != self.own_info {
-            // The first of our hubs, with its membership changed, keeps
-            // the list; any other hub is named alone.
-            if let (Some(hub), Some(first)) = (info.hub, self.own_hubs.first_mut())
-                && hub.hub_id == first.membership.hub_id
-            {
-                first.membership = hub;
-            } else {
-                self.own_hubs.clear();
-            }
             self.own_info = info;
             self.gossip.own_changed = true;
             self.end_downlinks();
         }
     }
 
-    /// The settlement hubs our link state lists, each with its scheme.
-    #[must_use]
-    pub fn own_hubs(&self) -> &[HubListing] {
-        &self.own_hubs
-    }
-
-    /// Changes the settlement hubs we are a member of, each with the scheme
-    /// we settle on over it, in order: our link state lists them all, and
-    /// names the first in the hub extension too, for nodes that read no
-    /// list, as [`OwnInfo::hub`]. A new link state follows.
+    /// Changes the settlement schemes the node takes peers on, each with
+    /// its details, in order of preference: those its link state offers, and
+    /// it asks for and accepts peerings and further methods on
+    /// (spec/areas/peer-protocol.md#settlement-offers). Peerings already
+    /// made on a scheme left out stay.
     ///
     /// # Panics
     ///
-    /// With more than [`MAX_OWN_HUBS`], or a scheme or hub twice (the
-    /// node's own, not input).
-    pub fn set_own_hubs(&mut self, now_ms: u64, hubs: Vec<HubListing>) {
-        assert!(hubs.len() <= MAX_OWN_HUBS, "too many hubs");
-        assert!(
-            hubs.is_empty() || HubList(hubs.clone()).is_valid(),
-            "no scheme or hub twice"
-        );
+    /// When they break the rules of a node's own list
+    /// ([`offers_keep_the_rules`]): the node's own, not input.
+    pub fn set_offers(&mut self, now_ms: u64, offers: Vec<Offer>) {
+        assert!(offers_keep_the_rules(&offers), "our offers keep the rules");
         self.advance(now_ms);
-        let hub = hubs.first().map(|listing| listing.membership);
-        if hubs != self.own_hubs || hub != self.own_info.hub {
-            self.own_hubs = hubs;
-            self.own_info.hub = hub;
+        if offers != self.offers {
+            self.offers = offers;
             self.gossip.own_changed = true;
         }
     }
 
-    /// Changes the settlement schemes the node peers on, in order of
-    /// preference: those it advertises, asks for and accepts peerings on.
-    /// Peerings already made on a scheme left out stay.
-    ///
-    /// # Panics
-    ///
-    /// With more than [`MAX_SCHEMES`] (the node's own, not input).
-    pub fn set_schemes(&mut self, now_ms: u64, schemes: Vec<SchemeId>) {
-        assert!(schemes.len() <= MAX_SCHEMES, "too many schemes");
-        self.advance(now_ms);
-        if schemes != self.schemes {
-            self.schemes = schemes;
-            self.gossip.own_changed = true;
-        }
+    /// The settlement schemes the node takes peers on, as its link state
+    /// offers them, in order of preference.
+    #[must_use]
+    pub fn offers(&self) -> &[Offer] {
+        &self.offers
     }
 
-    /// The settlement schemes the node peers on, in order of preference.
+    /// The schemes of [`offers`](Self::offers), in their order.
     #[must_use]
-    pub fn schemes(&self) -> &[SchemeId] {
-        &self.schemes
+    pub fn schemes(&self) -> Vec<SchemeId> {
+        self.offers.iter().map(|offer| offer.scheme).collect()
+    }
+
+    /// Our offer on `scheme`, if we take peers on it.
+    pub(crate) fn offer_on(&self, scheme: SchemeId) -> Option<&Offer> {
+        self.offers.iter().find(|offer| offer.scheme == scheme)
     }
 
     /// Pins the uplinks: while it runs as a periphery node, the node asks

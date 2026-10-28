@@ -10,9 +10,10 @@ use dassie_identity::IdentityKey;
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::Name;
 use dassie_peer::wire::{
-    Content, EXTENSION_FEED, Entry, LinkStateResponse, MethodResponse, NameHolding,
+    Content, EXTENSION_FEED, Entry, HubDetails, LinkStateResponse, MethodResponse, NameHolding,
     NameListResponse, NameReceipt, NodeInfo, NodeListResponse, PeeringResponse, RefusalReason,
-    SchemeId, SignedNodeInfo, encode_expiry, encode_octets, encode_settling, sign_node_info,
+    SchemeId, SettlementOffer, SignedNodeInfo, encode_expiry, encode_octets, encode_settling,
+    sign_node_info,
 };
 
 use super::inputs::{KINDS, content};
@@ -36,18 +37,33 @@ pub fn node_b() -> &'static IdentityKey {
     KEY.get_or_init(|| IdentityKey::from_bytes(&[3; 32]))
 }
 
-/// Node A's link state: a neighbor, a scheme and an extension, signed.
+/// Node A's link state: two settlement offers, one over a hub and the
+/// stub's, a neighbor and an extension, signed.
 #[must_use]
 pub fn link_state() -> Vec<u8> {
+    let hub = HubDetails {
+        hub_id: [0x42; 32],
+        account: 7,
+    }
+    .to_vec();
     let info = NodeInfo {
         sequence: 1_700_000_000_000,
         url: "https://a.example",
         alias: "Node A",
         public_key: *node_a().public_key().as_bytes(),
         slh_dsa_public_key: *node_a().identity().slh_dsa().as_bytes(),
+        settlement: vec![
+            SettlementOffer {
+                scheme: SchemeId::parse("hub-xrpl-testnet-xrp").unwrap(),
+                details: &hub,
+            },
+            SettlementOffer {
+                scheme: SchemeId::parse("stub").unwrap(),
+                details: &[],
+            },
+        ],
         entries: vec![
             Entry::Neighbor(node_b().node_id()),
-            Entry::Scheme(SchemeId::parse("stub").unwrap()),
             Entry::Extension {
                 kind: EXTENSION_FEED,
                 value: &[0x1e, 0x50],

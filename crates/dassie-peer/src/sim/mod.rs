@@ -28,10 +28,10 @@ use alloc::vec::Vec;
 use core::net::IpAddr;
 
 use crate::names::Name;
-use crate::wire::{Kind, NameHolding, NameListResponse, RefusalReason, SchemeId};
+use crate::wire::{HubDetails, Kind, NameHolding, NameListResponse, RefusalReason, SchemeId};
 use crate::{
-    Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, NameEvent, Output,
-    OwnInfo, PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
+    Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, NameEvent, Offer,
+    Output, OwnInfo, PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
 };
 use dassie_identity::{IdentityKey, NodeId, NodeIdentity};
 use dassie_kit::sim::SeededRng;
@@ -70,6 +70,8 @@ pub struct StubHooks {
     /// Whether the stub scheme's peerings are over a hub: Prepares on them
     /// come with commitments.
     pub commitments: bool,
+    /// Whether the second scheme's peerings are over a hub too.
+    pub second_over_hub: bool,
     /// The schemes that would settle directly: neither over a hub nor of
     /// unlimited trust, so never a method of a peering
     /// (spec/decisions/hubs-only.md). Every other scheme not over a hub
@@ -157,7 +159,11 @@ impl PeeringHooks for StubHooks {
     }
 
     fn uses_commitments(&self, scheme: SchemeId) -> bool {
-        self.commitments && scheme.as_str() == STUB
+        match scheme.as_str() {
+            STUB => self.commitments,
+            SECOND => self.second_over_hub,
+            _ => false,
+        }
     }
 
     fn trusts_unlimited(&self, scheme: SchemeId) -> bool {
@@ -440,6 +446,12 @@ pub struct Network {
     /// The schemes each node peers on, in order, kept across restarts:
     /// [`STUB`] alone, unless set here.
     pub schemes: BTreeMap<usize, Vec<SchemeId>>,
+    /// The settlement hub each node is a member of, kept across restarts:
+    /// what it offers on [`STUB`] while the stub's peerings are over a hub
+    /// ([`StubHooks::commitments`]). None, unless set
+    /// ([`Network::set_hub`]); a node without one offers no scheme over a
+    /// hub.
+    pub hubs: BTreeMap<usize, HubDetails>,
     /// The schemes an owner removes, by node, which the node still runs
     /// while it winds down its methods on them ([`Network::remove_scheme`]).
     pub removing: BTreeSet<(usize, SchemeId)>,
@@ -593,6 +605,7 @@ impl Network {
             events: Vec::new(),
             packets: Vec::new(),
             schemes: BTreeMap::new(),
+            hubs: BTreeMap::new(),
             removing: BTreeSet::new(),
             prepares_sent: BTreeMap::new(),
             prepares_taken: BTreeMap::new(),
@@ -652,6 +665,7 @@ impl Network {
     pub fn start(&mut self, index: usize) {
         let seed = self.rng.next_u64();
         let now = self.local_now(index);
+        let offers = self.offers(index);
         let sim = &mut self.nodes[index];
         sim.generation += 1;
         sim.deferred.clear();
@@ -670,19 +684,13 @@ impl Network {
                 url: (!periphery).then(|| url(index)),
                 alias: format!("n{index}"),
                 feed_port: None,
-                hub: None,
             },
             self.bootstrap.clone(),
             sim.stored.clone(),
             Box::new(SeededRng::new(seed)),
             now,
         );
-        let schemes = self
-            .schemes
-            .get(&index)
-            .cloned()
-            .unwrap_or_else(|| vec![scheme(STUB)]);
-        node.set_schemes(now, schemes);
+        node.set_offers(now, offers);
         if let Some(uplinks) = self.pinned.get(&index) {
             node.pin_uplinks(uplinks.clone());
         }
@@ -888,6 +896,42 @@ impl Network {
         sent.is_ok()
     }
 
+    /// What node `index` offers: each scheme it peers on, in order; the stub
+    /// over its hub ([`Self::hubs`]) while the stub's peerings are over a
+    /// hub, and left out without one, as any other scheme over a hub is.
+    #[must_use]
+    pub fn offers(&self, index: usize) -> Vec<Offer> {
+        let hooks = &self.nodes[index].hooks;
+        let hub = self.hubs.get(&index).copied();
+        self.schemes
+            .get(&index)
+            .cloned()
+            .unwrap_or_else(|| vec![scheme(STUB)])
+            .into_iter()
+            .filter_map(|scheme| {
+                if hooks.uses_commitments(scheme) {
+                    let hub = hub.filter(|_| scheme.as_str() == STUB)?;
+                    Some(Offer::over_hub(scheme, hub))
+                } else {
+                    Some(Offer::plain(scheme))
+                }
+            })
+            .collect()
+    }
+
+    /// Makes node `index` a member of `hub`, or of none: it offers the
+    /// stub over it while the stub's peerings are over a hub.
+    pub fn set_hub(&mut self, index: usize, hub: Option<HubDetails>) {
+        match hub {
+            Some(hub) => self.hubs.insert(index, hub),
+            None => self.hubs.remove(&index),
+        };
+        let offers = self.offers(index);
+        if self.is_up(index) {
+            self.act(index, |node, now| node.set_offers(now, offers));
+        }
+    }
+
     /// Whether node `index` runs `scheme`, and peers on it.
     pub fn runs(&self, index: usize, scheme: SchemeId) -> bool {
         self.schemes
@@ -919,10 +963,11 @@ impl Network {
             hooks.unrun_schemes.insert(scheme);
             schemes.retain(|other| *other != scheme);
         }
-        self.schemes.insert(index, schemes.clone());
+        self.schemes.insert(index, schemes);
+        let offers = self.offers(index);
         if self.is_up(index) {
             self.act_with_hooks(index, |node, hooks, now| {
-                node.set_schemes(now, schemes);
+                node.set_offers(now, offers);
                 // What is due now drops the methods on a scheme it stopped.
                 node.handle_timeout(now, hooks);
             });
@@ -941,12 +986,13 @@ impl Network {
             .cloned()
             .unwrap_or_else(|| vec![self::scheme(STUB)]);
         schemes.retain(|other| *other != scheme);
-        self.schemes.insert(index, schemes.clone());
+        self.schemes.insert(index, schemes);
         self.removing.insert((index, scheme));
         self.trace
             .push(format!("{} {index} removes {scheme}", self.now));
+        let offers = self.offers(index);
         if self.is_up(index) {
-            self.act(index, |node, now| node.set_schemes(now, schemes));
+            self.act(index, |node, now| node.set_offers(now, offers));
         }
         self.finish_removals();
     }

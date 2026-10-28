@@ -16,7 +16,7 @@ use dassie_identity::{IdentityKey, NodeId};
 use dassie_oer::Decode;
 use dassie_peer::sim::{Arriving, Network, STUB, key, scheme, url};
 use dassie_peer::wire::{
-    Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason, SchemeId,
+    Content, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SettlementOffer,
     SignedNodeInfo, TerminationReason, sign_node_info,
 };
 use dassie_peer::{Config, Event, PeerStatus, Room, SendError};
@@ -91,7 +91,11 @@ fn peering_request(
         alias: "",
         public_key: *from.public_key().as_bytes(),
         slh_dsa_public_key: *from.identity().slh_dsa().as_bytes(),
-        entries: vec![Entry::Scheme(stub())],
+        settlement: vec![SettlementOffer {
+            scheme: stub(),
+            details: &[],
+        }],
+        entries: Vec::new(),
     };
     let signed = sign_node_info(from, &info);
     let content = Content::PeeringRequest(PeeringRequest {

@@ -14,9 +14,11 @@
 use dassie_identity::{IdentityKey, NodeId};
 use dassie_kit::sim::SeededRng;
 use dassie_peer::sim::{Faults, Network, SECOND, START, STUB, StubHooks, key, scheme};
-use dassie_peer::wire::{Entry, Kind, NodeInfo, SchemeId, TerminationReason, sign_node_info};
+use dassie_peer::wire::{
+    Kind, MAX_OFFERS, NodeInfo, SchemeId, SettlementOffer, TerminationReason, sign_node_info,
+};
 use dassie_peer::{
-    Config, Event, MAX_SCHEMES, Output, OwnInfo, PeerNode, SendError, Sources, Stored, StoredNode,
+    Config, Event, Offer, Output, OwnInfo, PeerNode, SendError, Sources, Stored, StoredNode,
 };
 
 fn settle(network: &mut Network, ms: u64) {
@@ -514,18 +516,19 @@ fn a_late_acceptance_answers_no_later_request() {
     assert_eq!(methods(&network, other, &ids[asked]), two());
 }
 
-// A link state that lists a scheme many times names one method on it: the
-// methods with a node come from our own schemes, each once, however often
+// A link state that offers a scheme many times names one method on it: the
+// methods with a node come from our own offers, each once, however often
 // its list repeats one, and a node seeking peers picks such a node and asks
 // it how it peers.
 #[test]
-fn a_scheme_listed_again_is_one_method() {
+fn a_scheme_offered_again_is_one_method() {
     let mallory = IdentityKey::from_bytes(&[91; 32]);
-    let entries = core::iter::repeat_n(Entry::Scheme(scheme(STUB)), MAX_SCHEMES + 1)
-        .chain(core::iter::repeat_n(
-            Entry::Scheme(scheme(SECOND)),
-            MAX_SCHEMES + 1,
-        ))
+    let offer = |scheme| SettlementOffer {
+        scheme,
+        details: &[],
+    };
+    let settlement = core::iter::repeat_n(offer(scheme(STUB)), MAX_OFFERS / 2)
+        .chain(core::iter::repeat_n(offer(scheme(SECOND)), MAX_OFFERS / 2))
         .collect();
     let info = NodeInfo {
         sequence: START,
@@ -533,7 +536,8 @@ fn a_scheme_listed_again_is_one_method() {
         alias: "",
         public_key: *mallory.public_key().as_bytes(),
         slh_dsa_public_key: *mallory.identity().slh_dsa().as_bytes(),
-        entries,
+        settlement,
+        entries: Vec::new(),
     };
     let stored = Stored {
         nodes: vec![StoredNode {
@@ -554,14 +558,16 @@ fn a_scheme_listed_again_is_one_method() {
             url: Some("https://n0.test".into()),
             alias: String::new(),
             feed_port: None,
-            hub: None,
         },
         Vec::new(),
         stored,
         Box::new(SeededRng::new(78)),
         START,
     );
-    node.set_schemes(START, vec![scheme(STUB), scheme(SECOND)]);
+    node.set_offers(
+        START,
+        vec![Offer::plain(scheme(STUB)), Offer::plain(scheme(SECOND))],
+    );
     let view = node
         .nodes()
         .into_iter()
@@ -755,7 +761,9 @@ fn a_method_that_cannot_receive_is_dropped_after_a_silent_peers_time() {
     let dead = Config::DEV.peer_dead_ms;
     // The node lists it no more while it cannot receive.
     network.schemes.insert(0, vec![scheme(STUB)]);
-    network.act(0, |node, now| node.set_schemes(now, vec![scheme(STUB)]));
+    network.act(0, |node, now| {
+        node.set_offers(now, vec![Offer::plain(scheme(STUB))])
+    });
     network.nodes[0].hooks.unpayable.insert(scheme(SECOND));
     settle(&mut network, dead - 10_000);
     assert_eq!(methods(&network, 0, &b), two());

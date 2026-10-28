@@ -211,9 +211,16 @@ fn a_newcomer_trusts_its_payer_with_the_minimum_and_asks_at_it() {
     assert_eq!(core.joining(STUB, name), Some(Joining::PaidIn(MINIMUM)));
     let extended = paid_in_credit(MINIMUM, core.settle.trigger);
     assert_eq!(credit(&core, peer), (extended, 0));
-    // Advertised with no account, so that members with one peer with it.
-    let membership = core.hub_membership().unwrap();
-    assert_eq!(membership.account, Membership::NO_ACCOUNT);
+    // Advertised with no account, so that members with one peer with it,
+    // once the offers follow the scheme's membership.
+    core.update_peer_schemes();
+    let offered = core
+        .peer
+        .offers()
+        .iter()
+        .find_map(|offer| offer.hub)
+        .unwrap();
+    assert_eq!(offered.account, Membership::NO_ACCOUNT);
     // Owed a little short of the minimum, it asks nothing.
     book(&mut core, peer, MINIMUM - 1, false, NOW + 2_000);
     check_settlements(&mut core, NOW + 3_000);

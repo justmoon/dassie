@@ -1039,12 +1039,10 @@ impl Core {
         self.after_peer();
     }
 
-    /// Changes what our link state says: a new one follows. The
-    /// hub it names is the core's: that of our hub account, if we are a
-    /// member.
-    pub fn set_own_info(&mut self, mut info: dassie_peer::OwnInfo) {
+    /// Changes what our link state says: a new one follows. What it
+    /// offers is the core's ([`Self::update_peer_schemes`]).
+    pub fn set_own_info(&mut self, info: dassie_peer::OwnInfo) {
         let now = self.now_ms;
-        info.hub = self.hub_membership();
         self.peer.set_own_info(now, info);
         // Becoming a periphery node, or a core node again, changes how
         // packets from peers are routed.
@@ -1064,9 +1062,12 @@ impl Core {
         self.finish_removals();
     }
 
-    /// Tells the peer node which schemes it may peer on, in a fixed order:
-    /// the active ones that peer at all, which an owner book does not
-    /// (spec/areas/settlement.md#owner-books), that have seen their ledger
+    /// Tells the peer node which schemes it takes peers on, as its link
+    /// state offers them, in a fixed order
+    /// (spec/areas/peer-protocol.md#settlement-offers): the active ones that
+    /// peer at all, which an owner book does not
+    /// (spec/areas/settlement.md#owner-books), that would not settle
+    /// directly (spec/decisions/hubs-only.md), that have seen their ledger
     /// (spec/decisions/synced-before-peering.md), have not stopped, and can
     /// receive a peer's settlement. Before a scheme first synced, a peer's
     /// settlement would be booked as the owner's deposit; once it stopped,
@@ -1075,27 +1076,35 @@ impl Core {
     /// (spec/areas/settlement.md#when-peers-cannot-pay-us). A scheme that
     /// only lost its ledger stays, once it has synced. So the node
     /// neither offers, asks for nor accepts a peering on it; peerings already
-    /// made stay. The list is made from the schemes active now, each time:
-    /// the original's started from those active at its start, so of two
-    /// changes the second undid the first.
+    /// made stay. A scheme over a hub is offered only with its membership,
+    /// each hub once ([`super::hubs::offers`]). The list is made from the
+    /// schemes active now, each time: the original's started from those
+    /// active at its start, so of two changes the second undid the first.
+    /// The node's hubs change with its schemes, so their funding follows
+    /// them here too.
     pub(super) fn update_peer_schemes(&mut self) {
         // Whether each method may carry our packets follows its scheme.
         self.sync_peer_slots();
-        let schemes: Vec<SchemeId> = self
+        let names: Vec<Name> = self
             .schemes
             .iter()
             .filter(|(_, active)| {
                 active.failed.is_none()
                     && active.removing.is_none()
                     && active.scheme.peers()
+                    && !active.settles_directly()
                     && active.scheme.has_synced()
                     && active.scheme.can_receive()
             })
-            .filter_map(|(name, _)| SchemeId::parse(name.as_str()))
+            .map(|(name, _)| *name)
+            .collect();
+        let offerings: Vec<(Name, super::hubs::Offering)> = names
+            .into_iter()
+            .filter_map(|name| Some((name, self.offering(name)?)))
             .collect();
         let now = self.now_ms;
-        self.peer.set_schemes(now, schemes);
-        self.advertise_hub();
+        self.peer.set_offers(now, super::hubs::offers(offerings));
+        self.follow_hubs();
     }
 
     /// Takes in what the peer node did: its requests and replies to hand

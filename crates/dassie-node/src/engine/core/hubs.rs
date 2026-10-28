@@ -14,8 +14,8 @@ use dassie_ilp::{Address, ErrorCode, Prepare, Response};
 use dassie_ledger::{AccountName, AccountPath, MAX_TOTAL};
 use dassie_ledger::{LedgerId, Name};
 use dassie_oer::Decode;
-use dassie_peer::MAX_OWN_HUBS;
-use dassie_peer::wire::{HubListing, HubMembership, SchemeId};
+use dassie_peer::wire::{HubDetails, SchemeId};
+use dassie_peer::{MAX_OWN_HUBS, Offer};
 use dassie_settlement::{Commitments, Decided, HoldsWith, Membership, Promised, policy};
 
 use super::Core;
@@ -109,35 +109,46 @@ pub(super) fn paid_in_credit(minimum: u64, trigger: u64) -> u64 {
     minimum.saturating_add(trigger).min(MAX_TOTAL)
 }
 
-/// The hubs our link state lists, from the membership of each scheme over
-/// a hub, in the schemes' order: at most [`MAX_OWN_HUBS`], each hub and each
-/// scheme once, the first scheme of a hub naming it. Each takes peers over
-/// its hub.
-fn listings(memberships: impl IntoIterator<Item = (Name, Membership)>) -> Vec<HubListing> {
-    let mut listings: Vec<HubListing> = Vec::new();
-    for (scheme, membership) in memberships {
+/// How a scheme the node takes peers on is offered, as the core reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Offering {
+    /// Over a settlement hub: offered once it reports its membership, the
+    /// hub and our account there (`Commitments::membership`), not before.
+    Hub(Option<Membership>),
+    /// Not over a hub, as the stub with unlimited trust: offered with no
+    /// details.
+    Plain,
+}
+
+/// The settlement offers of our link state, from the schemes we take peers
+/// on, in their order (spec/areas/peer-protocol.md#settlement-offers): each
+/// scheme not over a hub, and each over a hub that reports its membership,
+/// at most [`MAX_OWN_HUBS`] of them, each hub once, the first scheme of a
+/// hub naming it. A scheme left out takes no new peers.
+pub(super) fn offers(schemes: impl IntoIterator<Item = (Name, Offering)>) -> Vec<Offer> {
+    let mut offers: Vec<Offer> = Vec::new();
+    for (scheme, offering) in schemes {
         let Some(scheme) = SchemeId::parse(scheme.as_str()) else {
             continue;
         };
-        let named = listings
-            .iter()
-            .any(|listing| listing.scheme == scheme || listing.membership.hub_id == membership.hub);
-        if named {
-            continue;
+        match offering {
+            Offering::Plain => offers.push(Offer::plain(scheme)),
+            Offering::Hub(None) => {}
+            Offering::Hub(Some(membership)) => {
+                let hubs = offers.iter().filter_map(|offer| offer.hub);
+                let named = hubs.clone().any(|hub| hub.hub_id == membership.hub);
+                if named || hubs.count() == MAX_OWN_HUBS {
+                    continue;
+                }
+                let hub = HubDetails {
+                    hub_id: membership.hub,
+                    account: membership.account,
+                };
+                offers.push(Offer::over_hub(scheme, hub));
+            }
         }
-        if listings.len() == MAX_OWN_HUBS {
-            break;
-        }
-        listings.push(HubListing {
-            scheme,
-            membership: HubMembership {
-                hub_id: membership.hub,
-                account: membership.account,
-                takes_peers: true,
-            },
-        });
     }
-    listings
+    offers
 }
 
 impl Core {
@@ -178,37 +189,18 @@ impl Core {
         self.joining(scheme, peer)
     }
 
-    /// The settlement hubs we are a member of, as our link state lists them
-    /// (spec/designs/settlement-hubs.md#11-choosing-a-hub): one per scheme
-    /// over a hub that runs and reports a membership
-    /// (`Commitments::membership`), in the order of the schemes. A hub
-    /// scheme reports one once its account has its number, or once the hub
-    /// agrees it has none, with no number: a member with an account then
+    /// How `scheme`, which we take peers on, is offered: over a hub with
+    /// its membership, once it reports one (`Commitments::membership`),
+    /// which a hub scheme does once its account has its number, or once the
+    /// hub agrees it has none, with no number: a member with an account then
     /// peers with it over the hub and pays it in
     /// (spec/designs/settlement-hubs.md#5-joining).
-    pub(super) fn hub_listings(&mut self) -> Vec<HubListing> {
-        let hubs: Vec<Name> = self
-            .schemes
-            .iter()
-            .filter(|(_, active)| active.over_hub)
-            .map(|(name, _)| *name)
-            .collect();
-        let memberships: Vec<(Name, Membership)> = hubs
-            .into_iter()
-            .filter_map(|scheme| {
-                let membership = self.with_commitments(scheme, |c| c.membership())??;
-                Some((scheme, membership))
-            })
-            .collect();
-        listings(memberships)
-    }
-
-    /// The first of the hubs we are a member of, which the hub extension of
-    /// our link state names for nodes that read no list.
-    pub(super) fn hub_membership(&mut self) -> Option<HubMembership> {
-        self.hub_listings()
-            .first()
-            .map(|listing| listing.membership)
+    pub(super) fn offering(&mut self, scheme: Name) -> Option<Offering> {
+        if !self.schemes.get(&scheme)?.over_hub {
+            return Some(Offering::Plain);
+        }
+        let membership = self.with_commitments(scheme, |c| c.membership()).flatten();
+        Some(Offering::Hub(membership))
     }
 
     /// Each peering over a hub, and each peer a scheme over a hub holds
@@ -390,15 +382,6 @@ impl Core {
             }),
             Err(error) => panic!("the credit over a hub was refused: {error}"),
         }
-    }
-
-    /// Lists in our link state the hubs we are a member of now, if that
-    /// changed: a new link state follows. The node's hubs change with its
-    /// schemes, so their funding follows them here too.
-    pub(super) fn advertise_hub(&mut self) {
-        let hubs = self.hub_listings();
-        self.peer.set_own_hubs(self.now_ms, hubs);
-        self.follow_hubs();
     }
 
     /// Runs `f` on the commitments side of `scheme`, if it has one.
@@ -747,61 +730,76 @@ impl Core {
 mod tests {
     use super::*;
 
-    fn member(scheme: &str, hub: u8, account: u32) -> (Name, Membership) {
+    fn hub(scheme: &str, hub: u8, account: u32) -> (Name, Offering) {
         (
             Name::new(scheme).unwrap(),
-            Membership {
+            Offering::Hub(Some(Membership {
                 hub: [hub; 32],
                 account,
-            },
+            })),
         )
     }
 
-    // spec/areas/peer-protocol.md#link-states: the link state lists every
-    // hub the node is a member of, each with its scheme, in the schemes'
-    // order; the first is the one the hub extension names.
-    #[test]
-    fn every_hub_is_listed_with_its_scheme() {
-        let listed = listings([
-            member("hub-xrpl-testnet-dsusd", 2, 9),
-            member("hub-xrpl-testnet-xrp", 1, 4),
-        ]);
-        let named: Vec<(&str, [u8; 32], u32)> = listed
-            .iter()
-            .map(|listing| {
-                (
-                    listing.scheme.as_str(),
-                    listing.membership.hub_id,
-                    listing.membership.account,
-                )
-            })
-            .collect();
-        assert_eq!(
-            named,
-            [
-                ("hub-xrpl-testnet-dsusd", [2; 32], 9),
-                ("hub-xrpl-testnet-xrp", [1; 32], 4)
-            ]
-        );
-        assert!(listed.iter().all(|listing| listing.membership.takes_peers));
-        assert!(dassie_peer::wire::HubList(listed).is_valid());
-        assert!(listings([]).is_empty());
+    fn plain(scheme: &str) -> (Name, Offering) {
+        (Name::new(scheme).unwrap(), Offering::Plain)
     }
 
-    // A hub is named once, by its first scheme, and the list is bounded.
+    /// A hub and an account in it.
+    type HubAndAccount = ([u8; 32], u32);
+
+    /// Each offer's scheme, and its hub and account if it is over one.
+    fn listed(offers: &[Offer]) -> Vec<(&str, Option<HubAndAccount>)> {
+        offers
+            .iter()
+            .map(|offer| {
+                let hub = offer.hub.map(|hub| (hub.hub_id, hub.account));
+                (offer.scheme.as_str(), hub)
+            })
+            .collect()
+    }
+
+    // spec/areas/peer-protocol.md#settlement-offers: the link state offers
+    // every scheme the node takes peers on, in the schemes' order: one over a
+    // hub with the hub and its account there, once its membership is known,
+    // and one not over a hub with no details.
     #[test]
-    fn the_list_names_each_hub_once_and_is_bounded() {
-        let listed = listings([
-            member("x", 5, 0),
-            member("aa", 1, 1),
-            member("bb", 1, 2),
-            member("cc", 3, 3),
+    fn every_scheme_is_offered_with_its_details() {
+        let offered = offers([
+            hub("hub-xrpl-testnet-dsusd", 2, 9),
+            (Name::new("hub-unknown").unwrap(), Offering::Hub(None)),
+            plain("stub"),
+            hub("hub-xrpl-testnet-xrp", 1, 4),
         ]);
-        let schemes: Vec<&str> = listed.iter().map(|l| l.scheme.as_str()).collect();
+        assert_eq!(
+            listed(&offered),
+            [
+                ("hub-xrpl-testnet-dsusd", Some(([2; 32], 9))),
+                ("stub", None),
+                ("hub-xrpl-testnet-xrp", Some(([1; 32], 4)))
+            ]
+        );
+        assert!(dassie_peer::offers_keep_the_rules(&offered));
+        assert!(offers([]).is_empty());
+    }
+
+    // A hub is offered once, on its first scheme, and at most MAX_OWN_HUBS
+    // schemes are offered over hubs.
+    #[test]
+    fn each_hub_is_offered_once_and_bounded() {
+        let offered = offers([
+            hub("x", 5, 0),
+            hub("aa", 1, 1),
+            hub("bb", 1, 2),
+            hub("cc", 3, 3),
+        ]);
+        let schemes: Vec<&str> = offered.iter().map(|o| o.scheme.as_str()).collect();
         assert_eq!(schemes, ["aa", "cc"], "no scheme the wire cannot name");
-        let many = (0..10u8).map(|n| member(&format!("hub-{n}"), n, 0));
-        let listed = listings(many);
-        assert_eq!(listed.len(), MAX_OWN_HUBS);
-        assert!(dassie_peer::wire::HubList(listed).is_valid());
+        let many: Vec<(Name, Offering)> = (0..10u8)
+            .map(|n| hub(&format!("hub-{n}"), n, 0))
+            .chain([plain("stub")])
+            .collect();
+        let offered = offers(many);
+        assert_eq!(offered.len(), MAX_OWN_HUBS + 1);
+        assert!(dassie_peer::offers_keep_the_rules(&offered));
     }
 }

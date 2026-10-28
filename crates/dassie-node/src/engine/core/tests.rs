@@ -94,7 +94,6 @@ fn core_with(
             url: Some("https://core.test".into()),
             alias: String::new(),
             feed_port: None,
-            hub: None,
         },
         bootstrap: Vec::new(),
         uplinks: Vec::new(),
@@ -2105,8 +2104,8 @@ fn downlink_request_on(
 ) -> Vec<u8> {
     use dassie_oer::Decode;
     use dassie_peer::wire::{
-        Content, EXTENSION_PERIPHERY, Entry, NodeInfo, PeeringRequest, SchemeId, SignedNodeInfo,
-        sign_node_info,
+        Content, EXTENSION_PERIPHERY, Entry, NodeInfo, PeeringRequest, SchemeId, SettlementOffer,
+        SignedNodeInfo, sign_node_info,
     };
     let stub = SchemeId::parse(scheme).unwrap();
     let info = NodeInfo {
@@ -2115,13 +2114,14 @@ fn downlink_request_on(
         alias: "",
         public_key: *downlink.public_key().as_bytes(),
         slh_dsa_public_key: *downlink.identity().slh_dsa().as_bytes(),
-        entries: vec![
-            Entry::Scheme(stub),
-            Entry::Extension {
-                kind: EXTENSION_PERIPHERY,
-                value: &[],
-            },
-        ],
+        settlement: vec![SettlementOffer {
+            scheme: stub,
+            details: &[],
+        }],
+        entries: vec![Entry::Extension {
+            kind: EXTENSION_PERIPHERY,
+            value: &[],
+        }],
     };
     let state = sign_node_info(downlink, &info);
     let content = Content::PeeringRequest(PeeringRequest {
@@ -3126,7 +3126,7 @@ fn dsusd_beside_xrp_and_no_test_rlusd() {
         .collect();
     codes.sort_unstable();
     assert_eq!(codes, ["DSUSD", "XRP"]);
-    let advertised: Vec<&str> = core.peer.schemes().iter().map(|s| s.as_str()).collect();
+    let advertised: Vec<String> = core.peer.schemes().iter().map(|s| s.to_string()).collect();
     assert!(advertised.is_empty(), "owner books: {advertised:?}");
 
     ledger
@@ -3530,7 +3530,6 @@ fn core_taking_downlinks(
                 url: Some("https://core.test".into()),
                 alias: String::new(),
                 feed_port: None,
-                hub: None,
             },
             bootstrap: Vec::new(),
             uplinks: Vec::new(),
@@ -3637,7 +3636,6 @@ fn a_periphery_node_refuses_an_uplink_it_has_not() {
                 url: None,
                 alias: String::new(),
                 feed_port: None,
-                hub: None,
             },
             bootstrap: Vec::new(),
             uplinks: Vec::new(),
@@ -4543,7 +4541,6 @@ fn hub_core_with_downlink(seed: u64) -> (Core, dassie_identity::NodeId) {
                 url: Some("https://core.test".into()),
                 alias: String::new(),
                 feed_port: None,
-                hub: None,
             },
             bootstrap: Vec::new(),
             uplinks: Vec::new(),
@@ -5870,7 +5867,9 @@ fn tells_link_state(
     at: u64,
 ) -> Vec<Output> {
     use dassie_oer::Decode;
-    use dassie_peer::wire::{Content, Entry, NodeInfo, SchemeId, SignedNodeInfo, sign_node_info};
+    use dassie_peer::wire::{
+        Content, NodeInfo, SchemeId, SettlementOffer, SignedNodeInfo, sign_node_info,
+    };
 
     let scheme = SchemeId::parse(scheme).unwrap();
     let info = NodeInfo {
@@ -5879,7 +5878,11 @@ fn tells_link_state(
         alias: "",
         public_key: *other.public_key().as_bytes(),
         slh_dsa_public_key: *other.identity().slh_dsa().as_bytes(),
-        entries: vec![Entry::Scheme(scheme)],
+        settlement: vec![SettlementOffer {
+            scheme,
+            details: &[],
+        }],
+        entries: Vec::new(),
     };
     let state = sign_node_info(other, &info);
     let content = Content::LinkStateUpdate(SignedNodeInfo::decode_exact(&state).unwrap());
@@ -5898,7 +5901,7 @@ fn tells_link_state(
 }
 
 /// Whether a core node running `scheme`, which `add` adds on a fake ledger,
-/// asks a core node it bootstraps from, whose link state lists the scheme
+/// asks a core node it bootstraps from, whose link state offers the scheme
 /// alone, to peer, within a minute of learning that link state.
 fn asks_a_core_node_to_peer_on(
     scheme: &str,
@@ -5922,7 +5925,6 @@ fn asks_a_core_node_to_peer_on(
                 url: Some("https://core.test".into()),
                 alias: String::new(),
                 feed_port: None,
-                hub: None,
             },
             bootstrap: vec![dassie_peer::Bootstrap {
                 id: other.node_id(),
@@ -6183,7 +6185,6 @@ fn a_registration_is_on_disk_before_its_commitment_leaves() {
             url: None,
             alias: String::new(),
             feed_port: None,
-            hub: None,
         },
         bootstrap,
         uplinks: Vec::new(),
@@ -6258,7 +6259,6 @@ fn a_live_realm_node_takes_no_part_in_names() {
                 url: None,
                 alias: String::new(),
                 feed_port: None,
-                hub: None,
             },
             bootstrap,
             uplinks: Vec::new(),

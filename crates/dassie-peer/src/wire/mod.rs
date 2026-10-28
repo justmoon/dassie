@@ -15,8 +15,8 @@ use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Writer, o
 
 pub use content::{Content, PeeringRequest, TerminationReason};
 pub use node_info::{
-    Entry, HubList, HubListing, HubMembership, InvalidNodeInfo, NodeInfo, SignedNodeInfo,
-    hub_list_bytes, max_node_info_bytes, sign_node_info,
+    Entry, HubDetails, InvalidNodeInfo, NodeInfo, SettlementOffer, SignedNodeInfo,
+    max_node_info_bytes, sign_node_info,
 };
 pub use response::{
     LinkStateResponse, MethodResponse, NameHolding, NameListResponse, NameReceipt,
@@ -42,8 +42,21 @@ pub const MAX_URL_BYTES: usize = 256;
 /// Most bytes in a link state's alias.
 pub const MAX_ALIAS_BYTES: usize = 64;
 
-/// Most entries in a link state.
+/// Most entries in a link state: its neighbors and extensions.
 pub const MAX_ENTRIES: usize = 64;
+
+/// Most settlement offers in a link state
+/// (spec/areas/peer-protocol.md#settlement-offers): a bound of the
+/// protocol, which every node decodes, above the schemes a node of this
+/// release peers on, so that a later release may offer more without a new
+/// version.
+pub const MAX_OFFERS: usize = 32;
+
+/// Most bytes of an offer's details: what a scheme says of itself in a
+/// link state. A hub's take [`HubDetails::ENCODED_BYTES`]; the bound leaves
+/// room for schemes of later releases, such as one that settles directly,
+/// to say more without a new version.
+pub const MAX_OFFER_DETAILS: usize = 256;
 
 /// Most bytes of a signed node info, the part the signature covers.
 pub const MAX_NODE_INFO_BYTES: usize = 4096;
@@ -55,12 +68,8 @@ pub const MAX_EXTENSION_BYTES: usize = 2048;
 /// no URL, dials out to its uplinks and is reached only over the
 /// connections it opened (spec/areas/peer-protocol.md#link-states). Its
 /// value is empty. Only with it may a link state's URL be empty. Type 1 is
-/// kept for a post-quantum signing key that the node's SLH-DSA key vouches
-/// for (spec/decisions/post-quantum-node-id.md), and types 2 and 6 are
-/// reserved: no
-/// extension has them, so that no node reads either as one. Type 6 was
-/// to say that a node has settlement methods, which every node of this
-/// version has (spec/areas/peer-protocol.md#versions).
+/// kept for a post-quantum key, and the types in [`RESERVED_EXTENSIONS`]
+/// are reserved.
 pub const EXTENSION_PERIPHERY: u16 = 3;
 
 /// The link-state extension that names the UDP port of a core node's rate
@@ -69,23 +78,14 @@ pub const EXTENSION_PERIPHERY: u16 = 3;
 /// periphery node, which has no URL, leave it out.
 pub const EXTENSION_FEED: u16 = 4;
 
-/// The link-state extension that says which settlement hub a node is a
-/// member of (spec/designs/settlement-hubs.md#11-choosing-a-hub): a
-/// [`HubMembership`] in canonical OER. A node in no hub leaves it out.
-pub const EXTENSION_HUB: u16 = 5;
-
-/// The link-state extension that lists the settlement hubs a node is a
-/// member of, each with the scheme it settles on, and so its asset: a
-/// [`HubList`] in canonical OER (spec/areas/peer-protocol.md#link-states).
-/// A node that lists its hubs names them all here, however many; the hub
-/// extension ([`EXTENSION_HUB`]) keeps naming the list's first, for nodes
-/// that read only that one.
-pub const EXTENSION_HUBS: u16 = 7;
-
-/// Most hubs a hub list ([`EXTENSION_HUBS`]) names: one per scheme, so it
-/// is a bound of the protocol, which every node decodes, well above the
-/// hubs a node joins.
-pub const MAX_HUBS: usize = 16;
+/// The link-state extension types that are reserved: no extension has
+/// them, and none ever will, so that no node reads one as another
+/// (spec/areas/peer-protocol.md#versions). Type 2 said that a node takes
+/// QUIC, which every node does; 5 named a node's settlement hub and 7
+/// listed its hubs, which its settlement offers say now
+/// ([`NodeInfo::settlement`]); 6 was to say that a node has settlement
+/// methods, which every node of this version has.
+pub const RESERVED_EXTENSIONS: [u16; 4] = [2, 5, 6, 7];
 
 /// Most bytes in the commitment a `methodPacket` carries with its Prepare
 /// on a method over a hub: a signature and what it covers, well within

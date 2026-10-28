@@ -32,7 +32,7 @@ Peers settle over settlement hubs, and only over them ([hubs-only](hubs-only.md)
 
 Hubs hold real money only once [real-money](real-money.md)'s conditions are met.
 
-It will affect: the hub settlement schemes, commitments and claims in the peer protocol, a node-info extension, the testing campaign, the payer's Reject over a hub ([connector-timing](connector-timing.md)), the reply to a Fulfill ([own-fulfills](own-fulfills.md)), and starting credit (a hold is credit, so no slow start).
+It will affect: the hub settlement schemes, commitments and claims in the peer protocol, the hubs a node's link state offers, the testing campaign, the payer's Reject over a hub ([connector-timing](connector-timing.md)), the reply to a Fulfill ([own-fulfills](own-fulfills.md)), and starting credit (a hold is credit, so no slow start).
 
 ## Accepted
 

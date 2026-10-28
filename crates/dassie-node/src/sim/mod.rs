@@ -1252,7 +1252,6 @@ impl Sim {
                 url: Some(url(index)),
                 alias: format!("n{index}"),
                 feed_port: None,
-                hub: None,
             },
             bootstrap: self.bootstrap.clone(),
             uplinks: Vec::new(),

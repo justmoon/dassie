@@ -8,9 +8,7 @@ use alloc::vec::Vec;
 use dassie_identity::{NodeId, PublicKey};
 
 use crate::config::Rate;
-use crate::wire::{
-    Endpoint, HubListing, HubMembership, SchemeId, SignedNodeInfo, TerminationReason,
-};
+use crate::wire::{Endpoint, SchemeId, SignedNodeInfo, TerminationReason};
 
 /// Why a node is in the table. A node with none left is removed
 /// after a grace period.
@@ -162,17 +160,12 @@ pub struct LinkState {
     pub alias: String,
     /// The neighbors it advertises, sorted.
     pub neighbors: Vec<NodeId>,
-    /// Its schemes, in its order.
-    pub schemes: Vec<SchemeId>,
+    /// Its settlement offers, in its order, each scheme once
+    /// ([`Offered`]).
+    pub offers: Vec<Offered>,
     /// Whether it is a periphery node's, without a URL: it never floods,
     /// and is reached only over the connection the node opened.
     pub periphery: bool,
-    /// The settlement hub the node is a member of, if it names one.
-    pub hub: Option<HubMembership>,
-    /// The settlement hubs it lists, each with its scheme: empty for a
-    /// node that names its hub only in the hub extension, or whose list
-    /// breaks its rules.
-    pub hubs: Vec<HubListing>,
     /// Copies of this sequence received, for suppressing the flood.
     pub copies: u8,
     /// When to forward it, if it is to be.
@@ -194,10 +187,8 @@ impl LinkState {
             endpoint: Endpoint::of_url(signed.info.url),
             alias: signed.info.alias.into(),
             neighbors,
-            schemes: first_of_each(signed.info.schemes()),
+            offers: first_of_each(&signed.info.settlement),
             periphery: signed.info.is_periphery(),
-            hub: signed.info.hub(),
-            hubs: signed.info.hubs(),
             copies: 1,
             retransmit_at_ms: None,
             from: None,
@@ -212,13 +203,35 @@ impl LinkState {
     }
 }
 
-/// Each scheme of a link state once, at its first place: the sender's order
-/// is its preference, and a scheme it repeats is not a second one.
-fn first_of_each(schemes: impl Iterator<Item = SchemeId>) -> Vec<SchemeId> {
-    let mut unique: Vec<SchemeId> = Vec::new();
-    for scheme in schemes {
-        if !unique.contains(&scheme) {
-            unique.push(scheme);
+impl LinkState {
+    /// The schemes it offers, in its order.
+    pub fn schemes(&self) -> impl Iterator<Item = SchemeId> + '_ {
+        self.offers.iter().map(|offer| offer.scheme)
+    }
+}
+
+/// A settlement offer of a link state, as held: its scheme and the
+/// scheme's details, unread. Only a node that knows the scheme reads them,
+/// when it peers (spec/areas/peer-protocol.md#settlement-offers).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Offered {
+    /// The scheme.
+    pub scheme: SchemeId,
+    /// Its details, as the link state carries them.
+    pub details: Vec<u8>,
+}
+
+/// Each scheme of a link state's offers once, at its first place: the
+/// sender's order is its preference, and an offer whose scheme an earlier
+/// one names is taken as absent, whatever its details.
+fn first_of_each(offers: &[crate::wire::SettlementOffer<'_>]) -> Vec<Offered> {
+    let mut unique: Vec<Offered> = Vec::with_capacity(offers.len());
+    for offer in offers {
+        if !unique.iter().any(|held| held.scheme == offer.scheme) {
+            unique.push(Offered {
+                scheme: offer.scheme,
+                details: offer.details.to_vec(),
+            });
         }
     }
     unique

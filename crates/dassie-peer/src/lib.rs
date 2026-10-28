@@ -40,11 +40,12 @@ pub use io::{
     Response, SettlementAnswer, Stats, not_acted_upon,
 };
 pub use node::{
-    BanError, Bootstrap, MAX_METHODS, MAX_OWN_HUBS, MAX_SCHEMES, MAX_UPLINKS, NodeView, OwnInfo,
-    PeerNode, PeerStatus, RegisterError, RegistrationStatus, SendError,
+    BanError, Bootstrap, MAX_METHODS, MAX_OWN_HUBS, MAX_SCHEMES, MAX_UPLINKS, NodeView, Offer,
+    OwnInfo, PeerNode, PeerStatus, RegisterError, RegistrationStatus, SendError,
+    offers_keep_the_rules,
 };
 pub use persist::{PeerBatch, Stored, StoredChannel, StoredClosed, StoredNode};
 pub use table::{
-    Advertise, Depeering, Method, Network, Peering, Registration, Room, Sources, Termination,
-    Winding,
+    Advertise, Depeering, Method, Network, Offered, Peering, Registration, Room, Sources,
+    Termination, Winding,
 };
