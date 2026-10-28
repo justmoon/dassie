@@ -14,7 +14,6 @@ use std::collections::BTreeMap;
 use dassie_ilp::btp::{self, Body, ContentType, ProtocolData, ProtocolDataEntry};
 use dassie_ilp::{Address, Prepare, Response, Timestamp, ildcp};
 use dassie_kit::sim::SeededRng;
-use dassie_node::clock::{Clock, ManualClock};
 use dassie_oer::{Decode, Encode};
 use dassie_stream::{
     AssetDetails, BUFFER_LENGTH, Config, Connection, ErrorCode, Event, Policy, Role,
@@ -23,7 +22,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-use super::{HANG, Socket, TestNode, connect_tls};
+use super::{HANG, Socket, TestNode, TestTime, connect_tls};
 
 /// A BTP client.
 pub struct BtpClient {
@@ -194,7 +193,7 @@ const MEASURE_PAUSE_STEPS: usize = 20;
 /// Pays `amount` over STREAM, from `client` to `destination`, until it is
 /// all sent.
 pub async fn pay_stream(
-    clock: &ManualClock,
+    clock: &impl TestTime,
     client: &mut BtpClient,
     destination: &str,
     shared_secret: &[u8],
@@ -207,7 +206,7 @@ pub async fn pay_stream(
 /// As [`pay_stream`], waiting `idle` of real time whenever nothing is in
 /// flight: for settlements that take real time, on a ledger outside.
 pub async fn pay_stream_waiting(
-    clock: &ManualClock,
+    clock: &impl TestTime,
     client: &mut BtpClient,
     destination: &str,
     shared_secret: &[u8],
@@ -236,8 +235,7 @@ pub async fn pay_stream_waiting(
         // Moves the clock on, as a wait for progress does, so what refused
         // the probes can pass before the next try.
         for _ in 0..MEASURE_PAUSE_STEPS {
-            clock.advance(100);
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            clock.idle(100, std::time::Duration::from_millis(20)).await;
         }
         outcome = send(
             clock,
@@ -260,7 +258,7 @@ pub async fn pay_stream_waiting(
 /// Sends up to `amount` over STREAM for at most `rounds` rounds, and
 /// returns what the receiver took.
 pub async fn send_stream(
-    clock: &ManualClock,
+    clock: &impl TestTime,
     client: &mut BtpClient,
     destination: &str,
     shared_secret: &[u8],
@@ -275,7 +273,7 @@ pub async fn send_stream(
 /// As [`send_stream`], returning also what the receiver says its stream
 /// received.
 pub async fn send_stream_reported(
-    clock: &ManualClock,
+    clock: &impl TestTime,
     client: &mut BtpClient,
     destination: &str,
     shared_secret: &[u8],
@@ -308,7 +306,7 @@ struct Sent {
 
 /// Sends, and returns how it ended.
 async fn send(
-    clock: &ManualClock,
+    clock: &impl TestTime,
     client: &mut BtpClient,
     destination: &str,
     shared_secret: &[u8],
@@ -316,7 +314,7 @@ async fn send(
     rounds: usize,
     idle: std::time::Duration,
 ) -> Sent {
-    let (own, ..) = client.ildcp(clock.now_ms()).await;
+    let (own, ..) = client.ildcp(clock.daemons_now_ms()).await;
     let mut connection = Connection::new(&Config {
         role: Role::Client,
         shared_secret,
@@ -342,7 +340,7 @@ async fn send(
         }
     };
     for _ in 0..rounds {
-        let now = Timestamp::from_unix_ms(clock.now_ms());
+        let now = Timestamp::from_unix_ms(clock.daemons_now_ms());
         while let Some(transmit) = connection.poll_transmit(now, &mut rng, &mut buffer) {
             let id = client.prepare(&buffer[..transmit.length]).await;
             in_flight.insert(id, transmit.request_id);
@@ -366,10 +364,7 @@ async fn send(
             return ended(&connection, stream, false);
         }
         if in_flight.is_empty() {
-            clock.advance(100);
-            if !idle.is_zero() {
-                tokio::time::sleep(idle).await;
-            }
+            clock.idle(100, idle).await;
             continue;
         }
         let reply = client.receive().await.unwrap();

@@ -1,9 +1,18 @@
 //! Settlement hubs between daemons, for the tests of what their members do
-//! (spec/areas/hubs.md#in-the-node): a fake XRP Ledger whose ledgers close
-//! on the test's clock, four validator daemons that run the hubs their
-//! owner's file lists, each hub's escrow set up on the ledger, and member
-//! daemons that join them from their owner books and peer over them, all
-//! on that one clock.
+//! (spec/areas/hubs.md#in-the-node): a fake XRP Ledger, four validator
+//! daemons that run the hubs their owner's file lists, each hub's escrow set
+//! up on the ledger, and member daemons that join them from their owner
+//! books and peer over them, all in one runtime on tokio's paused time
+//! (spec/areas/testing.md#members-of-settlement-hubs-on-paused-time).
+//!
+//! The daemons' clock and the fake ledger's closes read that time
+//! ([`PausedClock`]), and so do the IO layer's timers. It moves only while
+//! every task waits on a timer, no socket has anything to read and no
+//! blocking work is under way, and then straight to the next deadline: the
+//! daemons' time passes only once they are quiescent, so no message is ever
+//! late however loaded the machine, and a test spends no real time waiting
+//! for its clock. Each test runs on `#[tokio::test(start_paused = true)]`,
+//! a runtime of one thread, which paused time needs.
 //!
 //! The hubs are not founded: founding is `hub_founding.rs`'s subject. A
 //! validator's file names each hub's rules and genesis, as an owner's file
@@ -20,7 +29,6 @@ use dassie_hub::Rules;
 use dassie_hub::escrow::{ValidatorKeys, escrow_master};
 use dassie_hub::rules::Acceptance;
 use dassie_identity::IdentityKey;
-use dassie_node::clock::ManualClock;
 use dassie_node::fake_ledger::{Options, Server};
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
@@ -29,47 +37,39 @@ use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::codec::TokenValue;
 use dassie_xrpl::network::{MAINNET, Network};
 
-use super::btp_client::{BtpClient, pay_stream_waiting};
+use super::btp_client::{BtpClient, pay_stream};
 use super::pair::{CA, CERT, KEY, bootstrap_all, set_asset_config};
-use super::{Bound, START_MS, STUB_UNLIMITED, TestNode, post_json, send, set_up, setup_body_in};
+use super::{
+    Bound, PausedClock, START_MS, STUB_UNLIMITED, TestNode, post_json, send, set_up, setup_body_in,
+};
 
-/// How far the shared clock moves at a time: a quarter of a second, as in
-/// the other daemon tests, a few of a hub's block intervals, whose views
-/// time out within it when a message is late and which the hub skips and
-/// goes on from, as any hub does.
+/// How often a wait looks again, in the daemons' time: a timer of the
+/// test's own, so its look comes once the daemons are quiescent or one of
+/// their timers falls due.
 pub const STEP_MS: u64 = 250;
 
-/// The real time between two steps, for the daemons' exchanges over their
-/// sockets, which are real work: the least the other daemon tests give it.
-const POLL: Duration = Duration::from_millis(10);
-
-/// The most steps a wait takes: twenty minutes of the daemons' time, past
+/// The most looks a wait takes: twenty minutes of the daemons' time, past
 /// every protocol timer a member waits on, such as its look at the hub for
 /// a peer's account once a minute; a wait that needs more is a hang.
 const STEPS: u64 = 20 * 60 * 1_000 / STEP_MS;
 
-/// Moves `clock` a step at a time until `done`, [`STEPS`] steps at most:
-/// a wait bounded by the daemons' time, never by real time
+/// Looks every [`STEP_MS`] of the daemons' time until `done`, [`STEPS`]
+/// looks at most: a wait bounded by the daemons' time, never by real time
 /// (spec/areas/testing.md#over-real-sockets).
-pub async fn until(clock: &ManualClock, what: &str, mut done: impl AsyncFnMut() -> bool) {
+pub async fn until(what: &str, mut done: impl AsyncFnMut() -> bool) {
     for _ in 0..STEPS {
         if done().await {
             return;
         }
-        clock.advance(STEP_MS);
-        tokio::time::sleep(POLL).await;
+        tokio::time::sleep(Duration::from_millis(STEP_MS)).await;
     }
     panic!("not reached in {STEPS} steps: {what}");
 }
 
-/// Moves `clock` on by `ms` a step at a time: a span of the daemons' time
-/// in which a test checks that nothing happens, which a slow machine only
-/// weakens.
-pub async fn pass(clock: &ManualClock, ms: u64) {
-    for _ in 0..ms.div_ceil(STEP_MS) {
-        clock.advance(STEP_MS);
-        tokio::time::sleep(POLL).await;
-    }
+/// Lets `ms` of the daemons' time pass: a span in which a test checks that
+/// nothing happens.
+pub async fn pass(ms: u64) {
+    tokio::time::sleep(Duration::from_millis(ms)).await;
 }
 
 /// How long settling must stay quiet to be over: three times a member's
@@ -80,6 +80,15 @@ pub const QUIET_MS: u64 = 3 * dassie_hub::member::account::ACCOUNT_EVERY_MS;
 /// The most rounds of [`QUIET_MS`] a wait for settling to be over takes:
 /// settling that goes on through so many never ends.
 const QUIET_ROUNDS: usize = 20;
+
+/// The longest a commitment a payee took stays open after its packet
+/// (spec/designs/settlement-hubs.md#4-peering-over-a-hub): a packet is held
+/// at most [`MAX_HOLD_MS`](dassie_hub::rules::MAX_HOLD_MS), and its
+/// commitment expires within the hub's precision of it. Within it the payee
+/// claims on the hub, for a fee, whatever its payer's claims left out, and
+/// after it nothing of a payment that ended is left to claim.
+pub const CLAIMS_DUE_MS: u64 =
+    dassie_hub::rules::MAX_HOLD_MS + dassie_hub::consensus::Config::DEFAULT.precision_ms;
 
 /// A hub of one asset, as its terms name it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -201,7 +210,7 @@ pub const POLICIES: Policies = Policies {
 /// The fake ledger, the validators, and the hubs they run, on one clock.
 pub struct HubNet {
     pub xrpl: Server,
-    pub clock: ManualClock,
+    pub clock: PausedClock,
     pub network: &'static Network,
     pub hubs: Vec<Hub>,
     pub validators: Vec<TestNode>,
@@ -211,7 +220,7 @@ pub struct HubNet {
 /// The fake ledger of `network`, its ledgers closing on `clock` once a
 /// second of it, as the XRP Ledger closes them every few, and its HTTPS
 /// listener serving its faucet and its validators' list.
-async fn fake_ledger(network: &'static Network, clock: &ManualClock) -> Server {
+async fn fake_ledger(network: &'static Network, clock: PausedClock) -> Server {
     let xrpl = Server::start(Options {
         network,
         listen: "127.0.0.1:0".parse().unwrap(),
@@ -227,7 +236,7 @@ async fn fake_ledger(network: &'static Network, clock: &ManualClock) -> Server {
     })
     .await
     .unwrap();
-    xrpl.close_on(std::sync::Arc::new(clock.clone()));
+    xrpl.close_on(std::sync::Arc::new(clock));
     xrpl
 }
 
@@ -235,8 +244,8 @@ impl HubNet {
     /// Hubs of `assets` on `network`, their escrows set up, and run by
     /// four validators that each checked every escrow.
     pub async fn start(network: &'static Network, assets: &[HubAsset]) -> Self {
-        let clock = ManualClock::new(START_MS);
-        let xrpl = fake_ledger(network, &clock).await;
+        let clock = PausedClock::new();
+        let xrpl = fake_ledger(network, clock).await;
         let bound: Vec<Bound> = VALIDATORS.map(|_| Bound::new()).collect();
         let keys: Vec<IdentityKey> = VALIDATORS
             .map(|seed| IdentityKey::from_bytes(&[seed; 32]))
@@ -252,7 +261,7 @@ impl HubNet {
             })
             .collect();
         for hub in &hubs {
-            set_up_escrow(&xrpl, &clock, &hub.rules).await;
+            set_up_escrow(&xrpl, &hub.rules).await;
         }
         let files = tempfile::tempdir().unwrap();
         let file = validator_file(files.path(), network, &xrpl, &hubs);
@@ -262,7 +271,7 @@ impl HubNet {
         let mut validators = Vec::new();
         for ((bound, key), seed) in bound.into_iter().zip(&keys).zip(VALIDATORS) {
             let node = bound
-                .start(clock.clone(), u64::from(seed), POLICIES, &env)
+                .start_paused(clock, u64::from(seed), POLICIES, &env)
                 .await;
             set_up_in(&node, key, network).await;
             validators.push(node);
@@ -275,19 +284,15 @@ impl HubNet {
             validators,
             _files: files,
         };
-        until(
-            &net.clock,
-            "every validator checked every escrow",
-            async || {
-                for node in &net.validators {
-                    let hubs = validating(node).await;
-                    if hubs.len() != net.hubs.len() || !hubs.iter().all(|h| h.escrow_checked) {
-                        return false;
-                    }
+        until("every validator checked every escrow", async || {
+            for node in &net.validators {
+                let hubs = validating(node).await;
+                if hubs.len() != net.hubs.len() || !hubs.iter().all(|h| h.escrow_checked) {
+                    return false;
                 }
-                true
-            },
-        )
+            }
+            true
+        })
         .await;
         net
     }
@@ -364,13 +369,13 @@ fn hub<'a>(
 /// it, then has its master key set the signer list, require a destination
 /// tag, make a token hub's line and disable itself, each once a ledger
 /// closed with the one before, as the test's clock moves.
-async fn set_up_escrow(xrpl: &Server, clock: &ManualClock, rules: &Rules) {
+async fn set_up_escrow(xrpl: &Server, rules: &Rules) {
     use dassie_xrpl::api;
 
     let escrow = AccountId(rules.terms.escrow);
     let master = escrow_master(&sponsor(), rules.terms.network, &rules.terms.nonce);
     xrpl.ledger().deposit(escrow, ESCROW_DROPS);
-    until(clock, "the escrow funded", async || {
+    until("the escrow funded", async || {
         xrpl.ledger().sequence(escrow).is_some()
     })
     .await;
@@ -381,7 +386,7 @@ async fn set_up_escrow(xrpl: &Server, clock: &ManualClock, rules: &Rules) {
         xrpl.ledger()
             .request(0, &api::submit(1, transaction.blob()));
     }
-    until(clock, "the escrow set up", async || {
+    until("the escrow set up", async || {
         xrpl.ledger().sequence(escrow) == Some(last)
     })
     .await;
@@ -514,12 +519,7 @@ impl HubNet {
             let key = IdentityKey::from_bytes(&[joining.seed; 32]);
             let pairs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
             let node = bound
-                .start(
-                    self.clock.clone(),
-                    u64::from(joining.seed),
-                    POLICIES,
-                    &pairs,
-                )
+                .start_paused(self.clock, u64::from(joining.seed), POLICIES, &pairs)
                 .await;
             let member = Member {
                 node,
@@ -533,7 +533,7 @@ impl HubNet {
             started.push(member);
         }
         for member in &started {
-            until(&self.clock, "the member funded in its hubs", async || {
+            until("the member funded in its hubs", async || {
                 self.funded(member).await
             })
             .await;
@@ -592,7 +592,7 @@ impl HubNet {
         if member.assets.contains(&HubAsset::Dollar) {
             // Once its line is set, the issuer sends it a hundred dollars.
             let (currency, issuer) = dollar(self.network);
-            until(&self.clock, "the member's line", async || {
+            until("the member's line", async || {
                 self.xrpl.ledger().line(account, issuer, currency).is_some()
             })
             .await;
@@ -638,7 +638,7 @@ impl HubNet {
         let pairs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let node = Bound::bind_again(dir, ports)
             .await
-            .start(self.clock.clone(), u64::from(seed) + 100, POLICIES, &pairs)
+            .start_paused(self.clock, u64::from(seed) + 100, POLICIES, &pairs)
             .await;
         node.engine_started().await;
         Member {
@@ -681,7 +681,8 @@ impl HubNet {
 
     /// Whether `member` is quiet and its books add up, by its own books
     /// alone (spec/areas/testing.md#each-node-judged-by-its-own-books):
-    /// every ledger synced, nothing on its way to a peer and nothing the
+    /// every ledger synced, nothing on its way to a peer, no move between a
+    /// hub and its owner book on its way, and nothing the
     /// owner has pending; each owner book holding what its XRP Ledger
     /// account holds of its asset, less the reserve; and each hub's book
     /// what its account in the hub holds and its peers' holds toward it, as
@@ -694,6 +695,11 @@ impl HubNet {
         }
         let list = list_ledgers(node).await;
         let statuses = hub_statuses(node).await;
+        // A move between a hub and its owner book has left the one side's
+        // books and not yet reached the other's.
+        if statuses.iter().any(|status| status.moving.is_some()) {
+            return false;
+        }
         for id in self.ledgers_of(member) {
             let Some(view) = list.ledgers.iter().find(|l| l.id == id) else {
                 return false;
@@ -714,12 +720,21 @@ impl HubNet {
         true
     }
 
+    /// Waits until every claim of the payments that ended was made
+    /// ([`CLAIMS_DUE_MS`]) and settling is over ([`HubNet::settled`]):
+    /// nothing a member does after it, such as a restart, finds a claim
+    /// still to make and its fee still to book. Returns their books.
+    pub async fn claimed(&self, members: &[&Member]) -> Vec<Books> {
+        pass(CLAIMS_DUE_MS).await;
+        self.settled(members).await
+    }
+
     /// Waits until every member is in step and stays so, its books
     /// unchanged, for [`QUIET_MS`] of the daemons' time more: settling over
     /// the hubs is over. Returns their books.
     pub async fn settled(&self, members: &[&Member]) -> Vec<Books> {
         for _ in 0..QUIET_ROUNDS {
-            until(&self.clock, "every member in step", async || {
+            until("every member in step", async || {
                 for member in members {
                     if !self.in_step(member).await {
                         return false;
@@ -732,7 +747,7 @@ impl HubNet {
             for member in members {
                 first.push(self.books(member).await);
             }
-            pass(&self.clock, QUIET_MS).await;
+            pass(QUIET_MS).await;
             let mut again = Vec::new();
             let mut all = true;
             for member in members {
@@ -752,42 +767,36 @@ impl HubNet {
     /// the other over it; and that every member without the stub peers
     /// over hubs alone.
     pub async fn peered(&self, members: &[&Member]) {
-        until(
-            &self.clock,
-            "peered over every hub both are in",
-            async || {
-                for member in members {
-                    for peer in members {
-                        let shared = self.shared(member, peer);
-                        if member.key.node_id() == peer.key.node_id() || shared.is_empty() {
-                            continue;
-                        }
-                        if peer_ledgers(&member.node, &peer.key).await != shared {
-                            return false;
-                        }
-                        let statuses = hub_statuses(&member.node).await;
-                        let peer_id = peer.key.node_id().to_string();
-                        for hub in &shared {
-                            let scheme =
-                                self.hubs.iter().find(|h| &h.ledger == hub).unwrap().scheme;
-                            let holds =
-                                statuses
+        until("peered over every hub both are in", async || {
+            for member in members {
+                for peer in members {
+                    let shared = self.shared(member, peer);
+                    if member.key.node_id() == peer.key.node_id() || shared.is_empty() {
+                        continue;
+                    }
+                    if peer_ledgers(&member.node, &peer.key).await != shared {
+                        return false;
+                    }
+                    let statuses = hub_statuses(&member.node).await;
+                    let peer_id = peer.key.node_id().to_string();
+                    for hub in &shared {
+                        let scheme = self.hubs.iter().find(|h| &h.ledger == hub).unwrap().scheme;
+                        let holds = statuses
+                            .iter()
+                            .find(|s| s.scheme == scheme)
+                            .is_some_and(|s| {
+                                s.paying
                                     .iter()
-                                    .find(|s| s.scheme == scheme)
-                                    .is_some_and(|s| {
-                                        s.paying
-                                            .iter()
-                                            .any(|hold| hold.peer == peer_id && hold.amount > 0)
-                                    });
-                            if !holds {
-                                return false;
-                            }
+                                    .any(|hold| hold.peer == peer_id && hold.amount > 0)
+                            });
+                        if !holds {
+                            return false;
                         }
                     }
                 }
-                true
-            },
-        )
+            }
+            true
+        })
         .await;
         for member in members.iter().filter(|member| !member.stub) {
             for peer in peers(&member.node).await {
@@ -991,7 +1000,7 @@ pub async fn peer_accounts(members: &[&Member], id: &str) -> BTreeMap<(u8, u8), 
 /// over STREAM to a new incoming payment of `to`'s on ledger `receive`;
 /// the incoming payment, once paid.
 pub async fn pay(
-    clock: &ManualClock,
+    clock: &PausedClock,
     (from, to): (&TestNode, &TestNode),
     ledger: &str,
     amount: u64,
@@ -1029,15 +1038,14 @@ pub async fn pay(
     };
     let receiver = created.payment.unwrap();
     let mut client = BtpClient::connect(from, &token.secret).await.unwrap();
-    // While nothing is in flight, the clock moves with real time between
-    // its steps, for the members to fund their holds over the hub.
-    pay_stream_waiting(
+    // While nothing is in flight, the daemons' time passes, once they are
+    // quiescent, for the members to fund their holds over the hub.
+    pay_stream(
         clock,
         &mut client,
         &receiver.destination_account,
         &receiver.shared_secret,
         amount,
-        POLL,
     )
     .await;
     incoming(to, &receiver.id).await

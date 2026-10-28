@@ -35,7 +35,7 @@ const XRP_PER_USD: &str = "2";
 
 /// Has `node` read its rates from `rates`, and waits until it has a fresh
 /// one for XRP.
-async fn rated(net: &HubNet, node: &TestNode, rates: &RatesServer) {
+async fn rated(node: &TestNode, rates: &RatesServer) {
     let set = node
         .ipc()
         .await
@@ -47,7 +47,7 @@ async fn rated(net: &HubNet, node: &TestNode, rates: &RatesServer) {
         }))
         .await;
     assert!(set.is_ok(), "{set:?}");
-    until(&net.clock, "a fresh rate for XRP", async || {
+    until("a fresh rate for XRP", async || {
         list_ledgers(node)
             .await
             .rates
@@ -81,7 +81,7 @@ const CROSSING: u64 = 1_000_000_000;
 // owner paid in XRP at least what was sent, the payee's got dollars, at
 // most what arrived, and the owners of the members of both took XRP and
 // paid dollars.
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[tokio::test(start_paused = true)]
 async fn a_payment_crosses_from_one_hub_to_another_through_a_member_of_both() {
     let net = HubNet::start(&TESTNET, BOTH).await;
     let (xrp, dsusd) = (
@@ -101,7 +101,7 @@ async fn a_payment_crosses_from_one_hub_to_another_through_a_member_of_both() {
         )
         .await;
     for member in &members[1..3] {
-        rated(&net, &member.node, &rates).await;
+        rated(&member.node, &rates).await;
     }
     let all: Vec<&support::hubs::Member> = members.iter().collect();
     net.peered(&all).await;
@@ -216,7 +216,7 @@ async fn hold_toward(node: &TestNode, peer: &dassie_identity::IdentityKey, schem
 // by no more than d3 received, and d3's owner gets what arrived, less the
 // fees of d3's own moves; the stub settles nothing, and d1 owes d2 what it
 // sent. All three restarted, their books are as they were.
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[tokio::test(start_paused = true)]
 async fn dollars_on_the_stub_arrive_as_xrp_over_a_hub() {
     let net = HubNet::start(&TESTNET, XRP).await;
     let hub = net.hub(HubAsset::Xrp).clone();
@@ -231,9 +231,9 @@ async fn dollars_on_the_stub_arrive_as_xrp_over_a_hub() {
             &[],
         )
         .await;
-    rated(&net, &nodes[1].node, &rates).await;
+    rated(&nodes[1].node, &rates).await;
     net.peered(&[&nodes[1], &nodes[2]]).await;
-    until(&net.clock, "d1 and d2 peered on the stub", async || {
+    until("d1 and d2 peered on the stub", async || {
         peer_ledgers(&nodes[0].node, &nodes[1].key).await == [STUB_LEDGER]
             && peer_ledgers(&nodes[1].node, &nodes[0].key).await == [STUB_LEDGER]
     })
@@ -309,7 +309,7 @@ async fn dollars_on_the_stub_arrive_as_xrp_over_a_hub() {
     });
     // The probe's timers run on the nodes' clock, which moves meanwhile.
     let quoting = tokio::spawn(async move { quoter.call(request).await });
-    until(&net.clock, "d1 quotes", async || quoting.is_finished()).await;
+    until("d1 quotes", async || quoting.is_finished()).await;
     let Ok(response::Method::QuoteSend(quoted)) = quoting.await.unwrap() else {
         panic!("no quote");
     };
@@ -357,13 +357,13 @@ async fn dollars_on_the_stub_arrive_as_xrp_over_a_hub() {
         };
         list.payments.into_iter().find(|p| p.id == id).unwrap()
     };
-    until(&net.clock, "the payment ends", async || {
+    until("the payment ends", async || {
         outgoing().await.state != "sending"
     })
     .await;
     let sent = outgoing().await;
     assert_eq!(sent.state, "completed", "{}", sent.failure);
-    until(&net.clock, "d3 has it all", async || {
+    until("d3 has it all", async || {
         incoming(&d3.node, &receiver.id)
             .await
             .completed_at_unix_ms
@@ -390,7 +390,7 @@ async fn dollars_on_the_stub_arrive_as_xrp_over_a_hub() {
     assert!(fees <= due && fees > due - 1_000, "fees {fees} on {paid}");
 
     // d2 settles with d3 over the hub; the stub settles nothing.
-    let after = net.settled(&[d1, d2, d3]).await;
+    let after = net.claimed(&[d1, d2, d3]).await;
     let grown = hold_toward(&d2.node, &d3.key, hub.scheme).await - hold_before;
     assert!(
         grown > 0 && grown <= arrived.received_amount,

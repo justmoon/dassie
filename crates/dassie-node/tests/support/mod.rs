@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_kit::sim::SeededRng;
-use dassie_node::clock::ManualClock;
+use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::daemon::{self, DaemonError, Prepared};
 use dassie_node::env::{Env, Settings};
 use dassie_node::node::Policies;
@@ -89,6 +89,70 @@ pub async fn eventually<T>(what: &str, mut attempt: impl AsyncFnMut() -> Option<
             "hung for {HANG:?}: {what}"
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// The clock of daemons that run on tokio's paused time
+/// (`#[tokio::test(start_paused = true)]`): now is [`START_MS`] and the
+/// time tokio's clock has moved since the clock was made. That clock moves
+/// only while every task of the runtime waits, on nothing but a timer, and
+/// then straight to the next timer's deadline: so the daemons' time passes
+/// only once no task can run, no socket has anything to read and no
+/// blocking work is under way, whatever the machine's load.
+#[derive(Clone, Copy, Debug)]
+pub struct PausedClock {
+    base: tokio::time::Instant,
+}
+
+impl PausedClock {
+    /// A clock at [`START_MS`] now. Within a runtime whose time is paused.
+    pub fn new() -> Self {
+        Self {
+            base: tokio::time::Instant::now(),
+        }
+    }
+}
+
+impl Clock for PausedClock {
+    fn now_ms(&self) -> u64 {
+        let since = u64::try_from(self.base.elapsed().as_millis()).unwrap();
+        START_MS + since
+    }
+}
+
+/// The time a test's helpers read and pass: a clock the test moves by hand,
+/// or tokio's paused time, which moves by itself once everything waits.
+pub trait TestTime {
+    /// Now, as the daemons read it.
+    fn daemons_now_ms(&self) -> u64;
+
+    /// Lets `ms` of the daemons' time pass while the test has nothing to
+    /// do: on a clock moved by hand, moves it and gives the daemons `pause`
+    /// of real time to act on it; on paused time, sleeps until then, which
+    /// passes once nothing else is left to do.
+    fn idle(&self, ms: u64, pause: Duration) -> impl std::future::Future<Output = ()>;
+}
+
+impl TestTime for ManualClock {
+    fn daemons_now_ms(&self) -> u64 {
+        Clock::now_ms(self)
+    }
+
+    async fn idle(&self, ms: u64, pause: Duration) {
+        self.advance(ms);
+        if !pause.is_zero() {
+            tokio::time::sleep(pause).await;
+        }
+    }
+}
+
+impl TestTime for PausedClock {
+    fn daemons_now_ms(&self) -> u64 {
+        Clock::now_ms(self)
+    }
+
+    async fn idle(&self, ms: u64, _pause: Duration) {
+        tokio::time::sleep(Duration::from_millis(ms)).await;
     }
 }
 
@@ -234,6 +298,32 @@ impl Bound {
         policies: Policies,
         env: &[(&str, &str)],
     ) -> TestNode {
+        let daemon: Arc<dyn Clock> = Arc::new(clock.clone());
+        self.start_with(daemon, clock, seed, (policies, env)).await
+    }
+
+    /// Starts the daemon on tokio's paused time ([`PausedClock`]), with
+    /// `env` beside its state directory. Its [`TestNode::clock`] is not its
+    /// clock, and moving it moves nothing.
+    pub async fn start_paused(
+        self,
+        clock: PausedClock,
+        seed: u64,
+        policies: Policies,
+        env: &[(&str, &str)],
+    ) -> TestNode {
+        let manual = ManualClock::new(Clock::now_ms(&clock));
+        self.start_with(Arc::new(clock), manual, seed, (policies, env))
+            .await
+    }
+
+    async fn start_with(
+        self,
+        daemon_clock: Arc<dyn Clock>,
+        clock: ManualClock,
+        seed: u64,
+        (policies, env): (Policies, &[(&str, &str)]),
+    ) -> TestNode {
         let Self {
             dir,
             http,
@@ -281,7 +371,7 @@ impl Bound {
         let shutdown = CancellationToken::new();
         let handle = tokio::spawn(daemon::run(
             prepared,
-            Arc::new(clock.clone()),
+            daemon_clock,
             Box::new(SeededRng::new(seed)),
             policies,
             shutdown.clone(),
@@ -316,6 +406,8 @@ pub struct TestNode {
     /// Where the rate feed takes datagrams.
     pub feed: SocketAddr,
     pub ipc: PathBuf,
+    /// The clock the test moves by hand, the daemon's unless it runs on
+    /// paused time ([`Bound::start_paused`]).
     pub clock: ManualClock,
     /// The QUIC endpoint, once the daemon made it.
     pub quic: Option<Arc<dassie_node::quic::Quic>>,

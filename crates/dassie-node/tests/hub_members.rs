@@ -42,7 +42,7 @@ fn owner_funds(books: &support::hubs::Books) -> i64 {
 // payer's owner paid at least what was sent, and the payee's got at most
 // that. Restarted, both members read the ledger and the hub again and book
 // nothing twice.
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[tokio::test(start_paused = true)]
 async fn members_pay_over_a_hub_and_keep_their_books_across_a_restart() {
     let net = HubNet::start(&TESTNET, XRP).await;
     let hub = net.hub(HubAsset::Xrp).clone();
@@ -97,7 +97,7 @@ async fn members_pay_over_a_hub_and_keep_their_books_across_a_restart() {
     .await;
     assert_eq!(incoming.ledger, hub.ledger);
     assert_eq!(incoming.received_amount, PAYMENT, "what arrived");
-    let after = net.settled(&[payer, payee]).await;
+    let after = net.claimed(&[payer, payee]).await;
     let spent = owner_funds(&before[0]) - owner_funds(&after[0]);
     let got = owner_funds(&after[1]) - owner_funds(&before[1]);
     let payment = i64::try_from(PAYMENT).unwrap();
@@ -121,7 +121,7 @@ async fn members_pay_over_a_hub_and_keep_their_books_across_a_restart() {
 // spec/areas/hubs.md#in-the-node: a node added once two members peer over
 // the hub joins it as they did: its scheme takes the hub's rules, it funds
 // its account from its owner book, and peers over the hub alone.
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[tokio::test(start_paused = true)]
 async fn a_node_added_later_joins_and_peers_over_the_hub_alone() {
     let net = HubNet::start(&TESTNET, XRP).await;
     let hub = net.hub(HubAsset::Xrp).clone();

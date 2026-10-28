@@ -101,7 +101,7 @@ async fn kept(net: &HubNet, member: &support::hubs::Member, scheme: &str) -> (Bo
 // payment and the hub's fees. Restarted, both members' owner books, hub
 // books and accounts' counters in the hub are as they were, each book
 // holding what its account holds, so nothing was booked twice.
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[tokio::test(start_paused = true)]
 async fn members_settle_from_their_owner_books_across_a_restart() {
     let net = HubNet::start(&TESTNET, XRP).await;
     let hub = net.hub(HubAsset::Xrp).clone();
@@ -135,7 +135,7 @@ async fn members_settle_from_their_owner_books_across_a_restart() {
         &hub.ledger,
     )
     .await;
-    net.settled(&[payer, payee]).await;
+    net.claimed(&[payer, payee]).await;
     let (after, moved_counters) = kept(&net, payer, hub.scheme).await;
     let moved = i64::try_from(moved_counters[0] - counters[0]).unwrap();
     assert!(moved > 0, "the payer moved nothing into the hub");
@@ -201,7 +201,7 @@ const RLUSD_PAYMENT: u64 = 1_000_000_000;
 // hub, and the other pays back in RLUSD over the RLUSD hub: each payment
 // keeps its ledger, under `g.`, so what arrived is what was sent, and each
 // owner's books show it, in step with what its accounts hold.
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[tokio::test(start_paused = true)]
 async fn live_realm_members_pay_over_mainnet_hubs_of_xrp_and_rlusd() {
     const BOTH: &[HubAsset] = &[HubAsset::Xrp, HubAsset::Dollar];
     let net = HubNet::start(&MAINNET, BOTH).await;
