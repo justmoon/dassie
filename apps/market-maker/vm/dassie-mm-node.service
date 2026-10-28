@@ -1,17 +1,15 @@
-# One of the market maker's two nodes (spec/areas/market-maker-vm.md), on
-# its VM, which startup.sh installs: dassie-mm-node@xrp settles in XRP,
-# dassie-mm-node@dsusd in DSUSD. Each is a periphery node with
-# no hostname, pinned to every target as its uplinks
-# (spec/areas/rate-feed.md#two-nodes-pinned-to-every-target).
+# The market maker's node (spec/areas/market-maker-vm.md), on its VM,
+# which startup.sh installs: a periphery node with no hostname, in the
+# hubs of XRP and DSUSD, pinned to every target as its uplinks
+# (spec/areas/rate-feed.md#one-node-in-both-hubs-pinned-to-every-target).
 #
-# It runs standalone and binds its own ports, from /etc/dassie-mm/%i.env,
+# It runs standalone and binds its own ports, from /etc/dassie-mm/node.env,
 # on every address: QUIC binds the HTTPS listener's address, and must reach
 # the targets. Nothing reaches them from outside, since the VM's network has
 # no firewall rule. Its snapshot socket is on loopback, at a port of the
-# system's choosing: a periphery node answers no request for a snapshot,
-# and the two must not both take 7768.
+# system's choosing: a periphery node answers no request for a snapshot.
 [Unit]
-Description=Dassie market maker's %i node
+Description=Dassie market maker's node
 Documentation=https://dassie.land
 Wants=network-online.target
 After=network-online.target time-set.target
@@ -19,7 +17,7 @@ After=network-online.target time-set.target
 [Service]
 Type=notify
 NotifyAccess=main
-EnvironmentFile=/etc/dassie-mm/%i.env
+EnvironmentFile=/etc/dassie-mm/node.env
 # DASSIE_UPLINKS: the targets' node IDs, which startup.sh reads from each
 # target's /.well-known/dassie/node.
 EnvironmentFile=/etc/dassie-mm/uplink.env
@@ -29,17 +27,17 @@ ExecStart=/opt/dassie/current/bin/dassie daemon --runtime standalone \
 User=dassie-mm
 Group=dassie-mm
 # The node's database (0700, spec/decisions/secrets-at-rest.md).
-StateDirectory=dassie-mm/%i
+StateDirectory=dassie-mm/node
 StateDirectoryMode=0700
-Environment=DASSIE_STATE_DIRECTORY=/var/lib/dassie-mm/%i
+Environment=DASSIE_STATE_DIRECTORY=/var/lib/dassie-mm/node
 # The IPC socket, which the market maker and `dassie setup` use; only
 # dassie-mm reaches it.
-RuntimeDirectory=dassie-mm-%i
+RuntimeDirectory=dassie-mm-node
 RuntimeDirectoryMode=0700
-Environment=DASSIE_IPC_SOCKET_PATH=/run/dassie-mm-%i/dassie.sock
-# No front door: nobody pays these nodes at a name.
+Environment=DASSIE_IPC_SOCKET_PATH=/run/dassie-mm-node/dassie.sock
+# No front door: nobody pays this node at a name.
 Environment=DASSIE_RELAY=
-WorkingDirectory=/var/lib/dassie-mm/%i
+WorkingDirectory=/var/lib/dassie-mm/node
 Environment=DASSIE_LOG=info
 Restart=always
 RestartSec=5

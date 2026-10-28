@@ -12,12 +12,12 @@
 # What it makes:
 # - a service account of the market maker's own, with no role in the
 #   project (which also holds the bootstrap nodes' phrases): it can read
-#   the two secrets with its nodes' passphrases, and nothing else;
+#   the secret with its node's passphrase, and nothing else;
 # - a network of its own with no firewall rule: nothing reaches the VM
 #   (GCP denies ingress by default), and the VM reaches out to the targets,
 #   the XRP Ledger testnet and its faucet, the mirror and GitHub;
 # - an e2-small VM whose startup script is startup.sh. It needs no SSH:
-#   the nodes and the market maker log to the serial console as well as
+#   the node and the market maker log to the serial console as well as
 #   the journal, so
 #   `gcloud compute instances get-serial-port-output dassie-mm --zone=us-east1-b`
 #   shows them.
@@ -25,24 +25,22 @@
 # The settings are instance metadata, each with a default in startup.sh:
 # mm-targets, the core nodes to trade through, URLs separated by commas
 # (the three bootstrap nodes by default), whose node IDs are read from
-# their /.well-known/dassie/node; mm-xrp-trade-size,
-# mm-xrp-band-low and mm-xrp-band-high, the same for mm-dsusd-*, in the
-# nodes' ledger units; and mm-margin-ppm and mm-slippage-ppm. To change
+# their /.well-known/dassie/node and which the node pins as its uplinks;
+# mm-xrp-trade-size, mm-xrp-band-low and mm-xrp-band-high, the same for
+# mm-dsusd-*, in the node's ledger units; and mm-margin-ppm and
+# mm-slippage-ppm. To change
 # one: `gcloud compute instances add-metadata dassie-mm --zone=us-east1-b
 # --metadata=mm-xrp-band-high=80000000000`, then reset the VM. A value
 # with commas needs another separator between settings (`gcloud topic
 # escaping`): `--metadata=^;^mm-targets=https://boot1.dassie.xyz,https://boot2.dassie.xyz`.
 #
-# The two secrets exist before this runs, each a passphrase of the test
-# realm of a node of the market maker's own, which nobody else uses:
-# whoever reads it holds that node's funds. To make them, generate a phrase
-# as the wallet's setup does (`generatePhrase("test", Date.now()).text` of
-# @dassie/wasm) and
+# The secret exists before this runs: a passphrase of the test realm of
+# the market maker's node, which nobody else uses: whoever reads it holds
+# the node's funds. To make it, generate a phrase as the wallet's setup
+# does (`generatePhrase("test", Date.now()).text` of @dassie/wasm) and
 #
-#   … | gcloud secrets create mm-xrp-phrase --project=dassie-390023 \
+#   … | gcloud secrets create mm-phrase --project=dassie-390023 \
 #     --replication-policy=automatic --data-file=-
-#
-# and the same for mm-dsusd-phrase.
 set -eu
 
 project=dassie-390023
@@ -50,7 +48,7 @@ region=us-east1
 zone=us-east1-b
 machine_type=e2-small
 account=dassie-mm
-secrets="mm-xrp-phrase mm-dsusd-phrase"
+secret=mm-phrase
 network=dassie-mm
 instance=dassie-mm
 
@@ -69,14 +67,12 @@ run gcloud services enable compute.googleapis.com secretmanager.googleapis.com \
 
 run gcloud iam service-accounts create "$account" --project="$project" \
   --display-name="Market maker (spec/areas/market-maker-vm.md)" \
-  --description="Runs the market maker's VM; reads only its two nodes' passphrases"
+  --description="Runs the market maker's VM; reads only its node's passphrase"
 
-# The bindings are on the secrets, not the project: the account can read
-# these two secrets' versions and nothing else.
-for secret in $secrets; do
-  run gcloud secrets add-iam-policy-binding "$secret" --project="$project" \
-    --member="serviceAccount:$email" --role=roles/secretmanager.secretAccessor
-done
+# The binding is on the secret, not the project: the account can read this
+# secret's versions and nothing else.
+run gcloud secrets add-iam-policy-binding "$secret" --project="$project" \
+  --member="serviceAccount:$email" --role=roles/secretmanager.secretAccessor
 
 run gcloud compute networks create "$network" --project="$project" \
   --subnet-mode=custom
