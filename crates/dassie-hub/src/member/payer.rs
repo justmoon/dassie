@@ -209,6 +209,16 @@ impl Payer {
         funded.saturating_sub(owed).saturating_sub(open)
     }
 
+    /// What the hold has room for now, in internal units: its
+    /// [`room`](Self::room), and nothing without a hold or while the hub is
+    /// frozen, when no packet gets a commitment.
+    pub(super) fn room_now(&self) -> u64 {
+        if self.hold.is_none() || self.snapshot.window.is_some() {
+            return 0;
+        }
+        u64::try_from(self.room()).unwrap_or(u64::MAX)
+    }
+
     /// The commitment for our Prepare `request_id`, its sequence taken.
     ///
     /// # Errors
@@ -703,6 +713,26 @@ mod tests {
             Err(SchemeError::Unavailable),
             "no hold yet"
         );
+    }
+
+    // What the hold has room for now falls as packets go and grows as a
+    // funding lands or a packet is rejected; it is nothing without a hold
+    // or while the hub is frozen, when no packet goes.
+    #[test]
+    fn the_room_now_follows_the_hold_and_the_packets() {
+        let unit = UNITS_PER_DROP;
+        let mut payer = payer(3);
+        assert_eq!(payer.room_now(), 3 * unit);
+        payer.commit(1, promised(2 * unit, 1), MARGIN).unwrap();
+        assert_eq!(payer.room_now(), unit);
+        assert!(payer.commit(2, promised(2 * unit, 2), MARGIN).is_err());
+        payer.snapshot.amount = 5;
+        assert_eq!(payer.room_now(), 3 * unit, "a funding landed");
+        payer.answered(1, None);
+        assert_eq!(payer.room_now(), 5 * unit, "a packet rejected");
+        payer.snapshot.window = Some(20_000);
+        assert_eq!(payer.room_now(), 0, "frozen");
+        assert_eq!(Payer::new().room_now(), 0, "no hold");
     }
 
     // T covers exactly the packets up to W: W waits for every packet below

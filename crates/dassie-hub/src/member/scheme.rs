@@ -2154,6 +2154,12 @@ impl Commitments for HubScheme {
         Some(units(room))
     }
 
+    /// What our hold toward the peer has room for now, a frozen hub's
+    /// nothing: none without a hold.
+    fn room_toward(&self, peer: Name) -> Option<u64> {
+        Some(self.peers.get(&peer)?.payer.room_now())
+    }
+
     /// The hub, and our account in it once it has its number; once f + 1
     /// validators agree the hub has none for our key, the hub with no
     /// account, so that a member with one peers with us and pays us in

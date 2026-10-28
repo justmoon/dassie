@@ -95,8 +95,8 @@ pub use schemes::{
 pub use settlement::Lie;
 pub use snapshots::{NoSnapshots, PeerSnapshotView, Quoting, SnapshotSource};
 pub use swapping::{
-    MAX_OWNER_SWAPS, MAX_SWAP_PEERS, OWNER_SWAP_MS, OwnerSwap, PACKETS_PER_PEER, SWAP_TIMEOUT_MS,
-    SwapEnd, SwapReport, SwapStats,
+    MAX_OWNER_SWAPS, MAX_ROOM_BACKOFF_MS, MAX_SWAP_PEERS, OWNER_SWAP_MS, OwnerSwap,
+    PACKETS_PER_PEER, SWAP_TIMEOUT_MS, SwapEnd, SwapReport, SwapStats,
 };
 pub use swaps::{
     MAX_SWAP_OUTCOMES, MAX_SWAPS_IN_FLIGHT, NewSwap, SWAP_DATA_LENGTH, SWAP_DATA_VERSION,

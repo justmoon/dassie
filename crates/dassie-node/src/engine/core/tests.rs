@@ -2855,6 +2855,26 @@ std::thread_local! {
     /// Whether every [`StubTwo`] of this thread, the third stub too, sends
     /// and takes settlement messages as a hub's scheme does.
     static STUB_TWO_AS_HUB: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The room a test gave every [`StubTwo`]'s hold toward a peer, by the
+    /// peer's name: as a hub's payer, it commits to no packet above it.
+    /// Without one, a peer's room is the stub's.
+    static STUB_TWO_ROOM: std::cell::RefCell<std::collections::BTreeMap<dassie_ledger::Name, u64>> =
+        const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };
+}
+
+/// Gives every [`StubTwo`]'s hold toward `peer` room for `room`, or the
+/// stub's again: as a hub's payer, it commits to no packet above it, and
+/// says so ([`dassie_settlement::Commitments::room_toward`]).
+pub(super) fn stub_two_room_toward(peer: dassie_ledger::Name, room: Option<u64>) {
+    STUB_TWO_ROOM.with(|rooms| match room {
+        Some(room) => rooms.borrow_mut().insert(peer, room),
+        None => rooms.borrow_mut().remove(&peer),
+    });
+}
+
+/// The room a test gave every [`StubTwo`]'s hold toward `peer`, if any.
+fn stub_two_room(peer: dassie_ledger::Name) -> Option<u64> {
+    STUB_TWO_ROOM.with(|rooms| rooms.borrow().get(&peer).copied())
 }
 
 /// Makes every [`StubTwo`] of this test, the third stub too, send and take
@@ -3088,6 +3108,9 @@ impl dassie_settlement::Commitments for StubTwo {
         promised: dassie_settlement::Promised,
         out: &mut Vec<u8>,
     ) -> Result<(), dassie_settlement::SchemeError> {
+        if stub_two_room(peer).is_some_and(|room| promised.amount > room) {
+            return Err(dassie_settlement::SchemeError::Unavailable);
+        }
         count_stub_two_packet();
         self.with_inner(|inner| inner.commit(now_ms, peer, request_id, promised, out))
     }
@@ -3176,6 +3199,10 @@ impl dassie_settlement::Commitments for StubTwo {
 
     fn room_from(&self, peer: dassie_ledger::Name) -> Option<u64> {
         self.with_inner(|inner| inner.room_from(peer))
+    }
+
+    fn room_toward(&self, peer: dassie_ledger::Name) -> Option<u64> {
+        stub_two_room(peer).or_else(|| self.with_inner(|inner| inner.room_toward(peer)))
     }
 
     fn membership(&self) -> Option<dassie_settlement::Membership> {

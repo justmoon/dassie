@@ -27,25 +27,32 @@
 //!   At most [`PACKETS_PER_PEER`] are in flight with a peer, within the cap
 //!   on money in flight with it, and at most
 //!   [`MAX_SWAPS_IN_FLIGHT`](super::MAX_SWAPS_IN_FLIGHT) in all.
-//! - **Refusals.** T04, T05 and every other temporary or relative error
-//!   back off from the peer, doubling, as STREAM does; F08 sizes the next
-//!   packets by the amounts it names; F02 and every other final error stop
-//!   the swaps with the peer until its snapshot changes, and so does a swap
-//!   that came back below its minimum (F04 from the node's own swap
-//!   endpoint).
+//! - **Refusals.** A T04 or T05 the node gave itself, before the swap
+//!   left, is for want of room on its own way out: its hold toward the
+//!   peer on the method it pays on, or its cap on money in flight there.
+//!   That method waits until the room grows, a funding of the hold landing
+//!   or packets in flight resolving, and no longer. The peer's T04 and T05,
+//!   or the way back's, back off from the peer, doubling, as STREAM does,
+//!   but for at most a hub funding's landing ([`MAX_ROOM_BACKOFF_MS`]);
+//!   every other temporary or relative error backs off as STREAM does. F08
+//!   sizes the next packets by the amounts it names; F02 and every other
+//!   final error stop the swaps with the peer until its snapshot changes,
+//!   and so does a swap that came back below its minimum (F04 from the
+//!   node's own swap endpoint).
 //! - **What moved** is what the swap endpoint fulfilled on the way back and
 //!   what the peer fulfilled on the way out, each on its own: a swap that
 //!   reads as rejected may still have paid the node, if the peer took the
 //!   return leg and let the outgoing one expire.
 //!
-//! No room is set aside for swaps: they back off as any sender does.
+//! No room is set aside for swaps: they wait for room as any sender does.
 //! Everything is bounded: the peers read ([`MAX_SWAP_PEERS`]), the packets
-//! in flight, and the owner's swaps at once ([`MAX_OWNER_SWAPS`]).
+//! in flight, the methods short of room per peer, and the owner's swaps at
+//! once ([`MAX_OWNER_SWAPS`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use dassie_connector::Targets;
 use dassie_connector::pricing::RATE_ONE_E15;
+use dassie_connector::{EndpointId, Targets};
 use dassie_feed::{MethodTag, Ratio, Snapshot, method_tag};
 use dassie_identity::NodeId;
 use dassie_ilp::{ErrorClass, ErrorCode};
@@ -78,6 +85,20 @@ pub const OWNER_SWAP_MS: u64 = 60_000;
 const FIRST_BACKOFF_MS: u64 = dassie_stream::Policy::DEFAULT.retry_delay_start_ms;
 const MAX_BACKOFF_MS: u64 = dassie_stream::Policy::DEFAULT.retry_delay_max_ms;
 
+/// The longest wait after the peer, or the way back, refused a swap for
+/// want of room (T04, T05): one hub operation's landing, as long as a hub
+/// member waits for one before it sends it again. Settlement runs over
+/// hubs, so the peer's room comes back as a funding lands on its hub or
+/// its packets resolve, which take less: a longer wait would leave room
+/// that came back unused, and a peer that stays short still gets at most
+/// a round of swaps per landing.
+pub const MAX_ROOM_BACKOFF_MS: u64 = dassie_hub::member::account::RESUBMIT_MS;
+
+/// How long a method short of the node's own room waits at most, for a
+/// cause its room does not show, such as the owner's funds there: the
+/// longest backoff.
+const MAX_SHORT_MS: u64 = MAX_BACKOFF_MS;
+
 /// The most the node's costs count as: all it pays.
 const MAX_COSTS_PPM: u32 = 1_000_000;
 
@@ -86,6 +107,8 @@ const MILLION: u128 = 1_000_000;
 // Every packet in flight with every peer the service reads fits the bound
 // on swaps in flight, and the walk's threshold fits its ratio.
 const _: () = assert!(PACKETS_PER_PEER <= MAX_SWAPS_IN_FLIGHT);
+const _: () = assert!(FIRST_BACKOFF_MS <= MAX_ROOM_BACKOFF_MS);
+const _: () = assert!(MAX_ROOM_BACKOFF_MS <= MAX_BACKOFF_MS);
 const _: () = assert!((MAX_COSTS_PPM as u128 + MILLION) * 1_000_000_000 <= u64::MAX as u128);
 
 /// A swap the owner asks for (spec/areas/connector.md#the-swap-service).
@@ -153,6 +176,9 @@ pub struct SwapStats {
     /// Peers it sends nothing until their snapshot changes, since they
     /// refused a swap or one came back below its minimum.
     pub waiting_for_snapshot: u64,
+    /// Peers it sends nothing on a method until its own room there grows:
+    /// its hold toward the peer, or its money in flight to it.
+    pub waiting_for_room: u64,
     /// Swaps sent.
     pub sent: u64,
     /// Swaps the peer fulfilled.
@@ -164,6 +190,9 @@ pub struct SwapStats {
     pub paid_though_rejected: u64,
     /// Times it backed off from a peer.
     pub backoffs: u64,
+    /// Swaps it refused itself for want of room on its own way out (T04,
+    /// T05).
+    pub short_of_room: u64,
     /// Times a peer refused swaps (F02 or another final error).
     pub refused: u64,
     /// Swaps that came back below their minimum.
@@ -234,8 +263,57 @@ struct PeerSwaps {
     /// The last backoff, and until when it holds.
     backoff_ms: u64,
     until_ms: u64,
+    /// The methods it pays the peer on whose room on the node's own way
+    /// out was short when a swap was refused for want of it, by their
+    /// ledgers: at most one per ledger.
+    short: BTreeMap<LedgerId, Short>,
     /// Swaps in flight with it.
     in_flight: usize,
+}
+
+/// The room on the node's own way out to a peer on one method: what its
+/// hold toward the peer has room for, if its scheme keeps that, what its
+/// packets in flight to the peer there carry, and whether the method is
+/// available.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct OwnRoom {
+    hold: Option<u64>,
+    in_flight: u64,
+    available: bool,
+}
+
+impl OwnRoom {
+    /// Whether `now` has more room than this: the hold has more, less is
+    /// in flight, or the method became available.
+    fn grew(self, now: Self) -> bool {
+        let hold = match (self.hold, now.hold) {
+            (Some(was), Some(is)) => is > was,
+            (None, Some(_)) => true,
+            (_, None) => false,
+        };
+        hold || now.in_flight < self.in_flight || (now.available && !self.available)
+    }
+
+    /// The least of this room and `other`, in each part.
+    fn least(self, other: Self) -> Self {
+        let hold = match (self.hold, other.hold) {
+            (Some(one), Some(two)) => Some(one.min(two)),
+            (one, two) => one.or(two),
+        };
+        Self {
+            hold,
+            in_flight: self.in_flight.min(other.in_flight),
+            available: self.available && other.available,
+        }
+    }
+}
+
+/// A method short of the node's own room: the room it had, and until when
+/// it waits at most.
+#[derive(Clone, Copy, Debug)]
+struct Short {
+    room: OwnRoom,
+    until_ms: u64,
 }
 
 impl PeerSwaps {
@@ -251,6 +329,14 @@ impl PeerSwaps {
         self.stopped.is_none() && self.until_ms <= now_ms && self.in_flight < PACKETS_PER_PEER
     }
 
+    /// Whether the node's own room on `pay_on` is short at `now_ms`: it
+    /// sends nothing on it until the room grows.
+    fn short_on(&self, pay_on: LedgerId, now_ms: u64) -> bool {
+        self.short
+            .get(&pay_on)
+            .is_some_and(|short| now_ms < short.until_ms)
+    }
+
     fn used(&self, pair: (LedgerId, LedgerId)) -> u64 {
         self.used.get(&pair).copied().unwrap_or(0)
     }
@@ -258,7 +344,8 @@ impl PeerSwaps {
     /// What the outcome of a swap `sent` to it says of the peer: the swap
     /// is no longer in flight, its place on the walk is free if nothing
     /// came in at the peer, and the peer is backed off from, sized down or
-    /// stopped, as its code says. The end of an owner's swap it calls for.
+    /// stopped, as its code says, or the method it was paid on waits for
+    /// the node's own room. The end of an owner's swap it calls for.
     fn heard(
         &mut self,
         sent: &Sent,
@@ -292,9 +379,17 @@ impl PeerSwaps {
             stats.below_minimum += 1;
             self.stopped = Some(Stop::BelowMinimum);
             None
+        } else if for_room(code) && outcome.refused_here {
+            stats.short_of_room += 1;
+            self.wait_for_room(sent, now_ms);
+            None
+        } else if for_room(code) {
+            stats.backoffs += 1;
+            self.back_off(now_ms, MAX_ROOM_BACKOFF_MS);
+            None
         } else if matches!(code.class(), ErrorClass::Temporary | ErrorClass::Relative) {
             stats.backoffs += 1;
-            self.back_off(now_ms);
+            self.back_off(now_ms, MAX_BACKOFF_MS);
             None
         } else {
             stats.refused += 1;
@@ -303,15 +398,38 @@ impl PeerSwaps {
         }
     }
 
-    /// Backs off, as STREAM does: the first wait, then twice the last.
-    fn back_off(&mut self, now_ms: u64) {
+    /// Backs off, as STREAM does: the first wait, then twice the last, up
+    /// to `longest_ms`.
+    fn back_off(&mut self, now_ms: u64, longest_ms: u64) {
         self.backoff_ms = if self.backoff_ms == 0 {
             FIRST_BACKOFF_MS
         } else {
-            self.backoff_ms.saturating_mul(2).min(MAX_BACKOFF_MS)
+            self.backoff_ms.saturating_mul(2).min(longest_ms)
         };
         self.until_ms = now_ms.saturating_add(self.backoff_ms);
     }
+
+    /// Has the method `sent` was paid on wait until the node's own room
+    /// there grows from what it was when the swap went, or at most
+    /// [`MAX_SHORT_MS`]. Swaps that went together find each other in
+    /// flight, though refused: it waits on the least room of them.
+    fn wait_for_room(&mut self, sent: &Sent, now_ms: u64) {
+        let room = match self.short.get(&sent.pay_on) {
+            Some(short) => short.room.least(sent.room),
+            None => sent.room,
+        };
+        let short = Short {
+            room,
+            until_ms: now_ms.saturating_add(MAX_SHORT_MS),
+        };
+        self.short.insert(sent.pay_on, short);
+    }
+}
+
+/// Whether `code` refuses a packet for want of room: of liquidity (T04),
+/// or for the money in flight (T05).
+fn for_room(code: ErrorCode) -> bool {
+    code == ErrorCode::T04_INSUFFICIENT_LIQUIDITY || code == ErrorCode::T05_RATE_LIMITED
 }
 
 /// One of the service's swaps in flight.
@@ -323,6 +441,9 @@ struct Sent {
     amount: u64,
     /// The owner's swap it is part of, if any.
     owner: Option<u64>,
+    /// The room on the node's own way out on `pay_on` just before it
+    /// went: what it waits to grow from, if it was refused for want of it.
+    room: OwnRoom,
 }
 
 /// A swap the owner asked for, while it runs.
@@ -421,6 +542,10 @@ impl Core {
         let now = self.now_ms();
         let peers = self.swapping.peers.values();
         stats.backing_off = peers.clone().filter(|peer| peer.until_ms > now).count() as u64;
+        stats.waiting_for_room = peers
+            .clone()
+            .filter(|peer| peer.short.values().any(|short| short.until_ms > now))
+            .count() as u64;
         stats.waiting_for_snapshot = peers.filter(|peer| peer.stopped.is_some()).count() as u64;
         stats.dropped = self.swaps.dropped();
         stats
@@ -511,13 +636,15 @@ impl Core {
     ///
     /// It looks at its peers and pairs again only when something it decides
     /// by changed: a snapshot, an outcome, a backoff that ended or an
-    /// owner's swap whose time ran out, the node's prices, holdings or
-    /// settings, or anything the step persists, such as a peering or a
-    /// scheme's state, which say what methods are available.
+    /// owner's swap whose time ran out, room on its own way out that grew
+    /// where it was short, the node's prices, holdings or settings, or
+    /// anything the step persists, such as a peering or a scheme's state,
+    /// which say what methods are available.
     pub(super) fn run_swaps(&mut self) {
         self.orphaned_swaps();
         self.swap_outcomes();
         self.read_snapshots();
+        let room = self.room_returned();
         let seen = Seen {
             table: self.prices.table,
             books: self.ledger.stats(),
@@ -526,7 +653,8 @@ impl Core {
         };
         let now = self.now_ms();
         let swapping = &mut self.swapping;
-        swapping.dirty |= swapping.seen != Some(seen)
+        swapping.dirty |= room
+            || swapping.seen != Some(seen)
             || swapping.wake_ms.is_some_and(|wake| wake <= now)
             || !self.batch.is_empty();
         swapping.seen = Some(seen);
@@ -551,8 +679,9 @@ impl Core {
         self.swapping.rounds
     }
 
-    /// When the service next has something to do: a backoff that ends, or
-    /// an owner's swap whose time runs out.
+    /// When the service next has something to do: a backoff that ends, a
+    /// method that waited for room as long as it may, or an owner's swap
+    /// whose time runs out.
     pub(super) fn swap_deadline(&self) -> Option<u64> {
         let now = self.now_ms();
         let by_itself = self.swaps_by_itself();
@@ -562,19 +691,81 @@ impl Core {
             .values()
             .map(|job| job.swap.peer)
             .collect();
-        let backoffs = self
+        let ours = self
             .swapping
             .peers
             .iter()
-            .filter(|(node, peer)| peer.until_ms > now && (by_itself || owner_peers.contains(node)))
-            .map(|(_, peer)| peer.until_ms);
+            .filter(|(node, _)| by_itself || owner_peers.contains(node))
+            .map(|(_, peer)| peer);
+        let backoffs = ours
+            .clone()
+            .filter(|peer| peer.until_ms > now)
+            .map(|peer| peer.until_ms);
+        let short = ours
+            .flat_map(|peer| peer.short.values())
+            .map(|short| short.until_ms)
+            .filter(|&until| until > now);
         let owner = self
             .swapping
             .owner
             .values()
             .filter(|job| job.ended.is_none())
             .map(|job| job.deadline_ms.max(now));
-        backoffs.chain(owner).min()
+        backoffs.chain(short).chain(owner).min()
+    }
+
+    /// The room on the node's own way out to `node` on its method on
+    /// `ledger`: what its hold toward the peer there has room for, what its
+    /// packets in flight to the peer there carry, and whether the method
+    /// is available.
+    fn own_room(&mut self, node: NodeId, ledger: LedgerId) -> OwnRoom {
+        let slot = self.peer_endpoints.get(&node).and_then(|&endpoint| {
+            self.connector
+                .slots(EndpointId::Peer(endpoint))
+                .find(|slot| slot.ledger == ledger && !slot.removed)
+        });
+        let scheme = self
+            .schemes
+            .iter()
+            .find(|(_, active)| active.scheme.ledger() == ledger)
+            .map(|(name, _)| *name);
+        let hold = scheme
+            .zip(Name::new(node.as_str()).ok())
+            .and_then(|(scheme, peer)| self.with_commitments(scheme, |c| c.room_toward(peer)))
+            .flatten();
+        OwnRoom {
+            hold,
+            in_flight: slot.map_or(0, |slot| slot.money_to),
+            available: slot.is_some_and(|slot| slot.available),
+        }
+    }
+
+    /// Ends the wait of each method short of the node's own room whose
+    /// room grew, or that waited as long as it may. Returns whether any
+    /// ended: something the service decides by changed.
+    fn room_returned(&mut self) -> bool {
+        let now = self.now_ms();
+        let short: Vec<(NodeId, LedgerId, Short)> = self
+            .swapping
+            .peers
+            .iter()
+            .flat_map(|(&node, peer)| {
+                peer.short
+                    .iter()
+                    .map(move |(&ledger, &short)| (node, ledger, short))
+            })
+            .collect();
+        let mut returned = false;
+        for (node, ledger, short) in short {
+            if now < short.until_ms && !short.room.grew(self.own_room(node, ledger)) {
+                continue;
+            }
+            if let Some(peer) = self.swapping.peers.get_mut(&node) {
+                peer.short.remove(&ledger);
+            }
+            returned = true;
+        }
+        returned
     }
 
     /// The ledgers of the methods of the peering with `node` that are
@@ -856,7 +1047,8 @@ impl Core {
         let mut promised = Vec::new();
         for &pay_on in &ledgers {
             for &back_on in &ledgers {
-                if pay_on == back_on || !(fresh(pay_on) && fresh(back_on)) {
+                let short = peer.short_on(pay_on, now);
+                if pay_on == back_on || short || !(fresh(pay_on) && fresh(back_on)) {
                     continue;
                 }
                 let cost = *costs
@@ -894,6 +1086,7 @@ impl Core {
                 Ok(swap) => swap,
                 Err(drive) => return drive,
             };
+            let room = self.own_room(node, pair.0);
             let Ok(sent) = self.send_swap(swap) else {
                 return Drive::Exhausted;
             };
@@ -907,6 +1100,7 @@ impl Core {
                 back_on: pair.1,
                 amount: swap.amount,
                 owner,
+                room,
             };
             assert!(self.swapping.sent.insert(sent.request_id, record).is_none());
             self.swapping.stats.sent += 1;
@@ -947,7 +1141,10 @@ impl Core {
         if let Some(stop) = peer.stopped {
             return Err(Drive::Stopped(stop));
         }
-        if !peer.open(now) || self.swaps.in_flight() >= MAX_SWAPS_IN_FLIGHT {
+        if !peer.open(now)
+            || peer.short_on(pay_on, now)
+            || self.swaps.in_flight() >= MAX_SWAPS_IN_FLIGHT
+        {
             return Err(Drive::Waiting);
         }
         let left = match gate {
@@ -1020,6 +1217,7 @@ impl Core {
         assert!(in_flight <= swapping.sent.len());
         for peer in swapping.peers.values() {
             assert!(peer.in_flight <= PACKETS_PER_PEER);
+            assert!(peer.short.len() <= LedgerId::ALL.len());
         }
     }
 }
@@ -1039,6 +1237,7 @@ mod tests {
             back_on: LedgerId::HubXrplTestnetXrp,
             amount,
             owner: None,
+            room: OwnRoom::default(),
         }
     }
 
@@ -1049,6 +1248,7 @@ mod tests {
             result,
             came_back: None,
             too_large: None,
+            refused_here: false,
         }
     }
 
@@ -1059,10 +1259,23 @@ mod tests {
         peer.heard(&sent(amount), outcome, &mut stats, NOW)
     }
 
-    // T04 and T05 back off as STREAM does: the first wait, then twice the
-    // last, up to the longest; a swap fulfilled starts it again.
+    /// `peer` hears `result` of a swap of `amount` it had in flight, with
+    /// what that says, counted, in `stats`.
+    fn hear_counted(
+        peer: &mut PeerSwaps,
+        outcome: &SwapOutcome,
+        sent: &Sent,
+        stats: &mut SwapStats,
+    ) -> Option<SwapEnd> {
+        peer.in_flight += 1;
+        peer.heard(sent, outcome, stats, NOW)
+    }
+
+    // The peer's T04 and T05, or the way back's, back off as STREAM does,
+    // the first wait, then twice the last, but for at most a hub funding's
+    // landing; a swap fulfilled starts it again.
     #[test]
-    fn temporary_refusals_back_off_doubling() {
+    fn the_peers_refusals_for_room_back_off_up_to_a_landing() {
         let mut peer = PeerSwaps::default();
         let codes = [
             ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
@@ -1078,12 +1291,116 @@ mod tests {
         }
         for _ in 0..32 {
             hear(&mut peer, &outcome(Err(ErrorCode::T05_RATE_LIMITED)), 10);
+            assert!(peer.until_ms <= NOW + MAX_ROOM_BACKOFF_MS);
         }
-        assert_eq!(peer.until_ms, NOW + MAX_BACKOFF_MS);
+        assert_eq!(peer.until_ms, NOW + MAX_ROOM_BACKOFF_MS);
+        assert!(peer.short.is_empty());
         hear(&mut peer, &outcome(Ok(())), 10);
         hear(&mut peer, &outcome(Err(ErrorCode::T05_RATE_LIMITED)), 10);
         assert_eq!(peer.until_ms, NOW + FIRST_BACKOFF_MS);
         assert_eq!(peer.in_flight, 0);
+    }
+
+    // Every other temporary or relative error backs off as STREAM does, up
+    // to its longest wait.
+    #[test]
+    fn other_temporary_refusals_back_off_as_stream_does() {
+        let mut peer = PeerSwaps::default();
+        let codes = [
+            ErrorCode::T00_INTERNAL_ERROR,
+            ErrorCode::T01_PEER_UNREACHABLE,
+            ErrorCode::R00_TRANSFER_TIMED_OUT,
+        ];
+        let mut wait = FIRST_BACKOFF_MS;
+        for code in codes {
+            hear(&mut peer, &outcome(Err(code)), 10);
+            assert_eq!(peer.until_ms, NOW + wait);
+            wait *= 2;
+        }
+        for _ in 0..32 {
+            hear(
+                &mut peer,
+                &outcome(Err(ErrorCode::R00_TRANSFER_TIMED_OUT)),
+                10,
+            );
+        }
+        assert_eq!(peer.until_ms, NOW + MAX_BACKOFF_MS);
+        // Refused here, they are no want of room either.
+        let mut here = outcome(Err(ErrorCode::T01_PEER_UNREACHABLE));
+        here.refused_here = true;
+        hear(&mut peer, &here, 10);
+        assert!(peer.short.is_empty());
+        assert_eq!(peer.until_ms, NOW + MAX_BACKOFF_MS);
+    }
+
+    // A T04 or T05 the node gave itself backs off from nothing: the method
+    // it was paid on waits until the node's own room there grows from what
+    // it was when the swap went, and at most the longest backoff; the
+    // peer's other methods do not wait.
+    #[test]
+    fn a_refusal_for_the_nodes_own_room_waits_for_it_on_its_method() {
+        for code in [
+            ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+            ErrorCode::T05_RATE_LIMITED,
+        ] {
+            let mut peer = PeerSwaps::default();
+            let mut stats = SwapStats::default();
+            let mut swap = sent(10);
+            swap.room = OwnRoom {
+                hold: Some(5),
+                in_flight: 20,
+                available: true,
+            };
+            let mut here = outcome(Err(code));
+            here.refused_here = true;
+            assert_eq!(hear_counted(&mut peer, &here, &swap, &mut stats), None);
+            assert_eq!((stats.short_of_room, stats.backoffs), (1, 0));
+            assert!(peer.open(NOW), "no backoff");
+            assert!(peer.short_on(swap.pay_on, NOW));
+            assert!(peer.short_on(swap.pay_on, NOW + MAX_SHORT_MS - 1));
+            assert!(!peer.short_on(swap.pay_on, NOW + MAX_SHORT_MS));
+            assert!(!peer.short_on(swap.back_on, NOW));
+            assert_eq!(peer.short[&swap.pay_on].room, swap.room);
+            assert_eq!(peer.backoff_ms, 0);
+        }
+    }
+
+    // The node's own room grows with its hold, as less is in flight, or as
+    // its method becomes available; nothing else is more room.
+    #[test]
+    fn own_room_grows_with_the_hold_less_in_flight_or_the_method() {
+        let was = OwnRoom {
+            hold: Some(5),
+            in_flight: 20,
+            available: true,
+        };
+        let grew = |now| was.grew(now);
+        assert!(!grew(was));
+        assert!(grew(OwnRoom {
+            hold: Some(6),
+            ..was
+        }));
+        assert!(grew(OwnRoom {
+            in_flight: 19,
+            ..was
+        }));
+        assert!(!grew(OwnRoom {
+            hold: Some(4),
+            in_flight: 21,
+            ..was
+        }));
+        assert!(!grew(OwnRoom { hold: None, ..was }));
+        assert!(!grew(OwnRoom {
+            available: false,
+            ..was
+        }));
+        let unavailable = OwnRoom {
+            available: false,
+            ..was
+        };
+        assert!(unavailable.grew(was));
+        let unknown = OwnRoom { hold: None, ..was };
+        assert!(unknown.grew(was));
     }
 
     // F08 sizes the pair's next packets by what it names; F02 stops the

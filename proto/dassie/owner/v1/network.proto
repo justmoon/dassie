@@ -357,7 +357,8 @@ message GetSwapStatusResponse {
   // Swaps rejected whose way back the node had fulfilled: it was paid all
   // the same.
   uint64 paid_though_rejected = 7;
-  // Times it backed off from a peer (T04, T05 and other temporary errors).
+  // Times it backed off from a peer: for the peer's T04, T05 and other
+  // temporary errors, or the way back's.
   uint64 backoffs = 8;
   // Times a peer refused swaps (F02 and other final errors).
   uint64 refused = 9;
@@ -375,6 +376,12 @@ message GetSwapStatusResponse {
   // Peers it sends nothing until their snapshot changes, since they
   // refused a swap or one came back below its minimum.
   uint64 waiting_for_snapshot = 15;
+  // Peers it sends nothing on a method until its own room there grows:
+  // its hold toward the peer, or its money in flight to it.
+  uint64 waiting_for_room = 16;
+  // Swaps it refused itself for want of room on its own way out (T04,
+  // T05): it waited for the room rather than backing off.
+  uint64 short_of_room = 17;
 }
 
 // Swaps with a peer for the owner, as the node's own swaps go: from one

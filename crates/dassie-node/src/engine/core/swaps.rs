@@ -114,6 +114,12 @@ pub struct SwapOutcome {
     pub came_back: Option<u64>,
     /// With F08, the amounts the reject named: the swap scales by them.
     pub too_large: Option<AmountTooLarge>,
+    /// Whether this node refused it before it left for the peer: its
+    /// connector at once, or its hold toward the peer, which did not cover
+    /// it. A T04 or T05 so is for want of room on the node's own way out,
+    /// which only the node's own hold, packets in flight or method can
+    /// give back; any other is the peer's, or the way back's.
+    pub refused_here: bool,
 }
 
 /// One of the node's swaps in flight: what its outcome says.
@@ -123,6 +129,8 @@ struct InFlight {
     back_on: LedgerId,
     condition: [u8; 32],
     came_back: Option<u64>,
+    /// Refused before it left the node.
+    refused_here: bool,
 }
 
 /// The node's swaps: the secret their fulfillments derive from, the next
@@ -287,6 +295,7 @@ impl Core {
             back_on: swap.back_on,
             condition,
             came_back: None,
+            refused_here: false,
         };
         assert!(self.swaps.in_flight.insert(request_id, sent).is_none());
         let outcome = self.connector.send_swap(
@@ -300,10 +309,17 @@ impl Core {
             &mut self.out,
         );
         match outcome {
-            Outcome::Forward(forwarded) => self.forward_out(now, forwarded),
+            Outcome::Forward(forwarded) => {
+                // Failed before it left: its outcome comes as the
+                // connector expires it.
+                if self.forward_out(now, forwarded) {
+                    self.refused_here(request_id);
+                }
+            }
             Outcome::Respond(length) => {
                 let response = self.out.get(..length).unwrap_or_default();
                 let (result, too_large) = result_of(response);
+                self.refused_here(request_id);
                 self.swap_outcome(request_id, swap.pay_on, result, too_large);
             }
             // The request ID is new, as above; the source is the swap
@@ -340,6 +356,14 @@ impl Core {
         (data, condition)
     }
 
+    /// Marks the swap sent with `request_id` as refused before it left the
+    /// node.
+    fn refused_here(&mut self, request_id: u32) {
+        if let Some(sent) = self.swaps.in_flight.get_mut(&request_id) {
+            sent.refused_here = true;
+        }
+    }
+
     /// The next outcome of the node's swaps, oldest first.
     pub fn poll_swap_outcome(&mut self) -> Option<SwapOutcome> {
         self.swaps.outcomes.pop_front()
@@ -365,11 +389,9 @@ impl Core {
         result: Result<(), ErrorCode>,
         too_large: Option<AmountTooLarge>,
     ) {
-        let came_back = self
-            .swaps
-            .in_flight
-            .remove(&request_id)
-            .and_then(|sent| sent.came_back);
+        let sent = self.swaps.in_flight.remove(&request_id);
+        let came_back = sent.and_then(|sent| sent.came_back);
+        let refused_here = sent.is_some_and(|sent| sent.refused_here);
         if self.swaps.outcomes.len() >= MAX_SWAP_OUTCOMES {
             self.swaps.outcomes.pop_front();
             self.swaps.dropped = self.swaps.dropped.saturating_add(1);
@@ -380,6 +402,7 @@ impl Core {
             result,
             came_back,
             too_large,
+            refused_here,
         });
     }
 
