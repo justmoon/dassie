@@ -21,6 +21,7 @@ import { Link, useRouter, useSearchParam } from "@dassie/ui/router";
 import { useToast } from "@dassie/ui/toast";
 import { Card, ErrorText, PageTitle, Tabs } from "@dassie/ui/ui";
 import { schemeName, tokenScheme } from "./schemes.ts";
+import { assetTab } from "./receive.ts";
 import { assetOf } from "./assets/assets.ts";
 import { RequestPayment } from "./payments/RequestPayment.tsx";
 import {
@@ -76,7 +77,7 @@ export function Receive(): JSX.Element {
         <Tabs
           label="How to receive"
           tabs={tabs()}
-          selected={selected()}
+          selected={assetTab(selected(), tabs().map((entry) => entry.id))}
           onSelect={setSelected}
         />
         <div class="actions">

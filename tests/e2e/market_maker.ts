@@ -14,6 +14,7 @@ import { assert } from "@std/assert";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Agent, fetch } from "undici";
+import { FundsKept } from "@dassie/rpc/proto";
 import {
   hubLedger,
   hubOwnerLedger,
@@ -261,6 +262,14 @@ export async function writeConfig(
   for (const node of [xrpNode, dsusdNode]) {
     const file = join(dir, `${node.name}.phrase`);
     await writeFile(file, `${node.identity.phrase}\n`, { mode: 0o600 });
+    // Its rebalances spend from the owner book, so what a node is paid
+    // must reach the book: its owner keeps it on the own account, which
+    // the hub's funding sweeps beyond the ceiling, as the VM's setup does
+    // with `--keep-funds account` (spec/areas/rate-feed.md#bands).
+    await node.rpc.call("setFundsKept", {
+      name: "",
+      fundsKept: FundsKept.OWN_ACCOUNT,
+    });
   }
   const xrpHeld = await held(xrpNode, XRP);
   const config = {

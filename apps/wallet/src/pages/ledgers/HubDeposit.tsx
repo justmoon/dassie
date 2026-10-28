@@ -47,6 +47,11 @@ export function HubDeposit(
         <dd>
           Once the hub's validators see the payment validated, usually within
           seconds.
+          <Show when={props.asset !== "XRP"}>
+            {" "}While{" "}
+            {props.asset}'s issuer freezes the hub, the hub credits it only once
+            the issuer lets go; your Hubs page says when the hub is frozen.
+          </Show>
         </dd>
       </dl>
       <Alert

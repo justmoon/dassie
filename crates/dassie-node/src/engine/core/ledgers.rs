@@ -1227,10 +1227,17 @@ impl Core {
         let asset = active.asset.and_then(|asset| self.assets.get(&asset));
         // A deposit to a hub's escrow names the node's account by its tag,
         // once the account has its number and the hub agreed on it; the
-        // first deposit, which opens it, is the node's own.
+        // first deposit, which opens it, is the node's own. An account that
+        // failed, as one the hub names another number for, names none: the
+        // number it knew may be someone else's, who a deposit would credit.
         let (deposit_address, deposit_tag) = match self.hub_account(*id) {
-            Some(account) => match (account.number(), account.view()) {
-                (Some(number), Some(_)) => (
+            Some(account) => match (
+                account.number(),
+                account.view(),
+                dassie_settlement::ExternalAsset::status(account),
+            ) {
+                (_, _, LedgerStatus::Failed(_)) => (None, None),
+                (Some(number), Some(_), _) => (
                     Some(dassie_xrpl::AccountId(account.terms().escrow).to_address()),
                     Some(number.0),
                 ),
