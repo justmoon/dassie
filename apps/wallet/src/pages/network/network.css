@@ -150,3 +150,19 @@ a.node-name[aria-current="page"] {
 .registrar-list code {
   font-size: 13px;
 }
+
+/* The graph in Kopje: every node a sun on Daylight, the one picked ringed
+   in ink; the shared graph's categorical colors stay the dev dashboard's,
+   where many nodes must tell apart. */
+.network-graph .graph-node {
+  fill: var(--sun);
+}
+
+.network-graph .graph-link {
+  stroke: var(--stone);
+}
+
+.network-graph .graph-label {
+  fill: var(--ink-2);
+  font-family: var(--sans);
+}

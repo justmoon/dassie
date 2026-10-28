@@ -152,7 +152,7 @@ function OwnNode(
     (item) => item,
   );
   return (
-    <Card title="Details for Your Node" testid="own-node" class="node-card">
+    <Card title="Details for your node" testid="own-node" class="node-card">
       <h3>Tier 1 registration</h3>
       <LiveNote status={registration.status()} />
       <Show when={registration.value()}>
@@ -227,7 +227,7 @@ function PeripheryNode(props: {
   const now = useNow();
   const relay = () => props.status?.relay ?? null;
   return (
-    <Card title="Details for Your Node" testid="own-node" class="node-card">
+    <Card title="Details for your node" testid="own-node" class="node-card">
       <h3>Periphery node</h3>
       <p class="muted">
         Your node has no public address, so it registers with no bootstrap node.
