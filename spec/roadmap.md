@@ -152,6 +152,13 @@ A node's default rate sources are exchanges whose terms license their market dat
 - **Done when:** a new node's sources are only these; XRP's rate follows mainnet's XRP/RLUSD pool, and a pool pushed for less than half the window leaves it unmoved; a test node signs nothing on mainnet; no dollar token's scheme or hub pauses for its price; the fiat currencies' rates come from the four banks, each dropped once older than its calendar allows; the wallet names the sources; and the keeper holds DSUSD's pool at mainnet's XRP/RLUSD price.
 - **Later:** a source of XRP's price in dollars outside every dollar token's pool, close to real time and with terms that allow a node's use, and the peg guard on it again.
 
+### Market maker by inventory
+
+The market maker decides by a band per asset and trades a fixed size through one target a tick ([Rate feed](areas/rate-feed.md#market-maker)). [market-maker-inventory](decisions/market-maker-inventory.md) replaces the bands with a curve of its own, flatter than the nodes': it trades with every target whose quote beats its valuation by a margin, sized by the target's ladders, and rebalances on the pool back to even once its own share is far from even.
+
+- **Left to build:** the market maker's valuation by its curve, at the pool's price; a trade per target that clears, sized by its ladders and a per-trade cap, several at once; the wait for a target whose trade failed or paid nothing; the rebalance to even past the threshold; the settings `k`, margin, threshold, slippage and cap in place of the bands and trade sizes, in the config and the VM's metadata; the area docs.
+- **Done when:** in the market maker's tests on paused time, a market maker far from even rebalances to even first; it then trades with each of several targets whose quotes clear, each sized by its ladders, until no target's quote beats its valuation by the margin; a target whose swaps fail is left out and back once one pays; and it never holds while a target's quote clears and it can pay for the trade.
+
 ## Not built yet
 
 Gaps between what the spec's contract or decisions ask for and what `main` does. Each can be picked up on its own.
