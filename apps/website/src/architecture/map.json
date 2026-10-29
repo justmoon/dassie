@@ -1864,6 +1864,14 @@
   ],
   "releases": [
     {
+      "version": "0.4.1",
+      "date": "2026-10-29",
+      "changes": [
+        "`dassie market-maker` values what it holds by a gentle curve of its own at the XRP Ledger pool's price, in place of a band for each asset. It swaps with every core node whose quote beats that by a margin, after what selling the trade back on the pool would cost: several at once, each as large as the node's quotes allow, and a node whose swap fails is left out for a while. Once its holdings lean too far one way, it swaps back to even on the pool.",
+        "The market maker's config takes a `cap` for each asset, and `curvePpm`, `marginPpm` and `thresholdPpm`, in place of `tradeSize` and `band`. A config of bands is refused, and `dassie market-maker --check` checks a config without connecting to anything."
+      ]
+    },
+    {
       "version": "0.4.0",
       "date": "2026-10-28",
       "changes": [
