@@ -1,0 +1,3 @@
+
+ALTER TABLE peers ADD COLUMN was_core INTEGER NOT NULL DEFAULT 0
+  CHECK (was_core IN (0, 1));
