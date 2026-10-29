@@ -25,6 +25,8 @@ mod send;
 
 // The records the event log writes are the live streams' own.
 pub(crate) use hub::hub_event as hub_event_record;
+#[cfg(test)]
+pub(crate) use hub::unary as hub_unary;
 pub(crate) use ledger::packet as packet_record;
 
 use std::fmt;
