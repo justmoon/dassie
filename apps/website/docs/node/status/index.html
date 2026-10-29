@@ -163,7 +163,10 @@
         them. Its status reads as a core node's, with its certificate and
         how many bootstrap nodes list it, and its Network line ends
         <samp>a periphery node until two core nodes it peers with promote
-        it</samp>. Its Uplinks line names the core nodes it waits on.
+        it</samp>. Its Uplinks line names the core nodes it waits on. The
+        hour is only for the first promotion: after a restart, of the node
+        or of its uplinks, it is back in the core once they hear from it
+        again.
       </p>
 
       <h2 id="hints">Hints</h2>

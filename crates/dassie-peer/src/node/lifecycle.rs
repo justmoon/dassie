@@ -633,7 +633,9 @@ impl PeerNode {
         };
         entry.sources.remove(from);
         entry.sources.insert(to);
-        entry.was_core |= !downlink;
+        if let Some(peering) = entry.peering_mut() {
+            peering.was_core |= !downlink;
+        }
         self.dirty.insert(id);
         // Only core peers are subscribed to (spec/areas/network.md#snapshot-subscriptions).
         if downlink {
@@ -835,7 +837,6 @@ impl PeerNode {
             } else {
                 entry.standing.since_ms = None;
             }
-            entry.was_core |= !entry.is_downlink();
             let by_health = !checked_for_promotion(entry);
             let promoted = by_health || promotable.contains(id);
             let advertise = &mut entry.advertise;
@@ -904,7 +905,6 @@ impl PeerNode {
             return;
         };
         entry.advertise = Advertise::default();
-        entry.was_core = false;
         let wait = if keeps_away(termination.reason) {
             // Nor does it take the peer's requests: the owner meant it, and
             // a link that stayed short is not formed again at once
@@ -995,8 +995,9 @@ const fn keeps_away(reason: TerminationReason) -> bool {
 /// promotion: our downlink, but for one whose peering was core while it is
 /// registered, which is listed by its health, as a core peer's. A node that
 /// left the core for a moment, silent past the confirmation or while a peer
-/// restarted, comes back after its hold-down, not after a new promotion;
-/// one whose registration ended is out (spec/decisions/promotion-to-core.md).
+/// restarted, comes back after its hold-down, not after a new promotion,
+/// whichever of the two restarted; one whose registration ended is out
+/// (spec/decisions/promotion-to-core.md).
 fn checked_for_promotion(entry: &Entry) -> bool {
-    entry.is_downlink() && !(entry.was_core && entry.sources.contains(Sources::MAJORITY))
+    entry.is_downlink() && !(entry.was_core() && entry.sources.contains(Sources::MAJORITY))
 }

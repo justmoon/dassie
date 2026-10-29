@@ -1181,6 +1181,8 @@ fn a_node_with_a_url_is_promoted_into_the_core() {
     settle(&mut network, Config::DEV.core_settle_ms);
     assert!(network.node(turning).uses_own_address());
     a_promoted_node_comes_back_after_an_outage(&mut network, turning);
+    let uplinks: Vec<usize> = uplinks.iter().map(|(at, _)| *at).collect();
+    a_promoted_node_comes_back_after_a_rollout(&mut network, turning, &uplinks);
 }
 
 /// Review of #701: node `turning`, promoted into the core of the first
@@ -1198,6 +1200,50 @@ fn a_promoted_node_comes_back_after_an_outage(network: &mut Network, turning: us
     );
     network.start(turning);
     let back = network.now;
+    while !(0..=core).all(|index| network.node(index).core().contains(&node)) {
+        settle(network, 5_000);
+        assert!(
+            network.now < back + Config::DEV.promotion_standing_ms / 2,
+            "back in the core well before a new promotion"
+        );
+    }
+}
+
+/// Node `turning`, promoted into the core of the first three, is down for
+/// longer than its peers wait to hear from it, so its peerings turn
+/// downlink, and its uplinks restart around it, as in a rollout: one while
+/// it is down, the other once it is back but not yet core again. That its
+/// peerings were core is kept across their restarts, so they list it by its
+/// health again after their hold-down, not after a new hour of standing.
+fn a_promoted_node_comes_back_after_a_rollout(
+    network: &mut Network,
+    turning: usize,
+    uplinks: &[usize],
+) {
+    let (core, node) = (turning, id(turning));
+    let [first, second] = uplinks else {
+        panic!("two uplinks");
+    };
+    network.crash(turning);
+    let start = network.now;
+    while !uplinks
+        .iter()
+        .all(|at| network.node(*at).is_downlink(&node))
+    {
+        settle(network, 5_000);
+        assert!(
+            network.now < start + 4 * Config::DEV.peer_confirm_ms,
+            "its peerings turn downlink while it is down"
+        );
+    }
+    network.crash(*first);
+    network.start(*first);
+    settle(network, 5_000);
+    network.start(turning);
+    let back = network.now;
+    assert!(network.node(*second).is_downlink(&node));
+    network.crash(*second);
+    network.start(*second);
     while !(0..=core).all(|index| network.node(index).core().contains(&node)) {
         settle(network, 5_000);
         assert!(

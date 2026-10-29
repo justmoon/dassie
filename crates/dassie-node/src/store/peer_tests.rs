@@ -41,6 +41,9 @@ fn node(seed: u8) -> StoredNode {
             depeering: seed
                 .is_multiple_of(2)
                 .then(|| dassie_peer::Depeering::new(18, TerminationReason::ShortOfRoom)),
+            // The others a peering that has been core, which a
+            // restart keeps listed by its health (spec/areas/network.md#promotion).
+            was_core: !seed.is_multiple_of(2),
         }),
         termination: None,
     }

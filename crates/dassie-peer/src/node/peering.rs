@@ -548,7 +548,9 @@ impl PeerNode {
             ..Advertise::default()
         };
         let first = Method::new(scheme, agreed.state, agreed.credit_out);
-        entry.peer = PeerState::Peered(PeeringState::new(first, now, inbound));
+        let mut peering = PeeringState::new(first, now, inbound);
+        peering.was_core = !entry.is_downlink();
+        entry.peer = PeerState::Peered(peering);
         entry.standing = crate::table::Standing {
             skew_ms: entry.standing.skew_ms,
             ..crate::table::Standing::NEW
