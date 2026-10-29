@@ -1864,6 +1864,17 @@
   ],
   "releases": [
     {
+      "version": "0.4.0",
+      "date": "2026-10-28",
+      "changes": [
+        "A node's place in the network now follows the core it works out from the signed link states, not just whether it has a hostname. Every node starts in the periphery, a node with a hostname too, and becomes a core node once its uplinks have checked it: how long it has been in good standing, its heartbeats and its clock, and that it answers at its URL over QUIC and over HTTPS with a publicly issued certificate. The bootstrap nodes are core from the start. A node being promoted is paid beneath its core peers until it has been core for a while, and keeps taking packets at those addresses afterwards.",
+        "When a node's funds in a settlement hub are short, it shares them among its peers rather than serving whoever asks first. Every peer can always count on one largest packet, and on enough to carry what it may have in flight while funds allow; what is left goes to core peers first, by the fees they earned the node, then to downlinks. A node with plenty in its hub behaves as before.",
+        "A node whose funds in a hub cannot cover one largest packet for each of its peers takes fewer peers, dropping downlinks first, and tops its pool up to a packet per peer before anything else.",
+        "A fifth bootstrap node, `boot5.dassie.xyz`, joins boot1 to boot4. A node still needs a majority of the lists, three of five, so two bootstrap nodes can be down, or a whole zone lost, and the network keeps its membership.",
+        "A node's database now starts from one step that builds the schema 0.3.0 wrote, and the databases of every 0.3 release carry on: 0.3.0 to 0.3.3 migrate to the current schema, with a copy kept first, and 0.3.4's open as they are."
+      ]
+    },
+    {
       "version": "0.3.4",
       "date": "2026-10-28",
       "changes": [
