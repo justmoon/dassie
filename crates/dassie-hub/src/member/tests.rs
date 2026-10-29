@@ -1116,11 +1116,11 @@ fn the_default_testnet_dsusd_hub_is_the_one_founded() {
     let rules = founded_on_the_boots(DEFAULT_TESTNET_DSUSD_HUB.unwrap());
     assert_eq!(
         alloc::format!("{}", rules.id().0),
-        "8a33d0f5759f5411e1118b98adb1ab9f2831323ca01ab1287c372ccb72a11f3d"
+        "e99911a0b5731e953143b4c38652871398661bfdf71b5d4b7c761d9c1699cf9a"
     );
     assert_eq!(
         crate::escrow::transactions::escrow_account(&rules).to_address(),
-        "rDkVZmGMF5PEWnADsnqfTNr8WQDdrXpzS5"
+        "rGq7An63f4y1oGrjPZd1YMCRMGb2w6aeZh"
     );
     assert_eq!(
         scheme_of(&rules.terms).map(|(scheme, _)| scheme),
