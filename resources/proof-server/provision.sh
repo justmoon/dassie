@@ -94,7 +94,10 @@ fi
 # Both on SSD: xrpld writes small blocks, thousands a second while it
 # syncs, and a balanced disk's IOPS cap held the testnet's first sync back
 # for hours. The testnet has less traffic but a larger state than mainnet.
-for server in mainnet:e2-standard-8:250GB:pd-ssd testnet:e2-standard-4:150GB:pd-ssd; do
+# Both with 32 GB: the testnet's node_size huge, which a restart needs to
+# sync at all, holds about 13 GB, and rippled sizes itself huge only from
+# 24 GB and 8 threads up (README.md#memory).
+for server in mainnet:e2-standard-8:250GB:pd-ssd testnet:e2-standard-8:150GB:pd-ssd; do
   IFS=: read -r name machine_type disk_size disk_type <<EOF
 $server
 EOF

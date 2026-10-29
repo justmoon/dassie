@@ -54,7 +54,7 @@ It makes, in project `dassie-390023`:
 - **A network open to TCP 80 and 443 only.**
 - **A VM per network** in us-east1, with a static address:
   - mainnet: e2-standard-8 with 250 GB of SSD;
-  - testnet: e2-standard-4 with 150 GB of SSD. Both need SSD: xrpld writes thousands of small blocks a second while it syncs, and a balanced disk's IOPS cap held a first sync back for hours.
+  - testnet: e2-standard-8 with 150 GB of SSD. Both need SSD: xrpld writes thousands of small blocks a second while it syncs, and a balanced disk's IOPS cap held a first sync back for hours. Both need their memory too ([Memory](#memory)).
 - **The Cloud DNS zone `dassieland.net`,** with DNSSEC, and an `A` record per server. The domain's registrar must then delegate to the zone's name servers and publish its DS record (`gcloud dns dns-keys list --zone dassieland-net`).
 
 At every boot, `startup.sh` does the following, logging to the serial console (`gcloud compute instances get-serial-port-output xrpl-proofs-<network>`):
@@ -79,6 +79,21 @@ At every boot, `startup.sh` does the following, logging to the serial console (`
 - **What it forwards.** Caddy sets that address itself and drops the client's `Forwarded` and `X-User`. xrpld takes the first address it is given, and lifts its limits for any user a gateway names.
 - **A temporary exemption.** On the testnet server alone, Caddy names the user `swell-demo` for the one address of the Swell demo host, dassie-swell1 (`35.231.121.140`), whose 20 nodes would otherwise share one client's limits. It replaces whatever that client sends. Remove it after 2026-10-29 (the comment in `Caddyfile`).
 
+## Memory
+
+xrpld's `[node_size]` sets its caches, the tree cache above all: how many nodes of the ledger's state tree it keeps, and for how long (`kSizedItems` in rippled's `Config.cpp`). It is sized for a cold start, not for the steady state:
+
+- **A restart walks the whole state tree** of the ledger xrpld acquires, about 19 million nodes on the testnet, and needs them in its tree cache until the walk completes. With too small a cache, nodes leave it before the walk completes, so it never does: xrpld stays on a chain of its own, with `network_ledger` `waiting`, for good. On the testnet, `small` (524k nodes for 60 s) never synced, and `large` (4M for 120 s) is too small for the walk as well; `huge` (8M for 900 s) syncs in about 25 minutes. `[prefetch_workers]` raises xrpld's node-store read threads from 4, whose queue stood at hundreds of reads during the walk.
+- **`huge` holds about 13 GB** once in sync. On a VM of 16 GB without swap, that leaves too little: an out-of-memory kill restarts xrpld, and with it the 25-minute walk. rippled sizes itself `huge` only from 24 GB and 8 threads up, so `provision.sh` makes the testnet VM an e2-standard-8 with 32 GB. One made smaller is resized while it is stopped:
+
+  ```sh
+  gcloud compute instances stop xrpl-proofs-testnet --zone us-east1-b
+  gcloud compute instances set-machine-type xrpl-proofs-testnet --zone us-east1-b --machine-type e2-standard-8
+  gcloud compute instances start xrpl-proofs-testnet --zone us-east1-b
+  ```
+
+- **Mainnet runs `medium`** (2M nodes for 90 s), and has synced after a restart with it. Whether its walk is safe there, and what `large` or `huge` would hold, is not measured yet: change it only with the tree's node count and xrpld's memory measured while in sync.
+
 ## Updating
 
 **A new build:** build and upload it, then point the VM at it and restart it.
@@ -90,7 +105,7 @@ gcloud compute instances stop xrpl-proofs-<network> --zone us-east1-b
 gcloud compute instances start xrpl-proofs-<network> --zone us-east1-b
 ```
 
-Stop and start, not `reset`: a reset cuts the power, and xrpld does not close its databases. A restart loses the validations xrpld holds in memory, which it hears again within seconds. A changed configuration on `main` needs only the restart. `startup.sh` itself is the exception: the VM runs the copy in its metadata, so a change to it needs that copy replaced first (`gcloud compute instances add-metadata xrpl-proofs-<network> --zone us-east1-b --metadata-from-file startup-script=resources/proof-server/startup.sh`). To try one on a server before it merges, set the metadata `config-ref` to its branch, and remove it once it has merged.
+Stop and start, not `reset`: a reset cuts the power, and xrpld does not close its databases. A restart loses the validations xrpld holds in memory, which it hears again within seconds, and its caches: the testnet server walks its state tree again, and is out of sync for about 25 minutes before it is `full` ([Memory](#memory)). The watchdog's half hour (below) counts that walk, so a walk only a little slower ends in a wipe, and an hour's resync after it. A changed configuration on `main` needs only the restart. `startup.sh` itself is the exception: the VM runs the copy in its metadata, so a change to it needs that copy replaced first (`gcloud compute instances add-metadata xrpl-proofs-<network> --zone us-east1-b --metadata-from-file startup-script=resources/proof-server/startup.sh`). To try one on a server before it merges, set the metadata `config-ref` to its branch, and remove it once it has merged.
 
 **After a testnet reset,** xrpld holds a chain the network no longer has, and never takes the new one's lower ledgers: it would stay out of sync for good, and every node on it would stall. On the testnet, `watchdog.sh` checks every five minutes. Once xrpld has been in sync, half an hour in which it answers but has no fresh validated ledger wipes its database, and xrpld syncs the new chain in about an hour; nodes on it stall until then, and book nothing wrong. A false alarm costs the same resync and the history until xrpld backfills it, never a wrong answer. An xrpld that does not answer never counts, and a count runs within one run of xrpld: a restart, or a crash, starts it afresh. To wipe by hand, set `wipe-db` to a value it has not had and restart the VM: `startup.sh` wipes the database once per value.
 
