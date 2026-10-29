@@ -19,6 +19,7 @@ use dassie_xrpl::network::{MAINNET, TESTNET};
 use super::super::hub_moves::{gas_book_ledger, owner_book_ledger};
 use super::super::{Core, EngineError, Output};
 use super::{NOW, Policies, Store};
+use crate::rpc::proto::{self, request::Method, response};
 
 /// The node's first XRPL account on `network`, where its accounts in that
 /// network's hubs pay out.
@@ -592,6 +593,96 @@ fn an_idle_books_first_owner_deposit_goes_once_it_read_its_ledger_anew() {
     assert!(core.hub_deposit_ready(MAINNET_SCHEME_ID), "one round later");
     let status = core.hub_deposit_to(MAINNET_SCHEME_ID, amount).unwrap();
     assert!(status.moving.is_some_and(|moving| moving.owner));
+}
+
+/// The owner's deposit of `amount` into the hub of `scheme`, as the RPC
+/// answers it through the engine (`HubDeposit`, `Engine::hub_deposit`),
+/// with `core` as the engine's core and `ledger` as its book's XRP Ledger,
+/// and no daemon around them: each call the engine makes runs on `core`,
+/// then the account's requests go to `ledger` and its answers come back,
+/// as the engine's links carry them. The owner's answer, and how many
+/// calls the engine made.
+async fn deposit_over_rpc(
+    core: &mut Core,
+    ledger: &mut FakeLedger,
+    scheme: &str,
+    amount: u64,
+) -> (Option<proto::HubMove>, usize) {
+    use crate::engine::{Broadcasts, Command, Engine, Versions};
+
+    let (commands, mut calls) = tokio::sync::mpsc::channel(1);
+    let engine = Engine {
+        commands,
+        generation: tokio_util::sync::CancellationToken::new(),
+        broadcasts: Broadcasts::new(),
+        versions: tokio::sync::watch::channel(Versions::default()).1,
+    };
+    let request = proto::HubDepositRequest {
+        amount,
+        scheme: scheme.into(),
+    };
+    let deposit = crate::rpc::hub_unary(&engine, Method::HubDeposit(request));
+    tokio::pin!(deposit);
+    let mut made = 0;
+    loop {
+        tokio::select! {
+            answer = &mut deposit => {
+                let Ok(Some(response::Method::HubDeposit(deposited))) = answer else {
+                    panic!("refused: {answer:?}");
+                };
+                return (deposited.status.and_then(|status| status.moving), made);
+            }
+            Some(command) = calls.recv() => {
+                let Command::Call(call) = command else {
+                    panic!("not a call: {command:?}");
+                };
+                made += 1;
+                let reply = call(core);
+                super::follow_xrpl(core, ledger);
+                reply();
+            }
+        }
+    }
+}
+
+// spec/areas/hubs.md#in-the-node, spec/designs/xrpl-validation.md#6-the-account-on-proofs:
+// the owner's first deposit into the hub out of an idle owner book, as the
+// RPC asks the engine, goes through: the engine asks whether the book can
+// sign, which tells its account a payment is near; the account reads its
+// ledger anew; and the engine, which waited for it, deposits.
+#[tokio::test(start_paused = true)]
+async fn the_engine_waits_for_an_idle_book_before_the_owners_hub_deposit() {
+    let mut ledger = super::fake_ledger(true);
+    let mut hub = Hub::new(MAINNET_SCHEME_ID, MAINNET.id, Asset::Xrp);
+    let mut core = idle_live_book(&mut ledger, &hub);
+    let opening = 30_000_000;
+    hub.account(&mut core, opening, opening);
+    let amount = 2_000_000 * UNITS_PER_DROP;
+    let (moving, calls) = deposit_over_rpc(&mut core, &mut ledger, MAINNET_SCHEME_ID, amount).await;
+    assert!(moving.is_some_and(|moving| moving.by_owner), "{moving:?}");
+    assert_eq!(calls, 3, "not ready, ready a round later, the deposit");
+}
+
+// The same out of the idle RLUSD book into a mainnet hub of RLUSD: the
+// engine asks of the hub's own owner book, not of the XRP book, which
+// the node does not run here.
+#[tokio::test(start_paused = true)]
+async fn the_engine_waits_for_an_idle_rlusd_book_before_the_owners_hub_deposit() {
+    let mut ledger = super::fake_ledger(true);
+    let mut core = super::rlusd_core(&mut ledger);
+    let mut hub = Hub::new(RLUSD_SCHEME_ID, MAINNET.id, RLUSD);
+    core.add_scheme(RLUSD_SCHEME_ID, hub.config()).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    for _ in 0..15 {
+        core.begin_step(core.now_ms() + 4_000);
+        super::close_xrpl(&mut core, &mut ledger);
+    }
+    let opening = 30_000_000;
+    hub.account(&mut core, opening, opening);
+    let amount = 2_000_000 * UNITS_PER_DROP;
+    let (moving, calls) = deposit_over_rpc(&mut core, &mut ledger, RLUSD_SCHEME_ID, amount).await;
+    assert!(moving.is_some_and(|moving| moving.by_owner), "{moving:?}");
+    assert_eq!(calls, 3, "not ready, ready a round later, the deposit");
 }
 
 // spec/decisions/hub-scheme-names.md, spec/areas/xrpl.md#the-peg-guard: a

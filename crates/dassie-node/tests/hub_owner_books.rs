@@ -300,37 +300,3 @@ async fn live_realm_members_pay_over_mainnet_hubs_of_xrp_and_rlusd() {
     assert!(usd_got > 0 && usd_got <= usd_payment, "got {usd_got} RLUSD");
     net.stop(members).await;
 }
-
-// spec/designs/xrpl-validation.md#6-the-account-on-proofs,
-// spec/areas/hubs.md#in-the-node: an owner book that waited for nothing a
-// while anchors on demand, its anchor stale. The owner's first deposit
-// into the hub out of it goes through on the first ask all the same: the
-// node waits for the book's account to read its ledger anew, a round,
-// before it signs.
-#[tokio::test(start_paused = true)]
-async fn an_idle_books_first_deposit_into_its_hub_goes_through() {
-    let net = HubNet::start(&TESTNET, XRP).await;
-    let hub = net.hub(HubAsset::Xrp).clone();
-    let members = net.members(&[Joining::of(90, XRP)], &[]).await;
-    let member = &members[0];
-    support::hubs::until("no move on its way", async || {
-        hub_status(&member.node, hub.scheme).await.moving.is_none()
-    })
-    .await;
-    // Longer than a move keeps the book's account reading every ledger,
-    // and than its anchor stays fresh after.
-    support::hubs::pass(200_000).await;
-    let mut owner = member.node.ipc().await;
-    let deposited = owner
-        .call(Method::HubDeposit(proto::HubDepositRequest {
-            amount: 2_000_000 * dassie_xrpl::UNITS_PER_DROP,
-            scheme: hub.scheme.into(),
-        }))
-        .await;
-    let Ok(response::Method::HubDeposit(deposited)) = deposited else {
-        panic!("refused: {deposited:?}");
-    };
-    let moving = deposited.status.unwrap().moving.unwrap();
-    assert!(moving.by_owner);
-    net.stop(members).await;
-}

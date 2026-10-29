@@ -29,6 +29,19 @@ pub(super) const fn is_hub(method: &Method) -> bool {
     )
 }
 
+/// What [`dispatch`] answers a unary method with, for the engine's tests
+/// of the owner's calls; `None` for a streaming one.
+#[cfg(test)]
+pub(crate) async fn unary(
+    engine: &Engine,
+    method: Method,
+) -> Result<Option<response::Method>, RpcError> {
+    Ok(match dispatch(engine, method).await? {
+        Reply::Unary(response) => Some(response),
+        Reply::StreamEnd => None,
+    })
+}
+
 /// Answers the hub member's methods.
 pub(super) async fn dispatch(engine: &Engine, method: Method) -> Result<Reply, RpcError> {
     let reply = match method {
