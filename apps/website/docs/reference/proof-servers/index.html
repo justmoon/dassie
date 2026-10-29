@@ -221,7 +221,10 @@
             (<code>[ledger_history]</code> and <code>online_delete</code>):
             anything under your node's bound of 40,000 stalls it after an
             absence. Give it fast disk: syncing writes thousands of small
-            blocks a second.
+            blocks a second. And give it memory: the testnet config's
+            <code>[node_size]</code> of <code>huge</code> holds about
+            13&nbsp;GB, and anything smaller never finishes syncing after a
+            restart. Give it 32&nbsp;GB, so that it has room to spare.
           </p>
         </li>
         <li>
