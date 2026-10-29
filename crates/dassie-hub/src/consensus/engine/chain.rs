@@ -36,8 +36,8 @@ pub(super) enum Hold {
     /// A block that a verified certificate names.
     Certified,
     /// A block persisted before a restart: ours, or one held then, and
-    /// trusted as such. It may be below the floor, on the chain to the
-    /// highest notarized view.
+    /// trusted as such. It may be below the floor, as one that a block
+    /// notarized, finalized or voted for from the floor builds on.
     Restored,
 }
 

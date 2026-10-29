@@ -87,10 +87,11 @@ pub struct Stored {
     /// For each height above the tip, the block we voted to finalize there.
     pub finalize_heights: Vec<(u64, Digest)>,
     /// The blocks we notarized or saw certified above the tip, with their
-    /// digests, while the engine holds them: the chain from the tip to the
-    /// highest notarized view among them, so that a notarized block, and
-    /// what a later one needs to be final, survive even if every validator
-    /// restarts. At most `MAX_BLOCKS`.
+    /// digests, while the engine holds them: below the floor, what the
+    /// blocks notarized, finalized or voted for from the floor build on,
+    /// back to the tip, so that a notarized block, and what a later one
+    /// needs to be final, survive even if every validator restarts. At most
+    /// `MAX_BLOCKS`.
     pub blocks: Vec<(Digest, Block)>,
     /// The certificates we hold of views above the tip.
     pub certificates: Vec<Certificate>,
