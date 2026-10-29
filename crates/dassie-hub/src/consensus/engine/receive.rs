@@ -16,7 +16,7 @@ use crate::validators::Signers;
 impl Engine {
     pub(super) fn receive(&mut self, app: &mut dyn Application, from: PeerId, message: Message) {
         match message {
-            Message::Proposal(proposal) => self.on_proposal(from, proposal),
+            Message::Proposal(proposal) => self.on_proposal(proposal),
             Message::Vote(vote) => self.on_vote(vote),
             Message::Certificate(certificate) => {
                 self.on_certificate(certificate, None);
@@ -47,7 +47,7 @@ impl Engine {
         epoch == ours
     }
 
-    fn on_proposal(&mut self, from: PeerId, proposal: Proposal) {
+    fn on_proposal(&mut self, proposal: Proposal) {
         if !self.of_our_epoch(proposal.block.epoch) {
             return self.refuse();
         }
@@ -83,7 +83,6 @@ impl Engine {
             round.proposal = Some(Proposed {
                 block: digest,
                 arrived_ms: now,
-                from: Some(from),
             });
         }
     }

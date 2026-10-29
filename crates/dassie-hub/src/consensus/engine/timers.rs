@@ -26,10 +26,13 @@ impl Engine {
             if self.nullify(view) {
                 return true;
             }
-            // No room for the view's round: the certificates that come
-            // move us on, not a timer that stays due.
-            self.timers.leader_ms = None;
-            self.timers.advance_ms = None;
+            // No room for the view's round (counted in `Stats::no_room`):
+            // we try again a timeout later, once the floor or the tip may
+            // have moved and made room, never giving up on the view for
+            // good, and never with a timer that stays due.
+            let again = now.saturating_add(self.config.advance_timeout_ms);
+            self.timers.leader_ms = Some(again);
+            self.timers.advance_ms = Some(again);
         }
         false
     }

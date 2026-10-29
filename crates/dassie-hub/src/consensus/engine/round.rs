@@ -3,7 +3,6 @@
 
 use alloc::vec::Vec;
 
-use super::super::io::PeerId;
 use super::super::types::{Certificate, Vote, VoteKind};
 use crate::digest::Digest;
 use crate::validators::{MAX_VALIDATORS, Signers, ValidatorIndex};
@@ -15,8 +14,6 @@ pub struct Proposed {
     pub block: Digest,
     /// When it arrived, by our clock: its stamp is judged against this.
     pub arrived_ms: u64,
-    /// Who passed it on, to ask for what it builds on.
-    pub from: Option<PeerId>,
 }
 
 /// What taking a vote did.

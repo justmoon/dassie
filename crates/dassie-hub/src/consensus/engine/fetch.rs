@@ -15,7 +15,8 @@ use super::super::wire::{
     Certified, Delivery, Fetch, MAX_DELIVERED_BLOCKS, MAX_DELIVERED_CERTIFICATES,
     MAX_MESSAGE_BYTES, Message,
 };
-use super::Engine;
+use super::chain::Ancestry;
+use super::{Engine, STUCK_VIEWS, Stuck};
 use crate::digest::Digest;
 use crate::validators::ValidatorSet;
 
@@ -45,9 +46,68 @@ impl Engine {
         self.stats.fetches = self.stats.fetches.saturating_add(1);
     }
 
+    /// What the newest view held from the floor that notarized or finalized
+    /// a block lacks: that view, and the view that certified the block
+    /// missing, the block itself or one it builds on. Nothing if it lacks
+    /// nothing, or its block forks.
+    #[must_use]
+    pub fn lacking(&self) -> Option<(u64, u64)> {
+        let (view, block) = self
+            .rounds
+            .range(self.floor..)
+            .rev()
+            .find_map(|(view, round)| {
+                let certificate = round
+                    .notarization
+                    .as_ref()
+                    .or(round.finalization.as_ref())?;
+                Some((*view, certificate.block))
+            })?;
+        let Some((content, _)) = self.content_of(&block) else {
+            return Some((view, view));
+        };
+        match self.ancestry(&content, view) {
+            Ancestry::Missing(missing) => Some((view, missing)),
+            Ancestry::Extends | Ancestry::Forks => None,
+        }
+    }
+
+    /// Asks, at every step for as long as we lack it, for what the newest
+    /// notarized or finalized view lacks ([`Self::lacking`]): not once per
+    /// certificate, so a request a busy or unreachable validator dropped is
+    /// made again, of the next one. Counts it once if it stays missing for
+    /// [`STUCK_VIEWS`] views (`Stats::stuck`): nothing is final while it
+    /// is, and a host warns of it.
+    pub(super) fn want_lacking(&mut self) {
+        let lacking = self.lacking();
+        if let Some((_, missing)) = lacking {
+            self.want_from_any(missing);
+        }
+        self.stuck = match (lacking, self.stuck) {
+            (Some((view, _)), Some(stuck)) if stuck.view == view => {
+                let long = self.view >= stuck.since.saturating_add(STUCK_VIEWS);
+                if long && !stuck.counted {
+                    self.stats.stuck = self.stats.stuck.saturating_add(1);
+                }
+                Some(Stuck {
+                    counted: stuck.counted || long,
+                    ..stuck
+                })
+            }
+            (Some((view, _)), _) => Some(Stuck {
+                view,
+                since: self.view,
+                counted: false,
+            }),
+            (None, _) => None,
+        };
+    }
+
     /// When the next request may go, if one waits.
     pub(super) fn next_ask_ms(&self) -> Option<u64> {
-        self.want.as_ref()?;
+        if self.want.is_none() {
+            self.lacking()?;
+        }
         Some(self.fetched_ms.map_or(self.now_ms, |at| {
             at.saturating_add(self.config.fetch_interval_ms)
         }))
@@ -170,18 +230,21 @@ impl Engine {
 
     /// The certificates of view `from_view` and after, with their blocks:
     /// what an asker lacks to take part in those views. Below our floor,
-    /// only the views that certified the chain waiting to be final are
-    /// held: there, the asker lacks a block of that chain, built on through
-    /// `from_view` (by itself, or through a repeat of it), and gets the
-    /// chain from there down, so that each delivery brings blocks it lacks
-    /// however many the chain holds. A repeat comes with the view that
-    /// certified the block it repeats.
+    /// only the views that certified a block we keep are held
+    /// ([`Engine::kept`]): there, the asker lacks a block that one it holds
+    /// builds on, through `from_view` (by itself, or through a repeat of
+    /// it), and gets what we keep from there down, so that each delivery
+    /// brings blocks it lacks however many there are; then the views from
+    /// our floor on, which an asker that we left behind there lacks too, and
+    /// would otherwise never ask for while it lacks the lower one. A repeat
+    /// comes with the view that certified the block it repeats.
     fn add_certified(&self, delivery: &mut Delivery, from_view: u64, mut bytes: usize) {
         let below = from_view < self.floor;
         let rounds: Vec<&super::round::Round> = if below {
             self.rounds
                 .range(..=from_view)
                 .rev()
+                .chain(self.rounds.range(self.floor..))
                 .map(|(_, round)| round)
                 .collect()
         } else {

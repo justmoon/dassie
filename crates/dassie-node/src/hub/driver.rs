@@ -172,6 +172,22 @@ pub struct Driver {
     /// `awaited` and `recorded`: once it writes off again, the deposits
     /// they hold are the old chain's, which no ledger records any more.
     chain: Option<Millis>,
+    /// What the engine had counted of its trouble when we last warned of
+    /// it ([`Driver::warn_of_trouble`]).
+    warned: Warned,
+}
+
+/// How often at most a validator warns that its consensus is stuck.
+const WARN_EVERY_MS: Millis = 60_000;
+
+/// What the engine had counted of its trouble when the driver last warned
+/// of it, and when.
+#[derive(Clone, Copy, Debug, Default)]
+struct Warned {
+    stuck: u64,
+    no_room: u64,
+    no_parent: u64,
+    at: Option<Millis>,
 }
 
 impl std::fmt::Debug for Driver {
@@ -227,6 +243,7 @@ impl Driver {
                 recorded: VecDeque::new(),
                 awaited_at: None,
                 chain,
+                warned: Warned::default(),
             });
         }
         let validator = Validator::genesis(rules.clone(), keys, genesis_ms, now)
@@ -251,6 +268,7 @@ impl Driver {
             recorded: VecDeque::new(),
             awaited_at: None,
             chain: None,
+            warned: Warned::default(),
         })
     }
 
@@ -437,7 +455,47 @@ impl Driver {
                 }
             }
         }
+        self.warn_of_trouble(now);
         Ok(Step { write, effects })
+    }
+
+    /// Warns, at most once per [`WARN_EVERY_MS`], of what keeps consensus
+    /// from finalizing that nothing else shows until the stall: the newest
+    /// notarized block lacking a block it builds on for several views, and
+    /// views that found no room in the engine. The views led without a
+    /// block to build on, which come with either, are counted along.
+    fn warn_of_trouble(&mut self, now: Millis) {
+        let engine = self.validator.engine();
+        let stats = *engine.stats();
+        let stuck = stats.stuck.saturating_sub(self.warned.stuck);
+        let no_room = stats.no_room.saturating_sub(self.warned.no_room);
+        let recent = self
+            .warned
+            .at
+            .is_some_and(|at| now < at.saturating_add(WARN_EVERY_MS));
+        if (stuck == 0 && no_room == 0) || recent {
+            return;
+        }
+        // The newest notarized view, and the view whose block it lacks.
+        let lacking = engine.lacking();
+        tracing::warn!(
+            target: crate::log::target::HUB,
+            hub = %hex(self.hub.0.as_bytes()),
+            view = engine.view(),
+            height = self.validator.ledger().height(),
+            ?lacking,
+            stuck,
+            no_room,
+            no_parent = stats.no_parent.saturating_sub(self.warned.no_parent),
+            views_held = engine.rounds_held(),
+            "the hub's consensus is stuck: a notarized block lacks a block it builds on, or views find no room; nothing becomes final until it is fetched"
+        );
+        self.warned = Warned {
+            stuck: stats.stuck,
+            no_room: stats.no_room,
+            no_parent: stats.no_parent,
+            at: Some(now),
+        };
     }
 
     /// Folds the step's batches into the stored state, and what to write

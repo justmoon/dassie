@@ -308,7 +308,6 @@ impl Engine {
             round.proposal = Some(Proposed {
                 block: digest,
                 arrived_ms: now,
-                from: None,
             });
         }
         self.persist_block(digest);
@@ -330,7 +329,8 @@ impl Engine {
     /// The block to build on in `view`: the block the highest notarized
     /// view below it stands for (itself, or the block a repeat repeats),
     /// whose later views are all nullified, or the tip. Notes what is
-    /// missing if neither is known.
+    /// missing if neither is known: the block, a block below it (by the
+    /// view that certified that one), or a view's certificate.
     fn select_parent(&mut self, view: u64) -> Option<Parent> {
         let mut at = view.saturating_sub(1);
         for _ in 0..=MAX_ROUNDS {
@@ -349,8 +349,8 @@ impl Engine {
             if let Some(digest) = certified {
                 let content = self.content_of(&digest);
                 let stamp = self.known_block(&digest).map(|block| block.timestamp_ms);
-                if let Some((content, _)) = content
-                    && self.ancestry(&content, at) == Ancestry::Extends
+                let ancestry = content.map(|(content, _)| self.ancestry(&content, at));
+                if let (Some((content, _)), Some(Ancestry::Extends)) = (content, ancestry)
                     && let (Some(block), Some(stamp)) = (self.known_block(&content), stamp)
                 {
                     return Some(Parent {
@@ -360,16 +360,33 @@ impl Engine {
                         stamp,
                     });
                 }
-                self.want_from_any(at);
+                // What it lacks: the block, or the block below it that is
+                // missing, by the view that certified that one.
+                match ancestry {
+                    Some(Ancestry::Missing(missing)) => self.want_from_any(missing),
+                    Some(Ancestry::Forks) => {}
+                    Some(Ancestry::Extends) | None => self.want_from_any(at),
+                }
+                self.no_parent(view);
                 return None;
             }
             if round.is_none_or(|round| round.nullification.is_none()) {
                 self.want_from_any(at);
+                self.no_parent(view);
                 return None;
             }
             at = at.saturating_sub(1);
         }
         None
+    }
+
+    /// Counts that we lead `view` and found nothing to build on, once a
+    /// view (`Stats::no_parent`).
+    fn no_parent(&mut self, view: u64) {
+        if view > self.parentless {
+            self.parentless = view;
+            self.stats.no_parent = self.stats.no_parent.saturating_add(1);
+        }
     }
 
     /// Notarizes the leader's proposal of our view, if it is valid; nullifies
@@ -403,10 +420,12 @@ impl Engine {
                 true
             }
             Check::Missing(missing) => {
-                match proposed.from {
-                    Some(from) => self.want(missing, Recipient::Peer(from)),
-                    None => self.want_from_any(missing),
-                }
+                // Its leader built on what we lack, so holds it. Asked by
+                // its key, as an exchange of our own: a host answers a
+                // message only in the reply to the exchange that brought
+                // it, so a request sent back that way is answered into the
+                // void.
+                self.want_from(missing, leader);
                 false
             }
             Check::Invalid => self.nullify(view),
@@ -488,8 +507,9 @@ impl Engine {
     /// notarized a repeat of it. Every view after that is nullified.
     fn parent_of(&self, block: &Block) -> Result<Block, Check> {
         // Skipping views below the floor, it skips the highest notarized
-        // view held, and the views it would need are let go of: we never
-        // notarize it.
+        // view held, which it may only if that view is nullified too, and
+        // the nullifications it needs were let go of: we cannot check it,
+        // and never notarize it. Validators that kept them may.
         let below = block.parent_view.saturating_add(1) < self.floor;
         if block.parent_view >= block.view || block.parent_view < self.tip_view() || below {
             return Err(Check::Invalid);
@@ -583,8 +603,18 @@ impl Engine {
                 .finalize_heights
                 .get(&height)
                 .is_none_or(|held| *held == content);
-            if !free || self.ancestry(&digest, view) != Ancestry::Extends {
+            if !free {
                 continue;
+            }
+            match self.ancestry(&digest, view) {
+                Ancestry::Extends => {}
+                // A block it builds on is missing: we ask for it, by the
+                // view that certified it, and vote once we hold it.
+                Ancestry::Missing(missing) => {
+                    self.want_from_any(missing);
+                    continue;
+                }
+                Ancestry::Forks => continue,
             }
             if let Some(vote) = self.sign(VoteKind::Finalize, view, digest) {
                 self.finalize_heights.insert(height, content);

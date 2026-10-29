@@ -55,7 +55,7 @@ pub use config::{
 };
 pub use engine::{
     BLOCKS_PER_VIEW, Engine, MAX_BLOCKS, MAX_BOUNDARIES, MAX_ROUNDS, MAX_UNFINALIZED_HEIGHTS,
-    MAX_VIEWS_AHEAD, RETAINED_BLOCKS,
+    MAX_VIEWS_AHEAD, RETAINED_BLOCKS, STUCK_VIEWS,
 };
 pub use epochs::{Epochs, MAX_EPOCHS, ReconfigureError};
 pub use hooks::{Application, Declined, ProposeContext, VerifyContext};

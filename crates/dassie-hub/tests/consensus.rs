@@ -1678,3 +1678,371 @@ fn proposals_offer_the_votes_received() {
         assert!(network.validators[index].app.votes_offered >= 8);
     }
 }
+
+/// A digest standing for the block of `view` that never reaches us.
+fn unseen(view: u64) -> Digest {
+    let mut bytes = [0xab; 32];
+    bytes[..8].copy_from_slice(&view.to_be_bytes());
+    Digest(bytes)
+}
+
+/// The votes of validator 0 among `engine`'s outputs, which it drains.
+fn own_votes(engine: &mut Engine) -> Vec<Vote> {
+    std::iter::from_fn(|| engine.poll_output())
+        .filter_map(|output| match Message::decode_message(&output.message) {
+            Ok(Message::Vote(vote)) if vote.signer == index(0) => Some(vote),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The certificate of validators 1 to 3 of `kind` for `view` and `block`.
+fn certificate(kind: VoteKind, view: u64, block: Digest) -> dassie_hub::consensus::Certificate {
+    match Message::decode_message(&certificate_of(kind, view, block)).unwrap() {
+        Message::Certificate(certificate) => certificate,
+        _ => panic!("a certificate"),
+    }
+}
+
+/// A delivery of `block` with its notarization.
+fn notarized_block(block: &dassie_hub::consensus::Block) -> Message {
+    Message::Delivery(dassie_hub::consensus::wire::Delivery {
+        finalized: Vec::new(),
+        finalization: None,
+        certified: vec![dassie_hub::consensus::wire::Certified {
+            certificate: certificate(VoteKind::Notarize, block.view, block.digest(&hub())),
+            block: Some(block.clone()),
+        }],
+    })
+}
+
+/// Validator 0 of 4, with what it persisted and the votes it signed.
+struct Validator0 {
+    engine: Engine,
+    app: SimApp,
+    stored: dassie_hub::consensus::Stored,
+    signed: Vec<Vote>,
+    /// The views it asked for since last read.
+    asked: Vec<u64>,
+}
+
+impl Validator0 {
+    fn new() -> Self {
+        let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
+        Self {
+            engine: Engine::new(CONFIG, hub(), key(0), stored.clone(), START),
+            app: SimApp::default(),
+            stored,
+            signed: Vec::new(),
+            asked: Vec::new(),
+        }
+    }
+
+    /// Persists what the step wrote, and keeps the votes it signed and
+    /// the views it asked for.
+    fn settle(&mut self) {
+        self.engine.check_invariants();
+        self.stored.apply(self.engine.take_batch());
+        for output in std::iter::from_fn(|| self.engine.poll_output()) {
+            match Message::decode_message(&output.message) {
+                Ok(Message::Vote(vote)) if vote.signer == index(0) => self.signed.push(vote),
+                Ok(Message::Fetch(fetch)) => self.asked.push(fetch.view),
+                _ => {}
+            }
+        }
+    }
+
+    fn hand(&mut self, at: u64, message: &Message) {
+        self.engine
+            .handle_message(at, &mut self.app, PeerId(1), &message.to_vec());
+        self.settle();
+    }
+
+    /// Hands it the certificate of validators 1 to 3.
+    fn certified(&mut self, at: u64, (kind, view, block): (VoteKind, u64, Digest)) {
+        self.hand(at, &Message::Certificate(certificate(kind, view, block)));
+    }
+
+    fn timeout(&mut self, at: u64) {
+        self.engine.handle_timeout(at, &mut self.app);
+        self.settle();
+    }
+
+    /// Starts it again from what it persisted.
+    fn restart(&mut self, at: u64) {
+        self.engine = Engine::new(CONFIG, hub(), key(0), self.stored.clone(), at);
+        self.settle();
+    }
+
+    fn signed(&self, kind: VoteKind, view: u64) -> bool {
+        self.signed
+            .iter()
+            .any(|vote| vote.kind == kind && vote.view == view)
+    }
+}
+
+/// Whether two of `votes` conflict: notarizing two blocks of one view, or
+/// finalizing a block in a view also nullified.
+fn conflicting(votes: &[Vote]) -> Option<(Vote, Vote)> {
+    votes.iter().enumerate().find_map(|(at, first)| {
+        votes[at + 1..]
+            .iter()
+            .find(|second| first.conflicts_with(second))
+            .map(|second| (*first, *second))
+    })
+}
+
+/// Block A of view 1 (built on genesis, notarized, and its view also
+/// nullified), block B of view 2 (built on genesis, skipping view 1, and
+/// notarized), and block F of view 5 (built on A, skipping views 2 to 4,
+/// all nullified, view 2 too): the branches the testnet DSUSD hub had when
+/// it stopped.
+fn branches() -> [dassie_hub::consensus::Block; 3] {
+    let a = block_of(&proposal_on(1, &genesis(), START + 300));
+    let b = block_of(&proposal_on(2, &genesis(), START + 350));
+    let f = block_of(&proposal_on(5, &a, START + 400));
+    [a, b, f]
+}
+
+/// Validator 0 up to the point where the hub stopped: view 1 timed out
+/// with it, A came late, and was notarized and nullified; views 2 to 4
+/// were nullified, and it voted for F, built on A. Then the notarization of
+/// B, with B, the block of view 2 it never saw proposed.
+fn up_to_bs_notarization() -> Validator0 {
+    let [a, b, f] = branches();
+    let mut v = Validator0::new();
+    v.timeout(START + 300);
+    assert!(v.signed(VoteKind::Nullify, 1));
+    v.hand(START + 301, &proposed(&a, 1));
+    v.certified(START + 302, (VoteKind::Notarize, 1, a.digest(&hub())));
+    for view in 1..=4 {
+        v.certified(
+            START + 302 + view,
+            (VoteKind::Nullify, view, Digest::default()),
+        );
+    }
+    assert_eq!(v.engine.view(), 5);
+    v.hand(START + 401, &proposed(&f, 1));
+    assert!(v.signed(VoteKind::Notarize, 5), "it notarizes F");
+    v.hand(START + 402, &notarized_block(&b));
+    v
+}
+
+#[test]
+fn the_parent_of_a_block_we_voted_for_is_kept_when_the_floor_rises_past_it() {
+    // The testnet DSUSD hub stopped for good with the four validators each
+    // holding a notarized block whose parent none of them held any more.
+    // A block may skip a view that is notarized if it is nullified too, so
+    // the highest notarized view is not the only one built on: F builds on
+    // A, below B. B's notarization raised the floor past A, and the engine
+    // let go of A, though it had voted for F; F's notarization then raised
+    // the floor past B. F was held without its parent: no vote to finalize
+    // it, no block to build on it, and nothing asked for what was missing.
+    // Now the ancestors of every block notarized or voted for are kept.
+    let [a, _, f] = branches();
+    let mut v = up_to_bs_notarization();
+    v.certified(START + 403, (VoteKind::Notarize, 5, f.digest(&hub())));
+    assert_eq!(v.engine.view(), 6);
+    assert!(
+        v.signed(VoteKind::Finalize, 5),
+        "it votes to finalize F, whose parent it kept"
+    );
+    v.certified(START + 404, (VoteKind::Finalize, 5, f.digest(&hub())));
+    assert_eq!(v.engine.tip().block, f);
+    assert_eq!(
+        v.app.finalized.values().copied().collect::<Vec<_>>(),
+        vec![a.digest(&hub()), f.digest(&hub())]
+    );
+    assert_eq!(conflicting(&v.signed), None);
+    // And it kept them across a restart before F was final.
+    let mut v = up_to_bs_notarization();
+    v.restart(START + 403);
+    v.certified(START + 404, (VoteKind::Notarize, 5, f.digest(&hub())));
+    v.certified(START + 405, (VoteKind::Finalize, 5, f.digest(&hub())));
+    assert_eq!(v.engine.tip().block, f);
+}
+
+/// Validator 0 holding F notarized but not A, its parent: it missed A, so
+/// could not check F, and B's notarization, then F's, raised its floor
+/// past A's view.
+fn without_fs_parent() -> Validator0 {
+    let [a, b, f] = branches();
+    let mut v = Validator0::new();
+    v.timeout(START + 300);
+    v.certified(START + 302, (VoteKind::Notarize, 1, a.digest(&hub())));
+    for view in 1..=4 {
+        v.certified(
+            START + 302 + view,
+            (VoteKind::Nullify, view, Digest::default()),
+        );
+    }
+    v.hand(START + 401, &proposed(&f, 1));
+    assert!(!v.signed(VoteKind::Notarize, 5));
+    v.hand(START + 402, &notarized_block(&b));
+    v.certified(START + 403, (VoteKind::Notarize, 5, f.digest(&hub())));
+    assert_eq!(v.engine.view(), 6);
+    v
+}
+
+#[test]
+fn the_missing_parent_is_asked_for_by_its_view_and_served_below_the_floor() {
+    // A validator holding F notarized without its parent asks for what is
+    // missing, A, by the view that notarized it, not for F's view, which
+    // brings it nothing; and one that voted for F kept A, below its floor,
+    // and hands it over. With it, the first votes to finalize F.
+    let [a, _, f] = branches();
+    let mut lacking = without_fs_parent();
+    assert_eq!(lacking.engine.lacking(), Some((5, 1)));
+    lacking.asked.clear();
+    lacking.timeout(START + 403 + CONFIG.fetch_interval_ms);
+    lacking.timeout(START + 403 + 2 * CONFIG.fetch_interval_ms);
+    assert!(!lacking.signed(VoteKind::Finalize, 5));
+    let views = &lacking.asked;
+    assert!(
+        !views.is_empty() && views.iter().all(|view| *view == 1),
+        "{views:?}"
+    );
+    let mut keeper = up_to_bs_notarization();
+    keeper.certified(START + 403, (VoteKind::Notarize, 5, f.digest(&hub())));
+    let fetch = Message::Fetch(dassie_hub::consensus::wire::Fetch {
+        height: 0,
+        epoch: 0,
+        view: 1,
+    });
+    keeper
+        .engine
+        .handle_message(START + 500, &mut keeper.app, PeerId(7), &fetch.to_vec());
+    let delivery = std::iter::from_fn(|| keeper.engine.poll_output())
+        .find(|output| output.to == Recipient::Peer(PeerId(7)))
+        .map(|output| Message::decode_message(&output.message).unwrap())
+        .expect("a delivery");
+    let Message::Delivery(ref handed) = delivery else {
+        panic!("a delivery");
+    };
+    assert!(
+        handed
+            .certified
+            .iter()
+            .any(|certified| certified.block.as_ref() == Some(&a))
+    );
+    // And the views from its floor on, which an asker it left behind
+    // there lacks as well, and would not ask for while it lacks A.
+    assert!(
+        handed
+            .certified
+            .iter()
+            .any(|certified| certified.certificate.view == 5)
+    );
+    lacking.hand(START + 501, &delivery);
+    assert_eq!(lacking.engine.lacking(), None);
+    assert!(lacking.signed(VoteKind::Finalize, 5));
+    lacking.certified(START + 502, (VoteKind::Finalize, 5, f.digest(&hub())));
+    assert_eq!(lacking.engine.tip().block, f);
+}
+
+#[test]
+fn a_parent_missing_for_views_is_counted() {
+    // Without A, nothing is final: once F has lacked it for a few views,
+    // the engine counts it, once, for the host to warn of; and a view it
+    // leads finds nothing to build on, counted too.
+    use dassie_hub::consensus::STUCK_VIEWS;
+    let mut v = without_fs_parent();
+    assert_eq!(v.engine.stats().stuck, 0);
+    let views = 6..6 + STUCK_VIEWS + 4;
+    for view in views.clone() {
+        v.certified(
+            START + 404 + view,
+            (VoteKind::Nullify, view, Digest::default()),
+        );
+    }
+    assert_eq!(v.engine.view(), views.end);
+    assert_eq!(v.engine.stats().stuck, 1);
+    assert_eq!(v.engine.lacking(), Some((5, 1)));
+    // Views 4, 8 and 12 are ours: none found a parent.
+    assert_eq!(v.engine.stats().no_parent, 3);
+    assert!(!v.signed(VoteKind::Notarize, 8) && !v.signed(VoteKind::Notarize, 12));
+}
+
+#[test]
+fn a_full_round_table_is_counted_and_never_silences_the_timers() {
+    // Notarizations of blocks we never get, more views of them than an
+    // engine holds: past the bound, views find no room, and are counted
+    // for the host to warn of. Its own view's timer stays armed, so it
+    // tries again once room comes, never waiting for good.
+    use dassie_hub::consensus::MAX_ROUNDS;
+    let mut v = Validator0::new();
+    let views = MAX_ROUNDS as u64 + 20;
+    let mut at = START;
+    for view in 1..=views {
+        at = START + view * 150;
+        v.certified(at, (VoteKind::Notarize, view, unseen(view)));
+    }
+    assert_eq!(v.engine.rounds_held(), MAX_ROUNDS);
+    assert!(v.engine.stats().no_room > 0);
+    let refused = v.engine.stats().no_room;
+    v.timeout(at + 10_000);
+    assert!(
+        v.engine.stats().no_room > refused,
+        "its own nullify found none"
+    );
+    let next = v.engine.poll_timeout().expect("a timer stays armed");
+    assert!(next > at + 10_000);
+}
+
+#[test]
+fn a_block_we_lack_is_asked_for_by_key_until_it_comes() {
+    // View 1 is notarized for a block we never got; view 2's leader builds
+    // on it, its proposal passed on by a peer we know only by its handle.
+    // We ask the leader, by its key, as an exchange of our own: a host
+    // answers a message only in the reply to the exchange that brought it,
+    // so a request sent there would be answered into the void. And we ask
+    // again while we lack it, not once per certificate.
+    let fetches = |engine: &mut Engine| -> Vec<(Recipient, u64)> {
+        std::iter::from_fn(|| engine.poll_output())
+            .filter_map(|output| match Message::decode_message(&output.message) {
+                Ok(Message::Fetch(fetch)) => Some((output.to, fetch.view)),
+                _ => None,
+            })
+            .collect()
+    };
+    let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
+    let mut app = SimApp::default();
+    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let b1 = block_of(&proposal_on(1, &genesis(), START + 100));
+    let notarization = Message::Certificate(certificate(VoteKind::Notarize, 1, b1.digest(&hub())));
+    hand(&mut engine, &mut app, START + 101, 1, &notarization);
+    let first = fetches(&mut engine);
+    assert!(
+        matches!(first.as_slice(), [(Recipient::Validator(_), 1)]),
+        "{first:?}"
+    );
+    let b2 = block_of(&proposal_on(2, &b1, START + 250));
+    hand(&mut engine, &mut app, START + 251, 42, &proposed(&b2, 2));
+    let leader = Recipient::Validator(Box::new(key(2).public_key()));
+    assert_eq!(fetches(&mut engine), vec![(leader, 1)]);
+    // Unanswered, it asks again.
+    let mut asked = Vec::new();
+    for step in 1..=6 {
+        let at = START + 251 + step * CONFIG.fetch_interval_ms;
+        engine.handle_timeout(at, &mut app);
+        engine.check_invariants();
+        asked.extend(fetches(&mut engine));
+    }
+    assert!(asked.len() >= 3, "{asked:?}");
+    assert!(
+        asked
+            .iter()
+            .all(|(to, view)| *view == 1 && matches!(to, Recipient::Validator(_)))
+    );
+    // Once it comes, we vote to finalize it, and ask no more.
+    hand(&mut engine, &mut app, START + 900, 3, &notarized_block(&b1));
+    let votes = own_votes(&mut engine);
+    assert!(
+        votes
+            .iter()
+            .any(|vote| vote.kind == VoteKind::Finalize && vote.block == b1.digest(&hub())),
+        "{votes:?}"
+    );
+    engine.handle_timeout(START + 2_000, &mut app);
+    assert!(fetches(&mut engine).is_empty());
+}
