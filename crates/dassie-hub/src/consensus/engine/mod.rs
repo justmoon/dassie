@@ -51,7 +51,8 @@ pub const MAX_VIEWS_AHEAD: u64 = 16;
 pub const BLOCKS_PER_VIEW: usize = 3;
 
 /// The most blocks held that are not final: those of the views held, and
-/// the chain from the tip to the highest notarized one.
+/// below the floor what the blocks notarized, finalized or voted for from
+/// it build on (`Engine::kept`).
 pub const MAX_BLOCKS: usize = BLOCKS_PER_VIEW * MAX_ROUNDS;
 
 /// The most heights above the tip a block may be notarized at: past it, a
