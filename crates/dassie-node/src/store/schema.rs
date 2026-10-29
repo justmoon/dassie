@@ -30,7 +30,13 @@ pub(super) const BASELINE_VERSION: i64 = 9;
 /// The migrations, in order: the baseline, which brings a new database to
 /// [`BASELINE_VERSION`], and each after it one version further. Never edit
 /// one that has shipped; add another.
-pub(super) const MIGRATIONS: &[&str] = &[BASELINE, MIGRATION_10, MIGRATION_11, MIGRATION_12];
+pub(super) const MIGRATIONS: &[&str] = &[
+    BASELINE,
+    MIGRATION_10,
+    MIGRATION_11,
+    MIGRATION_12,
+    MIGRATION_13,
+];
 
 /// The schema version this code writes.
 pub const SCHEMA_VERSION: i64 = version_of(MIGRATIONS);
@@ -714,6 +720,15 @@ ALTER TABLE outgoing_payments ADD COLUMN delivered_amount INTEGER NOT NULL DEFAU
   CHECK (delivered_amount >= 0);
 ";
 
+/// Migration 13: whether a peering has been a core peering, which keeps a
+/// promoted node listed by its health through a restart of either end
+/// (spec/areas/network.md#promotion): 0 for every peering stored before,
+/// whose kind on restore stands in for it as it did.
+const MIGRATION_13: &str = "
+ALTER TABLE peers ADD COLUMN was_core INTEGER NOT NULL DEFAULT 0
+  CHECK (was_core IN (0, 1));
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -926,6 +941,7 @@ pub const TABLES: &[Table] = &[
             ("last_seen_ms", "INTEGER", true, false),
             ("depeering_since_ms", "INTEGER", false, false),
             ("depeering_reason", "INTEGER", false, false),
+            ("was_core", "INTEGER", true, false),
         ],
     },
     Table {

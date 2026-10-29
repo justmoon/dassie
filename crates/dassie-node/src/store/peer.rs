@@ -51,7 +51,7 @@ impl Store {
                     n.registered_url, n.registered_network,
                     p.node, p.since_ms, p.inbound, p.last_seen_ms,
                     t.since_ms, t.reason, t.by_us, t.acknowledged,
-                    p.depeering_since_ms, p.depeering_reason
+                    p.depeering_since_ms, p.depeering_reason, p.was_core
              FROM peer_nodes n LEFT JOIN peers p ON p.node = n.id
                LEFT JOIN peer_terminations t ON t.node = n.id
              ORDER BY n.id",
@@ -395,6 +395,7 @@ fn read_peering(row: &Row<'_>) -> Result<Peering, StoreError> {
             }
             None => None,
         },
+        was_core: row.get::<_, i64>(19)? != 0,
     })
 }
 
@@ -706,10 +707,11 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
     };
     transaction.execute_cached(
         "INSERT INTO peers (node, since_ms, inbound, last_seen_ms, depeering_since_ms,
-           depeering_reason)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+           depeering_reason, was_core)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT (node) DO UPDATE SET since_ms = ?2, inbound = ?3,
-           last_seen_ms = ?4, depeering_since_ms = ?5, depeering_reason = ?6",
+           last_seen_ms = ?4, depeering_since_ms = ?5, depeering_reason = ?6,
+           was_core = ?7",
         params![
             node.id.as_str(),
             to_sql_time(peering.since_ms),
@@ -717,6 +719,7 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
             to_sql_time(peering.last_seen_ms),
             peering.depeering.map(|d| to_sql_time(d.since_ms)),
             peering.depeering.map(|d| i64::from(d.reason.code())),
+            i64::from(peering.was_core),
         ],
     )?;
     write_methods(transaction, node.id, peering)?;
