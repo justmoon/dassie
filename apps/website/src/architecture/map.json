@@ -1864,6 +1864,15 @@
   ],
   "releases": [
     {
+      "version": "0.4.3",
+      "date": "2026-10-29",
+      "changes": [
+        "A settlement hub keeps running when its validators see a block's votes late. Each validator now keeps every earlier block that a newer one still builds on, and asks the others for exactly the block it lacks, where before such a block could be lost on every validator and the hub stopped for good. A validator whose hub stops moving now says so in its log.",
+        "A node promoted to the network's core stays in the core when it or the nodes above it restart, instead of waiting an hour to be promoted again.",
+        "The node's database moves to a new version when 0.4.3 first starts. The node keeps a copy of the old one, which `dassie update` puts back if it has to roll back."
+      ]
+    },
+    {
       "version": "0.4.2",
       "date": "2026-10-29",
       "changes": [
