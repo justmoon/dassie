@@ -138,8 +138,22 @@ function Status(props: { payment: OutgoingPayment }): JSX.Element {
               </>
             }
           >
+            {
+              /* What its quote said: one of a fixed amount to send has no
+                cap on what it delivers, so it may deliver more. */
+            }
             <dt>They receive</dt>
-            <dd>{received()}</dd>
+            <dd>
+              <Show when={receive()}>
+                {(amount) => (
+                  <Amount
+                    value={amount().value}
+                    currency={ledgerCurrency(amount())}
+                    testid="payment-receive"
+                  />
+                )}
+              </Show>
+            </dd>
           </Show>
           <dt>Recipient</dt>
           <dd data-testid="payment-recipient">
