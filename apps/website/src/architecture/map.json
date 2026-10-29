@@ -1867,9 +1867,9 @@
       "version": "0.4.4",
       "date": "2026-10-29",
       "changes": [
-        "You can leave a settlement hub that has ended or stopped for good, with `dassie hub leave <scheme>` or Leave this hub on the wallet's Hubs page, and then join another, such as the hub that took its place. Copy its payout with `dassie hub payout <scheme>` first: after you leave, the node no longer shows it.",
+        "You can leave a settlement hub that has ended, once a quorum of its validators signed its payout set, with `dassie hub leave <scheme>` or Leave this hub on the wallet's Hubs page, and then join another, such as the hub that took its place. Copy its payout with `dassie hub payout <scheme>` first: after you leave, the node no longer shows it.",
         "The testnet's default DSUSD hub is the one founded again after the old one stopped. A node that adds the DSUSD hub without rules of its own joins it.",
-        "Your node no longer deposits into a hub that has stopped, or that it has not seen move for a few minutes: money sent there would never be credited.",
+        "Neither you nor your node deposits into a hub any more that has stopped, whose deposits would never be credited, or that the node has not seen move in the last few minutes, as for a few minutes after it starts.",
         "A node moved to another hub by hand, whose books still counted the old hub's money, corrects them when 0.4.4 first starts and says so in its log, so its balance and its prices are right again.",
         "The node's database moves to a new version when 0.4.4 first starts. The node keeps a copy of the old one, which `dassie update` puts back if it has to roll back."
       ]
