@@ -133,22 +133,34 @@ impl Hub {
         }
     }
 
-    /// The hub has no account for the node.
+    /// The hub has no account for the node, as of two blocks in a row:
+    /// the hub goes on, as the account hears it, so it takes a deposit.
     fn no_account(&mut self, core: &mut Core) {
         use dassie_hub::client::Statement;
 
-        self.height += 1;
-        let statements = [Statement::Account {
-            height: self.height,
-            key: self.member,
-            account: None,
-        }];
-        self.say(core, &statements);
+        for _ in 0..2 {
+            self.height += 1;
+            let statements = [Statement::Account {
+                height: self.height,
+                key: self.member,
+                account: None,
+            }];
+            self.say(core, &statements);
+        }
     }
 
     /// The node's account 5 holds `balance` in the hub asset's smallest
-    /// unit, and deposits credited it `deposited`, as of a new final block.
+    /// unit, and deposits credited it `deposited`, as of two new final
+    /// blocks in a row: the hub goes on, as the account hears it, so it
+    /// takes a deposit.
     fn account(&mut self, core: &mut Core, balance: u64, deposited: u64) {
+        for _ in 0..2 {
+            self.account_once(core, balance, deposited);
+        }
+    }
+
+    /// [`account`](Self::account), as of one new final block.
+    fn account_once(&mut self, core: &mut Core, balance: u64, deposited: u64) {
         use dassie_hub::client::{AccountView, Statement};
         use dassie_hub::operation::AccountNumber;
 

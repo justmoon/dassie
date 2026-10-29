@@ -12,7 +12,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/hub_member.proto.
  */
 export const file_dassie_owner_v1_hub_member: GenFile = /*@__PURE__*/
-  fileDesc("CiBkYXNzaWUvb3duZXIvdjEvaHViX21lbWJlci5wcm90bxIPZGFzc2llLm93bmVyLnYxIl4KB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBBIWCglhbGxvdG1lbnQYBCABKARIAIgBAUIMCgpfYWxsb3RtZW50IpgCCgdIdWJNb3ZlEjUKCWRpcmVjdGlvbhgBIAEoDjIiLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlLkRpcmVjdGlvbhIOCgZhbW91bnQYAiABKAQSEAoIYnlfb3duZXIYAyABKAgSFwoPc2VudF9hdF91bml4X21zGAQgASgDEh8KEmFwcGxpZWRfYXRfdW5peF9tcxgFIAEoA0gAiAEBEgwKBGxhdGUYBiABKAgiVQoJRGlyZWN0aW9uEhkKFURJUkVDVElPTl9VTlNQRUNJRklFRBAAEhUKEURJUkVDVElPTl9ERVBPU0lUEAESFgoSRElSRUNUSU9OX1dJVEhEUkFXEAJCFQoTX2FwcGxpZWRfYXRfdW5peF9tcyLnBQoJSHViU3RhdHVzEg4KBmh1Yl9pZBgBIAEoCRIUCgdhY2NvdW50GAIgASgNSACIAQESNQoKY29ubmVjdGlvbhgDIAEoDjIhLmRhc3NpZS5vd25lci52MS5MZWRnZXJDb25uZWN0aW9uEg8KB2JhbGFuY2UYBCABKAQSDwoHcmVzZXJ2ZRgFIAEoBBIRCglkZXBvc2l0ZWQYBiABKAQSEQoJd2l0aGRyYXduGAcgASgEEigKBnBheWluZxgIIAMoCzIYLmRhc3NpZS5vd25lci52MS5IdWJIb2xkEigKBnRha2luZxgJIAMoCzIYLmRhc3NpZS5vd25lci52MS5IdWJIb2xkEg0KBWZsb29yGAogASgEEg8KB2NlaWxpbmcYCyABKAQSEQoJYXV0b21hdGljGAwgASgIEiEKFHBhdXNlZF91bnRpbF91bml4X21zGA0gASgDSAGIAQESKAoGbW92aW5nGA4gASgLMhguZGFzc2llLm93bmVyLnYxLkh1Yk1vdmUSEgoKdmFsaWRhdG9ycxgPIAEoDRIcChR2YWxpZGF0b3JzX2Fuc3dlcmluZxgQIAEoDRIqCghnaXZlbl91cBgRIAEoCzIYLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlEhAKCHJldHVybmVkGBIgASgEEg4KBnNjaGVtZRgTIAEoCRIhChRmcm96ZW5fc2luY2VfdW5peF9tcxgUIAEoA0gCiAEBEhMKC2VzY3Jvd19oZWxkGBUgASgIEhAKCHNldHRsaW5nGBYgASgIEg4KBnRhcmdldBgXIAEoBBIXCg90YXJnZXRfYnlfb3duZXIYGCABKAgSMAoJbGlxdWlkaXR5GBkgASgLMh0uZGFzc2llLm93bmVyLnYxLkh1YkxpcXVpZGl0eUIKCghfYWNjb3VudEIXChVfcGF1c2VkX3VudGlsX3VuaXhfbXNCFwoVX2Zyb3plbl9zaW5jZV91bml4X21zIugBCgxIdWJMaXF1aWRpdHkSDAoEcG9vbBgBIAEoBBIQCghwZWVyaW5ncxgCIAEoDRIPCgdjb3ZlcmVkGAMgASgEEiAKE3Nob3J0X3NpbmNlX3VuaXhfbXMYBCABKANIAIgBARIeChFlbmRzX2Zyb21fdW5peF9tcxgFIAEoA0gBiAEBEhoKEnJlZnVzaW5nX2Rvd25saW5rcxgGIAEoCBIbChNyZWZ1c2luZ19jb3JlX3BlZXJzGAcgASgIQhYKFF9zaG9ydF9zaW5jZV91bml4X21zQhQKEl9lbmRzX2Zyb21fdW5peF9tcyIVChNHZXRIdWJTdGF0dXNSZXF1ZXN0IkAKFEdldEh1YlN0YXR1c1Jlc3BvbnNlEigKBGh1YnMYASADKAsyGi5kYXNzaWUub3duZXIudjEuSHViU3RhdHVzIjMKEUh1YkRlcG9zaXRSZXF1ZXN0Eg4KBmFtb3VudBgBIAEoBBIOCgZzY2hlbWUYAyABKAkiQAoSSHViRGVwb3NpdFJlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiNAoSSHViV2l0aGRyYXdSZXF1ZXN0Eg4KBmFtb3VudBgBIAEoBBIOCgZzY2hlbWUYAyABKAkiQQoTSHViV2l0aGRyYXdSZXNwb25zZRIqCgZzdGF0dXMYASABKAsyGi5kYXNzaWUub3duZXIudjEuSHViU3RhdHVzIjsKFlNldEh1YkF1dG9tYXRpY1JlcXVlc3QSEQoJYXV0b21hdGljGAEgASgIEg4KBnNjaGVtZRgDIAEoCSJFChdTZXRIdWJBdXRvbWF0aWNSZXNwb25zZRIqCgZzdGF0dXMYASABKAsyGi5kYXNzaWUub3duZXIudjEuSHViU3RhdHVzIkUKE1NldEh1YlRhcmdldFJlcXVlc3QSDgoGc2NoZW1lGAEgASgJEhMKBnRhcmdldBgCIAEoBEgAiAEBQgkKB190YXJnZXQiQgoUU2V0SHViVGFyZ2V0UmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyIiChBIdWJHaXZlVXBSZXF1ZXN0Eg4KBnNjaGVtZRgCIAEoCSI/ChFIdWJHaXZlVXBSZXNwb25zZRIqCgZzdGF0dXMYASABKAsyGi5kYXNzaWUub3duZXIudjEuSHViU3RhdHVzIhsKGVN1YnNjcmliZUh1YkV2ZW50c1JlcXVlc3Qi9wQKCEh1YkV2ZW50Eg4KBnNjaGVtZRgBIAEoCRIbChNvYnNlcnZlZF9hdF91bml4X21zGAIgASgDEhAKBmxhZ2dlZBgDIAEoBEgAEioKBWJsb2NrGAQgASgLMhkuZGFzc2llLm93bmVyLnYxLkh1YkJsb2NrSAASMgoJb3BlcmF0aW9uGAUgASgLMh0uZGFzc2llLm93bmVyLnYxLkh1Yk9wZXJhdGlvbkgAEjMKB2FjY291bnQYBiABKAsyIC5kYXNzaWUub3duZXIudjEuSHViQWNjb3VudFN0YXRlSAASMAoIdW5mdW5kZWQYByABKAsyHC5kYXNzaWUub3duZXIudjEuSHViVW5mdW5kZWRIABIyCgdyZWR1Y2VkGAggASgLMh8uZGFzc2llLm93bmVyLnYxLkh1YkhvbGRSZWR1Y2VkSAASNQoLY2xhaW1zX3BhaWQYCSABKAsyHi5kYXNzaWUub3duZXIudjEuSHViQ2xhaW1zUGFpZEgAEjAKCHJlc3luY2VkGAogASgLMhwuZGFzc2llLm93bmVyLnYxLkh1YlJlc3luY2VkSAASLgoHZHJvcHBlZBgLIAEoCzIbLmRhc3NpZS5vd25lci52MS5IdWJEcm9wcGVkSAASNAoKY29tbWl0bWVudBgMIAEoCzIeLmRhc3NpZS5vd25lci52MS5IdWJDb21taXRtZW50SAASKgoFY2xhaW0YDSABKAsyGS5kYXNzaWUub3duZXIudjEuSHViQ2xhaW1IABItCgRtb3ZlGA4gASgLMh0uZGFzc2llLm93bmVyLnYxLkh1Yk1vdmVFdmVudEgAQgcKBWV2ZW50IjUKCEh1YkJsb2NrEg4KBmhlaWdodBgBIAEoBBIZChF0aW1lc3RhbXBfdW5peF9tcxgCIAEoAyLcAQoMSHViT3BlcmF0aW9uEg4KBmhlaWdodBgBIAEoBBIZChF0aW1lc3RhbXBfdW5peF9tcxgCIAEoAxIMCgRraW5kGAMgASgJEg4KBnNpZ25lchgEIAEoDRIQCghzZXF1ZW5jZRgFIAEoBBIMCgRob2xkGAYgASgEEhQKDHBlZXJfYWNjb3VudBgHIAEoDRIOCgZhbW91bnQYCCABKAQSDwoHb3V0Y29tZRgJIAEoCRIOCgZyZWFzb24YCiABKAkSCwoDZmVlGAsgASgEEg8KB3B1cnBvc2UYDCABKAkirgEKD0h1YkFjY291bnRTdGF0ZRIOCgZoZWlnaHQYASABKAQSDgoGbnVtYmVyGAIgASgNEg8KB2JhbGFuY2UYAyABKAQSDwoHcmVzZXJ2ZRgEIAEoBBIQCghzZXF1ZW5jZRgFIAEoBBIRCglkZXBvc2l0ZWQYBiABKAQSEQoJd2l0aGRyYXduGAcgASgEEhAKCHJldHVybmVkGAggASgEEg8KB2Nsb3NpbmcYCSABKAgiDQoLSHViVW5mdW5kZWQiLgoOSHViSG9sZFJlZHVjZWQSDAoEaG9sZBgBIAEoBBIOCgZhbW91bnQYAiABKAQibQoNSHViQ2xhaW1zUGFpZBIMCgRob2xkGAEgASgEEg0KBWNvdW50GAIgASgNEhYKDmZpcnN0X3NlcXVlbmNlGAMgASgEEhUKDWxhc3Rfc2VxdWVuY2UYBCABKAQSEAoIdW5saXN0ZWQYBSABKAgiXgoLSHViUmVzeW5jZWQSDgoGaGVpZ2h0GAEgASgEEhkKEXRpbWVzdGFtcF91bml4X21zGAIgASgDEhQKDGhvbGRzX2JlZm9yZRgDIAEoDRIOCgZ1bnJlYWQYBCABKAkiHQoKSHViRHJvcHBlZBIPCgdwdXJwb3NlGAEgASgJIqABCg1IdWJDb21taXRtZW50EiYKBHJvbGUYASABKA4yGC5kYXNzaWUub3duZXIudjEuSHViUm9sZRIMCgRwZWVyGAIgASgJEgwKBGhvbGQYAyABKAQSEAoIc2VxdWVuY2UYBCABKAQSDgoGYW1vdW50GAUgASgEEhEKCWNvbmRpdGlvbhgGIAEoDBIWCg5leHBpcnlfdW5peF9tcxgHIAEoAyJuCghIdWJDbGFpbRImCgRyb2xlGAEgASgOMhguZGFzc2llLm93bmVyLnYxLkh1YlJvbGUSDAoEcGVlchgCIAEoCRIMCgRob2xkGAMgASgEEg0KBXRvdGFsGAQgASgEEg8KB3Rocm91Z2gYBSABKAQipQIKDEh1Yk1vdmVFdmVudBIyCgVzdGFnZRgBIAEoDjIjLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlRXZlbnQuU3RhZ2USNQoJZGlyZWN0aW9uGAIgASgOMiIuZGFzc2llLm93bmVyLnYxLkh1Yk1vdmUuRGlyZWN0aW9uEg4KBmFtb3VudBgDIAEoBBIPCgdwYXltZW50GAQgASgJEhAKCGJ5X293bmVyGAUgASgIIncKBVN0YWdlEhUKEVNUQUdFX1VOU1BFQ0lGSUVEEAASEQoNU1RBR0VfU1RBUlRFRBABEg4KClNUQUdFX0RPTkUQAhIQCgxTVEFHRV9GQUlMRUQQAxIOCgpTVEFHRV9MQVRFEAQSEgoOU1RBR0VfR0lWRU5fVVAQBSpLCgdIdWJSb2xlEhgKFEhVQl9ST0xFX1VOU1BFQ0lGSUVEEAASEgoOSFVCX1JPTEVfUEFZRVIQARISCg5IVUJfUk9MRV9QQVlFRRACYgZwcm90bzM", [file_dassie_owner_v1_ledger]);
+  fileDesc("CiBkYXNzaWUvb3duZXIvdjEvaHViX21lbWJlci5wcm90bxIPZGFzc2llLm93bmVyLnYxIl4KB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBBIWCglhbGxvdG1lbnQYBCABKARIAIgBAUIMCgpfYWxsb3RtZW50IpgCCgdIdWJNb3ZlEjUKCWRpcmVjdGlvbhgBIAEoDjIiLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlLkRpcmVjdGlvbhIOCgZhbW91bnQYAiABKAQSEAoIYnlfb3duZXIYAyABKAgSFwoPc2VudF9hdF91bml4X21zGAQgASgDEh8KEmFwcGxpZWRfYXRfdW5peF9tcxgFIAEoA0gAiAEBEgwKBGxhdGUYBiABKAgiVQoJRGlyZWN0aW9uEhkKFURJUkVDVElPTl9VTlNQRUNJRklFRBAAEhUKEURJUkVDVElPTl9ERVBPU0lUEAESFgoSRElSRUNUSU9OX1dJVEhEUkFXEAJCFQoTX2FwcGxpZWRfYXRfdW5peF9tcyKHBgoJSHViU3RhdHVzEg4KBmh1Yl9pZBgBIAEoCRIUCgdhY2NvdW50GAIgASgNSACIAQESNQoKY29ubmVjdGlvbhgDIAEoDjIhLmRhc3NpZS5vd25lci52MS5MZWRnZXJDb25uZWN0aW9uEg8KB2JhbGFuY2UYBCABKAQSDwoHcmVzZXJ2ZRgFIAEoBBIRCglkZXBvc2l0ZWQYBiABKAQSEQoJd2l0aGRyYXduGAcgASgEEigKBnBheWluZxgIIAMoCzIYLmRhc3NpZS5vd25lci52MS5IdWJIb2xkEigKBnRha2luZxgJIAMoCzIYLmRhc3NpZS5vd25lci52MS5IdWJIb2xkEg0KBWZsb29yGAogASgEEg8KB2NlaWxpbmcYCyABKAQSEQoJYXV0b21hdGljGAwgASgIEiEKFHBhdXNlZF91bnRpbF91bml4X21zGA0gASgDSAGIAQESKAoGbW92aW5nGA4gASgLMhguZGFzc2llLm93bmVyLnYxLkh1Yk1vdmUSEgoKdmFsaWRhdG9ycxgPIAEoDRIcChR2YWxpZGF0b3JzX2Fuc3dlcmluZxgQIAEoDRIqCghnaXZlbl91cBgRIAEoCzIYLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlEhAKCHJldHVybmVkGBIgASgEEg4KBnNjaGVtZRgTIAEoCRIhChRmcm96ZW5fc2luY2VfdW5peF9tcxgUIAEoA0gCiAEBEhMKC2VzY3Jvd19oZWxkGBUgASgIEhAKCHNldHRsaW5nGBYgASgIEg4KBnRhcmdldBgXIAEoBBIXCg90YXJnZXRfYnlfb3duZXIYGCABKAgSMAoJbGlxdWlkaXR5GBkgASgLMh0uZGFzc2llLm93bmVyLnYxLkh1YkxpcXVpZGl0eRIPCgdzdG9wcGVkGBogASgIEg0KBWVuZGVkGBsgASgIQgoKCF9hY2NvdW50QhcKFV9wYXVzZWRfdW50aWxfdW5peF9tc0IXChVfZnJvemVuX3NpbmNlX3VuaXhfbXMi6AEKDEh1YkxpcXVpZGl0eRIMCgRwb29sGAEgASgEEhAKCHBlZXJpbmdzGAIgASgNEg8KB2NvdmVyZWQYAyABKAQSIAoTc2hvcnRfc2luY2VfdW5peF9tcxgEIAEoA0gAiAEBEh4KEWVuZHNfZnJvbV91bml4X21zGAUgASgDSAGIAQESGgoScmVmdXNpbmdfZG93bmxpbmtzGAYgASgIEhsKE3JlZnVzaW5nX2NvcmVfcGVlcnMYByABKAhCFgoUX3Nob3J0X3NpbmNlX3VuaXhfbXNCFAoSX2VuZHNfZnJvbV91bml4X21zIhUKE0dldEh1YlN0YXR1c1JlcXVlc3QiQAoUR2V0SHViU3RhdHVzUmVzcG9uc2USKAoEaHVicxgBIAMoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiMwoRSHViRGVwb3NpdFJlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBnNjaGVtZRgDIAEoCSJAChJIdWJEZXBvc2l0UmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyI0ChJIdWJXaXRoZHJhd1JlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBnNjaGVtZRgDIAEoCSJBChNIdWJXaXRoZHJhd1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiOwoWU2V0SHViQXV0b21hdGljUmVxdWVzdBIRCglhdXRvbWF0aWMYASABKAgSDgoGc2NoZW1lGAMgASgJIkUKF1NldEh1YkF1dG9tYXRpY1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiRQoTU2V0SHViVGFyZ2V0UmVxdWVzdBIOCgZzY2hlbWUYASABKAkSEwoGdGFyZ2V0GAIgASgESACIAQFCCQoHX3RhcmdldCJCChRTZXRIdWJUYXJnZXRSZXNwb25zZRIqCgZzdGF0dXMYASABKAsyGi5kYXNzaWUub3duZXIudjEuSHViU3RhdHVzIiIKEEh1YkdpdmVVcFJlcXVlc3QSDgoGc2NoZW1lGAIgASgJIj8KEUh1YkdpdmVVcFJlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiIQoPTGVhdmVIdWJSZXF1ZXN0Eg4KBnNjaGVtZRgBIAEoCSIgChBMZWF2ZUh1YlJlc3BvbnNlEgwKBGdvbmUYASABKAgiGwoZU3Vic2NyaWJlSHViRXZlbnRzUmVxdWVzdCL3BAoISHViRXZlbnQSDgoGc2NoZW1lGAEgASgJEhsKE29ic2VydmVkX2F0X3VuaXhfbXMYAiABKAMSEAoGbGFnZ2VkGAMgASgESAASKgoFYmxvY2sYBCABKAsyGS5kYXNzaWUub3duZXIudjEuSHViQmxvY2tIABIyCglvcGVyYXRpb24YBSABKAsyHS5kYXNzaWUub3duZXIudjEuSHViT3BlcmF0aW9uSAASMwoHYWNjb3VudBgGIAEoCzIgLmRhc3NpZS5vd25lci52MS5IdWJBY2NvdW50U3RhdGVIABIwCgh1bmZ1bmRlZBgHIAEoCzIcLmRhc3NpZS5vd25lci52MS5IdWJVbmZ1bmRlZEgAEjIKB3JlZHVjZWQYCCABKAsyHy5kYXNzaWUub3duZXIudjEuSHViSG9sZFJlZHVjZWRIABI1CgtjbGFpbXNfcGFpZBgJIAEoCzIeLmRhc3NpZS5vd25lci52MS5IdWJDbGFpbXNQYWlkSAASMAoIcmVzeW5jZWQYCiABKAsyHC5kYXNzaWUub3duZXIudjEuSHViUmVzeW5jZWRIABIuCgdkcm9wcGVkGAsgASgLMhsuZGFzc2llLm93bmVyLnYxLkh1YkRyb3BwZWRIABI0Cgpjb21taXRtZW50GAwgASgLMh4uZGFzc2llLm93bmVyLnYxLkh1YkNvbW1pdG1lbnRIABIqCgVjbGFpbRgNIAEoCzIZLmRhc3NpZS5vd25lci52MS5IdWJDbGFpbUgAEi0KBG1vdmUYDiABKAsyHS5kYXNzaWUub3duZXIudjEuSHViTW92ZUV2ZW50SABCBwoFZXZlbnQiNQoISHViQmxvY2sSDgoGaGVpZ2h0GAEgASgEEhkKEXRpbWVzdGFtcF91bml4X21zGAIgASgDItwBCgxIdWJPcGVyYXRpb24SDgoGaGVpZ2h0GAEgASgEEhkKEXRpbWVzdGFtcF91bml4X21zGAIgASgDEgwKBGtpbmQYAyABKAkSDgoGc2lnbmVyGAQgASgNEhAKCHNlcXVlbmNlGAUgASgEEgwKBGhvbGQYBiABKAQSFAoMcGVlcl9hY2NvdW50GAcgASgNEg4KBmFtb3VudBgIIAEoBBIPCgdvdXRjb21lGAkgASgJEg4KBnJlYXNvbhgKIAEoCRILCgNmZWUYCyABKAQSDwoHcHVycG9zZRgMIAEoCSKuAQoPSHViQWNjb3VudFN0YXRlEg4KBmhlaWdodBgBIAEoBBIOCgZudW1iZXIYAiABKA0SDwoHYmFsYW5jZRgDIAEoBBIPCgdyZXNlcnZlGAQgASgEEhAKCHNlcXVlbmNlGAUgASgEEhEKCWRlcG9zaXRlZBgGIAEoBBIRCgl3aXRoZHJhd24YByABKAQSEAoIcmV0dXJuZWQYCCABKAQSDwoHY2xvc2luZxgJIAEoCCINCgtIdWJVbmZ1bmRlZCIuCg5IdWJIb2xkUmVkdWNlZBIMCgRob2xkGAEgASgEEg4KBmFtb3VudBgCIAEoBCJtCg1IdWJDbGFpbXNQYWlkEgwKBGhvbGQYASABKAQSDQoFY291bnQYAiABKA0SFgoOZmlyc3Rfc2VxdWVuY2UYAyABKAQSFQoNbGFzdF9zZXF1ZW5jZRgEIAEoBBIQCgh1bmxpc3RlZBgFIAEoCCJeCgtIdWJSZXN5bmNlZBIOCgZoZWlnaHQYASABKAQSGQoRdGltZXN0YW1wX3VuaXhfbXMYAiABKAMSFAoMaG9sZHNfYmVmb3JlGAMgASgNEg4KBnVucmVhZBgEIAEoCSIdCgpIdWJEcm9wcGVkEg8KB3B1cnBvc2UYASABKAkioAEKDUh1YkNvbW1pdG1lbnQSJgoEcm9sZRgBIAEoDjIYLmRhc3NpZS5vd25lci52MS5IdWJSb2xlEgwKBHBlZXIYAiABKAkSDAoEaG9sZBgDIAEoBBIQCghzZXF1ZW5jZRgEIAEoBBIOCgZhbW91bnQYBSABKAQSEQoJY29uZGl0aW9uGAYgASgMEhYKDmV4cGlyeV91bml4X21zGAcgASgDIm4KCEh1YkNsYWltEiYKBHJvbGUYASABKA4yGC5kYXNzaWUub3duZXIudjEuSHViUm9sZRIMCgRwZWVyGAIgASgJEgwKBGhvbGQYAyABKAQSDQoFdG90YWwYBCABKAQSDwoHdGhyb3VnaBgFIAEoBCKlAgoMSHViTW92ZUV2ZW50EjIKBXN0YWdlGAEgASgOMiMuZGFzc2llLm93bmVyLnYxLkh1Yk1vdmVFdmVudC5TdGFnZRI1CglkaXJlY3Rpb24YAiABKA4yIi5kYXNzaWUub3duZXIudjEuSHViTW92ZS5EaXJlY3Rpb24SDgoGYW1vdW50GAMgASgEEg8KB3BheW1lbnQYBCABKAkSEAoIYnlfb3duZXIYBSABKAgidwoFU3RhZ2USFQoRU1RBR0VfVU5TUEVDSUZJRUQQABIRCg1TVEFHRV9TVEFSVEVEEAESDgoKU1RBR0VfRE9ORRACEhAKDFNUQUdFX0ZBSUxFRBADEg4KClNUQUdFX0xBVEUQBBISCg5TVEFHRV9HSVZFTl9VUBAFKksKB0h1YlJvbGUSGAoUSFVCX1JPTEVfVU5TUEVDSUZJRUQQABISCg5IVUJfUk9MRV9QQVlFUhABEhIKDkhVQl9ST0xFX1BBWUVFEAJiBnByb3RvMw", [file_dassie_owner_v1_ledger]);
 
 /**
  * A hold of ours toward a peer, or a peer's toward us.
@@ -364,6 +364,24 @@ export type HubStatus = Message<"dassie.owner.v1.HubStatus"> & {
    * @generated from field: dassie.owner.v1.HubLiquidity liquidity = 25;
    */
   liquidity?: HubLiquidity | undefined;
+
+  /**
+   * Whether the hub stalled, is shutting down or ended, as the node's
+   * account in it judges (spec/areas/hubs.md#a-hub-that-failed): it takes
+   * nothing more, and the node moves nothing into or out of it.
+   *
+   * @generated from field: bool stopped = 26;
+   */
+  stopped: boolean;
+
+  /**
+   * Whether the node keeps a quorum's payout set of the hub
+   * (GetHubPayout): the hub ended for good, and the owner may leave it
+   * (LeaveHub).
+   *
+   * @generated from field: bool ended = 27;
+   */
+  ended: boolean;
 };
 
 /**
@@ -716,6 +734,57 @@ export const HubGiveUpResponseSchema: GenMessage<HubGiveUpResponse> = /*@__PURE_
   messageDesc(file_dassie_owner_v1_hub_member, 15);
 
 /**
+ * Leaves the hub, once it ended: a quorum of its validators signed its
+ * payout set, which the node keeps (HubStatus.ended). The move on its way,
+ * if any, is forgotten, and the scheme over the hub is removed as by
+ * RemoveSettlementScheme; once it goes, the node lets go of the hub's
+ * state and writes off through suspense what its books held of the
+ * account, which the payout set pays to the owner book's account. The
+ * scheme can then be added again with another hub's rules, or with none
+ * for the default hub (spec/areas/hubs.md#leaving-a-hub-that-ended).
+ * FAILED_PRECONDITION for a hub that has not ended, as far as the node
+ * knows, or while BTP tokens or unfinished payments use the hub's ledger.
+ * Leaving a hub being left succeeds, and changes nothing.
+ *
+ * @generated from message dassie.owner.v1.LeaveHubRequest
+ */
+export type LeaveHubRequest = Message<"dassie.owner.v1.LeaveHubRequest"> & {
+  /**
+   * The hub, by its scheme, as in HubDepositRequest.
+   *
+   * @generated from field: string scheme = 1;
+   */
+  scheme: string;
+};
+
+/**
+ * Describes the message dassie.owner.v1.LeaveHubRequest.
+ * Use `create(LeaveHubRequestSchema)` to create a new message.
+ */
+export const LeaveHubRequestSchema: GenMessage<LeaveHubRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 16);
+
+/**
+ * @generated from message dassie.owner.v1.LeaveHubResponse
+ */
+export type LeaveHubResponse = Message<"dassie.owner.v1.LeaveHubResponse"> & {
+  /**
+   * Whether the scheme went at once; otherwise it goes once its methods
+   * are wound down, as ListLedgers shows (Ledger.removing).
+   *
+   * @generated from field: bool gone = 1;
+   */
+  gone: boolean;
+};
+
+/**
+ * Describes the message dassie.owner.v1.LeaveHubResponse.
+ * Use `create(LeaveHubResponseSchema)` to create a new message.
+ */
+export const LeaveHubResponseSchema: GenMessage<LeaveHubResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_hub_member, 17);
+
+/**
  * Streams what the node sees of each settlement hub it is in, as it sees
  * it, for debugging and for watching a network: what its account in the hub
  * read, in the order it read it, the commitments and claims of its packets
@@ -738,7 +807,7 @@ export type SubscribeHubEventsRequest = Message<"dassie.owner.v1.SubscribeHubEve
  * Use `create(SubscribeHubEventsRequestSchema)` to create a new message.
  */
 export const SubscribeHubEventsRequestSchema: GenMessage<SubscribeHubEventsRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 16);
+  messageDesc(file_dassie_owner_v1_hub_member, 18);
 
 /**
  * @generated from message dassie.owner.v1.HubEvent
@@ -872,7 +941,7 @@ export type HubEvent = Message<"dassie.owner.v1.HubEvent"> & {
  * Use `create(HubEventSchema)` to create a new message.
  */
 export const HubEventSchema: GenMessage<HubEvent> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 17);
+  messageDesc(file_dassie_owner_v1_hub_member, 19);
 
 /**
  * @generated from message dassie.owner.v1.HubBlock
@@ -896,7 +965,7 @@ export type HubBlock = Message<"dassie.owner.v1.HubBlock"> & {
  * Use `create(HubBlockSchema)` to create a new message.
  */
 export const HubBlockSchema: GenMessage<HubBlock> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 18);
+  messageDesc(file_dassie_owner_v1_hub_member, 20);
 
 /**
  * @generated from message dassie.owner.v1.HubOperation
@@ -992,7 +1061,7 @@ export type HubOperation = Message<"dassie.owner.v1.HubOperation"> & {
  * Use `create(HubOperationSchema)` to create a new message.
  */
 export const HubOperationSchema: GenMessage<HubOperation> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 19);
+  messageDesc(file_dassie_owner_v1_hub_member, 21);
 
 /**
  * @generated from message dassie.owner.v1.HubAccountState
@@ -1061,7 +1130,7 @@ export type HubAccountState = Message<"dassie.owner.v1.HubAccountState"> & {
  * Use `create(HubAccountStateSchema)` to create a new message.
  */
 export const HubAccountStateSchema: GenMessage<HubAccountState> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 20);
+  messageDesc(file_dassie_owner_v1_hub_member, 22);
 
 /**
  * @generated from message dassie.owner.v1.HubUnfunded
@@ -1074,7 +1143,7 @@ export type HubUnfunded = Message<"dassie.owner.v1.HubUnfunded"> & {
  * Use `create(HubUnfundedSchema)` to create a new message.
  */
 export const HubUnfundedSchema: GenMessage<HubUnfunded> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 21);
+  messageDesc(file_dassie_owner_v1_hub_member, 23);
 
 /**
  * @generated from message dassie.owner.v1.HubHoldReduced
@@ -1096,7 +1165,7 @@ export type HubHoldReduced = Message<"dassie.owner.v1.HubHoldReduced"> & {
  * Use `create(HubHoldReducedSchema)` to create a new message.
  */
 export const HubHoldReducedSchema: GenMessage<HubHoldReduced> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 22);
+  messageDesc(file_dassie_owner_v1_hub_member, 24);
 
 /**
  * @generated from message dassie.owner.v1.HubClaimsPaid
@@ -1138,7 +1207,7 @@ export type HubClaimsPaid = Message<"dassie.owner.v1.HubClaimsPaid"> & {
  * Use `create(HubClaimsPaidSchema)` to create a new message.
  */
 export const HubClaimsPaidSchema: GenMessage<HubClaimsPaid> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 23);
+  messageDesc(file_dassie_owner_v1_hub_member, 25);
 
 /**
  * @generated from message dassie.owner.v1.HubResynced
@@ -1176,7 +1245,7 @@ export type HubResynced = Message<"dassie.owner.v1.HubResynced"> & {
  * Use `create(HubResyncedSchema)` to create a new message.
  */
 export const HubResyncedSchema: GenMessage<HubResynced> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 24);
+  messageDesc(file_dassie_owner_v1_hub_member, 26);
 
 /**
  * @generated from message dassie.owner.v1.HubDropped
@@ -1195,7 +1264,7 @@ export type HubDropped = Message<"dassie.owner.v1.HubDropped"> & {
  * Use `create(HubDroppedSchema)` to create a new message.
  */
 export const HubDroppedSchema: GenMessage<HubDropped> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 25);
+  messageDesc(file_dassie_owner_v1_hub_member, 27);
 
 /**
  * @generated from message dassie.owner.v1.HubCommitment
@@ -1251,7 +1320,7 @@ export type HubCommitment = Message<"dassie.owner.v1.HubCommitment"> & {
  * Use `create(HubCommitmentSchema)` to create a new message.
  */
 export const HubCommitmentSchema: GenMessage<HubCommitment> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 26);
+  messageDesc(file_dassie_owner_v1_hub_member, 28);
 
 /**
  * @generated from message dassie.owner.v1.HubClaim
@@ -1295,7 +1364,7 @@ export type HubClaim = Message<"dassie.owner.v1.HubClaim"> & {
  * Use `create(HubClaimSchema)` to create a new message.
  */
 export const HubClaimSchema: GenMessage<HubClaim> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 27);
+  messageDesc(file_dassie_owner_v1_hub_member, 29);
 
 /**
  * @generated from message dassie.owner.v1.HubMoveEvent
@@ -1337,7 +1406,7 @@ export type HubMoveEvent = Message<"dassie.owner.v1.HubMoveEvent"> & {
  * Use `create(HubMoveEventSchema)` to create a new message.
  */
 export const HubMoveEventSchema: GenMessage<HubMoveEvent> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_hub_member, 28);
+  messageDesc(file_dassie_owner_v1_hub_member, 30);
 
 /**
  * @generated from enum dassie.owner.v1.HubMoveEvent.Stage
@@ -1393,7 +1462,7 @@ export type HubMoveEvent_Stage = (typeof HubMoveEvent_Stage)[keyof typeof HubMov
  * Describes the enum dassie.owner.v1.HubMoveEvent.Stage.
  */
 export const HubMoveEvent_StageSchema: GenEnum<HubMoveEvent_Stage> = /*@__PURE__*/
-  enumDesc(file_dassie_owner_v1_hub_member, 28, 0);
+  enumDesc(file_dassie_owner_v1_hub_member, 30, 0);
 
 /**
  * Which side of a packet over a hub the node is on.

@@ -29,11 +29,11 @@ use super::hub_funding::{
 use super::{Core, EngineError, hub_events};
 use crate::store::{HubFundingRow, HubMoveRow};
 
-/// How lately a hub must have made progress for the node to deposit into it
-/// for the owner's payments: a few minutes, well within the hour a stall
-/// takes to be judged on the founding terms, and many times the message
-/// window, so a hub that goes on always has.
-const PAYMENTS_NEED_PROGRESS_MS: u64 = 5 * 60 * 1_000;
+/// How lately a hub must have made progress for the node to deposit into
+/// it, by itself or for the owner: a few minutes, well within the hour a
+/// stall takes to be judged on the founding terms, and many times the
+/// message window, so a hub that goes on always has.
+const DEPOSITS_NEED_PROGRESS_MS: u64 = 5 * 60 * 1_000;
 
 /// The most XRP Ledger fee a payment out of an owner book is sized to leave
 /// room for, in drops: XRP the account pays, from the XRP book.
@@ -203,6 +203,14 @@ pub struct HubStatus {
     /// Whether the issuer holds the escrow: frozen, or charging a transfer
     /// fee.
     pub escrow_held: bool,
+    /// Whether the hub stalled, is shutting down or ended, as the node's
+    /// account in it judges (spec/areas/hubs.md#a-hub-that-failed): it
+    /// takes nothing more, and the node moves nothing into or out of it.
+    pub stopped: bool,
+    /// Whether the node keeps a quorum's payout set of the hub: it ended
+    /// for good, and the owner may leave it
+    /// (spec/areas/hubs.md#leaving-a-hub-that-ended).
+    pub ended: bool,
     /// Whether settling over the hub is under way ([`Core::hub_settling`]);
     /// in [`Core::owner_hub_statuses`], also while a request of ours to
     /// settle over it is on its way or due.
@@ -339,7 +347,19 @@ impl Core {
             if self.funding.contains_key(&scheme) {
                 continue;
             }
-            let stored = self.store.hub_funding(scheme).map_err(|e| e.to_string())?;
+            // A hub left in this step is added again as one never added:
+            // what the database still keeps of the one before goes with
+            // this step (spec/areas/hubs.md#leaving-a-hub-that-ended).
+            let stored = if self
+                .batch
+                .schemes_let_go
+                .iter()
+                .any(|(gone, _)| *gone == scheme)
+            {
+                crate::store::HubFunding::default()
+            } else {
+                self.store.hub_funding(scheme).map_err(|e| e.to_string())?
+            };
             let automatic = self
                 .batch
                 .hub_automatic
@@ -384,7 +404,7 @@ impl Core {
     /// Keeps the moves' state of the hub of `scheme` with this batch. The
     /// prices count a move on its way ([`moves_on_their_way`](Self::moves_on_their_way)),
     /// so they are built again.
-    fn keep_funding(&mut self, scheme: Name) {
+    pub(super) fn keep_funding(&mut self, scheme: Name) {
         if let Some(funding) = self.funding.get(&scheme) {
             self.batch.hub_funding.insert(scheme, row(funding));
             self.prices.due = true;
@@ -722,11 +742,13 @@ impl Core {
             .asset
             .and_then(|asset| self.assets.get(&asset))
             .is_some_and(|asset| asset.asset.status() == LedgerStatus::Unfunded);
-        // A hub whose scheme is not in step with it, or a token hub its
-        // validators say is frozen, is unavailable: nothing moves into or
-        // out of it (spec/areas/hubs.md#a-frozen-hub).
-        let unavailable =
-            active.scheme.status() != LedgerStatus::Synced || account.frozen().is_some();
+        // A hub whose scheme is not in step with it, a token hub its
+        // validators say is frozen, or a hub that stalled, is shutting down
+        // or ended, is unavailable: nothing moves into or out of it
+        // (spec/areas/hubs.md#a-frozen-hub, spec/areas/hubs.md#a-hub-that-failed).
+        let unavailable = active.scheme.status() != LedgerStatus::Synced
+            || account.frozen().is_some()
+            || !active.scheme.can_receive();
         // What a withdrawal could take once the account's operations ahead
         // of it executed, as the scheme pays it; nothing while the scheme
         // cannot tell.
@@ -740,6 +762,7 @@ impl Core {
             spendable,
             unfunded,
             unavailable,
+            credits_deposits: self.takes_deposits(scheme),
             floor,
             ceiling,
             least_spendable,
@@ -764,7 +787,7 @@ impl Core {
             // A hub that shut down, stalled or has not made progress
             // lately takes no deposit for the owner's payments: they wait
             // out their deadlines.
-            promised: if self.takes_deposits_for_payments(scheme) {
+            promised: if self.takes_deposits(scheme) {
                 drops_up(
                     u64::try_from(self.promised_on(active.scheme.ledger())).unwrap_or(u64::MAX),
                 )
@@ -884,7 +907,7 @@ impl Core {
             }
             Some(_) => {}
         }
-        if !self.takes_deposits_for_payments(scheme) {
+        if !self.takes_deposits(scheme) {
             return Some(
                 "the hub takes no deposits now: it stalled, shut down or made no progress in \
                  the last few minutes",
@@ -893,19 +916,22 @@ impl Core {
         None
     }
 
-    /// Whether the hub of `scheme` takes a deposit for the owner's
-    /// payments: one that has not shut down or stalled, and made progress
-    /// lately ([`PAYMENTS_NEED_PROGRESS_MS`]). A deposit into a hub that
-    /// stopped is never credited, and its payout set, of the last final
-    /// block, never pays it back, so no more than the floor's refill goes
-    /// in until the hub shows it goes on.
-    fn takes_deposits_for_payments(&self, scheme: Name) -> bool {
+    /// Whether the hub of `scheme` takes a deposit, the node's own, the
+    /// owner's, or one for the owner's payments: one that has not shut
+    /// down, stalled or ended, and made progress lately
+    /// ([`DEPOSITS_NEED_PROGRESS_MS`]). A deposit into a hub that stopped
+    /// is never credited, and its payout set, of the last final block,
+    /// never pays it back. A hub the account only started to hear, as
+    /// after a restart, has not made progress yet: one that stopped, which
+    /// a restart judges again only after its stall, takes nothing
+    /// meanwhile.
+    fn takes_deposits(&self, scheme: Name) -> bool {
         self.schemes
             .get(&scheme)
             .is_some_and(|active| active.scheme.can_receive())
             && self
                 .hub_account(scheme)
-                .is_some_and(|account| account.progressing(PAYMENTS_NEED_PROGRESS_MS))
+                .is_some_and(|account| account.progressing(DEPOSITS_NEED_PROGRESS_MS))
     }
 
     /// What became of the payment of the move of the hub of `scheme` on
@@ -1525,6 +1551,11 @@ impl Core {
             validators: account.answering(),
             frozen_since_ms: account.frozen(),
             escrow_held: account.escrow_held(),
+            stopped: self
+                .schemes
+                .get(&scheme)
+                .is_some_and(|active| !active.scheme.can_receive()),
+            ended: account.paid_out(),
             settling: self.hub_settling(scheme, funding, account),
             liquidity: self.hub_liquidity(scheme),
         })
@@ -1602,6 +1633,13 @@ impl Core {
     pub fn hub_deposit_to(&mut self, scheme: &str, amount: u64) -> Result<HubStatus, EngineError> {
         let scheme = self.chosen_hub(scheme)?;
         let standing = self.owner_standing(scheme)?;
+        if !standing.credits_deposits {
+            return Err(EngineError::Precondition(
+                "the hub made no progress in the last few minutes, as far as the node heard: \
+                 a deposit might never be credited; try again once it does"
+                    .into(),
+            ));
+        }
         let drops = amount / UNITS_PER_DROP;
         let spendable = standing.xrpl.ok_or_else(|| {
             EngineError::Precondition(
@@ -1838,7 +1876,9 @@ impl Core {
         }
         if standing.unavailable {
             return Err(EngineError::Precondition(
-                "the hub is unavailable: frozen, or its scheme is not in step with it".into(),
+                "the hub is unavailable: frozen, stalled, shutting down or ended, or its scheme \
+                 is not in step with it"
+                    .into(),
             ));
         }
         Ok(standing)
@@ -1941,6 +1981,7 @@ mod tests {
             least_deposit: 100_000,
             xrpl: Some(100_000_000),
             hub_owner: 100_000_000,
+            credits_deposits: true,
             ..Standing::default()
         }
     }

@@ -48,6 +48,11 @@ pub(super) struct ActiveScheme {
     /// memory: a restart counts the wait from the start, which only makes
     /// it longer.
     pub methods_gone_ms: Option<u64>,
+    /// Whether its owner leaves its settlement hub as it is removed: once
+    /// it goes, the node lets go of the hub's state, so the scheme is added
+    /// again as one never added (spec/areas/hubs.md#leaving-a-hub-that-ended).
+    /// Kept across a restart with the removal.
+    pub leaving: bool,
 }
 
 impl ActiveScheme {
@@ -323,9 +328,10 @@ impl Core {
         }
         // A removal under way carries on: the scheme runs until its
         // methods are wound down (spec/decisions/settlement-methods.md).
-        for (id, since) in store.removing_schemes().map_err(|e| e.to_string())? {
+        for (id, since, leaving) in store.removing_schemes().map_err(|e| e.to_string())? {
             if let Some(active) = self.schemes.get_mut(&id) {
                 active.removing = Some(since);
+                active.leaving = leaving;
             }
         }
         Ok(())
@@ -434,6 +440,7 @@ impl Core {
                 converts,
                 removing: None,
                 methods_gone_ms: None,
+                leaving: false,
             },
         );
         if let Some(asset) = asset {
@@ -530,6 +537,7 @@ impl Core {
         let settlement = self.account(ledger, AccountName::AssetsSettlement)?;
         let owner = self.account(ledger, AccountName::EquityOwner)?;
         let suspense = self.account(ledger, AccountName::EquitySuspense)?;
+        self.mend_hub_books(id, ledger, checkpoint)?;
         let booking = match activation(checkpoint.map(|c| c.balance), scheme.balance()) {
             Activation::InStep => None,
             Activation::FirstDeposit(amount) => {
@@ -597,6 +605,15 @@ impl Core {
         if let Some(blocker) = self.removal_blockers(id, ledger).first() {
             return Err(EngineError::Precondition(blocker.message().into()));
         }
+        self.start_removal(id, ledger);
+        Ok(())
+    }
+
+    /// Starts removing scheme `id`, serving `ledger`, which nothing else
+    /// keeps ([`removal_blockers`](Self::removal_blockers)): at once if
+    /// nothing of a peering's is on it, and otherwise once its methods are
+    /// wound down ([`finish_removals`](Self::finish_removals)).
+    pub(super) fn start_removal(&mut self, id: Name, ledger: LedgerId) {
         // Nothing of a peering's on it: it goes at once. A method dropped
         // before, whose packets are still in flight on its slot, keeps it as
         // a method does.
@@ -611,10 +628,9 @@ impl Core {
                 self.update_peer_schemes();
             }
             self.wind_down_methods(id);
-            return Ok(());
+            return;
         }
         self.drop_scheme(id, ledger);
-        Ok(())
     }
 
     /// How many settlement methods of our peerings, being ended or not, are
@@ -736,8 +752,12 @@ impl Core {
     }
 
     /// Takes scheme `id`, serving `ledger`, out of the node: its books
-    /// stay, and come back when it is added again.
+    /// stay, and come back when it is added again; but those of a hub its
+    /// owner leaves are let go first ([`let_go_of_hub`](Self::let_go_of_hub)).
     fn drop_scheme(&mut self, id: Name, ledger: LedgerId) {
+        if self.schemes.get(&id).is_some_and(|active| active.leaving) {
+            self.let_go_of_hub(id, ledger);
+        }
         if let Some(asset) = self.schemes.remove(&id).and_then(|active| active.asset) {
             if let Some(active) = self.assets.get_mut(&asset) {
                 active.asset.detach(id, Detach::Removed);
@@ -751,6 +771,7 @@ impl Core {
         self.batch
             .schemes_removing
             .retain(|(removing, _)| *removing != id);
+        self.batch.schemes_leaving.retain(|leaving| *leaving != id);
         self.batch.schemes_removed.push(id);
         let now = self.now_ms();
         if let Some(receiver) = self.receivers.remove(&ledger) {
@@ -1117,7 +1138,7 @@ impl Core {
         }
     }
 
-    fn post(
+    pub(super) fn post(
         &mut self,
         debit: AccountId,
         credit: AccountId,
@@ -1223,7 +1244,7 @@ impl Core {
     /// What keeps scheme `id`, serving `ledger`, from being removed: the
     /// one list both the wallet and [`remove_scheme`](Self::remove_scheme)
     /// go by.
-    fn removal_blockers(&self, id: Name, ledger: LedgerId) -> Vec<RemovalBlocker> {
+    pub(super) fn removal_blockers(&self, id: Name, ledger: LedgerId) -> Vec<RemovalBlocker> {
         let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
         let tokens = self
             .tokens

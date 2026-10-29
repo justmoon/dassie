@@ -36,6 +36,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     MIGRATION_11,
     MIGRATION_12,
     MIGRATION_13,
+    MIGRATION_14,
 ];
 
 /// The schema version this code writes.
@@ -729,6 +730,15 @@ ALTER TABLE peers ADD COLUMN was_core INTEGER NOT NULL DEFAULT 0
   CHECK (was_core IN (0, 1));
 ";
 
+/// Migration 14: whether the owner is leaving the settlement hub of a hub
+/// scheme being removed, which lets go of the hub's state once the scheme
+/// goes (spec/areas/hubs.md#leaving-a-hub-that-ended): 0 for every scheme
+/// stored before.
+const MIGRATION_14: &str = "
+ALTER TABLE settlement_schemes ADD COLUMN leaving INTEGER NOT NULL DEFAULT 0
+  CHECK (leaving IN (0, 1));
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -869,6 +879,7 @@ pub const TABLES: &[Table] = &[
             ("config", "TEXT", true, false),
             ("activated_at_ms", "INTEGER", true, false),
             ("removing_since_ms", "INTEGER", false, false),
+            ("leaving", "INTEGER", true, false),
         ],
     },
     Table {

@@ -61,8 +61,15 @@
 //!   turn the automatic moves off, and set the target. The database keeps
 //!   all of it.
 //! - **Nothing moves into or out of a hub that is unavailable**, such as a
-//!   frozen token hub (spec/decisions/token-hubs.md): its scheme or its
-//!   account is not in step with the hub.
+//!   frozen token hub (spec/decisions/token-hubs.md), or one that stalled,
+//!   is shutting down or ended: its scheme or its account is not in step
+//!   with the hub, or its scheme can no longer receive.
+//! - **No deposit goes into a hub that would not credit it:** only into one
+//!   that made progress lately ([`Standing::credits_deposits`]). A hub that
+//!   stopped never credits a deposit, and its payout set, of its last final
+//!   block, never pays it back; after a restart, the node cannot tell one
+//!   that stopped until its validators name a newer block, or a stall's
+//!   time passed.
 //! - **A token hub's gas first.** Before the node asks a token hub for a
 //!   withdrawal, it reads the escrow's XRP, proven, and if that is below
 //!   the least the hub's crate fixes (`LEAST_ESCROW_GAS_DROPS`), sends the
@@ -274,9 +281,16 @@ pub struct Standing {
     pub spendable: u64,
     /// Whether the hub says it has no account for the node's key.
     pub unfunded: bool,
-    /// Whether the hub is unavailable, as a frozen token hub is: nothing
-    /// moves into or out of it.
+    /// Whether the hub is unavailable, as a frozen token hub is, or one
+    /// that stalled, is shutting down or ended: nothing moves into or out
+    /// of it.
     pub unavailable: bool,
+    /// Whether the hub would credit a deposit now: it can receive, and made
+    /// progress lately, a rise in height the account heard itself
+    /// (`HubAccount::progressing`). No deposit goes in otherwise, the
+    /// node's own or the owner's: one into a hub that stopped is never
+    /// credited, nor paid back by its payout set.
+    pub credits_deposits: bool,
     /// Below this, the node deposits back up to the target, the midpoint
     /// of the floor and the ceiling.
     pub floor: u64,
@@ -533,6 +547,16 @@ impl Funding {
         })
     }
 
+    /// The owner leaves the hub, which ended: the move on its way, late or
+    /// not, is forgotten and nothing is booked, as for one given up
+    /// ([`give_up`](Self::give_up)). The hub ended never credits a deposit
+    /// nor executes a withdrawal now, and the node lets go of the funding
+    /// with the hub, so nothing is paid again for it. Returns it, if there
+    /// is one.
+    pub const fn forget(&mut self) -> Option<Move> {
+        self.moving.take()
+    }
+
     /// The owner gives up the move on its way, which must be late: it is
     /// forgotten, nothing is booked, and the automatic moves wait for the
     /// owner. Returns it, or `None` if there is none or it is not late.
@@ -614,8 +638,10 @@ impl Funding {
             return None;
         }
         let backing_off = |direction| backoffs && self.backing_off(direction, now_ms).is_some();
+        // A deposit waits for a hub that would credit it.
+        let no_deposit = |direction| backing_off(direction) || !standing.credits_deposits;
         let Some(held) = standing.held else {
-            return opening(standing).filter(|_| !backing_off(Direction::Deposit));
+            return opening(standing).filter(|_| !no_deposit(Direction::Deposit));
         };
         let middle = standing.floor.midpoint(standing.ceiling);
         // What the balance lacks of what the requests to settle may ask of
@@ -642,7 +668,7 @@ impl Funding {
         };
         let low = held.kept < standing.floor.saturating_add(promised);
         if low || deficit > 0 || short > 0 || lacking > 0 {
-            if backing_off(Direction::Deposit) {
+            if no_deposit(Direction::Deposit) {
                 return None;
             }
             let needed = deficit.max(short);
@@ -937,6 +963,7 @@ mod tests {
             spendable: balance,
             unfunded: false,
             unavailable: false,
+            credits_deposits: true,
             floor: 400_000,
             ceiling: 10_000_000,
             least_spendable: 0,
@@ -1650,5 +1677,30 @@ mod tests {
             standing.unavailable = true;
             assert_eq!(funding.due(1, &standing), None);
         }
+    }
+
+    // spec/areas/hubs.md#in-the-node: no deposit goes into a hub that would
+    // not credit it, one that made no progress lately, as after a restart
+    // before its validators name a newer block: not the floor's, not the
+    // one that opens the account. A withdrawal still goes, and a deposit
+    // goes again once the hub makes progress.
+    #[test]
+    fn a_deposit_waits_for_a_hub_that_credits_it() {
+        let funding = Funding::new(0, 4_000);
+        let mut low = standing(100_000, 300_000);
+        let mut opening = standing(0, 0);
+        opening.held = None;
+        opening.unfunded = true;
+        for standing in [&mut low, &mut opening] {
+            let due = funding.due(1, standing).unwrap();
+            assert_eq!(due.direction, Direction::Deposit);
+            standing.credits_deposits = false;
+            assert_eq!(funding.due(1, standing), None);
+            assert!(!funding.deposit_can_come(1, standing));
+        }
+        let mut high = standing(12_000_000, 14_000_000);
+        high.credits_deposits = false;
+        let due = funding.due(1, &high).unwrap();
+        assert_eq!(due.direction, Direction::Withdraw);
     }
 }

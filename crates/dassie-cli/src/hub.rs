@@ -22,11 +22,15 @@
 //!   tenth either side, or goes back to the default.
 //! - `dassie hub give-up <scheme>` gives up a move that is late; the
 //!   node's own moves of that hub then wait for the owner.
+//! - `dassie hub leave <scheme>` leaves a hub that ended, once a quorum of
+//!   its validators signed its payout set, so the scheme can be added
+//!   again with another hub's rules
+//!   (spec/areas/hubs.md#leaving-a-hub-that-ended).
 //! - `dassie hub found`, `foundings`, `drop` and `payout` found hubs, and
 //!   show the payout bundles kept ([`crate::founding`]).
 //!
-//! Each of `deposit`, `withdraw`, `auto`, `target`, `give-up` and `payout`
-//! acts on
+//! Each of `deposit`, `withdraw`, `auto`, `target`, `give-up`, `leave` and
+//! `payout` acts on
 //! one hub, which it names first by the settlement scheme over it, as
 //! `status` shows it, such as `hub-xrpl-testnet-xrp`: always, so that a
 //! script means the same hub once the node is in more than one.
@@ -66,6 +70,8 @@ pub enum Move {
     Target(Option<u64>),
     /// Give up the late move.
     GiveUp,
+    /// Leave the hub, which ended.
+    Leave,
 }
 
 /// Reads `dassie hub`'s arguments.
@@ -78,7 +84,7 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
         None => return Ok(Command::Status),
         Some(Value(word)) => match word.string()?.as_str() {
             "status" => Command::Status,
-            word @ ("deposit" | "withdraw" | "auto" | "target" | "give-up") => {
+            word @ ("deposit" | "withdraw" | "auto" | "target" | "give-up" | "leave") => {
                 let scheme = hub_scheme(&parser.value()?.string()?)?;
                 let action = match word {
                     "deposit" => Move::Deposit(hub_amount(&parser.value()?.string()?)?),
@@ -94,6 +100,7 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
                         "default" => Move::Target(None),
                         amount => Move::Target(Some(hub_amount(amount)?)),
                     },
+                    "leave" => Move::Leave,
                     _ => Move::GiveUp,
                 };
                 Command::Move(action, scheme)
@@ -181,6 +188,7 @@ pub async fn run(env: &Env, command: Command) -> Result<(), String> {
         }
         Move::Target(target) => Method::SetHubTarget(proto::SetHubTargetRequest { scheme, target }),
         Move::GiveUp => Method::HubGiveUp(proto::HubGiveUpRequest { scheme }),
+        Move::Leave => return leave(&mut client, scheme).await,
     };
     let status = match client.call(method).await {
         Ok(
@@ -194,6 +202,35 @@ pub async fn run(env: &Env, command: Command) -> Result<(), String> {
     };
     show(&status, now_ms());
     Ok(())
+}
+
+/// Leaves the hub over `scheme`, which ended, and says what follows.
+async fn leave(client: &mut Client, scheme: String) -> Result<(), String> {
+    let request = Method::LeaveHub(proto::LeaveHubRequest {
+        scheme: scheme.clone(),
+    });
+    let gone = match client.call(request).await {
+        Ok(response::Method::LeaveHub(proto::LeaveHubResponse { gone })) => gone,
+        other => return Err(unexpected(other)),
+    };
+    println!("{}", left_text(&scheme, gone));
+    Ok(())
+}
+
+/// What leaving the hub over `scheme` did, and what the owner does next.
+fn left_text(scheme: &str, gone: bool) -> String {
+    let when = if gone {
+        "The node left the hub"
+    } else {
+        "The node leaves the hub once its peerings' methods over it are wound down \
+         (`dassie ledger` shows the scheme being removed until then)"
+    };
+    format!(
+        "{when}: what its books held of the account there is written off, and the hub's \
+         payout set pays it to your own XRP Ledger account, where it is booked as it \
+         arrives. Join the default hub of its asset again on the wallet's Ledgers page, or \
+         with `dassie setup --hub {scheme}` on a node set up from its phrase."
+    )
 }
 
 /// Each hub the node is in whose scheme runs.
@@ -287,6 +324,12 @@ fn standing(status: &proto::HubStatus) -> &'static str {
     // for moves or packets (spec/areas/hubs.md#a-frozen-hub). One it
     // cannot follow says so all the same.
     let failed = status.connection == i32::from(proto::LedgerConnection::Failed);
+    if status.ended && !failed {
+        return "the hub ended: its payout set is signed, and you may leave it";
+    }
+    if status.stopped && !failed {
+        return "the hub stalled or is shutting down: it takes nothing more";
+    }
     if status.frozen_since_unix_ms.is_some() && !failed {
         return "frozen by its token's issuer";
     }
@@ -345,6 +388,9 @@ fn show(status: &proto::HubStatus, now_ms: i64) {
     if let Some(held) = issuer_text(status) {
         line("Issuer", &held);
     }
+    if let Some(ended) = ended_text(status) {
+        line("Ended", &ended);
+    }
     line("Keeps", &keeps(status, now_ms));
     if let Some(moving) = &status.moving {
         line("Moving", &moving_text(status, moving));
@@ -374,6 +420,26 @@ fn issuer_text(status: &proto::HubStatus) -> Option<String> {
             Some("holds the escrow: it pays out nothing until the issuer lets go".into())
         }
         (None, false) => None,
+    }
+}
+
+/// What the owner can do about a hub that stopped, if it did
+/// (spec/areas/hubs.md#leaving-a-hub-that-ended).
+fn ended_text(status: &proto::HubStatus) -> Option<String> {
+    if status.ended {
+        Some(format!(
+            "a quorum of its validators signed its payout set (`dassie hub payout {0}`), which \
+             anyone may submit; leave the hub with `dassie hub leave {0}` to join another",
+            status.scheme
+        ))
+    } else if status.stopped {
+        Some(
+            "the hub stalled or is shutting down: nothing moves into or out of it, and it can be \
+             left once a quorum of its validators signed its payout set"
+                .into(),
+        )
+    } else {
+        None
     }
 }
 
@@ -515,6 +581,7 @@ mod tests {
         );
         assert_eq!(parse(&["target", hub, "default"]), on(Move::Target(None)));
         assert_eq!(parse(&["give-up", hub]), on(Move::GiveUp));
+        assert_eq!(parse(&["leave", hub]), on(Move::Leave));
         for wrong in [
             &["deposit", "3"][..],
             &["deposit", hub],
@@ -531,6 +598,9 @@ mod tests {
             &["give-up", "xrpl-testnet-xrp"],
             &["give-up", hub, hub],
             &["give-up", "--hub", hub],
+            &["leave"],
+            &["leave", "xrpl-testnet-dsusd"],
+            &["leave", hub, hub],
             &["status", "now"],
             &["status", hub],
         ] {

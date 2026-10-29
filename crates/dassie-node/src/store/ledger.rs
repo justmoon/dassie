@@ -37,6 +37,19 @@ pub struct LedgerBatch {
     /// (spec/decisions/settlement-methods.md). Written after the additions;
     /// one removed in the same batch is gone with its row.
     pub schemes_removing: Vec<(Name, u64)>,
+    /// Settlement schemes over a hub whose owner leaves the hub, as they
+    /// are removed: once one goes, the node lets go of its hub's state
+    /// (spec/areas/hubs.md#leaving-a-hub-that-ended). Written after
+    /// `schemes_removing`; one removed in the same batch is gone with its
+    /// row.
+    pub schemes_leaving: Vec<Name>,
+    /// Settlement schemes over a hub that the node left, each with its hub
+    /// account's ID as text: their checkpoint, their account's and their
+    /// hub's funding are let go, so the scheme is added again as one never
+    /// added. Written before the checkpoints, the account's and the
+    /// funding's, so what the scheme writes when it is added again in the
+    /// same batch stays.
+    pub schemes_let_go: Vec<(Name, String)>,
     /// Each scheme's balance as the books now record it, and its state.
     pub checkpoints: Vec<(Name, Checkpoint)>,
     /// Each external asset's state, by its ID as text, written with what
@@ -90,6 +103,8 @@ impl LedgerBatch {
             && self.schemes_added.is_empty()
             && self.schemes_removed.is_empty()
             && self.schemes_removing.is_empty()
+            && self.schemes_leaving.is_empty()
+            && self.schemes_let_go.is_empty()
             && self.checkpoints.is_empty()
             && self.asset_checkpoints.is_empty()
             && self.asset_configs.is_empty()
@@ -288,21 +303,27 @@ impl Store {
     }
 
     /// The active settlement schemes their owner removes, by ID, each with
-    /// since when: they run until their settlement methods are wound down
-    /// (spec/decisions/settlement-methods.md).
-    pub fn removing_schemes(&self) -> Result<Vec<(Name, u64)>, StoreError> {
+    /// since when, and whether the owner leaves the scheme's hub with it:
+    /// they run until their settlement methods are wound down
+    /// (spec/decisions/settlement-methods.md,
+    /// spec/areas/hubs.md#leaving-a-hub-that-ended).
+    pub fn removing_schemes(&self) -> Result<Vec<(Name, u64, bool)>, StoreError> {
         let connection = self.lock();
         let mut statement = connection.prepare_cached(
-            "SELECT id, removing_since_ms FROM settlement_schemes \
+            "SELECT id, removing_since_ms, leaving FROM settlement_schemes \
              WHERE removing_since_ms IS NOT NULL ORDER BY id",
         )?;
         statement
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
             })?
             .map(|row| {
-                let (id, since) = row?;
-                Ok((name(&id, "scheme ID")?, from_sql_time(since)))
+                let (id, since, leaving) = row?;
+                Ok((name(&id, "scheme ID")?, from_sql_time(since), leaving != 0))
             })
             .collect()
     }
@@ -740,6 +761,20 @@ fn write_settlement(transaction: &Transaction<'_>, batch: &LedgerBatch) -> Resul
             "UPDATE settlement_schemes SET removing_since_ms = ?2 WHERE id = ?1",
             params![id.as_str(), to_sql_time(*since)],
         )?;
+    }
+    for id in &batch.schemes_leaving {
+        transaction.execute_cached(
+            "UPDATE settlement_schemes SET leaving = 1 WHERE id = ?1",
+            [id.as_str()],
+        )?;
+    }
+    for (id, asset) in &batch.schemes_let_go {
+        transaction.execute_cached(
+            "DELETE FROM settlement_checkpoints WHERE scheme = ?1",
+            [id.as_str()],
+        )?;
+        transaction.execute_cached("DELETE FROM asset_checkpoints WHERE asset = ?1", [asset])?;
+        transaction.execute_cached("DELETE FROM hub_funding WHERE scheme = ?1", [id.as_str()])?;
     }
     for (scheme, checkpoint) in &batch.checkpoints {
         let state = (!checkpoint.state.is_empty()).then_some(checkpoint.state.as_slice());

@@ -5,7 +5,9 @@
 //! time, checks it (`dassie_hub::member::Payouts`) and keeps the highest
 //! of each validator's in the database, apart for each hub. With a
 //! quorum's bundles of one set the owner can submit it, its own payout
-//! among it, if the validators are gone ([`payout`]).
+//! among it, if the validators are gone ([`payout`]); and the engine is
+//! told the hub ended for good, so the owner may leave it
+//! (spec/areas/hubs.md#leaving-a-hub-that-ended).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -64,6 +66,8 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         }
         next_ms = now.saturating_add(PAYOUT_POLL_MS);
         kept = following(&node, hub_rules(&node).await, kept);
+        // What the database kept, at once after a restart.
+        tell_ended(&node, &kept).await;
         let client = HubClient::of(&node);
         // The hubs are asked at once too, so that one whose validators are
         // gone holds up no other hub's round.
@@ -72,6 +76,25 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
                 .map(|payouts| round(&node, &client, payouts, &shutdown)),
         )
         .await;
+        tell_ended(&node, &kept).await;
+    }
+}
+
+/// Tells the engine of each hub of `kept` whose payout set a quorum's
+/// bundles sign: it ended for good, since each validator signs only once it
+/// stopped, and the account in it knows so from then on
+/// (spec/areas/hubs.md#leaving-a-hub-that-ended). Told again at every
+/// round, so after a restart too; the engine ignores what it knows.
+async fn tell_ended(node: &Node, kept: &[Payouts]) {
+    let Some(engine) = node.engine() else {
+        return;
+    };
+    for payouts in kept {
+        if payouts.assembled().is_some()
+            && let Err(error) = engine.hub_paid_out(payouts.rules().id()).await
+        {
+            tracing::warn!(target: target::HUB, %error, "cannot tell the engine a hub ended");
+        }
     }
 }
 

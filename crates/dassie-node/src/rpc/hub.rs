@@ -26,6 +26,7 @@ pub(super) const fn is_hub(method: &Method) -> bool {
             | Method::SetHubAutomatic(_)
             | Method::SetHubTarget(_)
             | Method::HubGiveUp(_)
+            | Method::LeaveHub(_)
     )
 }
 
@@ -86,6 +87,10 @@ pub(super) async fn dispatch(engine: &Engine, method: Method) -> Result<Reply, R
             response::Method::HubGiveUp(proto::HubGiveUpResponse {
                 status: Some(hub_status(&status)),
             })
+        }
+        Method::LeaveHub(request) => {
+            let gone = engine.leave_hub(request.scheme).await?;
+            response::Method::LeaveHub(proto::LeaveHubResponse { gone })
         }
         _ => return Err(RpcError::internal("not a hub method")),
     };
@@ -149,6 +154,8 @@ fn hub_status(status: &HubStatus) -> proto::HubStatus {
             refusing_downlinks: liquidity.refusing_downlinks,
             refusing_core_peers: liquidity.refusing_core,
         }),
+        stopped: status.stopped,
+        ended: status.ended,
     }
 }
 

@@ -1,6 +1,6 @@
 # A hub scheme names its hub from the moment it is added
 
-**Areas:** [Settlement hubs](../areas/hubs.md#in-the-node), [Settlement](../areas/settlement.md#schemes-and-ledgers), [design](../designs/settlement-hubs.md#11-choosing-a-hub). Not built: moving a scheme to another hub ([roadmap](../roadmap.md#settlement-hubs)).
+**Areas:** [Settlement hubs](../areas/hubs.md#in-the-node), [Settlement](../areas/settlement.md#schemes-and-ledgers), [design](../designs/settlement-hubs.md#11-choosing-a-hub). Leaving a hub that ended for another: [leaving-a-hub-that-ended](leaving-a-hub-that-ended.md); leaving one that runs is not built ([roadmap](../roadmap.md#settlement-hubs)).
 
 ## Facts
 
@@ -17,11 +17,11 @@
 
 ## Accepted
 
-- **An owner whose default hub is founded again stays in the old one** until the owner moves. Moving a scheme to another hub is not built: the old account's state stays with the books, so the scheme is added again only with the old hub's rules, and leaving a hub for another needs its account closed and its state let go first ([roadmap](../roadmap.md#settlement-hubs)).
+- **An owner whose default hub is founded again stays in the old one** until the owner moves. The old account's state stays with the books, so the scheme is added again only with the old hub's rules, until the node lets go of it: it does so when the owner leaves a hub that ended, once a quorum of its validators signed its payout set ([leaving-a-hub-that-ended](leaving-a-hub-that-ended.md)). Leaving a hub that runs needs its account closed first, which is not built ([roadmap](../roadmap.md#settlement-hubs)).
 - **A state of the account from before it named its hub is refused.** No database this version opens keeps one: those of the early testnet are refused whole ([database-continuity](database-continuity.md)).
 
 ## Rejected
 
 - *An empty config resolved at every start:* a release that founds its default hub again would move every node into the new hub silently, and restore the old hub's number, holds and operations into an account of the new one, signed with a key that is not the old account's.
 - *An empty config resolved once, at the first start of a release, by a migration:* no database this version opens stores one, so a migration would carry a rule for no database.
-- *Following a new default hub when the old one no longer decodes:* the old hub may still hold the node's money, whose state the books keep; moving is the owner's choice, made once moving is built.
+- *Following a new default hub when the old one no longer decodes:* the old hub may still hold the node's money, whose state the books keep; moving is the owner's choice, made by leaving the old hub once it ended.

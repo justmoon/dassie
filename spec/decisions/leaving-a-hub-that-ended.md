@@ -1,0 +1,34 @@
+# A node leaves a hub once a quorum signed its payout set, and writes off what its books held of it
+
+**Areas:** [Settlement hubs](../areas/hubs.md#leaving-a-hub-that-ended), [Settlement](../areas/settlement.md#checkpoints-and-activation), [hub-named-when-added](hub-named-when-added.md)
+
+## Facts
+
+- A hub scheme's account state and its checkpoint are kept by the scheme's ID, and its account's state names the hub it was added with; removing the scheme keeps both, so it is added again only with that hub's rules ([hub-named-when-added](hub-named-when-added.md)). A hub that stopped for good keeps its members there: none can join another hub of the asset. On the testnet, when the DSUSD hub stalled for good and another was founded, operators deleted the rows by hand.
+- A hub's ledger in the books is the scheme's, not the hub's: the books of the hub before and of the one after are one book. Deleting the checkpoints by hand left the old hub's holding on it, and the payout that returned it to the owner book counted it a second time; the node's prices and the market maker read that book.
+- The member judges a stall from what it hears the validators name, over a whole stall (an hour on the default terms), and only in memory: a restart judges it again, and silence never makes it ([A hub that failed](../areas/hubs.md#a-hub-that-failed)). After a restart a hub that stopped looks like one the account only started to hear.
+- A validator signs a payout set only once it stopped, and one that stopped never votes again. Once a quorum of them signed one set, too few are left to make a block: the hub never runs again. The node keeps every bundle it reads in its database, and checks each one's signatures ([Payout bundles](../areas/hubs.md#payout-bundles)). The set pays each account out to its disbursal address: the node's own XRPL account, where the owner book of the asset is.
+- The node's own moves deposited into a hub that stopped: a stall does not make the scheme unsynced, and the floor's refill asked no more of the hub. When the stalled DSUSD hub's payout set was submitted, eleven nodes deposited what it returned into its escrow within a minute. A deposit into a hub that stopped is never credited, and its payout set, of its last final block, never pays it back.
+
+## Decision
+
+- **A hub has ended once the node keeps a quorum's payout set of it.** The payout keeper tells the engine at every round, so at once after a restart; the account knows it, and its scheme keeps with its state that its hub ended, as for a shutdown, so it can no longer receive.
+- **The owner leaves only a hub that ended so** (`LeaveHub`, `dassie hub leave`, the wallet's Hubs page). Leaving forgets the move on its way and removes the scheme as the owner's removal does; once it goes, the node cancels its settlements and voids the owner's payments still pending on the hub's ledger, writes off through suspense what the books hold of the account, and lets go of the scheme's checkpoint, its account's and the hub's funding. The scheme is then added again, with another hub's rules or the default's, as one never added.
+- **What the books held of the account is written off when the node leaves, and the payout is the owner's deposit on the owner book when it arrives,** before the node left or after. Each side books its half when it sees it, as a move between the hub and its owner book does.
+- **No deposit goes into a hub that would not credit it:** none into a hub that stalled, is shutting down or ended, and none into one that made no progress the account heard itself in the last few minutes, the node's own or the owner's. Nothing moves out of a hub that stopped either.
+- **A hub scheme starts with its books reconciled to its checkpoint.** Where the books of its ledger hold more or less than its checkpoint says, nothing for none, the difference goes through suspense with a warning before the scheme's own activation. The books keep the ledger's holding in step with the scheme's balance, which its checkpoint keeps in the same batch, so only something that wrote one without the other, as a move by hand, leaves a difference; a node moved by hand mends itself when it updates.
+
+## Accepted
+
+- **A hub whose validators went silent before the node kept a quorum's payout set, or whose issuer holds a token hub's escrow, which keeps the validators from signing one, cannot be left.** Its money is then out of reach anyway; the owner keeps the scheme, or removes it and keeps its state, until leaving such a hub is built ([roadmap](../roadmap.md#settlement-hubs)).
+- **Leaving writes off more or less than the payout pays.** The holds toward the node go back to their payers with the payout, and its holds toward its peers come back to it, which the books counted as settled to those peers; a fee or a clawback takes its share. The difference stays in suspense, as any the books cannot explain, and the positions with peers on the hub's ledger keep what they show, for a later method on the scheme to settle, as for any method dropped without collecting.
+- **For a few minutes after a restart the owner cannot deposit into a hub that runs,** and the node does not, until its account hears the hub name a newer block.
+- **The payout set is the owner's to keep before leaving.** The node keeps the bundles of a hub it left, but shows the payout of its running hubs only; a payout no one submitted yet is copied from `dassie hub payout` or the Hubs page before leaving.
+
+## Rejected
+
+- *Keep the member's stall judgment across restarts:* the judgment is the node's reading of what it heard, which a node cut off from the honest validators can get wrong, and kept it would never be undone; the payout set is the validators' own word, which their signatures prove, and the database keeps it already.
+- *Leave by the owner's word, with a confirmation, whatever the node knows:* a hub that still runs holds the account's money, and its payout set is signed only once it ended, so a mistaken leave strands the money in a hub the node no longer follows, out of reach of any confirmation.
+- *Leave once the account judges the hub stalled, before the payout set:* the hub may be about to sign a set the owner then no longer sees, and a judgment a restart forgets would let the same node leave in one run and not in the next.
+- *Book the account's holding as the owner's withdrawal toward the owner book, and the payout's arrival against it:* the payout pays a different amount, holds and fees included, at an unknown time or never; matching the two would keep a pending entry for every left hub for good, while suspense is where the books already take what they cannot explain.
+- *Keep the hub's books under another ledger per hub:* a ledger is the scheme's, and every peering, price and payment over the hub's asset names it; the books carry what a peer owes over to the next hub, as for any method dropped.

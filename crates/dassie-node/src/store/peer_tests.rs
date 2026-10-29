@@ -598,7 +598,7 @@ fn a_scheme_being_removed_keeps_since_when() {
             ..LedgerBatch::default()
         })
         .unwrap();
-    assert_eq!(store.removing_schemes().unwrap(), [(two, 40)]);
+    assert_eq!(store.removing_schemes().unwrap(), [(two, 40, false)]);
     store
         .commit_ledger(&LedgerBatch {
             schemes_removed: vec![two],
@@ -614,4 +614,84 @@ fn a_scheme_being_removed_keeps_since_when() {
         .unwrap();
     assert!(store.removing_schemes().unwrap().is_empty());
     assert_eq!(store.settlement_schemes().unwrap().len(), 2);
+}
+
+// spec/areas/hubs.md#leaving-a-hub-that-ended: a scheme whose owner leaves its
+// hub keeps that it does, with its removal, so a restart carries both on;
+// once it goes, its checkpoint, its account's and its hub's funding go
+// with it, and what the scheme wrote after, added again in the same batch,
+// stays.
+#[test]
+fn a_hub_left_lets_go_of_its_state() {
+    use std::collections::BTreeMap;
+
+    use super::{Checkpoint, HubFundingRow};
+
+    let store = Store::open_in_memory().unwrap();
+    let hub = dassie_ledger::Name::new("hub-xrpl-testnet-dsusd").unwrap();
+    let asset = "hub-xrpl-testnet-dsusd".to_string();
+    let kept = |balance| Checkpoint {
+        balance,
+        state: vec![1, 2, 3],
+    };
+    let config = |rules: &str| format!("{{\"rules\":\"{rules}\"}}");
+    store
+        .commit_ledger(&LedgerBatch {
+            schemes_added: vec![(hub, config("00"))],
+            checkpoints: vec![(hub, kept(500))],
+            asset_checkpoints: vec![(asset.clone(), vec![9])],
+            hub_funding: BTreeMap::from([(hub, HubFundingRow::default())]),
+            hub_automatic: BTreeMap::from([(hub, false)]),
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    store
+        .commit_ledger(&LedgerBatch {
+            schemes_removing: vec![(hub, 40)],
+            schemes_leaving: vec![hub],
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    assert_eq!(store.removing_schemes().unwrap(), [(hub, 40, true)]);
+
+    store
+        .commit_ledger(&LedgerBatch {
+            schemes_removed: vec![hub],
+            schemes_let_go: vec![(hub, asset.clone())],
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    assert!(store.settlement_schemes().unwrap().is_empty());
+    assert!(store.checkpoints().unwrap().is_empty());
+    assert!(store.asset_checkpoints().unwrap().is_empty());
+    assert!(store.hub_fundings().unwrap().is_empty());
+
+    // Left again, and added again with another hub's rules in the batch
+    // that lets go.
+    store
+        .commit_ledger(&LedgerBatch {
+            schemes_added: vec![(hub, config("01"))],
+            checkpoints: vec![(hub, kept(300))],
+            schemes_removing: vec![(hub, 50)],
+            schemes_leaving: vec![hub],
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    store
+        .commit_ledger(&LedgerBatch {
+            schemes_removed: vec![hub],
+            schemes_let_go: vec![(hub, asset.clone())],
+            schemes_added: vec![(hub, config("02"))],
+            checkpoints: vec![(hub, kept(0))],
+            asset_checkpoints: vec![(asset.clone(), vec![7])],
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    assert_eq!(store.settlement_schemes().unwrap(), [(hub, config("02"))]);
+    assert!(
+        store.removing_schemes().unwrap().is_empty(),
+        "added again, it is neither removed nor left"
+    );
+    assert_eq!(store.checkpoints().unwrap(), [(hub, kept(0))]);
+    assert_eq!(store.asset_checkpoints().unwrap(), [(asset, vec![7])]);
 }

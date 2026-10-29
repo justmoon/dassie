@@ -11,7 +11,8 @@ import "dassie/owner/v1/ledger.proto";
 // mainnet (spec/areas/hubs.md#in-the-node). The contract has no services:
 // these methods are numbered in `Request` and `Response`
 // (transport.proto) with the rest: GetHubStatus, HubDeposit, HubWithdraw,
-// SetHubAutomatic, SetHubTarget, HubGiveUp and SubscribeHubEvents.
+// SetHubAutomatic, SetHubTarget, HubGiveUp, LeaveHub and
+// SubscribeHubEvents.
 //
 // Each method but GetHubStatus and SubscribeHubEvents acts on one hub, which its request names by
 // `scheme`, the settlement scheme over it, as `HubStatus.scheme` gives it:
@@ -155,6 +156,14 @@ message HubStatus {
   // judged it: not before the hub agreed a state of the account, nor while
   // the hub cannot pay the node's peers.
   HubLiquidity liquidity = 25;
+  // Whether the hub stalled, is shutting down or ended, as the node's
+  // account in it judges (spec/areas/hubs.md#a-hub-that-failed): it takes
+  // nothing more, and the node moves nothing into or out of it.
+  bool stopped = 26;
+  // Whether the node keeps a quorum's payout set of the hub
+  // (GetHubPayout): the hub ended for good, and the owner may leave it
+  // (LeaveHub).
+  bool ended = 27;
 }
 
 // What the node can have on hold toward its peers over a hub, against one
@@ -270,6 +279,28 @@ message HubGiveUpRequest {
 
 message HubGiveUpResponse {
   HubStatus status = 1;
+}
+
+// Leaves the hub, once it ended: a quorum of its validators signed its
+// payout set, which the node keeps (HubStatus.ended). The move on its way,
+// if any, is forgotten, and the scheme over the hub is removed as by
+// RemoveSettlementScheme; once it goes, the node lets go of the hub's
+// state and writes off through suspense what its books held of the
+// account, which the payout set pays to the owner book's account. The
+// scheme can then be added again with another hub's rules, or with none
+// for the default hub (spec/areas/hubs.md#leaving-a-hub-that-ended).
+// FAILED_PRECONDITION for a hub that has not ended, as far as the node
+// knows, or while BTP tokens or unfinished payments use the hub's ledger.
+// Leaving a hub being left succeeds, and changes nothing.
+message LeaveHubRequest {
+  // The hub, by its scheme, as in HubDepositRequest.
+  string scheme = 1;
+}
+
+message LeaveHubResponse {
+  // Whether the scheme went at once; otherwise it goes once its methods
+  // are wound down, as ListLedgers shows (Ledger.removing).
+  bool gone = 1;
 }
 
 // Streams what the node sees of each settlement hub it is in, as it sees
