@@ -6,8 +6,29 @@
 # Caddy sets that address itself and drops whatever the client sent. It
 # drops X-User too: xrpld lifts its resource limits for any user a gateway
 # names.
+#
+# TEMPORARY, remove after 2026-10-29: one demo host is exempt from those
+# limits on the testnet server. dassie-swell1 (35.231.121.140) runs the 20
+# demo nodes of the Swell talk on 2026-10-29 from one address, which
+# xrpld's per-address limit would cut off. For that address alone, and
+# only on testnet.xrpl.dassieland.net, Caddy names a user (X-User), which
+# makes xrpld treat its requests as identified: unlimited, with no admin
+# rights. It sets the header itself, so whatever that client sends is
+# replaced; every other client's X-User is still dropped. The host matcher
+# scopes it to the testnet: the mainnet server's site never sees that host.
 
 @HOST@ {
+	@demo {
+		host testnet.xrpl.dassieland.net
+		remote_ip 35.231.121.140
+	}
+	@not_demo not {
+		host testnet.xrpl.dassieland.net
+		remote_ip 35.231.121.140
+	}
+	request_header @demo X-User swell-demo
+	request_header @not_demo -X-User
+
 	@websocket {
 		header Connection *Upgrade*
 		header Upgrade websocket
@@ -16,14 +37,12 @@
 		reverse_proxy 127.0.0.1:6006 {
 			header_up X-Forwarded-For {remote_host}
 			header_up -Forwarded
-			header_up -X-User
 		}
 	}
 	handle {
 		reverse_proxy 127.0.0.1:5006 {
 			header_up X-Forwarded-For {remote_host}
 			header_up -Forwarded
-			header_up -X-User
 		}
 	}
 }
