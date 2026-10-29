@@ -1864,6 +1864,14 @@
   ],
   "releases": [
     {
+      "version": "0.4.2",
+      "date": "2026-10-29",
+      "changes": [
+        "A payment of what the receiver gets shows what has arrived so far, as the receiver reports it, such as XRP 12.00 of XRP 25.00, and its bar fills by that, as a payment of what you send shows what it has sent. Your node keeps that figure with the payment, so it carries over a restart.",
+        "The node's database moves to a new version when 0.4.2 first starts. The node keeps a copy of the old one, which `dassie update` puts back if it has to roll back."
+      ]
+    },
+    {
       "version": "0.4.1",
       "date": "2026-10-29",
       "changes": [
