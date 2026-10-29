@@ -334,11 +334,49 @@
         deposit to the hub is credited at the thaw.
       </p>
       <p>
-        If a hub stalls or ends, its validators sign a payout to every member.
-        The card shows how many have signed. Once enough have, it lists the
-        transactions that pay you out on the XRP Ledger, with
+        If a hub stalls or ends, the card says so, and your node moves nothing
+        into or out of it. Your node also deposits nothing into a hub it has
+        not heard make progress in the last few minutes, as for a few minutes
+        after it restarts: money sent to a hub that stopped is never
+        credited.
+      </p>
+      <p>
+        A hub that stalled or ended has its validators sign a payout to every
+        member. The card shows how many have signed. Once enough have, it
+        lists the transactions that pay you out on the XRP Ledger, with
         <strong>Copy the transactions</strong>. Anyone may submit them, in
-        order, if the validators do not.
+        order, if the validators do not. The payout arrives on your own XRP
+        Ledger account, and your node counts it there.
+      </p>
+
+      <h2 id="leaving-a-hub-that-ended">Leaving a hub that ended</h2>
+      <p>
+        Your node stays in the hub you joined, even once it ended. To join
+        another hub of the same asset, such as a new default hub, leave the
+        old one first. You can leave once enough validators signed its
+        payout: the card then says the hub ended, and shows
+        <strong>Leave this hub</strong>. Confirm it.
+      </p>
+      <p>
+        Your node forgets a move on its way into or out of the hub, removes
+        the hub's ledger, and writes off what its books held of your account
+        there. The payout pays that money to your own account, and your node
+        counts it there when it arrives, so nothing is counted twice. The
+        payout may differ a little from what was written off: what your
+        peers held for you goes back to them, and what you held for them
+        comes back to you. Your node no longer shows the old hub's payout, so
+        copy it first if no one has submitted it yet.
+      </p>
+      <p>
+        Then add the hub's ledger again on the <strong>Ledgers</strong> page to
+        join the default hub of its asset, as a ledger never added. A hub that
+        still runs, or that only stalled and has no signed payout yet, cannot
+        be left yet.
+      </p>
+      <p>
+        A node moved to another hub by hand before leaving was built kept
+        the old hub's balance in its books beside the new one. It corrects
+        its books when it updates, and logs a warning saying so.
       </p>
 
       <h2 id="on-the-command-line">On the command line</h2>
@@ -354,7 +392,8 @@
 <span class="prompt">$</span>dassie hub auto hub-xrpl-testnet-xrp off
 <span class="prompt">$</span>dassie hub target hub-xrpl-testnet-xrp 10
 <span class="prompt">$</span>dassie hub give-up hub-xrpl-testnet-xrp
-<span class="prompt">$</span>dassie hub payout hub-xrpl-testnet-xrp</code></pre>
+<span class="prompt">$</span>dassie hub payout hub-xrpl-testnet-xrp
+<span class="prompt">$</span>dassie hub leave hub-xrpl-testnet-dsusd</code></pre>
       <p>
         Amounts are in the hub's asset. <code>dassie status</code> gives each
         hub a line too. The

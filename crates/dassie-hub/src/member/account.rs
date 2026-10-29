@@ -480,6 +480,12 @@ pub struct HubAccount {
     /// stalled ([`Self::stalled`]).
     /// Not kept with the books: a restart judges again.
     tips: Vec<Option<Tip>>,
+    /// A quorum of the hub's validators signed the payout set of one of
+    /// its final blocks, which the node keeps ([`Self::end_by_payout`]):
+    /// the hub never makes another block. Not kept with the books: the
+    /// node keeps the bundles, and tells the account again after a
+    /// restart.
+    paid_out: bool,
     finals: BTreeMap<u64, Millis>,
     told_final: u64,
     /// Operations agreed executed, by block and their place in it: the
@@ -560,6 +566,7 @@ impl HubAccount {
             covered: alloc::vec![0; n],
             dirty: alloc::vec![false; n],
             tips: alloc::vec![None; n],
+            paid_out: false,
             finals: BTreeMap::new(),
             told_final: 0,
             buffer: BTreeMap::new(),
@@ -766,6 +773,9 @@ impl HubAccount {
     /// hear, or hears again after a gap, whose tips may be an hour old.
     #[must_use]
     pub fn progressing(&self, within_ms: u64) -> bool {
+        if self.paid_out {
+            return false;
+        }
         let lately = self
             .tips
             .iter()
@@ -773,6 +783,26 @@ impl HubAccount {
             .filter(|tip| tip.rose && self.now_ms.saturating_sub(tip.first_ms) < within_ms)
             .count();
         lately >= self.set.one_honest()
+    }
+
+    /// The node keeps a quorum's payout bundles of one set of the hub's
+    /// (spec/areas/hubs.md#payout-bundles): the hub ended for good. Each
+    /// validator signs a set only once it stopped, and one that stopped
+    /// never votes again, so a quorum that signed leaves too few to make
+    /// another block. Unlike [`Self::stalled`], this is the validators'
+    /// own word, which their signatures prove, and the node keeps it: so
+    /// the account knows it at once after a restart, whether or not a
+    /// validator still answers. Its scheme then can no longer receive, and
+    /// the owner may leave the hub.
+    pub fn end_by_payout(&mut self) {
+        self.paid_out = true;
+    }
+
+    /// Whether the node keeps a quorum's payout set of the hub
+    /// ([`Self::end_by_payout`]): the hub ended for good.
+    #[must_use]
+    pub const fn paid_out(&self) -> bool {
+        self.paid_out
     }
 
     /// Whether the account keeps up with the hub: it was in step with it

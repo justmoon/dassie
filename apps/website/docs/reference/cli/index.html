@@ -445,6 +445,22 @@
         move funds yourself.
       </p>
 
+      <h3 id="dassie-hub-leave"><code>dassie hub leave &lt;scheme&gt;</code></h3>
+      <p>
+        Leaves a hub that ended: a quorum of its validators signed its payout
+        set, which <code>dassie hub</code> says and
+        <code>dassie hub payout</code> shows. The node forgets a move on its
+        way into or out of the hub, removes the hub's scheme, writes off what
+        its books held of your account there, and forgets the hub. The payout
+        set pays that account to your node's own XRP Ledger account once
+        anyone submits it, and the node books it there as it arrives. You can
+        then join another hub of the asset with the same scheme. A hub that
+        still runs, or that only stalled, is refused with the reason. See
+        <a href="/docs/wallet/hubs/#leaving-a-hub-that-ended">Leaving a hub
+        that ended</a>.
+      </p>
+      <pre><code><span class="prompt">$</span>dassie hub leave hub-xrpl-testnet-dsusd</code></pre>
+
       <h3 id="dassie-hub-found"><code>dassie hub found &lt;node ID&gt;@&lt;host:port&gt;…</code></h3>
       <p>
         Founds a new settlement hub with these nodes as its validators, with

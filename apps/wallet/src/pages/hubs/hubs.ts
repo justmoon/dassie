@@ -84,6 +84,25 @@ export function hubIssuerText(
 }
 
 /**
+ * Whether the hub stopped, for people (spec/areas/hubs.md#a-hub-that-failed,
+ * spec/areas/hubs.md#leaving-a-hub-that-ended): one whose payout set a
+ * quorum of its validators signed ended for good, and the owner may leave
+ * it; one that stalled or is shutting down takes nothing more. Nothing while
+ * it runs.
+ */
+export function hubEndedText(
+  status: Pick<HubStatus, "stopped" | "ended">,
+): string | undefined {
+  if (status.ended) {
+    return "This hub ended: its validators signed its payout set, which pays your account here to your own XRP Ledger account once anyone submits it. Your node moves nothing into or out of it. Leave it to join another hub of its asset.";
+  }
+  if (status.stopped) {
+    return "This hub stalled or is shutting down: it takes nothing more, and your node moves nothing into or out of it. You can leave it once its validators signed its payout set.";
+  }
+  return undefined;
+}
+
+/**
  * The newcomers the node refuses over the hub for want of pool, for people
  * (spec/decisions/slots-by-liquidity.md): its pool, the balance and its
  * holds toward its peers, covers too few of its peerings over the hub at a

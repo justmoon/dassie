@@ -26,6 +26,7 @@ import {
   holdsTotal,
   hubConnectionText,
   hubCurrency,
+  hubEndedText,
   hubIssuerText,
   hubLiquidityText,
   hubStandingText,
@@ -40,6 +41,15 @@ import {
 
 const XRP = currencyOf("XRP", 9);
 const NOW = 1_800_000_000_000;
+
+test("a hub that stopped says so, and one that ended may be left", () => {
+  assertEquals(hubEndedText({ stopped: false, ended: false }), undefined);
+  assertMatch(
+    hubEndedText({ stopped: true, ended: false })!,
+    /stalled or is shutting down/,
+  );
+  assertMatch(hubEndedText({ stopped: true, ended: true })!, /Leave it/);
+});
 
 test("the target says whose it is", () => {
   const status = create(HubStatusSchema, { target: 10_000_000_000n });

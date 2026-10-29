@@ -876,7 +876,7 @@ impl Core {
     /// it was told ([`carry_out`](Self::carry_out)). A scheme that has just
     /// synced for the first time can be peered on from now
     /// (spec/decisions/synced-before-peering.md).
-    fn asset_heard(&mut self, asset: AssetId) {
+    pub(super) fn asset_heard(&mut self, asset: AssetId) {
         self.tap_hub_news(asset);
         for scheme in self.live_schemes_on(asset) {
             self.tell_scheme(scheme, asset);

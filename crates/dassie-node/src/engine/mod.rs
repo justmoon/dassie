@@ -659,6 +659,22 @@ impl Engine {
         self.call(move |core| core.hub_give_up(&scheme)).await
     }
 
+    /// The owner leaves the hub over `scheme`, which ended: whether the
+    /// scheme went at once (spec/areas/hubs.md#leaving-a-hub-that-ended).
+    pub async fn leave_hub(&self, scheme: String) -> Result<bool, EngineError> {
+        self.call(move |core| core.leave_hub(&scheme)).await
+    }
+
+    /// The node keeps a quorum's payout set of hub `hub`: it ended for
+    /// good (spec/areas/hubs.md#leaving-a-hub-that-ended).
+    pub async fn hub_paid_out(&self, hub: dassie_hub::HubId) -> Result<(), EngineError> {
+        self.call(move |core| {
+            core.hub_paid_out(hub);
+            Ok(())
+        })
+        .await
+    }
+
     /// Turns the node's own moves to and from the hub over `scheme` on or
     /// off.
     pub async fn set_hub_automatic(

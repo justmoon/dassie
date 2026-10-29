@@ -264,6 +264,40 @@ pub enum SettlementEvent {
         /// The scheme.
         scheme: Name,
     },
+    /// The node keeps a quorum's payout set of the hub a scheme is over:
+    /// the hub ended for good, the scheme can no longer receive, and the
+    /// owner may leave the hub (spec/areas/hubs.md#leaving-a-hub-that-ended).
+    HubEnded {
+        /// The scheme over the hub.
+        scheme: Name,
+        /// The hub.
+        hub: [u8; 32],
+    },
+    /// The node left the hub a scheme was over, which ended: it let go of
+    /// the hub's state, and wrote off through suspense what the books held
+    /// of its account there, which the hub's payout set pays to the owner
+    /// book's account (spec/areas/hubs.md#leaving-a-hub-that-ended).
+    HubLeft {
+        /// The scheme over the hub.
+        scheme: Name,
+        /// The hub.
+        hub: [u8; 32],
+        /// What the books held of the account, written off.
+        written_off: u64,
+    },
+    /// The books of a hub's ledger held what the checkpoint of the node's
+    /// account there does not explain, as after a move to another hub by
+    /// hand that left the books of the hub before: reconciled to the
+    /// checkpoint through suspense as the scheme started
+    /// (spec/areas/hubs.md#leaving-a-hub-that-ended).
+    HubBooksMended {
+        /// The scheme over the hub.
+        scheme: Name,
+        /// What the books held of the account.
+        held: u64,
+        /// What its checkpoint says, nothing for none.
+        kept: u64,
+    },
     /// A dollar token's peg guard paused its scheme: it settles nothing,
     /// cannot receive, and its ledger converts nothing
     /// (spec/decisions/issued-assets.md).
@@ -583,6 +617,8 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::RequestAllotted { .. }
         | SettlementEvent::PeerSettled { .. }
         | SettlementEvent::PegResumed { .. }
+        | SettlementEvent::HubEnded { .. }
+        | SettlementEvent::HubLeft { .. }
         // The books follow what is above the reserve: a change of it is
         // expected.
         | SettlementEvent::Reconciled {
@@ -597,6 +633,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::OtherRealm { .. }
         | SettlementEvent::Unusable { .. }
         | SettlementEvent::Disabled { .. }
+        | SettlementEvent::HubBooksMended { .. }
         | SettlementEvent::PegPaused { .. }
         | SettlementEvent::BooksCannotSettle { .. }
         | SettlementEvent::SchemeUnavailable { .. }

@@ -5385,23 +5385,34 @@ impl Validators {
         }
     }
 
-    /// The hub has no account for the node.
+    /// The hub has no account for the node, as of two blocks in a row:
+    /// the hub goes on, as the account hears it, so it takes a deposit
+    /// (spec/areas/hubs.md#in-the-node).
     fn no_account(&mut self, core: &mut Core) {
         use dassie_hub::client::Statement;
 
-        self.height += 1;
-        let statements = [Statement::Account {
-            height: self.height,
-            key: self.member,
-            account: None,
-        }];
-        self.say(core, &statements);
+        for _ in 0..2 {
+            self.height += 1;
+            let statements = [Statement::Account {
+                height: self.height,
+                key: self.member,
+                account: None,
+            }];
+            self.say(core, &statements);
+        }
     }
 
     /// The node's account 5 holds `balance` drops, and deposits credited it
     /// `deposited`, as of a new final block.
     fn account(&mut self, core: &mut Core, balance: u64, deposited: u64) {
         self.account_with(core, balance, deposited, 0);
+    }
+
+    /// As [`account`](Self::account), as of the block named last: the hub
+    /// made none since.
+    fn again(&mut self, core: &mut Core, balance: u64, deposited: u64) {
+        self.height -= 1;
+        self.account(core, balance, deposited);
     }
 
     /// As [`account`](Self::account), with `returned` brought back by
@@ -5789,6 +5800,15 @@ fn the_owners_moves_pause_the_automatic_ones() {
     wait_and_close(&mut core, &mut ledger, super::hub_funding::FIRST_BACKOFF_MS);
     assert_eq!(deposits(&mut ledger, escrow).len(), 1);
     wait_and_close(&mut core, &mut ledger, super::hub_funding::OWNER_PAUSE_MS);
+    assert_eq!(
+        deposits(&mut ledger, escrow).len(),
+        1,
+        "a hub silent for the pause takes nothing"
+    );
+    for _ in 0..2 {
+        hub.account(&mut core, 100_000, 3_000_000);
+    }
+    wait_and_close(&mut core, &mut ledger, 1_000);
     assert_eq!(deposits(&mut ledger, escrow).len(), 2, "after the pause");
 
     // Off, and kept off across a restart.
@@ -7388,6 +7408,9 @@ mod hold_allotment;
 
 // Fewer peer slots when a hub's pool is too short.
 mod liquidity;
+
+// Leaving a hub that ended, and books a move by hand left behind.
+mod leaving;
 
 /// The package's directory, as cargo and nextest name it to a test they
 /// run, never `env!`'s from when the test compiled: a build is reused in

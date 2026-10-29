@@ -260,9 +260,11 @@ pub struct HubScheme {
     decided: VecDeque<Decided>,
     now_ms: u64,
     /// The hub is shutting down or ended: an operation that touched the
-    /// account failed for it. A hub never runs again after, so it stays
-    /// set, and is kept with the books: a restart does not wait for the
-    /// next such failure to stop claiming it can receive.
+    /// account failed for it, or the node keeps a quorum's payout set of
+    /// the hub ([`HubAccount::paid_out`]). A hub never runs again after, so
+    /// it stays set, and is kept with the books: a restart does not wait
+    /// for the next such failure, or for the payout bundles, to stop
+    /// claiming it can receive.
     pub(super) shut_down: bool,
     /// The hub stalled or ended, as its validators last told the account.
     stalled: bool,
@@ -1551,6 +1553,7 @@ impl SettlementScheme for HubScheme {
         // is told: a peer's `pay`, or a hold opened toward it.
         self.account = account.number();
         let news = account.news().to_vec();
+        self.shut_down |= account.paid_out();
         for item in &news {
             self.shut_down |= shuts_down(item);
             self.tell(account, item, effects);

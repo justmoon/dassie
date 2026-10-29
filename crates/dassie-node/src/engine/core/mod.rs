@@ -17,6 +17,7 @@ mod events;
 mod hub_allotment;
 mod hub_events;
 mod hub_funding;
+mod hub_leaving;
 mod hub_moves;
 mod hubs;
 mod incoming;

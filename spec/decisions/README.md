@@ -35,7 +35,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [hub-founding](hub-founding.md) | The sponsor founds a hub over a stream of its own, and a quorum's signatures of the genesis found it | hubs, peer-protocol, designs/settlement-hubs |
 | [hub-keys-by-network](hub-keys-by-network.md) | A hub's keys name its network, and a validator validates on its owner's network | hubs, identity, node |
 | [hub-move-races](hub-move-races.md) | A withdrawal is sized as the hub scheme pays it, and a failed move backs off only its own way | hubs |
-| [hub-named-when-added](hub-named-when-added.md) | A hub scheme names its hub from the moment it is added (moving a scheme to another hub not built) | hubs, settlement, designs/settlement-hubs |
+| [hub-named-when-added](hub-named-when-added.md) | A hub scheme names its hub from the moment it is added, until the node leaves a hub that ended | hubs, settlement, designs/settlement-hubs |
 | [hub-protocol-version](hub-protocol-version.md) | A hub runs one version of the hub protocol at a time, and its validators move it to a newer one | hubs, overview, designs/settlement-hubs |
 | [hub-scheme-names](hub-scheme-names.md) | A hub scheme's ID names its underlying ledger and its asset | hubs, settlement, xrpl |
 | [hub-waits-end-at-the-event](hub-waits-end-at-the-event.md) | A validator checks an escrow, and a member looks up a peer's account, when what it waits for happens; the poll stays as the fallback | hubs, peer-protocol |
@@ -43,6 +43,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (transfer fees not built) | xrpl, settlement, connector |
 | [keeper-follows-the-pool](keeper-follows-the-pool.md) | The DSUSD keeper follows the pool, and reprices after each trade | dsusd-keeper, xrpl |
 | [lazy-downlink-accounts](lazy-downlink-accounts.md) | A downlink's accounts open once value first moves with it, in room kept for it while its channel is open | network, settlement, connector, ledger |
+| [leaving-a-hub-that-ended](leaving-a-hub-that-ended.md) | A node leaves a hub once a quorum signed its payout set, and writes off what its books held of it | hubs, settlement |
 | [ledger-resets](ledger-resets.md) | A ledger below the newest seen is a reset only on the testnet, and only once its UNL validates it (the UNL's part, the network's constant as the gate and a proven absence not built) | xrpl, designs/xrpl-validation |
 | [mainnet-schemes](mainnet-schemes.md) | Mainnet has schemes of its own, and a ledger runs only in its node's realm (a live node without the test network's defaults not built) | xrpl, settlement, ledger, node, identity |
 | [market-maker-inventory](market-maker-inventory.md) | The market maker prices by its own inventory, on a flatter curve than the nodes, and rebalances on the pool back to even | rate-feed, market-maker-vm |

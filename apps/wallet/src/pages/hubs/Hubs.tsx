@@ -8,7 +8,9 @@
  * (spec/areas/hubs.md#payout-bundles). No stream carries hubs, so the page
  * asks again every few seconds while it shows (spec/areas/wallet.md#live-data).
  * A token hub its issuer froze says so, and since when
- * (spec/areas/hubs.md#a-frozen-hub), and one whose pool takes no newcomer
+ * (spec/areas/hubs.md#a-frozen-hub), one that stopped says so, and one
+ * that ended may be left (spec/areas/hubs.md#leaving-a-hub-that-ended),
+ * and one whose pool takes no newcomer
  * says whom it refuses (spec/decisions/slots-by-liquidity.md). A withdrawal from a token hub that
  * the node holds back while it checks the escrow's XRP goes again by
  * itself, a few times, while the page shows. It draws in Kopje
@@ -66,6 +68,7 @@ import {
   holdsTotal,
   HUB_POLL_MS,
   hubCurrency,
+  hubEndedText,
   hubIssuerText,
   hubLiquidityText,
   hubStandingText,
@@ -243,6 +246,20 @@ function HubCard(
           </Alert>
         )}
       </Show>
+      <Show when={hubEndedText(props.status)}>
+        {(text) => (
+          <Alert
+            title={props.status.ended ? "Ended" : "Stopped"}
+            tone="warning"
+            testid={`hub-ended-${id()}`}
+          >
+            {text()}
+            <Show when={props.status.ended}>
+              <Leave status={props.status} polled={props.polled} />
+            </Show>
+          </Alert>
+        )}
+      </Show>
       <Show when={hubLiquidityText(props.status, props.polled.now())}>
         {(text) => (
           <Alert
@@ -276,6 +293,56 @@ function HubCard(
       </Show>
       <Payout id={id()} payout={props.polled.payouts().get(id())} />
     </Card>
+  );
+}
+
+/** Leaving a hub that ended (spec/areas/hubs.md#leaving-a-hub-that-ended). */
+function Leave(
+  props: { status: HubStatus; polled: PolledHubs },
+): JSX.Element {
+  const client = useClient();
+  const toast = useToast();
+  const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal<string>();
+  const id = () => props.status.hubId;
+  return (
+    <div class="actions">
+      <ConfirmButton
+        label="Leave this hub"
+        title="Leave this hub?"
+        confirm="Leave it"
+        tone="danger"
+        testid={`hub-leave-${id()}`}
+        disabled={busy()}
+        onConfirm={async () => {
+          setBusy(true);
+          setError(undefined);
+          try {
+            const { gone } = await client.call("leaveHub", {
+              scheme: props.status.scheme,
+            });
+            toast({
+              title: gone ? "Left the hub" : "Leaving the hub",
+              description:
+                "Add its scheme again on the Ledgers page to join another hub.",
+            });
+          } catch (failure) {
+            setError(describe(failure));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <p>
+          Your node writes off what its books hold of your account in this hub
+          and forgets the hub. The hub's payout set pays that account to your
+          own XRP Ledger account once anyone submits it, and your node books it
+          there as it arrives. Copy the payout below first if no one has
+          submitted it yet.
+        </p>
+      </ConfirmButton>
+      <ErrorText message={error()} testid={`hub-leave-error-${id()}`} />
+    </div>
   );
 }
 

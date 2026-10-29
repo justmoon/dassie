@@ -200,6 +200,7 @@ message Request {
     SetHubAutomaticRequest set_hub_automatic = 133;
     SetHubTargetRequest set_hub_target = 144;
     HubGiveUpRequest hub_give_up = 134;
+    LeaveHubRequest leave_hub = 145;
     // Streaming.
     SubscribeHubEventsRequest subscribe_hub_events = 143;
 
@@ -316,6 +317,7 @@ message Response {
     SetHubAutomaticResponse set_hub_automatic = 133;
     SetHubTargetResponse set_hub_target = 144;
     HubGiveUpResponse hub_give_up = 134;
+    LeaveHubResponse leave_hub = 145;
 
     FoundHubResponse found_hub = 135;
     DropHubFoundingResponse drop_hub_founding = 136;

@@ -94,6 +94,10 @@ Commands:
   hub give-up <scheme>
                     Give up a move the hub has not shown for long; the node
                     then moves nothing by itself until you act.
+  hub leave <scheme>
+                    Leave a hub that ended, once a quorum of its validators
+                    signed its payout set; the scheme can then be added
+                    again with another hub's rules.
   hub found <node ID>@<host:port>...
                     Found a settlement hub with these validators, as its
                     sponsor, on the XRP Ledger network of the node's

@@ -411,6 +411,21 @@ fn activation(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::Disabled { scheme } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, "the scheme does not run in this build: its books and its line stay as they are");
         }
+        SettlementEvent::HubEnded { scheme, hub } => {
+            let hub = hex_id(hub);
+            emit!(severity, target: target::SETTLEMENT, %scheme, %hub, "a quorum of the hub's validators signed its payout set: the hub ended, and the owner may leave it");
+        }
+        SettlementEvent::HubLeft {
+            scheme,
+            hub,
+            written_off,
+        } => {
+            let hub = hex_id(hub);
+            emit!(severity, target: target::SETTLEMENT, %scheme, %hub, written_off, "left the hub, which ended: its state is let go, and what the books held of the account is written off through suspense; its payout set pays it to the owner book's account");
+        }
+        SettlementEvent::HubBooksMended { scheme, held, kept } => {
+            emit!(severity, target: target::SETTLEMENT, %scheme, held, kept, "the books of the hub's ledger held what the account's checkpoint does not explain, as after a move to another hub by hand: reconciled through suspense");
+        }
         // `settlement` hands only these here.
         _ => {}
     }
@@ -424,7 +439,10 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::BalanceBooked { .. }
         | SettlementEvent::OtherRealm { .. }
         | SettlementEvent::Unusable { .. }
-        | SettlementEvent::Disabled { .. } => activation(severity, event),
+        | SettlementEvent::Disabled { .. }
+        | SettlementEvent::HubEnded { .. }
+        | SettlementEvent::HubLeft { .. }
+        | SettlementEvent::HubBooksMended { .. } => activation(severity, event),
         SettlementEvent::Reconciled {
             scheme,
             amount,
@@ -568,6 +586,9 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::OtherRealm { .. }
         | SettlementEvent::Unusable { .. }
         | SettlementEvent::Disabled { .. }
+        | SettlementEvent::HubEnded { .. }
+        | SettlementEvent::HubLeft { .. }
+        | SettlementEvent::HubBooksMended { .. }
         | SettlementEvent::SchemeStopped { .. }
         | SettlementEvent::BooksCannotSettle { .. }
         | SettlementEvent::Settling { .. }
@@ -615,6 +636,11 @@ fn settled_by_peers(severity: Severity, event: &SettlementEvent) {
         // Logged by `settlement` or `settlement_outcome`.
         _ => {}
     }
+}
+
+/// A hub's ID as hex, for the log.
+fn hex_id(id: &[u8; 32]) -> String {
+    id.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

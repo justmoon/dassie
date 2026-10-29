@@ -151,6 +151,25 @@ impl Core {
         }
     }
 
+    /// Voids every payment of `scheme`'s the books hold, with its fee
+    /// hold: as the node leaves the hub `scheme` is over, which ended, and
+    /// will execute none of them (spec/areas/hubs.md#leaving-a-hub-that-ended).
+    pub(super) fn void_owner_payments(&mut self, scheme: Name) {
+        let held: Vec<Name> = self
+            .ledger
+            .pending_transfers()
+            .filter_map(|transfer| match transfer.reference {
+                Reference::OwnerPayment { scheme: of, id } if of == scheme && !is_fee_hold(id) => {
+                    Some(id)
+                }
+                _ => None,
+            })
+            .collect();
+        for id in held {
+            self.owner_paid(scheme, id, false);
+        }
+    }
+
     /// At the start, and when a scheme is activated again, resolves each
     /// held payment its scheme no longer has on its way, by what the scheme
     /// says became of it: posted if it applied, voided otherwise. One still
