@@ -49,21 +49,19 @@ const POOL_DOLLARS: &str = "50000";
 const POOL_DROPS: u64 = 100_000_000_000;
 const POOL_FEE: u32 = 500;
 
-/// What the market maker pays through a core node in one trade, of either
-/// asset: 2 units.
-const TRADE: u64 = 2 * UNIT;
+/// What the market maker's node is sent of DSUSD beside the faucet's 1000
+/// XRP, worth 500 dollars at the rate: an even share of each, so that it
+/// trades before it rebalances.
+const MAKER_DOLLARS: &str = "500";
 
-/// The band of its DSUSD: room for every trade a run makes.
-const DOLLAR_BAND: (u64, u64) = (5 * UNIT, 40 * UNIT);
+/// The most it pays through a core node in one trade, of either asset.
+const CAP: u64 = 5 * UNIT;
 
-/// The band of its XRP around what its node holds at the start: 3 XRP,
-/// less than the XRP a trade of 2 dollars brings it, so that it swaps the
-/// XRP back through the pool after the first trade.
-const XRP_BAND: u64 = 3 * UNIT;
-
-/// The least gain a trade must make, 1%, and how far the pool's price may
-/// move against a rebalance, 1%.
-const MARGIN_PPM: u32 = 10_000;
+/// Its curve, 1%, the least gain a trade must make after the cost of
+/// undoing it, 0.2%, and how far the pool's price may move against a
+/// rebalance, 1% (spec/decisions/market-maker-inventory.md).
+const CURVE_PPM: u32 = 10_000;
+const MARGIN_PPM: u32 = 2_000;
 const SLIPPAGE_PPM: u32 = 10_000;
 
 /// DSUSD, which the pool pairs with XRP.
@@ -113,10 +111,10 @@ async fn quoting(net: &HubNet, maker: &Member, cores: &[&Member]) -> RatesServer
     rates
 }
 
-/// The market maker of `maker`'s node, as its config file says it, its
-/// XRP band `xrp_band` around what the node holds now, deciding by the
+/// The market maker of `maker`'s node, as its config file says it,
+/// rebalancing once a share is `threshold_ppm` from even, deciding by the
 /// daemons' clock.
-async fn market_maker(net: &HubNet, maker: &Member, xrp_band: u64) -> MarketMaker {
+async fn market_maker(net: &HubNet, maker: &Member, threshold_ppm: u32) -> MarketMaker {
     let ledgers = |asset: HubAsset| {
         (
             net.hub(asset).ledger.clone(),
@@ -125,7 +123,6 @@ async fn market_maker(net: &HubNet, maker: &Member, xrp_band: u64) -> MarketMake
     };
     let ((xrp_hub, xrp_book), (dollar_hub, dollar_book)) =
         (ledgers(HubAsset::Xrp), ledgers(HubAsset::Dollar));
-    let xrp = held(net, maker, HubAsset::Xrp).await;
     let file = serde_json::json!({
         "socket": maker.node.ipc,
         // Not read here: the test hands it the node's keys.
@@ -137,16 +134,16 @@ async fn market_maker(net: &HubNet, maker: &Member, xrp_band: u64) -> MarketMake
         "xrp": {
             "ledger": xrp_hub,
             "ownerBook": xrp_book,
-            "tradeSize": TRADE,
-            "band": { "low": xrp - xrp_band, "high": xrp + xrp_band },
+            "cap": CAP,
         },
         "token": {
             "ledger": dollar_hub,
             "ownerBook": dollar_book,
-            "tradeSize": TRADE,
-            "band": { "low": DOLLAR_BAND.0, "high": DOLLAR_BAND.1 },
+            "cap": CAP,
         },
+        "curvePpm": CURVE_PPM,
         "marginPpm": MARGIN_PPM,
+        "thresholdPpm": threshold_ppm,
         "slippagePpm": SLIPPAGE_PPM,
         "caFile": ca_file(),
         "allowPrivate": true,
@@ -192,12 +189,13 @@ fn value((dollars, xrp): (u64, u64), (pool_xrp, pool_dollars): (u64, u64)) -> u1
     u128::from(dollars) * u128::from(pool_xrp) + u128::from(xrp) * u128::from(pool_dollars)
 }
 
-// spec/areas/rate-feed.md#market-maker, spec/decisions/passive-rebalancing.md:
-// d1 lacks DSUSD, so its curve takes DSUSD in at better than spot, and its
-// snapshot says so; the market maker's node holds it, as it reads its
-// peers' snapshots. The market maker swaps DSUSD for XRP through d1, and
-// once its node holds more XRP than its band, swaps it back into DSUSD
-// through the pool from its owner book. So d1's share of its value in DSUSD
+// spec/areas/rate-feed.md#market-maker, spec/decisions/passive-rebalancing.md,
+// spec/decisions/market-maker-inventory.md: d1 lacks DSUSD, so its curve
+// takes DSUSD in at better than spot, and its snapshot says so; the market
+// maker's node holds it, as it reads its peers' snapshots. The market
+// maker, even at the start, swaps DSUSD for XRP through d1, and once its
+// share of XRP is two points from even, swaps it back to even through the
+// pool from its owner book. So d1's share of its value in DSUSD
 // rises, toward its target; the market maker's value, at the pool's price,
 // grows; and both members' books are as they were after both restart.
 #[tokio::test(start_paused = true)]
@@ -208,7 +206,7 @@ async fn a_market_maker_moves_a_skewed_core_node_toward_balance_and_gains() {
             &[
                 Joining::of(81, BOTH).with_dollars(CORE_DOLLARS),
                 Joining::of(91, BOTH)
-                    .with_dollars(CORE_DOLLARS)
+                    .with_dollars(MAKER_DOLLARS)
                     .pinned_to(&[81]),
             ],
             &[],
@@ -223,7 +221,7 @@ async fn a_market_maker_moves_a_skewed_core_node_toward_balance_and_gains() {
     let seeded = pool(&net);
     let (d1_before, maker_before) = (holdings(&net, d1).await, holdings(&net, maker).await);
 
-    let market_maker = market_maker(&net, maker, XRP_BAND).await;
+    let market_maker = market_maker(&net, maker, 20_000).await;
     // A swap's DSUSD reached d1, and the node's XRP went back through the
     // pool: the only swaps on it are the market maker's. d1 pays its own
     // costs in DSUSD, such as the DSUSD hub's fee on each claim it redeems,
@@ -267,12 +265,12 @@ async fn a_market_maker_moves_a_skewed_core_node_toward_balance_and_gains() {
     net.stop(members).await;
 }
 
-// spec/areas/rate-feed.md#market-maker: both core nodes lack DSUSD, so both
-// snapshots price it above the pool, alike, at their curve's cap. The
-// market maker reads both as its node holds them, and swaps DSUSD for XRP
-// through whichever pays best; targets that pay alike take turns. So both
-// take DSUSD in, through one node of the market maker's pinned to both,
-// and each holds a larger share of its value in DSUSD.
+// spec/areas/rate-feed.md#market-maker, spec/decisions/market-maker-inventory.md:
+// both core nodes lack DSUSD, so both snapshots price it above the pool,
+// alike, at their curve's cap. The market maker reads both as its node
+// holds them, and swaps DSUSD for XRP through each that clears, at once.
+// So both take DSUSD in, through one node of the market maker's pinned to
+// both, and each holds a larger share of its value in DSUSD.
 #[tokio::test(start_paused = true)]
 async fn a_market_maker_moves_each_of_two_core_nodes_toward_balance() {
     let net = hubs_and_pool().await;
@@ -282,7 +280,7 @@ async fn a_market_maker_moves_each_of_two_core_nodes_toward_balance() {
                 Joining::of(81, BOTH).with_dollars(CORE_DOLLARS),
                 Joining::of(82, BOTH).with_dollars(CORE_DOLLARS),
                 Joining::of(91, BOTH)
-                    .with_dollars(CORE_DOLLARS)
+                    .with_dollars(MAKER_DOLLARS)
                     .pinned_to(&[81, 82]),
             ],
             &[],
@@ -294,8 +292,9 @@ async fn a_market_maker_moves_each_of_two_core_nodes_toward_balance() {
     net.settled(&[d1, d2, maker]).await;
     let before = [holdings(&net, d1).await, holdings(&net, d2).await];
 
-    // The default band, wide enough for two trades before a rebalance.
-    let market_maker = market_maker(&net, maker, 2 * XRP_BAND).await;
+    // The default threshold, far enough from even for trades through both
+    // before a rebalance.
+    let market_maker = market_maker(&net, maker, 50_000).await;
     run_until(
         "the market maker swaps through each core node",
         market_maker,

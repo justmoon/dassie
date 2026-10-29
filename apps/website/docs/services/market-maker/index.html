@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="Run dassie market-maker with one node of your own: swap with core nodes when their quotes and an XRP Ledger pool leave a margin, and keep your holdings within bands."
+      content="Run dassie market-maker with one node of your own: swap with core nodes when their quotes beat what your holdings are worth, and rebalance to even on an XRP Ledger pool."
     />
     <title>Run a market maker · Dassie</title>
     <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
@@ -19,9 +19,9 @@
       <p class="lede">
         A core node that converts between XRP and dollars slowly runs out of
         one of them. A market maker brings it back: it swaps with the node
-        when the node's quotes beat a pool on the XRP Ledger, and swaps the
-        difference back on the pool. This page sets one up, with one node of
-        your own.
+        when the node's quotes beat what its own holdings are worth, and
+        rebalances on a pool on the XRP Ledger once it has moved far from
+        even. This page sets one up, with one node of your own.
       </p>
 
       <aside class="early">
@@ -39,26 +39,28 @@
         more for the asset it has least of. It signs a snapshot of its
         quotes, and pushes it to its peers. Your market maker's node peers
         with the core nodes it trades through, its <em>targets</em>, and
-        reads their snapshots. The market maker also reads the price of an
-        XRP Ledger pool between XRP and a dollar token. When a target's
-        quote and the pool's price differ by more than a margin, it:
+        reads their snapshots. The market maker values its own holdings the
+        way a core node does, at the price of an XRP Ledger pool between XRP
+        and a dollar token, but on a flatter curve: it gives a little more
+        for the asset it holds less of. Every ten seconds it:
       </p>
       <ol class="steps">
         <li>
-          asks its node to swap with that target, from the XRP hub to the
-          dollar hub or back, at no worse than a rate that, swapped back on
-          the pool, still clears the margin;
+          rebalances first, if its share of either asset is too far from
+          even: one swap on the pool, from one asset to the other on its
+          node's XRP Ledger account, back to even;
         </li>
         <li>
-          swaps funds back on the pool, from one asset to the other on its
-          node's XRP Ledger account, when the node holds more of an asset
-          than its band allows.
+          otherwise asks its node to swap with each target whose quote beats
+          that valuation by a margin, after what selling the trade back on the
+          pool would cost. Each swap is as large as the target's quotes
+          allow, up to a cap, and up to four run at once.
         </li>
       </ol>
       <p>
-        The node sends the swap only while the target's snapshot promises
-        at least that rate. So the target gets back the asset it ran short
-        of, and the market maker keeps the margin. It is a client of its
+        The node sends a swap only while the target's snapshot promises at
+        least the rate that clears. So the target gets back the asset it ran
+        short of, and the market maker keeps the margin. It is a client of its
         node, not a node: every amount it moves is moved by the node or by
         the XRP Ledger.
         <a href="/docs/concepts/rates/">Exchange rates</a> explains quotes
@@ -67,10 +69,12 @@
       <p class="why">
         <a
           href="https://github.com/justmoon/dassie/blob/main/spec/decisions/passive-rebalancing.md">Why market makers, not the nodes, rebalance</a>,
-        and
         <a
           href="https://github.com/justmoon/dassie/blob/main/spec/decisions/peer-swaps.md">why
-        they swap with their peers</a>
+        they swap with their peers</a>, and
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/market-maker-inventory.md">why
+        it values its holdings by a curve</a>
       </p>
 
       <h2 id="one-node-pinned">One node, pinned</h2>
@@ -93,7 +97,7 @@
         Both ledgers are on the node's one XRP Ledger account, and peer with
         no one. A swap with a target from one hub to the other makes that
         target convert, so one node trades through any number of targets,
-        and its funds and bands are shared by all of them.
+        and its funds are shared by all of them.
       </p>
       <p>
         The node is a periphery node, with no hostname and no relay, and it
@@ -162,9 +166,9 @@
       <p>
         Running setup again changes nothing, so you can run it at every
         start. The node asks the testnet's faucet for XRP while its account
-        does not exist yet. When it holds more XRP than its band, the
-        market maker's first swap on the pool buys DSUSD with the surplus,
-        so you need not buy DSUSD yourself.
+        does not exist yet. A node with XRP alone is far from even, so the
+        market maker's first swap on the pool buys DSUSD with half of it,
+        and you need not buy DSUSD yourself.
       </p>
       <p>
         Leave the node's <em>Swapping with peers</em> setting on, as it is
@@ -191,16 +195,16 @@
   "xrp": {
     "ledger": "hub-xrpl-testnet-xrp+xrp",
     "ownerBook": "xrpl-testnet-xrp+xrp",
-    "tradeSize": 2000000000,
-    "band": { "low": 20000000000, "high": 80000000000 }
+    "cap": 10000000000
   },
   "token": {
     "ledger": "hub-xrpl-testnet-dsusd+usd",
     "ownerBook": "xrpl-testnet-dsusd+usd",
-    "tradeSize": 2000000000,
-    "band": { "low": 5000000000, "high": 40000000000 }
+    "cap": 10000000000
   },
-  "marginPpm": 10000,
+  "curvePpm": 10000,
+  "marginPpm": 2000,
+  "thresholdPpm": 50000,
   "slippagePpm": 10000
 }</code></pre>
       </figure>
@@ -236,21 +240,38 @@
               on the pool spend.
             </li>
             <li>
-              <code>tradeSize</code>: the most one swap with a target pays of
-              the asset.
+              <code>cap</code>: the most one swap with a target pays of the
+              asset. A swap pays from the node's hub, so keep it at most what
+              the node keeps there.
             </li>
-            <li><code>band</code>: its band, <a href="#bands">below</a>.</li>
           </ul>
           <p>
             Amounts are in the node's ledger units, a billion to one XRP or
-            one dollar: <code>2000000000</code> is 2.
+            one dollar: <code>10000000000</code> is 10.
+          </p>
+        </dd>
+        <dt id="curveppm"><code>curvePpm</code></dt>
+        <dd>
+          <p>
+            How much more it gives for the asset it holds less of, in parts
+            per million, at most <code>100000</code>: the curve's
+            <a href="#curve-and-rebalancing">strength</a>. Keep it below the
+            core nodes' own, 5%, so that it takes on their imbalance.
           </p>
         </dd>
         <dt id="marginppm"><code>marginPpm</code></dt>
         <dd>
           <p>
-            How much better than the pool a swap must be, in parts per
-            million: <code>10000</code> is one percent.
+            What a swap must gain, after what selling it back on the pool would
+            cost, in parts per million: <code>2000</code> is 0.2%.
+          </p>
+        </dd>
+        <dt id="thresholdppm"><code>thresholdPpm</code></dt>
+        <dd>
+          <p>
+            How far its share of either asset may be from even before it
+            rebalances on the pool, in parts per million of its value:
+            <code>50000</code> is five points, 55% in one asset.
           </p>
         </dd>
         <dt id="slippageppm"><code>slippagePpm</code></dt>
@@ -272,12 +293,12 @@
       <p>
         The config names no targets: they are the node's uplinks, which
         <code>DASSIE_UPLINKS</code> pins. These values are those of Dassie's
-        own market maker, and they are starting points. Its XRP band's top
-        is below what the faucet gives a new account, so its first swap on
-        the pool buys DSUSD, and the two bands together hold the whole
-        grant. <code>allowPrivate</code> is for dev networks and tests only.
-        A config in the format of 0.2.x, with <code>targets</code> or a
-        socket for each asset, is refused. The full rules are in
+        own market maker, and they are starting points.
+        <code>allowPrivate</code> is for dev networks and tests only. A config
+        of bands, with <code>tradeSize</code> and <code>band</code> as releases
+        before the curve read, is refused, as is one in the format of 0.2.x.
+        <code>dassie market-maker --config &lt;file&gt; --check</code> checks
+        a config and exits. The full rules are in
         <a href="https://github.com/justmoon/dassie/blob/main/crates/dassie-cli/src/market_maker/config.rs"><code>config.rs</code></a>.
       </p>
       <h3 id="the-phrase">The phrase</h3>
@@ -300,45 +321,52 @@
       <h2 id="run-it">Run it</h2>
       <pre><code><span class="prompt">$</span>dassie market-maker --config ~/mm/config.json</code></pre>
       <p>
-        It decides every ten seconds, and logs one line per decision: a swap
-        with a target, with what it paid and what came back, a swap on the
-        pool, or why it holds. It stops at start if something it needs is
+        It decides every ten seconds, and logs a line for each swap with a
+        target, with what it paid and what came back, for a swap on the pool,
+        or for why it holds. It stops at start if something it needs is
         missing, such as a ledger its config names that the node does not
         run. Once it runs, it rides out outages and keeps going.
       </p>
       <p>
         It trades only through targets whose snapshot is current, so a
-        target that has gone quiet is left out while the others trade.
-        Targets that pay alike take turns, so its swaps spread over them.
+        target that has gone quiet is left out while the others trade. A
+        target whose swap failed, or paid nothing, is left out for a minute,
+        then twice as long each time it fails again, up to half an hour, and
+        is back as soon as a swap through it pays.
       </p>
 
-      <h2 id="bands">Bands</h2>
+      <h2 id="curve-and-rebalancing">Its curve and rebalancing</h2>
       <p>
-        Each asset has a band: the least and the most of it the node should
-        hold, counting its hub and its own account together.
+        The market maker counts what its node holds of each asset in its hub
+        and on its own account together, and values both at the pool's price.
       </p>
       <ul>
         <li>
-          <strong>Below the band:</strong> no swap with a target takes an
-          asset below the bottom of its band. A swap that would is made
-          smaller.
+          <strong>Its curve:</strong> it gives a little more than the pool
+          for the asset it holds less of, up to <code>curvePpm</code> more,
+          as a core node does but more gently. So it keeps taking on a core
+          node's imbalance after its own holdings start to lean.
         </li>
         <li>
-          <strong>Above the band:</strong> before any swap with a target,
-          the market maker swaps the asset back to the middle of its band on
-          the pool, from one owner book to the other, never delivering more
-          than the other asset's band has room for. So the two never swap
-          the same funds back and forth.
+          <strong>The cost of undoing a swap:</strong> what a swap takes
+          beyond even, the market maker will sell back on the pool one day.
+          So that part pays the pool's fee and the price impact of a
+          rebalance, read from the pool when it decides. A swap back toward
+          even pays none of it. What is left over is the margin, its profit.
         </li>
         <li>
-          <strong>Both above:</strong> it holds, and trades nothing.
+          <strong>Rebalancing:</strong> once its share of either asset is
+          more than <code>thresholdPpm</code> from even, it swaps back to even
+          on the pool in one payment, spending from its own account, before
+          it trades again. One that fails, or cannot go, is tried again after
+          a wait, and meanwhile it trades only back toward even.
         </li>
       </ul>
       <p>
-        Set each band's middle above what the node keeps in its hub, so that
-        what a swap on the pool spends is on its account. The bands are the
-        node's, whichever target a swap goes through, so adding a target
-        needs no more funds.
+        So the market maker holds an imbalance of up to the threshold's
+        share of its value between rebalances: with five points and $1,500,
+        about $75, and a 1% move in XRP's price changes that by 75 cents
+        either way. A smaller threshold holds less and rebalances more often.
       </p>
       <p class="why">
         <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rate-feed.md#market-maker">The market maker in full</a>,

@@ -45,7 +45,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [lazy-downlink-accounts](lazy-downlink-accounts.md) | A downlink's accounts open once value first moves with it, in room kept for it while its channel is open | network, settlement, connector, ledger |
 | [ledger-resets](ledger-resets.md) | A ledger below the newest seen is a reset only on the testnet, and only once its UNL validates it (the UNL's part, the network's constant as the gate and a proven absence not built) | xrpl, designs/xrpl-validation |
 | [mainnet-schemes](mainnet-schemes.md) | Mainnet has schemes of its own, and a ledger runs only in its node's realm (a live node without the test network's defaults not built) | xrpl, settlement, ledger, node, identity |
-| [market-maker-inventory](market-maker-inventory.md) | The market maker prices by its own inventory, on a flatter curve than the nodes, and rebalances on the pool back to even (not built) | rate-feed, market-maker-vm |
+| [market-maker-inventory](market-maker-inventory.md) | The market maker prices by its own inventory, on a flatter curve than the nodes, and rebalances on the pool back to even | rate-feed, market-maker-vm |
 | [membership-economics](membership-economics.md) | Network membership economics (fee not built) | network |
 | [named-decisions](named-decisions.md) | Decisions are named, not numbered | engineering |
 | [names-by-earliest-commitment](names-by-earliest-commitment.md) | A name goes to its earliest sealed commitment, held by a quorum of the bootstrap nodes' lists (design, partly built) | designs/names, network, peer-protocol |

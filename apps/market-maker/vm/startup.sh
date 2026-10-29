@@ -102,19 +102,15 @@ number() {
   printf '%s' "$value"
 }
 
-# The defaults are starting points. Amounts are in the node's ledger units,
-# a billionth of an XRP or a dollar, and a band is about what the node
-# holds of an asset in its hub and its owner book together. Each band's
-# middle is above the most the node keeps in a hub, its ceiling of 11 at
-# the target of 10 that run.sh sets, so what a rebalance spends above it is
-# in the owner book, which the rebalance spends from. The XRP band's top, 80 XRP, is
-# below the faucet's grant of 100 XRP (about 99 after the reserve), so the
-# first rebalance buys DSUSD: up to the DSUSD band's top of 40, which costs
-# about 32 XRP at the testnet pool's 0.76 XRP a DSUSD. That leaves about 67
-# XRP, below the top with room for several trades (and still below it at a
-# DSUSD of half an XRP, 20 XRP for 40). So the two bands together hold the
-# whole grant, and neither asset is left above its band with the other
-# full, where a rebalance has nowhere to go.
+# The defaults are starting points (spec/decisions/market-maker-inventory.md):
+# a curve of 1%, a margin of 0.2% after the cost of undoing a trade, a
+# rebalance to even once an asset's share is 5 points from it, and a
+# slippage of 1%, in parts per million. The caps are the most one trade
+# pays, in the node's ledger units, a billionth of an XRP or a dollar: 10,
+# what the node keeps in each hub at the target of 10 that run.sh sets,
+# since a trade pays from the hub. A node that starts on the faucet's XRP
+# alone is far from even, so its first rebalance buys DSUSD with half of
+# it, and the VM needs no DSUSD bought by hand.
 #
 # The targets, the core nodes to trade through, which the node pins as its
 # uplinks: the metadata's mm-targets, URLs separated by commas, or else
@@ -151,25 +147,21 @@ IFS=$old_ifs
 set +f
 [ "$count" -ge 1 ] || fail "the metadata's $source names no target"
 # Each on its own, so that one that is not a number stops the script.
-xrp_trade_size=$(number mm-xrp-trade-size 2000000000)
-xrp_band_low=$(number mm-xrp-band-low 20000000000)
-xrp_band_high=$(number mm-xrp-band-high 80000000000)
-dsusd_trade_size=$(number mm-dsusd-trade-size 2000000000)
-dsusd_band_low=$(number mm-dsusd-band-low 5000000000)
-dsusd_band_high=$(number mm-dsusd-band-high 40000000000)
-margin_ppm=$(number mm-margin-ppm 10000)
+curve_ppm=$(number mm-curve-ppm 10000)
+margin_ppm=$(number mm-margin-ppm 2000)
+threshold_ppm=$(number mm-threshold-ppm 50000)
 slippage_ppm=$(number mm-slippage-ppm 10000)
+xrp_cap=$(number mm-xrp-cap 10000000000)
+dsusd_cap=$(number mm-dsusd-cap 10000000000)
 umask 022
 mkdir -p "$config"
 cat > "$config/settings.env.new" <<EOF
-MM_XRP_TRADE_SIZE=$xrp_trade_size
-MM_XRP_BAND_LOW=$xrp_band_low
-MM_XRP_BAND_HIGH=$xrp_band_high
-MM_DSUSD_TRADE_SIZE=$dsusd_trade_size
-MM_DSUSD_BAND_LOW=$dsusd_band_low
-MM_DSUSD_BAND_HIGH=$dsusd_band_high
+MM_CURVE_PPM=$curve_ppm
 MM_MARGIN_PPM=$margin_ppm
+MM_THRESHOLD_PPM=$threshold_ppm
 MM_SLIPPAGE_PPM=$slippage_ppm
+MM_XRP_CAP=$xrp_cap
+MM_DSUSD_CAP=$dsusd_cap
 EOF
 mv -f "$config/settings.env.new" "$config/settings.env"
 
