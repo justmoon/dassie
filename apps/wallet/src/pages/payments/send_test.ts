@@ -93,11 +93,23 @@ test("progress is in thousandths, and never past the end", () => {
   assertEquals(progress(5n, 0n), 0);
 });
 
-test("a completed payment got all the way, short of its debit or not", () => {
-  const payment = { sentAmount: 989n, debitAmount: 1_000n };
-  assertEquals(paymentProgress({ ...payment, state: "sending" }), 989);
-  assertEquals(paymentProgress({ ...payment, state: "failed" }), 989);
-  assertEquals(paymentProgress({ ...payment, state: "completed" }), 1000);
+test("a payment's progress is of the amount it fixed", () => {
+  const payment = {
+    sentAmount: 600n,
+    debitAmount: 1_000n,
+    deliveredAmount: 250n,
+    receiveAmount: { value: 500n },
+  };
+  const send = { ...payment, fixedDebit: true };
+  assertEquals(paymentProgress({ ...send, state: "sending" }), 600);
+  assertEquals(paymentProgress({ ...send, state: "failed" }), 600);
+  // Of what the receiver gets, as it said it received it.
+  const receive = { ...payment, fixedDebit: false };
+  assertEquals(paymentProgress({ ...receive, state: "sending" }), 500);
+  assertEquals(paymentProgress({ ...receive, state: "failed" }), 500);
+  // All the way once complete, short of either or not.
+  assertEquals(paymentProgress({ ...send, state: "completed" }), 1000);
+  assertEquals(paymentProgress({ ...receive, state: "completed" }), 1000);
 });
 
 test("a quote says how long it is good for", () => {

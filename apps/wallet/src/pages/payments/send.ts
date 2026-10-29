@@ -68,15 +68,24 @@ export function progress(sent: bigint, debit: bigint): number {
   return Number(permille > 1000n ? 1000n : permille);
 }
 
-/** How far a payment got, in thousandths: all the way once it completed,
- * as one that fixes what the receiver gets completes short of its debit
- * amount, which is the most it may take. */
+/** How far a payment got, in thousandths, of the amount it fixed: what
+ * it sent of its debit amount, or what the receiver said it received of
+ * its receive amount. All the way once it completed, as a payment counts
+ * as paid in full within its tolerance. */
 export function paymentProgress(
-  payment: { state: string; sentAmount: bigint; debitAmount: bigint },
+  payment: {
+    state: string;
+    fixedDebit: boolean;
+    sentAmount: bigint;
+    debitAmount: bigint;
+    deliveredAmount: bigint;
+    receiveAmount?: { value: bigint };
+  },
 ): number {
-  return payment.state === "completed"
-    ? 1000
-    : progress(payment.sentAmount, payment.debitAmount);
+  if (payment.state === "completed") return 1000;
+  return payment.fixedDebit
+    ? progress(payment.sentAmount, payment.debitAmount)
+    : progress(payment.deliveredAmount, payment.receiveAmount?.value ?? 0n);
 }
 
 /** How long a quote is still good for, or that it lapsed. */

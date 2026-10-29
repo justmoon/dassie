@@ -156,6 +156,8 @@ pub struct OutgoingRow {
     /// Whether it sends all its debit amount, rather than stopping once
     /// the receiver has its receive amount.
     pub fixed_debit: bool,
+    /// What it is known to have delivered so far, in the receiver's units.
+    pub delivered_amount: u64,
 }
 
 impl OutgoingRow {
@@ -171,6 +173,8 @@ impl OutgoingRow {
 pub struct OutgoingProgress {
     /// What it debited now.
     pub sent_amount: u64,
+    /// What it is known to have delivered now.
+    pub delivered_amount: u64,
     /// Where it is now.
     pub state: OutgoingState,
     /// Why it failed.
@@ -206,7 +210,7 @@ const QUOTE_COLUMNS: &str = "id, ledger, wallet_address, client, receiver, desti
 const OUTGOING_COLUMNS: &str = "id, ledger, wallet_address, client, grant_id, grant_window_ms, \
      quote_id, receiver, destination, shared_secret, debit_amount, receive_amount, \
      receive_asset_code, receive_asset_scale, sent_amount, state, failure, metadata, \
-     created_at_ms, deadline_ms, finished_at_ms, recipient, fixed_debit";
+     created_at_ms, deadline_ms, finished_at_ms, recipient, fixed_debit, delivered_amount";
 
 const NEXT_REVISION: &str = "(SELECT coalesce(max(revision), 0) + 1 FROM outgoing_payments)";
 
@@ -394,7 +398,8 @@ pub(super) fn write_outgoing(
         let updated = transaction.execute_cached(
             &format!(
                 "UPDATE outgoing_payments SET sent_amount = ?2, state = ?3, failure = ?4, \
-                 finished_at_ms = ?5, revision = {NEXT_REVISION} WHERE id = ?1"
+                 finished_at_ms = ?5, delivered_amount = ?6, revision = {NEXT_REVISION} \
+                 WHERE id = ?1"
             ),
             params![
                 id.0.as_slice(),
@@ -402,6 +407,7 @@ pub(super) fn write_outgoing(
                 progress.state.as_str(),
                 progress.failure,
                 progress.finished_at_ms.map(to_sql_time),
+                sql(progress.delivered_amount)?,
             ],
         )?;
         if updated != 1 {
@@ -427,7 +433,7 @@ fn insert_outgoing(transaction: &Transaction<'_>, row: &OutgoingRow) -> Result<(
         &format!(
             "INSERT INTO outgoing_payments ({OUTGOING_COLUMNS}, revision) VALUES \
              (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-             ?18, ?19, ?20, ?21, ?22, ?23, {NEXT_REVISION})"
+             ?18, ?19, ?20, ?21, ?22, ?23, ?24, {NEXT_REVISION})"
         ),
         params![
             row.id.0.as_slice(),
@@ -453,6 +459,7 @@ fn insert_outgoing(transaction: &Transaction<'_>, row: &OutgoingRow) -> Result<(
             row.finished_at_ms.map(to_sql_time),
             row.recipient,
             row.fixed_debit,
+            sql(row.delivered_amount)?,
         ],
     )?;
     Ok(())
@@ -510,6 +517,7 @@ fn read_outgoing(row: &Row<'_>) -> rusqlite::Result<Result<OutgoingRow, StoreErr
     let (failure, metadata) = (row.get(16)?, row.get(17)?);
     let recipient: Option<String> = row.get(21)?;
     let fixed_debit: bool = row.get(22)?;
+    let delivered: i64 = row.get(23)?;
     Ok((|| {
         let grant = match (grant, window) {
             (Some(grant), Some(window)) => Some((payment_id(grant)?, from_sql_time(window))),
@@ -537,6 +545,7 @@ fn read_outgoing(row: &Row<'_>) -> rusqlite::Result<Result<OutgoingRow, StoreErr
             finished_at_ms: finished.map(from_sql_time),
             recipient,
             fixed_debit,
+            delivered_amount: unsigned(delivered)?,
         })
     })())
 }

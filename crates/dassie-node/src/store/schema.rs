@@ -30,7 +30,7 @@ pub(super) const BASELINE_VERSION: i64 = 9;
 /// The migrations, in order: the baseline, which brings a new database to
 /// [`BASELINE_VERSION`], and each after it one version further. Never edit
 /// one that has shipped; add another.
-pub(super) const MIGRATIONS: &[&str] = &[BASELINE, MIGRATION_10, MIGRATION_11];
+pub(super) const MIGRATIONS: &[&str] = &[BASELINE, MIGRATION_10, MIGRATION_11, MIGRATION_12];
 
 /// The schema version this code writes.
 pub const SCHEMA_VERSION: i64 = version_of(MIGRATIONS);
@@ -705,6 +705,15 @@ ALTER TABLE hub_funding ADD COLUMN target INTEGER
   CHECK (target IS NULL OR target > 0);
 ";
 
+/// Migration 12: what an outgoing payment is known to have delivered, in
+/// the receiver's units, so the owner follows a payment of a fixed amount
+/// to deliver as it arrives (spec/areas/payments.md#outgoing-payments): 0
+/// for every payment made before.
+const MIGRATION_12: &str = "
+ALTER TABLE outgoing_payments ADD COLUMN delivered_amount INTEGER NOT NULL DEFAULT 0
+  CHECK (delivered_amount >= 0);
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1132,6 +1141,7 @@ pub const TABLES: &[Table] = &[
             ("revision", "INTEGER", true, false),
             ("recipient", "TEXT", false, false),
             ("fixed_debit", "INTEGER", true, false),
+            ("delivered_amount", "INTEGER", true, false),
         ],
     },
     Table {

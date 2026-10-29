@@ -199,6 +199,9 @@ message OutgoingPayment {
   // what the receiver gets, and stops once the receiver has its receive
   // amount.
   bool fixed_debit = 20;
+  // What the receiver said it received so far, in its asset: the most its
+  // STREAM replies reported.
+  uint64 delivered_amount = 21;
 }
 
 message ListOutgoingPaymentsRequest {

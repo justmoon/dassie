@@ -361,6 +361,7 @@ impl Core {
             finished_at_ms: None,
             recipient: new.recipient,
             fixed_debit: new.fixed_debit && !receive_limited,
+            delivered_amount: 0,
         };
         self.batch.outgoing.created.push(row.clone());
         self.spending.waiting.insert((now, row.id));
@@ -910,8 +911,16 @@ impl Core {
             sent >= payment.row.sent_amount,
             "a payment's progress went back"
         );
-        if sent != payment.row.sent_amount {
+        // What the receiver said it received, for the owner to follow, as
+        // `sent` is: it only grows, and a receiver that says too much is
+        // held to what the ledger counts.
+        let delivered_so_far = payment
+            .delivered
+            .min(dassie_ledger::MAX_TOTAL)
+            .max(payment.row.delivered_amount);
+        if sent != payment.row.sent_amount || delivered_so_far != payment.row.delivered_amount {
             payment.row.sent_amount = sent;
+            payment.row.delivered_amount = delivered_so_far;
             self.batch
                 .outgoing
                 .progress
@@ -1309,6 +1318,7 @@ fn check_new(new: &NewOutgoing) -> Result<(), EngineError> {
 fn progress(row: &OutgoingRow) -> OutgoingProgress {
     OutgoingProgress {
         sent_amount: row.sent_amount,
+        delivered_amount: row.delivered_amount,
         state: row.state,
         failure: row.failure.clone(),
         finished_at_ms: row.finished_at_ms,

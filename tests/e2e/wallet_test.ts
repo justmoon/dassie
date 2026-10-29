@@ -268,6 +268,16 @@ test("every page of the wallet works against two nodes", {
         const received = await sent();
         assertEquals(received?.receivedAmount, 1_500_000_000n);
         assertEquals(received?.paidInFull, true);
+        // d1 kept what d2's STREAM replies said arrived.
+        const { payments: outgoing } = await d1.rpc.call(
+          "listOutgoingPayments",
+          {},
+        );
+        assertEquals(
+          outgoing.find((payment) => payment.state === "completed")
+            ?.deliveredAmount,
+          1_500_000_000n,
+        );
         assertEquals(await balance(d1), before1 - 1_500_000_000n);
         await scenario.until(
           "d2's balance moves",

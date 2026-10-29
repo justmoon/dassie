@@ -63,15 +63,36 @@ function Status(props: { payment: OutgoingPayment }): JSX.Element {
       </Show>
     </>
   );
+  // What the receiver said it received so far, and of what it is to get
+  // until it is done; then what it was to get, as it counts as paid in
+  // full.
   const received = (size?: "lg") => (
     <Show when={receive()}>
       {(amount) => (
-        <Amount
-          value={amount().value}
-          currency={ledgerCurrency(amount())}
-          size={size}
-          testid="payment-receive"
-        />
+        <Show
+          when={!completed()}
+          fallback={
+            <Amount
+              value={amount().value}
+              currency={ledgerCurrency(amount())}
+              size={size}
+              testid="payment-receive"
+            />
+          }
+        >
+          <Amount
+            value={props.payment.deliveredAmount}
+            currency={ledgerCurrency(amount())}
+            size={size}
+            testid="payment-delivered"
+          />
+          {" of "}
+          <Amount
+            value={amount().value}
+            currency={ledgerCurrency(amount())}
+            testid="payment-receive"
+          />
+        </Show>
       )}
     </Show>
   );
