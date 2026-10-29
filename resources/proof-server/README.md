@@ -77,6 +77,7 @@ At every boot, `startup.sh` does the following, logging to the serial console (`
 
 - **Per-client limits.** xrpld charges each request to the client address Caddy forwards (`secure_gateway`), so one client that floods it gets `slowDown`, not everyone.
 - **What it forwards.** Caddy sets that address itself and drops the client's `Forwarded` and `X-User`. xrpld takes the first address it is given, and lifts its limits for any user a gateway names.
+- **A temporary exemption.** On the testnet server alone, Caddy names the user `swell-demo` for the one address of the Swell demo host, dassie-swell1 (`35.231.121.140`), whose 20 nodes would otherwise share one client's limits. It replaces whatever that client sends. Remove it after 2026-10-29 (the comment in `Caddyfile`).
 
 ## Updating
 
