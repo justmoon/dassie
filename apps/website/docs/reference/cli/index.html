@@ -658,15 +658,16 @@ Success! Dassie appears to be installed correctly.</span></code></pre>
       <h2 id="dassie-market-maker"><code>dassie market-maker</code></h2>
       <p>
         Trades through core nodes when what their
-        <a href="/docs/build/snapshots/">snapshots</a> quote and an AMM pool
-        on the XRP Ledger leave a margin, and moves your funds back on the
-        ledger. It is not a node: it drives one node of your own, a node
+        <a href="/docs/build/snapshots/">snapshots</a> quote beats what it
+        values its own holdings at, by an AMM pool on the XRP Ledger, and
+        moves your funds back to even on the ledger once they are far from
+        it. It is not a node: it drives one node of your own, a node
         without a public IP in the settlement hubs of both of the pool's
         assets, over that node's IPC socket. The core nodes it trades
         through are that node's uplinks, which
         <a href="/docs/reference/environment/#DASSIE_UPLINKS"><code>DASSIE_UPLINKS</code></a>
-        pins. It reads their snapshots from its node, and swaps with the one
-        that pays best, over their peering. Its node must swap with its
+        pins. It reads their snapshots from its node, and swaps with each
+        that clears, at once, over their peerings. Its node must swap with its
         peers, as a new node does: the market maker doesn't start while the
         node's owner has turned
         <a href="/docs/wallet/rates/#swaps">Swapping with peers</a> off. It
@@ -683,12 +684,20 @@ Success! Dassie appears to be installed correctly.</span></code></pre>
             phrase; <code>xrpl</code>, the XRP Ledger server and the token
             the pool pairs with XRP; for <code>xrp</code> and
             <code>token</code> each, the hub's <code>ledger</code> it swaps
-            on, the <code>ownerBook</code> that funds the hub, a
-            <code>tradeSize</code> and a <code>band</code>;
-            <code>marginPpm</code> and <code>slippagePpm</code>; and, if the
-            host needs them, <code>caFile</code>, roots to trust the XRP
-            Ledger server by. A config in the format before 0.3.0 is
-            refused.
+            on, the <code>ownerBook</code> that funds the hub, and a
+            <code>cap</code>, the most one trade pays of it;
+            <code>curvePpm</code>, <code>marginPpm</code>,
+            <code>thresholdPpm</code> and <code>slippagePpm</code>; and, if
+            the host needs them, <code>caFile</code>, roots to trust the XRP
+            Ledger server by. A config of bands, as releases before the
+            curve read, is refused, as is one in the format before 0.3.0.
+          </p>
+        </dd>
+        <dt><code>--check</code></dt>
+        <dd>
+          <p>
+            Check the config, say so, and exit, without connecting to
+            anything.
           </p>
         </dd>
       </dl>

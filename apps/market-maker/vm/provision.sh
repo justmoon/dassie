@@ -26,11 +26,11 @@
 # mm-targets, the core nodes to trade through, URLs separated by commas
 # (the three bootstrap nodes by default), whose node IDs are read from
 # their /.well-known/dassie/node and which the node pins as its uplinks;
-# mm-xrp-trade-size, mm-xrp-band-low and mm-xrp-band-high, the same for
-# mm-dsusd-*, in the node's ledger units; and mm-margin-ppm and
-# mm-slippage-ppm. To change
-# one: `gcloud compute instances add-metadata dassie-mm --zone=us-east1-b
-# --metadata=mm-xrp-band-high=80000000000`, then reset the VM. A value
+# mm-curve-ppm, mm-margin-ppm, mm-threshold-ppm and mm-slippage-ppm, in
+# parts per million; and mm-xrp-cap and mm-dsusd-cap, the most one trade
+# pays, in the node's ledger units. To change one: `gcloud compute
+# instances add-metadata dassie-mm --zone=us-east1-b
+# --metadata=mm-margin-ppm=2000`, then reset the VM. A value
 # with commas needs another separator between settings (`gcloud topic
 # escaping`): `--metadata=^;^mm-targets=https://boot1.dassie.xyz,https://boot2.dassie.xyz`.
 #

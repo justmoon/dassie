@@ -12,15 +12,16 @@
 //!   "xrp": {
 //!     "ledger": "hub-xrpl-testnet-xrp+xrp",
 //!     "ownerBook": "xrpl-testnet-xrp+xrp",
-//!     "tradeSize": 10000000000,
-//!     "band": { "low": 20000000000, "high": 200000000000 }
+//!     "cap": 10000000000
 //!   },
 //!   "token": {
 //!     "ledger": "hub-xrpl-testnet-dsusd+usd",
 //!     "ownerBook": "xrpl-testnet-dsusd+usd",
 //!     "…": "…"
 //!   },
-//!   "marginPpm": 5000,
+//!   "curvePpm": 10000,
+//!   "marginPpm": 2000,
+//!   "thresholdPpm": 50000,
 //!   "slippagePpm": 10000
 //! }
 //! ```
@@ -35,7 +36,13 @@
 //! account, which funds the hub and which its rebalances spend from
 //! (spec/areas/rate-feed.md#market-maker). The targets are not named here:
 //! they are the node's peers, the uplinks it is pinned to, whose snapshots
-//! it reads. Amounts are in the node's ledger units (scale 9). `caFile`
+//! it reads. Amounts are in the node's ledger units (scale 9): `cap` is the
+//! most one trade pays of the asset. The strategy's settings are in parts
+//! per million (spec/decisions/market-maker-inventory.md): `curvePpm`, how
+//! steeply it values its inventory, `marginPpm`, what a trade gains after
+//! the cost of undoing it, `thresholdPpm`, how far an asset's share may be
+//! from even before it rebalances, and `slippagePpm`, how far the pool's
+//! price may move against a rebalance. `caFile`
 //! adds roots to trust the XRPL server by, besides the platform's, and
 //! `allowPrivate` lets it be on a private address, and on `ws://`: both
 //! for dev and tests, whose hosts may have no roots of their own. Every problem is a [`ConfigError`]; nothing
@@ -51,7 +58,9 @@ use dassie_xrpl::keys::AccountId;
 use dassie_xrpl::network::TESTNET;
 use serde_json::{Map, Value};
 
-use super::strategy::{AssetParams, Band, MAX_MARGIN_PPM, MAX_SLIPPAGE_PPM, Params, Side};
+use super::strategy::{
+    MAX_CURVE_PPM, MAX_MARGIN_PPM, MAX_SLIPPAGE_PPM, MAX_THRESHOLD_PPM, Params, Side,
+};
 use crate::passphrase::{self, ReadProblem, read_bounded};
 
 /// Most bytes in a config file.
@@ -187,7 +196,9 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
             "xrpl",
             "xrp",
             "token",
+            "curvePpm",
             "marginPpm",
+            "thresholdPpm",
             "slippagePpm",
             "caFile",
             "allowPrivate",
@@ -208,8 +219,8 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
     let xrpl = root.object("xrpl", &["server", "token"])?;
     let xrpl_server = websocket_url(&xrpl, "server", allow_private)?;
     let token = token(&xrpl.object("token", &["currency", "issuer"])?)?;
-    let (xrp, xrp_params) = asset(&root, "xrp")?;
-    let (token_ledgers, token_params) = asset(&root, "token")?;
+    let (xrp, xrp_cap) = asset(&root, "xrp")?;
+    let (token_ledgers, token_cap) = asset(&root, "token")?;
     if xrp.ledger == token_ledgers.ledger {
         return Err(ConfigError::SameLedger("ledger"));
     }
@@ -219,11 +230,17 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
     if xrp.owner_book == token_ledgers.owner_book {
         return Err(ConfigError::SameLedger("owner book"));
     }
+    let threshold_ppm = root.ppm("thresholdPpm", MAX_THRESHOLD_PPM)?;
+    if threshold_ppm == 0 {
+        return Err(root.invalid("thresholdPpm"));
+    }
     let params = Params {
+        curve_ppm: root.ppm("curvePpm", MAX_CURVE_PPM)?,
         margin_ppm: root.ppm("marginPpm", MAX_MARGIN_PPM)?,
+        threshold_ppm,
         slippage_ppm: root.ppm("slippagePpm", MAX_SLIPPAGE_PPM)?,
-        xrp: xrp_params,
-        token: token_params,
+        xrp_cap,
+        token_cap,
     };
     Ok(Config {
         socket,
@@ -362,10 +379,10 @@ pub fn parse_currency(text: &str) -> Option<Currency> {
     currency.is_token().then_some(currency)
 }
 
-/// The node's ledgers of the asset `key` names, and its strategy's
-/// settings.
-fn asset(root: &Fields<'_>, key: &str) -> Result<(AssetLedgers, AssetParams), ConfigError> {
-    let fields = root.object(key, &["ledger", "ownerBook", "tradeSize", "band"])?;
+/// The node's ledgers of the asset `key` names, and the most one trade
+/// pays of it.
+fn asset(root: &Fields<'_>, key: &str) -> Result<(AssetLedgers, u64), ConfigError> {
+    let fields = root.object(key, &["ledger", "ownerBook", "cap"])?;
     let ledger = ledger_id(&fields, "ledger")?;
     let method = method_of(ledger).ok_or_else(|| fields.invalid("ledger"))?;
     let owner_book = ledger_id(&fields, "ownerBook")?;
@@ -373,24 +390,16 @@ fn asset(root: &Fields<'_>, key: &str) -> Result<(AssetLedgers, AssetParams), Co
     if owner_book == ledger {
         return Err(fields.invalid("ownerBook"));
     }
-    let band_fields = fields.object("band", &["low", "high"])?;
-    let band = Band {
-        low: band_fields.units("low")?,
-        high: band_fields.units("high")?,
-    };
-    if band.low >= band.high {
-        return Err(fields.invalid("band"));
-    }
-    let trade_size = fields.units("tradeSize")?;
-    if trade_size == 0 {
-        return Err(fields.invalid("tradeSize"));
+    let cap = fields.units("cap")?;
+    if cap == 0 {
+        return Err(fields.invalid("cap"));
     }
     let ledgers = AssetLedgers {
         ledger: ledger.to_owned(),
         method: method.to_owned(),
         owner_book: owner_book.to_owned(),
     };
-    Ok((ledgers, AssetParams { trade_size, band }))
+    Ok((ledgers, cap))
 }
 
 /// The settlement method of the ledger `ledger`, as a snapshot names it:
@@ -455,16 +464,16 @@ mod tests {
             "xrp": {
                 "ledger": "hub-xrpl-testnet-xrp+xrp",
                 "ownerBook": "xrpl-testnet-xrp+xrp",
-                "tradeSize": 1_000_000_000,
-                "band": { "low": 10_000_000_000_u64, "high": 100_000_000_000_u64 },
+                "cap": 1_000_000_000,
             },
             "token": {
                 "ledger": "hub-xrpl-testnet-dsusd+usd",
                 "ownerBook": "xrpl-testnet-dsusd+usd",
-                "tradeSize": 500_000_000,
-                "band": { "low": 5_000_000_000_u64, "high": 50_000_000_000_u64 },
+                "cap": 500_000_000,
             },
-            "marginPpm": 5_000,
+            "curvePpm": 10_000,
+            "marginPpm": 2_000,
+            "thresholdPpm": 50_000,
             "slippagePpm": 10_000,
         })
     }
@@ -489,9 +498,11 @@ mod tests {
         assert_eq!(config.token_ledgers.method, "hub-xrpl-testnet-dsusd");
         assert_eq!(config.token_ledgers.owner_book, "xrpl-testnet-dsusd+usd");
         assert_eq!(config.ledgers(Side::Token), &config.token_ledgers);
-        assert_eq!(config.params.margin_ppm, 5_000);
-        assert_eq!(config.params.token.trade_size, 500_000_000);
-        assert_eq!(config.params.xrp.band.high, 100_000_000_000);
+        assert_eq!(config.params.curve_ppm, 10_000);
+        assert_eq!(config.params.margin_ppm, 2_000);
+        assert_eq!(config.params.threshold_ppm, 50_000);
+        assert_eq!(config.params.token_cap, 500_000_000);
+        assert_eq!(config.params.cap(Side::Xrp), 1_000_000_000);
         assert!(!config.allow_private);
         assert_eq!(config.ca_file, None);
         let config = with(|v| v["caFile"] = json!("/etc/ca.pem")).unwrap();
@@ -526,9 +537,15 @@ mod tests {
             with(|v| v["extra"] = json!(1)),
             Err(ConfigError::Unknown("extra".into()))
         );
+        // A config of bands, from before the market maker valued its
+        // inventory by a curve, is refused whole rather than half read.
         assert_eq!(
-            with(|v| v["xrp"]["band"]["middle"] = json!(1)),
-            Err(ConfigError::Unknown("xrp.band.middle".into()))
+            with(|v| v["xrp"]["band"] = json!({ "low": 1, "high": 2 })),
+            Err(ConfigError::Unknown("xrp.band".into()))
+        );
+        assert_eq!(
+            with(|v| v["token"]["tradeSize"] = json!(1)),
+            Err(ConfigError::Unknown("token.tradeSize".into()))
         );
         assert_eq!(
             with(|v| {
@@ -611,25 +628,24 @@ mod tests {
             with(|v| v["xrp"]["ownerBook"] = json!("hub-xrpl-testnet-xrp+xrp")),
             invalid("xrp.ownerBook")
         );
+        for cap in [json!(0), json!(1.5), json!(-1), json!(u64::MAX)] {
+            assert_eq!(
+                with(|v| v["xrp"]["cap"] = cap.clone()),
+                invalid("xrp.cap"),
+                "{cap}"
+            );
+        }
         assert_eq!(
-            with(|v| v["xrp"]["tradeSize"] = json!(0)),
-            invalid("xrp.tradeSize")
+            with(|v| v["curvePpm"] = json!(MAX_CURVE_PPM + 1)),
+            invalid("curvePpm")
         );
         assert_eq!(
-            with(|v| v["xrp"]["tradeSize"] = json!(1.5)),
-            invalid("xrp.tradeSize")
+            with(|v| v["thresholdPpm"] = json!(0)),
+            invalid("thresholdPpm")
         );
         assert_eq!(
-            with(|v| v["xrp"]["tradeSize"] = json!(-1)),
-            invalid("xrp.tradeSize")
-        );
-        assert_eq!(
-            with(|v| v["xrp"]["tradeSize"] = json!(u64::MAX)),
-            invalid("xrp.tradeSize")
-        );
-        assert_eq!(
-            with(|v| v["xrp"]["band"]["low"] = json!(100_000_000_000_u64)),
-            invalid("xrp.band")
+            with(|v| v["thresholdPpm"] = json!(MAX_THRESHOLD_PPM + 1)),
+            invalid("thresholdPpm")
         );
         assert_eq!(
             with(|v| v["marginPpm"] = json!(MAX_MARGIN_PPM + 1)),

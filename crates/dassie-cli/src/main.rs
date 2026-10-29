@@ -15,8 +15,8 @@
 //! - `dassie update` installs a newer release from the mirror.
 //! - `dassie verify-install` checks that this binary works here.
 //! - `dassie front-door` runs a front door, which is no node.
-//! - `dassie market-maker` trades through a core node with two nodes of
-//!   its own, from the node's snapshot.
+//! - `dassie market-maker` trades through core nodes with one node of its
+//!   own, from their snapshots, and rebalances on an XRP Ledger pool.
 
 mod founding;
 mod front_door;
@@ -178,10 +178,12 @@ Commands:
                       --make-key                make the key file if there
                                                 is none, print the entry for
                                                 DASSIE_RELAY, and exit
-  market-maker      Trade through a core node with two nodes of your own
-                    when its snapshot and an AMM pool on the XRP Ledger
-                    leave a margin, and move your funds back on the ledger.
+  market-maker      Trade through core nodes with a node of your own when
+                    their snapshots beat what your holdings are worth at
+                    an AMM pool on the XRP Ledger, and move your funds
+                    back to even on the ledger.
                       --config <file>           the JSON config
+                      --check                   check the config, and exit
 
 Options:
   -h, --help        Show this help.

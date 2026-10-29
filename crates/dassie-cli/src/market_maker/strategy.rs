@@ -1,20 +1,25 @@
 //! What the market maker does next, as a pure function
-//! (spec/areas/rate-feed.md#market-maker).
+//! (spec/areas/rate-feed.md#market-maker,
+//! spec/decisions/market-maker-inventory.md).
 //!
 //! The market maker's one node, pinned to every target, holds two assets:
 //! XRP and an issued token, each in the settlement hub of its asset and in
-//! the owner book that funds it. A trade is a swap with one target, from
-//! the hub's method of asset `a` to the hub's method of `b`, which the
-//! node sends for its owner (`SwapWithPeer`); it is worth it when the `b`
-//! it brings back, swapped back to `a` on the XRP Ledger's AMM pool, comes
-//! to more than it cost by the margin. Each target's trade is scored at
-//! what that target's snapshot says the swap gives at least, and the best
-//! taken; it asks the node for no less per unit than what clears the
-//! margin on the pool ([`least_back`]). A rebalance moves the holding of
-//! an asset back into its band: one Payment from the node's XRPL account
-//! to itself, which delivers the other asset, no more than the other
-//! asset's band has room for, and spends at most what is above the band's
-//! middle, through the pool.
+//! the owner book that funds it. It values what it holds as a core node
+//! does, by a curve around an even share of each, but flatter, at the
+//! XRP Ledger's AMM pool's price ([`Valuation`]). A trade is a swap with
+//! one target, from the hub's method of asset `a` to the hub's method of
+//! `b`, which the node sends for its owner (`SwapWithPeer`); it is worth it
+//! while what comes back, valued by the curve at the state the trades in
+//! flight leave after it, less what selling back on the pool the part of
+//! it that takes the market maker beyond even would cost, exceeds what it
+//! pays, valued alike, by the margin. Every target whose quote clears gets
+//! a trade of its own, as large as its ladders allow with the trade still
+//! clearing, and it asks the node for no less per unit than what clears.
+//! A rebalance takes the market maker back to even once its share of an
+//! asset is beyond a threshold: one Payment from the node's XRPL account to
+//! itself, which spends the asset it holds too much of and delivers the
+//! other, through the pool. One that cannot go leaves the trades back
+//! toward even running.
 //!
 //! Every amount is in the node's ledger units: all its books count at scale 9
 //! (spec/areas/ledger.md#ledgers-and-amounts), so a drop is
@@ -39,11 +44,23 @@ const MICRO_DECIMALS: u8 = 6;
 /// Parts per million.
 pub const MILLION: u32 = 1_000_000;
 
+/// The steepest curve a config may ask for: a tenth, as a core node's
+/// `rebalance_ppm` at most.
+pub const MAX_CURVE_PPM: u32 = 100_000;
+
 /// The largest margin a config may ask for: half again what a trade costs.
 pub const MAX_MARGIN_PPM: u32 = 500_000;
 
+/// The farthest from even a config may let its share go before it
+/// rebalances: 40 points, short of holding one asset alone.
+pub const MAX_THRESHOLD_PPM: u32 = 400_000;
+
 /// The largest slippage a rebalance may allow: a tenth.
 pub const MAX_SLIPPAGE_PPM: u32 = 100_000;
+
+/// The most trades at once: as many owner swaps as the node runs at once
+/// (`MAX_OWNER_SWAPS` in `crates/dassie-node/src/engine/core/swapping.rs`).
+pub const MAX_TRADES: usize = 4;
 
 /// The most a rebalance pays the XRP Ledger in fees, in drops: ten times
 /// its reference fee. Under a heavier load it waits.
@@ -51,6 +68,13 @@ pub const MAX_FEE_DROPS: u64 = 100;
 
 /// What a rebalance that spends XRP leaves the account for the fee.
 const FEE_HEADROOM_UNITS: u64 = MAX_FEE_DROPS * UNITS_PER_DROP;
+
+/// The pool's trading fee's unit per part per million: it counts in
+/// hundred-thousandths.
+const FEE_PPM_PER_UNIT: u32 = 10;
+
+/// How many halvings a search of an amount takes at most: one per bit.
+const SEARCH_STEPS: u32 = 64;
 
 /// Which of the node's two assets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,57 +108,34 @@ impl Side {
     }
 }
 
-/// What the node may hold of an asset, in its ledgers' units: a trade
-/// never takes it below `low`, and above `high` it is rebalanced to the
-/// middle.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Band {
-    /// The least it keeps.
-    pub low: u64,
-    /// The most it holds before a rebalance.
-    pub high: u64,
-}
-
-impl Band {
-    /// The middle, where a rebalance takes the holding.
-    #[must_use]
-    pub const fn middle(&self) -> u64 {
-        assert!(self.low < self.high, "a checked band");
-        self.low + (self.high - self.low) / 2
-    }
-}
-
-/// How one asset trades.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AssetParams {
-    /// The most one trade pays of it, in its ledgers' units.
-    pub trade_size: u64,
-    /// Its band.
-    pub band: Band,
-}
-
 /// The strategy's settings, from the config.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Params {
-    /// The least gain a trade must make, in parts per million of what it
-    /// sends.
+    /// How steeply its valuation follows its inventory, `k`, in parts per
+    /// million: flatter than a core node's.
+    pub curve_ppm: u32,
+    /// The least gain a trade must make after the cost of undoing it, in
+    /// parts per million of what it pays.
     pub margin_ppm: u32,
+    /// How far an asset's share of its value may be from even before it
+    /// rebalances, in parts per million of its value.
+    pub threshold_ppm: u32,
     /// How far the pool's price may move against a rebalance before it
     /// fails, in parts per million.
     pub slippage_ppm: u32,
-    /// XRP's.
-    pub xrp: AssetParams,
-    /// The token's.
-    pub token: AssetParams,
+    /// The most one trade pays of XRP, in its ledgers' units.
+    pub xrp_cap: u64,
+    /// The most one trade pays of the token, in its ledgers' units.
+    pub token_cap: u64,
 }
 
 impl Params {
-    /// The settings of `side`'s asset.
+    /// The most one trade pays of `side`'s asset.
     #[must_use]
-    pub const fn asset(&self, side: Side) -> &AssetParams {
+    pub const fn cap(&self, side: Side) -> u64 {
         match side {
-            Side::Xrp => &self.xrp,
-            Side::Token => &self.token,
+            Side::Xrp => self.xrp_cap,
+            Side::Token => self.token_cap,
         }
     }
 }
@@ -217,19 +218,26 @@ impl Pool {
 }
 
 /// What the node holds of one asset, in its ledgers' units, none below
-/// zero.
+/// zero (spec/areas/rate-feed.md#holdings).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Holding {
     /// What the owner holds of the asset, by the node's books: its funds
     /// in the hub's ledger and in the owner book, short of a move between
-    /// them on its way, never above. What a swap can pay through a target,
-    /// as the node moves funds into the hub as it needs them, and what the
-    /// asset's band is about.
+    /// them on its way, never above. What the curve values.
     pub total: u64,
     /// What the owner book's XRPL account holds of it that the owner may
     /// spend now, as the books have it: what a rebalance can spend. Less
-    /// than the total by what is in the hub.
+    /// than the total by what is in the hub, which is what a swap pays
+    /// from.
     pub on_ledger: u64,
+}
+
+impl Holding {
+    /// What is in the hub, which a swap pays from.
+    #[must_use]
+    pub const fn in_hub(&self) -> u64 {
+        self.total.saturating_sub(self.on_ledger)
+    }
 }
 
 /// What the node holds of each asset.
@@ -265,19 +273,20 @@ pub struct TargetQuote {
 /// Everything a decision looks at.
 #[derive(Clone, Copy, Debug)]
 pub struct Inputs<'a> {
-    /// The targets with a current snapshot, the node's peers, each once:
-    /// at most as many as the node reads snapshots of.
+    /// The targets with a current snapshot that the market maker may trade
+    /// through now, the node's peers, each once: at most as many as the
+    /// node reads snapshots of. A target whose last trade failed or paid
+    /// nothing is left out for a while.
     pub targets: &'a [TargetQuote],
-    /// The target the last trade went through, if any: of trades that gain
-    /// alike, the first target after it by node ID, around, is taken, so
-    /// that targets that pay alike take turns.
-    pub last_target: Option<NodeId>,
     /// The pool.
     pub pool: Pool,
     /// The node's holdings.
     pub holdings: Holdings,
     /// The settings.
     pub params: &'a Params,
+    /// Whether it may rebalance now: not while a rebalance that failed
+    /// waits to be tried again.
+    pub may_rebalance: bool,
 }
 
 /// A trade: a swap with `target` of up to `debit` of `from`'s asset, from
@@ -294,11 +303,9 @@ pub struct Trade {
     /// What the snapshot says comes back at least for all of it, in the
     /// other asset's units.
     pub receive: u64,
-    /// What that swaps back to on the pool, in `from`'s units.
-    pub back: u64,
-    /// The least that may come back for all of it and still clear the
-    /// margin on the pool ([`least_back`]): the node is asked for no less
-    /// than `least / debit` per unit it pays, at most `receive`.
+    /// The least that may come back for all of it and still clear: the
+    /// node is asked for no less than `least / debit` per unit it pays, at
+    /// most `receive`.
     pub least: u64,
 }
 
@@ -319,8 +326,7 @@ pub struct Rebalance {
     pub from: Side,
     /// What the Payment delivers, of the other asset.
     pub deliver: Amount,
-    /// The most it spends, of `from`'s asset: what is above the band's
-    /// middle.
+    /// The most it spends, of `from`'s asset: what takes it back to even.
     pub send_max: Amount,
 }
 
@@ -331,16 +337,12 @@ pub enum Hold {
     NoTarget,
     /// No snapshot prices a swap between the two methods.
     NoRate,
-    /// Neither asset may be paid: each is at the bottom of its band.
-    Bands,
+    /// Nothing to pay with: the hubs hold none of what a trade would pay.
+    Funds,
     /// No trade clears the margin.
     Margin,
     /// A rebalance would deliver nothing.
     Dust,
-    /// A rebalance would take the other asset above its band, which would
-    /// then be rebalanced back: the other asset has no room in its band,
-    /// and no trade from it clears the margin, or it is above its band too.
-    Full,
     /// The pool cannot price it.
     Pool(SwapError),
     /// An amount does not fit the ledger's units.
@@ -348,143 +350,99 @@ pub enum Hold {
 }
 
 /// What to do.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Decision {
     /// Nothing, and why.
     Hold(Hold),
-    /// Swap through a target.
-    Trade(Trade),
-    /// Move an asset back into its band on the ledger.
+    /// Swap through these targets, one trade each, at once: at most
+    /// [`MAX_TRADES`].
+    Trades(Vec<Trade>),
+    /// Take the holdings back to even on the ledger.
     Rebalance(Rebalance),
 }
 
-/// What to do now: a rebalance if an asset is above its band, else the
-/// trade that gains most beyond the margin through any target, if any
-/// does. The bands are the node's, whichever target a trade goes through,
-/// so a rebalance does not depend on the targets.
-///
-/// A rebalance that can move nothing, since the other asset has no room in
-/// its band or what it would deliver rounds to nothing, does not hold the
-/// trades up: the market maker trades instead, but only from the other
-/// asset into the one above its band, and only while the other is not
-/// above its own band. That trade lowers the asset that had no room, so
-/// the rebalance has room again at the next decision and comes first then;
-/// it never takes the other asset above its band, so it never leaves both
-/// above theirs; and it takes no asset below its band, as any trade. With
-/// no such trade, it holds for the rebalance's reason.
+/// What to do now: a rebalance if an asset's share is beyond the
+/// threshold from even, else a trade through each target whose quote
+/// clears. A rebalance that cannot go, or may not yet, leaves the trades
+/// running, but only those back toward even: from the asset it holds too
+/// much of.
 #[must_use]
 pub fn decide(inputs: &Inputs<'_>) -> Decision {
-    for side in Side::BOTH {
-        if inputs.holdings.of(side).total > inputs.params.asset(side).band.high {
-            return match rebalance(inputs, side) {
-                Ok(rebalance) => Decision::Rebalance(rebalance),
-                Err(hold @ (Hold::Full | Hold::Dust)) => {
-                    let other = side.other();
-                    let within =
-                        inputs.holdings.of(other).total <= inputs.params.asset(other).band.high;
-                    let from: &[Side] = if within { &[other] } else { &[] };
-                    match trade(inputs, from) {
-                        Decision::Hold(_) => Decision::Hold(hold),
-                        decision => decision,
-                    }
-                }
-                Err(hold) => Decision::Hold(hold),
-            };
+    let valuation = match Valuation::of(inputs) {
+        Ok(valuation) => valuation,
+        Err(hold) => return Decision::Hold(hold),
+    };
+    let over = valuation.beyond_threshold(inputs.params.threshold_ppm);
+    let from: &[Side] = match over {
+        None => &Side::BOTH,
+        Some(side) => {
+            if inputs.may_rebalance
+                && let Ok(rebalance) = rebalance(inputs, &valuation, side)
+            {
+                return Decision::Rebalance(rebalance);
+            }
+            match side {
+                Side::Xrp => &[Side::Xrp],
+                Side::Token => &[Side::Token],
+            }
         }
-    }
-    trade(inputs, &Side::BOTH)
+    };
+    trades(inputs, &valuation, from)
 }
 
-/// The best trade from one of the assets `from` through one of the
-/// targets, or why there is none: of all the reasons met, the one that got
-/// furthest ([`further`]). Of trades that gain alike, the first target's by
-/// node ID after the last trade's ([`Inputs::last_target`]), around, and
-/// the first asset's, is taken.
-fn trade(inputs: &Inputs<'_>, from: &[Side]) -> Decision {
-    let mut best: Option<Trade> = None;
+/// The trades through the targets, from the assets `from`, or why there
+/// are none. Each round takes, among the targets not yet given one, the
+/// trade that gains most per unit valued, and counts it as done at what
+/// its snapshot says before the next is chosen, so trades at once never
+/// together take the market maker further than each assumed. Of all the
+/// reasons met, the one a trade got furthest to is given.
+fn trades(inputs: &Inputs<'_>, valuation: &Valuation, from: &[Side]) -> Decision {
+    let mut state = valuation.clone();
+    let mut chosen: Vec<Trade> = Vec::new();
     let mut hold = Hold::NoTarget;
-    // Looked at from the target after the last trade's by node ID, around:
-    // the first of those alike wins.
-    let mut order: Vec<&TargetQuote> = inputs.targets.iter().collect();
-    order.sort_by_key(|quote| quote.target);
-    let start = inputs.last_target.map_or(0, |last| {
-        order
-            .iter()
-            .position(|quote| quote.target > last)
-            .unwrap_or(0)
-    });
-    order.rotate_left(start);
-    for quote in order {
-        hold = further(hold, Hold::NoRate);
-        for &from in from {
-            if !quote.quotes.prices(from) {
+    for _ in 0..MAX_TRADES {
+        let mut best: Option<(Trade, u128, u128)> = None;
+        for quote in inputs.targets {
+            if chosen.iter().any(|trade| trade.target == quote.target) {
                 continue;
             }
-            // What an asset may pay does not depend on the target: its band
-            // is the node's.
-            let asset = inputs.params.asset(from);
-            let room = inputs
-                .holdings
-                .of(from)
-                .total
-                .saturating_sub(asset.band.low);
-            let debit = asset.trade_size.min(room);
-            if debit == 0 {
-                hold = further(hold, Hold::Bands);
-                continue;
-            }
-            // Beyond what the ladders cover, the snapshot says nothing.
-            let Some(receive) = quote.quotes.out(from, debit) else {
-                hold = further(hold, Hold::Range);
-                continue;
-            };
-            let back = match swap_back(&inputs.pool, from.other(), receive) {
-                Ok(back) => back,
-                Err(error) => {
-                    hold = further(hold, error);
-                    continue;
+            for &side in from {
+                match state.best_trade(inputs, quote, side) {
+                    Ok(trade) => {
+                        let (gain, paid) = state.gain(trade.from, trade.debit, trade.receive);
+                        let better = best.is_none_or(|(_, best_gain, best_paid)| {
+                            gain.saturating_mul(best_paid) > best_gain.saturating_mul(paid)
+                        });
+                        if better {
+                            best = Some((trade, gain, paid));
+                        }
+                    }
+                    Err(reason) => hold = further(hold, reason),
                 }
-            };
-            hold = further(hold, Hold::Margin);
-            if !clears(debit, back, inputs.params.margin_ppm) {
-                continue;
-            }
-            let least = match least_back(&inputs.pool, from, debit, inputs.params.margin_ppm) {
-                Ok(least) => least,
-                Err(error) => {
-                    hold = further(hold, error);
-                    continue;
-                }
-            };
-            // What clears the margin on the pool is no more than what the
-            // snapshot promises, which cleared it.
-            let candidate = Trade {
-                target: quote.target,
-                from,
-                debit,
-                receive,
-                back,
-                least: least.min(receive),
-            };
-            if best.is_none_or(|best| gains_more(&candidate, &best)) {
-                best = Some(candidate);
             }
         }
+        let Some((trade, _, _)) = best else { break };
+        state = state.after(trade.from, trade.debit, trade.receive);
+        chosen.push(trade);
     }
-    best.map_or(Decision::Hold(hold), Decision::Trade)
+    if chosen.is_empty() {
+        Decision::Hold(hold)
+    } else {
+        Decision::Trades(chosen)
+    }
 }
 
 /// Of two reasons not to trade, the one a trade got further to: no
-/// target, then no rate, then no room in the bands, then an amount the
+/// target, then no rate, then nothing to pay with, then an amount the
 /// ledger or the pool cannot take, and last a trade priced that did not
-/// clear the margin. So the reason logged does not depend on the order of
-/// the targets.
-fn further(a: Hold, b: Hold) -> Hold {
+/// clear. So the reason logged does not depend on the order of the
+/// targets.
+const fn further(a: Hold, b: Hold) -> Hold {
     const fn stage(hold: Hold) -> u8 {
         match hold {
-            Hold::NoTarget | Hold::Dust | Hold::Full => 0,
+            Hold::NoTarget | Hold::Dust => 0,
             Hold::NoRate => 1,
-            Hold::Bands => 2,
+            Hold::Funds => 2,
             Hold::Range => 3,
             Hold::Pool(_) => 4,
             Hold::Margin => 5,
@@ -493,103 +451,333 @@ fn further(a: Hold, b: Hold) -> Hold {
     if stage(b) > stage(a) { b } else { a }
 }
 
-/// Whether `a` gains more per unit sent than `b`: `a.back / a.debit >
-/// b.back / b.debit`, multiplied out.
-fn gains_more(a: &Trade, b: &Trade) -> bool {
-    u128::from(a.back) * u128::from(b.debit) > u128::from(b.back) * u128::from(a.debit)
+/// What the market maker holds, and what is left to pay with in each hub,
+/// valued at the pool's price in the token's units (spec/decisions/market-maker-inventory.md).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Valuation {
+    /// What it holds of XRP and of the token, in their units.
+    xrp: u64,
+    token: u64,
+    /// What is left in each hub to pay a trade with.
+    xrp_in_hub: u64,
+    token_in_hub: u64,
+    /// The pool's XRP and token, in their units: its price.
+    pool_xrp: u128,
+    pool_token: u128,
+    /// The curve's `k`, and what undoing a trade beyond even costs, for
+    /// each asset that comes in, in parts per million of its value.
+    curve_ppm: u128,
+    undo_xrp_ppm: u128,
+    undo_token_ppm: u128,
+    margin_ppm: u128,
 }
 
-/// The least of the other asset that `debit` of `from`'s must bring back
-/// to clear the margin on the pool: what buys `debit` and the margin of
-/// `from`'s asset back, rounded up to what the ledger holds, and up again
-/// in units. Every unit of a swap that brings back at least `least /
-/// debit` per unit clears the margin too, on all it paid: the pool gives
-/// less per unit the more it is sold.
-///
-/// # Errors
-///
-/// The pool cannot price it, or an amount does not fit the ledger.
-pub fn least_back(pool: &Pool, from: Side, debit: u64, margin_ppm: u32) -> Result<u64, Hold> {
-    let wanted = u128::from(debit) * (u128::from(MILLION) + u128::from(margin_ppm));
-    let wanted = u64::try_from(wanted.div_ceil(u128::from(MILLION))).map_err(|_| Hold::Range)?;
-    // In whole drops or millionths, rounded up: what the pool must pay out.
-    let step = match from {
-        Side::Xrp => UNITS_PER_DROP,
-        Side::Token => UNITS_PER_MICRO,
-    };
-    let wanted = wanted.checked_next_multiple_of(step).ok_or(Hold::Range)?;
-    let wanted = to_amount(from, wanted, pool.token).ok_or(Hold::Range)?;
-    let to = from.other();
-    let cost = amm::swap_in(pool.holds(to), pool.holds(from), pool.trading_fee, wanted)
-        .map_err(Hold::Pool)?;
-    to_units_up(cost).ok_or(Hold::Range)
+impl Valuation {
+    /// The holdings and the pool's price `inputs` give, and what undoing a
+    /// trade costs on the pool now.
+    fn of(inputs: &Inputs<'_>) -> Result<Self, Hold> {
+        let pool = inputs.pool;
+        let pool_xrp = u128::from(to_units(pool.holds(Side::Xrp)).ok_or(Hold::Range)?);
+        let pool_token = u128::from(to_units(pool.holds(Side::Token)).ok_or(Hold::Range)?);
+        if pool_xrp == 0 || pool_token == 0 {
+            return Err(Hold::Pool(SwapError::Dry));
+        }
+        let holdings = inputs.holdings;
+        let mut valuation = Self {
+            xrp: holdings.xrp.total,
+            token: holdings.token.total,
+            xrp_in_hub: holdings.xrp.in_hub(),
+            token_in_hub: holdings.token.in_hub(),
+            pool_xrp,
+            pool_token,
+            curve_ppm: u128::from(inputs.params.curve_ppm),
+            undo_xrp_ppm: 0,
+            undo_token_ppm: 0,
+            margin_ppm: u128::from(inputs.params.margin_ppm),
+        };
+        valuation.undo_xrp_ppm = valuation.undo_ppm(inputs, Side::Xrp)?;
+        valuation.undo_token_ppm = valuation.undo_ppm(inputs, Side::Token)?;
+        Ok(valuation)
+    }
+
+    /// `units` of `side`'s asset, valued at the pool's price, in the
+    /// token's units, rounded down.
+    fn value(&self, side: Side, units: u64) -> u128 {
+        match side {
+            Side::Token => u128::from(units),
+            Side::Xrp => u128::from(units).saturating_mul(self.pool_token) / self.pool_xrp,
+        }
+    }
+
+    /// `value`, in the token's units, as units of `side`'s asset, rounded
+    /// down.
+    fn units_of(&self, side: Side, value: u128) -> Option<u64> {
+        let units = match side {
+            Side::Token => value,
+            Side::Xrp => value.checked_mul(self.pool_xrp)? / self.pool_token,
+        };
+        u64::try_from(units).ok()
+    }
+
+    /// What it holds of `side`'s asset, and what is in its hub.
+    const fn holds(&self, side: Side) -> (u64, u64) {
+        match side {
+            Side::Xrp => (self.xrp, self.xrp_in_hub),
+            Side::Token => (self.token, self.token_in_hub),
+        }
+    }
+
+    /// Its value of each asset, and the total.
+    fn values(&self) -> (u128, u128, u128) {
+        let xrp = self.value(Side::Xrp, self.xrp);
+        let token = self.value(Side::Token, self.token);
+        (xrp, token, xrp.saturating_add(token))
+    }
+
+    /// The asset whose share of its value is more than `threshold_ppm`
+    /// from even, if one is.
+    fn beyond_threshold(&self, threshold_ppm: u32) -> Option<Side> {
+        let (xrp, token, total) = self.values();
+        if total == 0 {
+            return None;
+        }
+        let (over, under) = if xrp >= token {
+            (Side::Xrp, xrp - token)
+        } else {
+            (Side::Token, token - xrp)
+        };
+        // A share `threshold` from even is one asset `2 · threshold` of
+        // the total above the other.
+        let limit = total.saturating_mul(2 * u128::from(threshold_ppm)) / u128::from(MILLION);
+        (under > limit).then_some(over)
+    }
+
+    /// The curve's weight of `side`'s asset, in parts per million:
+    /// `(1 − k) + k · ½ / s`, capped at `1 + k`, rounded `up` or down.
+    fn weight(&self, side: Side, up: bool) -> u128 {
+        let (xrp, token, total) = self.values();
+        let held = match side {
+            Side::Xrp => xrp,
+            Side::Token => token,
+        };
+        let million = u128::from(MILLION);
+        let most = million + self.curve_ppm;
+        if held == 0 {
+            return most;
+        }
+        let numerator = self.curve_ppm.saturating_mul(total);
+        let denominator = held.saturating_mul(2);
+        let bonus = if up {
+            numerator.div_ceil(denominator)
+        } else {
+            numerator / denominator
+        };
+        (million - self.curve_ppm).saturating_add(bonus).min(most)
+    }
+
+    /// The state after paying `paid` of `from`'s asset and taking in
+    /// `received` of the other.
+    fn after(&self, from: Side, paid: u64, received: u64) -> Self {
+        let mut next = self.clone();
+        match from {
+            Side::Xrp => {
+                next.xrp = next.xrp.saturating_sub(paid);
+                next.xrp_in_hub = next.xrp_in_hub.saturating_sub(paid);
+                next.token = next.token.saturating_add(received);
+            }
+            Side::Token => {
+                next.token = next.token.saturating_sub(paid);
+                next.token_in_hub = next.token_in_hub.saturating_sub(paid);
+                next.xrp = next.xrp.saturating_add(received);
+            }
+        }
+        next
+    }
+
+    /// What selling back on the pool a rebalance's worth of `side`'s asset
+    /// costs, in parts per million of its value: the pool's fee, and the
+    /// price impact of a rebalance of the threshold's share of the
+    /// market maker's value, rounded up; at least the fee.
+    fn undo_ppm(&self, inputs: &Inputs<'_>, side: Side) -> Result<u128, Hold> {
+        let fee = u128::from(inputs.pool.trading_fee) * u128::from(FEE_PPM_PER_UNIT);
+        let (_, _, total) = self.values();
+        let size_value =
+            total.saturating_mul(u128::from(inputs.params.threshold_ppm)) / u128::from(MILLION);
+        let size = self.units_of(side, size_value).ok_or(Hold::Range)?;
+        let sold = self.value(side, size);
+        if sold == 0 {
+            return Ok(fee);
+        }
+        let back = swap_back(&inputs.pool, side, size)?;
+        let back_value = self.value(side.other(), back);
+        let lost = sold.saturating_sub(back_value);
+        let ppm = lost.saturating_mul(u128::from(MILLION)).div_ceil(sold);
+        Ok(ppm.max(fee))
+    }
+
+    /// What paying `paid` of `from`'s asset for `received` of the other
+    /// gains, and what it pays, both valued by the curve at the state
+    /// after it, in the token's units times a million squared: what comes
+    /// back less the cost of undoing its part beyond even, against what is
+    /// paid with the margin. The gain is zero if it does not clear.
+    fn gain(&self, from: Side, paid: u64, received: u64) -> (u128, u128) {
+        let to = from.other();
+        let after = self.after(from, paid, received);
+        let million = u128::from(MILLION);
+        let paid_value = self.value(from, paid);
+        let received_value = self.value(to, received);
+        let (xrp, token, total) = after.values();
+        let to_value = match to {
+            Side::Xrp => xrp,
+            Side::Token => token,
+        };
+        let beyond = received_value.min(to_value.saturating_sub(total / 2));
+        let undo = match to {
+            Side::Xrp => self.undo_xrp_ppm,
+            Side::Token => self.undo_token_ppm,
+        };
+        let net = received_value
+            .saturating_mul(million)
+            .saturating_sub(beyond.saturating_mul(undo));
+        let back = net.saturating_mul(after.weight(to, false));
+        let cost = paid_value
+            .saturating_mul(after.weight(from, true))
+            .saturating_mul(million + self.margin_ppm);
+        (back.saturating_sub(cost), cost.max(1))
+    }
+
+    /// Whether paying `paid` of `from`'s asset for `received` of the other
+    /// clears.
+    fn clears(&self, from: Side, paid: u64, received: u64) -> bool {
+        paid > 0 && self.gain(from, paid, received).0 > 0
+    }
+
+    /// The trade from `from`'s asset through `quote`: as much as the
+    /// target's ladders cover with the trade still clearing, up to the cap
+    /// and what is left in the hub, at the least back that clears.
+    fn best_trade(
+        &self,
+        inputs: &Inputs<'_>,
+        quote: &TargetQuote,
+        from: Side,
+    ) -> Result<Trade, Hold> {
+        if !quote.quotes.prices(from) {
+            return Err(Hold::NoRate);
+        }
+        let (held, in_hub) = self.holds(from);
+        let most = inputs.params.cap(from).min(held).min(in_hub);
+        if most == 0 {
+            return Err(Hold::Funds);
+        }
+        let clears_at = |paid: u64| {
+            quote
+                .quotes
+                .out(from, paid)
+                .is_some_and(|out| self.clears(from, paid, out))
+        };
+        let debit = largest(most, clears_at).ok_or(Hold::Margin)?;
+        let receive = quote.quotes.out(from, debit).ok_or(Hold::Range)?;
+        let least = smallest(receive, |back| self.clears(from, debit, back)).ok_or(Hold::Margin)?;
+        Ok(Trade {
+            target: quote.target,
+            from,
+            debit,
+            receive,
+            least,
+        })
+    }
 }
 
-/// The rebalance of `from`'s asset, which is above its band: it spends
-/// what is above the band's middle, at most what its owner book's account
-/// holds now (less the fee's headroom, for XRP), and asks the pool for
-/// what a slippage's share less buys, so the price may move by that
-/// before it fails. It delivers no more than the other asset's band has
-/// room for, so that asset is not then above its band and rebalanced back,
-/// paying the pool's fee each way.
-fn rebalance(inputs: &Inputs<'_>, from: Side) -> Result<Rebalance, Hold> {
-    let band = inputs.params.asset(from).band;
-    let holding = inputs.holdings.of(from);
-    assert!(holding.total > band.high, "only an asset above its band");
-    let spendable = match from {
+/// The largest amount up to `most` for which `holds` does, if any does at
+/// a small one: a sixty-fourth of `most`, or `most` itself. `holds` is
+/// taken to hold for every amount below one it holds for.
+fn largest(most: u64, holds: impl Fn(u64) -> bool) -> Option<u64> {
+    if holds(most) {
+        return Some(most);
+    }
+    let mut low = (most / 64).max(1);
+    if low >= most || !holds(low) {
+        return None;
+    }
+    let mut high = most;
+    for _ in 0..SEARCH_STEPS {
+        if high - low <= 1 {
+            break;
+        }
+        let middle = low + (high - low) / 2;
+        if holds(middle) {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    Some(low)
+}
+
+/// The smallest amount up to `most` for which `holds` does, if it does at
+/// `most`. `holds` is taken to hold for every amount above one it holds
+/// for.
+fn smallest(most: u64, holds: impl Fn(u64) -> bool) -> Option<u64> {
+    if !holds(most) {
+        return None;
+    }
+    let mut low = 0;
+    let mut high = most;
+    for _ in 0..SEARCH_STEPS {
+        if high - low <= 1 {
+            break;
+        }
+        let middle = low + (high - low) / 2;
+        if holds(middle) {
+            high = middle;
+        } else {
+            low = middle;
+        }
+    }
+    Some(high)
+}
+
+/// The rebalance of `over`'s asset, whose share is beyond the threshold:
+/// it spends what takes the market maker back to even, at most what its
+/// owner book's account holds now (less the fee's headroom, for XRP), and
+/// asks the pool for what a slippage's share less buys, so the price may
+/// move by that before it fails.
+fn rebalance(inputs: &Inputs<'_>, valuation: &Valuation, over: Side) -> Result<Rebalance, Hold> {
+    let (xrp, token, _) = valuation.values();
+    let surplus_value = xrp.abs_diff(token) / 2;
+    let surplus = valuation.units_of(over, surplus_value).ok_or(Hold::Range)?;
+    let holding = inputs.holdings.of(over);
+    let spendable = match over {
         Side::Xrp => holding.on_ledger.saturating_sub(FEE_HEADROOM_UNITS),
         Side::Token => holding.on_ledger,
     };
-    let excess = (holding.total - band.middle()).min(spendable);
+    let excess = surplus.min(spendable);
     let slippage = u128::from(MILLION) + u128::from(inputs.params.slippage_ppm);
     let target = u64::try_from(u128::from(excess) * u128::from(MILLION) / slippage)
         .map_err(|_| Hold::Range)?;
-    let token = inputs.pool.token;
-    let send_max = to_amount(from, excess, token).ok_or(Hold::Range)?;
-    let paid = to_amount(from, target, token).ok_or(Hold::Range)?;
+    let token_asset = inputs.pool.token;
+    let send_max = to_amount(over, excess, token_asset).ok_or(Hold::Range)?;
+    let paid = to_amount(over, target, token_asset).ok_or(Hold::Range)?;
     if paid.is_zero() {
         return Err(Hold::Dust);
     }
-    let to = from.other();
-    let room = inputs
-        .params
-        .asset(to)
-        .band
-        .high
-        .saturating_sub(inputs.holdings.of(to).total);
-    let fits = to_amount(to, room, token).ok_or(Hold::Range)?;
-    if fits.is_zero() {
-        return Err(Hold::Full);
-    }
+    let to = over.other();
     let pool = &inputs.pool;
-    let out = amm::swap_out(pool.holds(from), pool.holds(to), pool.trading_fee, paid)
+    let out = amm::swap_out(pool.holds(over), pool.holds(to), pool.trading_fee, paid)
         .map_err(Hold::Pool)?;
     // Whole drops or millionths, as the other owner book books them: a token's
     // exact price can take every digit a value has, and an amount that
     // leaves the line or the pool more digits than the ledger holds is
     // rounded by the ledger, or refused by the fake.
-    let deliver = to_amount(to, to_units(out).ok_or(Hold::Range)?, token).ok_or(Hold::Range)?;
+    let deliver =
+        to_amount(to, to_units(out).ok_or(Hold::Range)?, token_asset).ok_or(Hold::Range)?;
     if deliver.is_zero() {
         return Err(Hold::Dust);
     }
-    if to_units(deliver).ok_or(Hold::Range)? <= room {
-        return Ok(Rebalance {
-            from,
-            deliver,
-            send_max,
-        });
-    }
-    // Only what fits, spending at most a slippage's share more than it
-    // costs at the price read: less than the excess it would have spent.
-    let cost = amm::swap_in(pool.holds(from), pool.holds(to), pool.trading_fee, fits)
-        .map_err(Hold::Pool)?;
-    let cost = to_units_up(cost).ok_or(Hold::Range)?;
-    let most = u64::try_from(u128::from(cost) * slippage / u128::from(MILLION))
-        .map_or(excess, |most| most.min(excess));
     Ok(Rebalance {
-        from,
-        deliver: fits,
-        send_max: to_amount(from, most, token).ok_or(Hold::Range)?,
+        from: over,
+        deliver,
+        send_max,
     })
 }
 
@@ -599,7 +787,7 @@ fn rebalance(inputs: &Inputs<'_>, from: Side) -> Result<Rebalance, Hold> {
 /// `send_max` less that share, and the pool may have moved its way since,
 /// by up to another such share. Books of the asset that have fallen by
 /// less have not booked it: a move of the node's own between hub and book,
-/// on its way, also lowers what they say (spec/areas/rate-feed.md#bands).
+/// on its way, also lowers what they say (spec/areas/rate-feed.md#holdings).
 /// At least one unit, so that nothing is booked before anything fell.
 #[must_use]
 pub fn least_spent(rebalance: &Rebalance, slippage_ppm: u32) -> u64 {
@@ -621,14 +809,6 @@ fn swap_back(pool: &Pool, side: Side, paid: u64) -> Result<u64, Hold> {
     )
     .map_err(Hold::Pool)?;
     to_units(out).ok_or(Hold::Range)
-}
-
-/// Whether `back` is at least `debit` and the margin:
-/// `back × 10^6 ≥ debit × (10^6 + margin)`.
-#[must_use]
-pub fn clears(debit: u64, back: u64, margin_ppm: u32) -> bool {
-    u128::from(back) * u128::from(MILLION)
-        >= u128::from(debit) * (u128::from(MILLION) + u128::from(margin_ppm))
 }
 
 /// `units` of `side`'s ledger as an amount on the XRP Ledger, rounded down
@@ -661,24 +841,6 @@ pub fn to_units(amount: Amount) -> Option<u64> {
     }
 }
 
-/// An amount on the XRP Ledger in its ledger's units, a token rounded up
-/// to a millionth: what paying it takes. `None` below zero or beyond a
-/// `u64`.
-fn to_units_up(amount: Amount) -> Option<u64> {
-    let down = to_units(amount)?;
-    match amount {
-        Amount::Xrp(_) => Some(down),
-        Amount::Token(token) => {
-            let exact = TokenValue::from_units(down / UNITS_PER_MICRO, MICRO_DECIMALS)?;
-            if exact == token.value {
-                Some(down)
-            } else {
-                down.checked_add(UNITS_PER_MICRO)
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use dassie_identity::NODE_ID_BYTES;
@@ -697,41 +859,40 @@ mod tests {
         }
     }
 
-    /// A pool of 1000 XRP and 500 of the token, without a fee: half a
-    /// dollar an XRP.
-    fn pool() -> Pool {
+    /// A pool of 1000 XRP and 500 of the token, with a fee of
+    /// `trading_fee`: half a dollar an XRP.
+    fn pool_with_fee(trading_fee: u32) -> Pool {
         Pool {
             drops: 1_000 * 1_000_000,
             value: TokenValue::parse("500").unwrap(),
             token: token(),
-            trading_fee: 0,
+            trading_fee,
         }
+    }
+
+    fn pool() -> Pool {
+        pool_with_fee(0)
     }
 
     fn params() -> Params {
         Params {
-            margin_ppm: 5_000,
+            curve_ppm: 10_000,
+            margin_ppm: 2_000,
+            threshold_ppm: 50_000,
             slippage_ppm: 10_000,
-            xrp: AssetParams {
-                trade_size: 2 * ONE,
-                band: Band {
-                    low: 10 * ONE,
-                    high: 100 * ONE,
-                },
-            },
-            token: AssetParams {
-                trade_size: ONE,
-                band: Band {
-                    low: 5 * ONE,
-                    high: 50 * ONE,
-                },
-            },
+            xrp_cap: 20 * ONE,
+            token_cap: 10 * ONE,
         }
     }
 
     /// The pool's price both ways, × 10^15, with no fee.
     const POOL_XRP_TO_TOKEN: u64 = 500_000_000_000_000;
     const POOL_TOKEN_TO_XRP: u64 = 2_000_000_000_000_000;
+
+    /// `rate` raised by `percent`.
+    const fn up(rate: u64, percent: u64) -> u64 {
+        rate / 100 * (100 + percent)
+    }
 
     fn inputs<'a>(
         targets: &'a [TargetQuote],
@@ -740,10 +901,10 @@ mod tests {
     ) -> Inputs<'a> {
         Inputs {
             targets,
-            last_target: None,
             pool: pool(),
             holdings,
             params,
+            may_rebalance: true,
         }
     }
 
@@ -813,401 +974,317 @@ mod tests {
         Quotes::new(Arc::new(snapshot), XRP_METHOD, TOKEN_METHOD)
     }
 
-    /// Whether `got` is `expected` less at most a millionth of it, as the
-    /// quotes round it: never more.
-    fn near(got: u64, expected: u64) -> bool {
-        got <= expected && expected - got <= expected / 1_000_000
-    }
-
-    /// Holdings whose accounts hold all the books say.
+    /// Holdings with half of each asset in its hub and half in its book.
     const fn held(xrp: u64, token: u64) -> Holdings {
         Holdings {
             xrp: Holding {
                 total: xrp,
-                on_ledger: xrp,
+                on_ledger: xrp / 2,
             },
             token: Holding {
                 total: token,
-                on_ledger: token,
+                on_ledger: token / 2,
             },
         }
     }
 
-    const MIDDLE: Holdings = held(50 * ONE, 25 * ONE);
+    /// Even at the pool's price: 100 XRP and 50 of the token.
+    const EVEN: Holdings = held(100 * ONE, 50 * ONE);
 
-    #[test]
-    fn no_trade_when_the_target_quotes_the_pools_price() {
-        let params = params();
-        let decision = decide(&inputs(
-            &one(rates(POOL_XRP_TO_TOKEN, POOL_TOKEN_TO_XRP)),
-            MIDDLE,
-            &params,
-        ));
-        // A round trip at the pool's price loses its rounding: nothing
-        // clears the margin.
-        assert_eq!(decision, Decision::Hold(Hold::Margin));
+    fn trades_of(decision: Decision) -> Vec<Trade> {
+        match decision {
+            Decision::Trades(trades) => trades,
+            other => panic!("trades, not {other:?}"),
+        }
     }
 
     #[test]
-    fn no_trade_inside_the_margin() {
+    fn no_target_no_trade() {
         let params = params();
-        // The target gives 0.4 % more token per XRP than the pool: below
-        // the margin of 0.5 %.
-        let rate = POOL_XRP_TO_TOKEN / 1_000 * 1_004;
-        let decision = decide(&inputs(
-            &one(rates(rate, POOL_TOKEN_TO_XRP)),
-            MIDDLE,
-            &params,
-        ));
-        assert_eq!(decision, Decision::Hold(Hold::Margin));
-    }
-
-    #[test]
-    fn a_trade_when_the_feed_and_the_pool_disagree_beyond_the_margin() {
-        let params = params();
-        // 2 % more token per XRP than the pool: send XRP.
-        let rate = POOL_XRP_TO_TOKEN / 100 * 102;
-        let Decision::Trade(trade) = decide(&inputs(
-            &one(rates(rate, POOL_TOKEN_TO_XRP)),
-            MIDDLE,
-            &params,
-        )) else {
-            panic!("a trade");
-        };
-        assert_eq!(trade.from, Side::Xrp);
-        assert_eq!(trade.debit, 2 * ONE);
-        assert!(near(trade.receive, 1_020_000_000), "{}", trade.receive);
-        assert!(clears(trade.debit, trade.back, params.margin_ppm));
-        assert!(trade.back > trade.debit);
-        // The node is asked for what clears the margin on the pool, less
-        // than the snapshot promises: 2 XRP and half a percent back cost
-        // 1.005 of the token at the pool's price, and a little more for
-        // the pool's own move.
-        assert!(trade.least < trade.receive);
-        assert!(trade.least > 1_005_000_000, "{}", trade.least);
-        assert!(trade.least < 1_008_000_000, "{}", trade.least);
-        assert_eq!(trade.rate(), (trade.least, trade.debit));
-
-        // The other way: 2 % more XRP per token than the pool.
-        let rate = POOL_TOKEN_TO_XRP / 100 * 102;
-        let Decision::Trade(trade) = decide(&inputs(
-            &one(rates(POOL_XRP_TO_TOKEN, rate)),
-            MIDDLE,
-            &params,
-        )) else {
-            panic!("a trade");
-        };
-        assert_eq!(trade.from, Side::Token);
-        assert_eq!(trade.debit, ONE);
-    }
-
-    // spec/areas/rate-feed.md#reading-a-snapshot: a trade beyond what the
-    // ladders cover is not priced; one within them is.
-    #[test]
-    fn a_trade_beyond_the_ladders_is_not_priced() {
-        let params = params();
-        let rate = POOL_XRP_TO_TOKEN / 100 * 102;
-        let shallow = quoting(rate, POOL_TOKEN_TO_XRP, ONE);
         assert_eq!(
-            decide(&inputs(&one(shallow), MIDDLE, &params)),
-            Decision::Hold(Hold::Range)
+            decide(&inputs(&[], EVEN, &params)),
+            Decision::Hold(Hold::NoTarget)
         );
-        let deep = quoting(rate, POOL_TOKEN_TO_XRP, 3 * ONE);
-        assert!(matches!(
-            decide(&inputs(&one(deep), MIDDLE, &params)),
-            Decision::Trade(_)
-        ));
-    }
-
-    #[test]
-    fn the_pools_fee_counts_against_the_margin() {
-        let params = params();
-        let rate = POOL_XRP_TO_TOKEN / 1_000 * 1_010;
-        let decision = decide(&inputs(
-            &one(rates(rate, POOL_TOKEN_TO_XRP)),
-            MIDDLE,
-            &params,
-        ));
-        assert!(matches!(decision, Decision::Trade(_)));
-        // At the pool's largest fee, 1 %, a 1 % gap no longer clears.
-        let targets = one(rates(rate, POOL_TOKEN_TO_XRP));
-        let mut inputs = inputs(&targets, MIDDLE, &params);
-        inputs.pool.trading_fee = amm::MAX_TRADING_FEE;
-        assert_eq!(decide(&inputs), Decision::Hold(Hold::Margin));
-    }
-
-    #[test]
-    fn the_better_direction_wins() {
-        let params = params();
-        let decision = decide(&inputs(
-            &one(rates(
-                POOL_XRP_TO_TOKEN / 100 * 102,
-                POOL_TOKEN_TO_XRP / 100 * 105,
-            )),
-            MIDDLE,
-            &params,
-        ));
-        let Decision::Trade(trade) = decision else {
-            panic!("a trade");
-        };
-        assert_eq!(trade.from, Side::Token);
-    }
-
-    #[test]
-    fn sizes_respect_bands() {
-        let params = params();
-        let rate = POOL_XRP_TO_TOKEN / 100 * 102;
-        // Half a unit above the band's bottom: a trade of half a unit.
-        let near = held(10 * ONE + ONE / 2, 25 * ONE);
-        let Decision::Trade(trade) =
-            decide(&inputs(&one(rates(rate, POOL_TOKEN_TO_XRP)), near, &params))
-        else {
-            panic!("a trade");
-        };
-        assert_eq!(trade.debit, ONE / 2);
-        // At the bottom: nothing.
-        let bottom = held(10 * ONE, 25 * ONE);
         assert_eq!(
-            decide(&inputs(
-                &one(rates(rate, POOL_TOKEN_TO_XRP)),
-                bottom,
-                &params
-            )),
-            Decision::Hold(Hold::Margin)
-        );
-        let both = held(10 * ONE, 5 * ONE);
-        assert_eq!(
-            decide(&inputs(&one(rates(rate, POOL_TOKEN_TO_XRP)), both, &params)),
-            Decision::Hold(Hold::Bands)
-        );
-        // Below the bottom, as after a loss: nothing either.
-        let below = held(0, 0);
-        assert_eq!(
-            decide(&inputs(
-                &one(rates(rate, POOL_TOKEN_TO_XRP)),
-                below,
-                &params
-            )),
-            Decision::Hold(Hold::Bands)
-        );
-    }
-
-    #[test]
-    fn no_rate_no_trade() {
-        let params = params();
-        assert_eq!(
-            decide(&inputs(&one(no_rates()), MIDDLE, &params)),
+            decide(&inputs(&one(no_rates()), EVEN, &params)),
             Decision::Hold(Hold::NoRate)
         );
     }
 
+    // spec/decisions/market-maker-inventory.md: away from even, its own
+    // curve values what brings it back more than what it pays, so a trade
+    // at the pool's price back toward even clears, and saves the pool's fee
+    // a rebalance would pay.
     #[test]
-    fn the_better_target_wins() {
-        let params = params();
-        // Target 1 gives 2 % more of the token per XRP than the pool,
-        // target 2 gives 3 %: the trade goes through 2.
-        let good = rates(POOL_XRP_TO_TOKEN / 100 * 102, POOL_TOKEN_TO_XRP);
-        let better = rates(POOL_XRP_TO_TOKEN / 100 * 103, POOL_TOKEN_TO_XRP);
-        let targets = [quote(1, good.clone()), quote(2, better.clone())];
-        let Decision::Trade(trade) = decide(&inputs(&targets, MIDDLE, &params)) else {
-            panic!("a trade");
-        };
-        assert_eq!((trade.target, trade.from), (target(2), Side::Xrp));
-        assert!(near(trade.receive, 1_030_000_000), "{}", trade.receive);
-        // In either order.
-        let targets = [quote(2, better.clone()), quote(1, good)];
-        let Decision::Trade(trade) = decide(&inputs(&targets, MIDDLE, &params)) else {
-            panic!("a trade");
-        };
-        assert_eq!(trade.target, target(2));
-        // The best of both assets' trades over both targets: the token
-        // through target 1, at 5 % more XRP per token.
-        let other_way = rates(POOL_XRP_TO_TOKEN, POOL_TOKEN_TO_XRP / 100 * 105);
-        let targets = [quote(1, other_way), quote(2, better)];
-        let Decision::Trade(trade) = decide(&inputs(&targets, MIDDLE, &params)) else {
-            panic!("a trade");
-        };
-        assert_eq!((trade.target, trade.from), (target(1), Side::Token));
-    }
-
-    #[test]
-    fn targets_that_pay_alike_take_turns() {
-        let params = params();
-        let good = rates(POOL_XRP_TO_TOKEN / 100 * 102, POOL_TOKEN_TO_XRP);
-        // In any order: they are looked at by node ID.
-        let targets = [
-            quote(7, good.clone()),
-            quote(2, good.clone()),
-            quote(4, good.clone()),
-        ];
-        let after = |last: Option<usize>| {
-            let mut inputs = inputs(&targets, MIDDLE, &params);
-            inputs.last_target = last.map(target);
-            match decide(&inputs) {
-                Decision::Trade(trade) => trade.target,
-                decision => panic!("a trade, not {decision:?}"),
-            }
-        };
-        // With no trade before, the first.
-        assert_eq!(after(None), target(2));
-        // Then the next after the last, around, whether or not the last is
-        // still a target.
-        assert_eq!(after(Some(2)), target(4));
-        assert_eq!(after(Some(3)), target(4));
-        assert_eq!(after(Some(4)), target(7));
-        assert_eq!(after(Some(7)), target(2));
-        assert_eq!(after(Some(0)), target(2));
-        // A better one wins whatever came last.
-        let better = rates(POOL_XRP_TO_TOKEN / 100 * 103, POOL_TOKEN_TO_XRP);
-        let targets = [quote(4, better), quote(7, good)];
-        let mut inputs = inputs(&targets, MIDDLE, &params);
-        inputs.last_target = Some(target(4));
-        let Decision::Trade(trade) = decide(&inputs) else {
-            panic!("a trade");
-        };
-        assert_eq!(trade.target, target(4));
-    }
-
-    #[test]
-    fn no_target_no_trade_but_a_rebalance() {
-        let params = params();
+    fn a_trade_at_the_pools_price_back_toward_even_clears() {
+        // At 54% in XRP, the curve's weights differ by about 0.16%: more
+        // than a margin of 0.1%, less than one of 0.2%.
+        let mut params = params();
+        params.margin_ppm = 1_000;
+        let quotes = one(rates(POOL_XRP_TO_TOKEN, POOL_TOKEN_TO_XRP));
+        let skewed = held(108 * ONE, 46 * ONE);
+        let trades = trades_of(decide(&inputs(&quotes, skewed, &params)));
+        assert!(!trades.is_empty());
+        assert!(
+            trades.iter().all(|trade| trade.from == Side::Xrp),
+            "{trades:?}"
+        );
+        params.margin_ppm = 2_000;
         assert_eq!(
-            decide(&inputs(&[], MIDDLE, &params)),
+            decide(&inputs(&quotes, skewed, &params)),
+            Decision::Hold(Hold::Margin)
+        );
+    }
+
+    // spec/decisions/market-maker-inventory.md: at even, a trade either way
+    // takes it beyond even, and the pool's price pays nothing over it.
+    #[test]
+    fn no_trade_at_the_pools_price() {
+        let params = params();
+        let quotes = one(rates(POOL_XRP_TO_TOKEN, POOL_TOKEN_TO_XRP));
+        assert_eq!(
+            decide(&inputs(&quotes, EVEN, &params)),
+            Decision::Hold(Hold::Margin)
+        );
+    }
+
+    #[test]
+    fn a_target_that_pays_well_gets_a_trade_it_clears() {
+        let params = params();
+        let quotes = one(rates(POOL_XRP_TO_TOKEN, up(POOL_TOKEN_TO_XRP, 6)));
+        let trades = trades_of(decide(&inputs(&quotes, EVEN, &params)));
+        let [trade] = trades.as_slice() else {
+            panic!("one trade: {trades:?}");
+        };
+        assert_eq!(trade.target, target(0));
+        assert_eq!(trade.from, Side::Token);
+        assert!(trade.debit > 0 && trade.debit <= params.token_cap);
+        assert!(trade.debit <= EVEN.token.in_hub());
+        // It asks for no less than the pool would give, and no more than
+        // the snapshot promises.
+        assert!(trade.least >= trade.debit * 2, "{trade:?}");
+        assert!(trade.least <= trade.receive, "{trade:?}");
+    }
+
+    #[test]
+    fn a_trade_ends_where_the_ladders_do() {
+        let params = params();
+        let quotes = one(quoting(
+            POOL_XRP_TO_TOKEN,
+            up(POOL_TOKEN_TO_XRP, 6),
+            3 * ONE,
+        ));
+        let trades = trades_of(decide(&inputs(&quotes, EVEN, &params)));
+        let [trade] = trades.as_slice() else {
+            panic!("one trade: {trades:?}");
+        };
+        assert!(trade.receive <= 3 * ONE, "{trade:?}");
+        assert!(trade.debit < params.token_cap, "{trade:?}");
+    }
+
+    #[test]
+    fn a_trade_pays_at_most_its_cap_and_what_is_in_the_hub() {
+        let mut params = params();
+        let quotes = one(rates(POOL_XRP_TO_TOKEN, up(POOL_TOKEN_TO_XRP, 6)));
+        let mut holdings = EVEN;
+        holdings.token.on_ledger = holdings.token.total - 2 * ONE;
+        let trades = trades_of(decide(&inputs(&quotes, holdings, &params)));
+        assert!(
+            trades.iter().all(|trade| trade.debit <= 2 * ONE),
+            "{trades:?}"
+        );
+        params.token_cap = ONE / 2;
+        let trades = trades_of(decide(&inputs(&quotes, EVEN, &params)));
+        assert!(
+            trades.iter().all(|trade| trade.debit <= ONE / 2),
+            "{trades:?}"
+        );
+        // Neither hub holds anything to pay with.
+        holdings.token.on_ledger = holdings.token.total;
+        holdings.xrp.on_ledger = holdings.xrp.total;
+        assert_eq!(
+            decide(&inputs(&quotes, holdings, &params)),
+            Decision::Hold(Hold::Funds)
+        );
+    }
+
+    // Each target that clears gets its own trade, and each is valued at the
+    // state the ones before it leave: so each asks for at least as much back
+    // per unit as the one before, and together they pay no more than the
+    // hub holds.
+    #[test]
+    fn every_target_gets_a_trade_valued_after_the_others() {
+        let params = params();
+        // Each pays well for the token and badly for XRP, so every trade
+        // pays the token.
+        let quotes: Vec<TargetQuote> = (0..3)
+            .map(|n| {
+                quote(
+                    n,
+                    rates(POOL_XRP_TO_TOKEN / 100 * 95, up(POOL_TOKEN_TO_XRP, 10)),
+                )
+            })
+            .collect();
+        let trades = trades_of(decide(&inputs(&quotes, EVEN, &params)));
+        assert_eq!(trades.len(), 3, "{trades:?}");
+        assert!(trades.iter().all(|trade| trade.from == Side::Token));
+        let mut targets: Vec<NodeId> = trades.iter().map(|trade| trade.target).collect();
+        targets.sort();
+        targets.dedup();
+        assert_eq!(targets.len(), 3);
+        let paid: u64 = trades.iter().map(|trade| trade.debit).sum();
+        assert!(paid <= EVEN.token.in_hub());
+        for pair in trades.windows(2) {
+            let [before, after] = pair else { continue };
+            assert!(
+                u128::from(after.least) * u128::from(before.debit)
+                    >= u128::from(before.least) * u128::from(after.debit),
+                "{trades:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn at_most_as_many_trades_as_the_node_swaps_at_once() {
+        let mut params = params();
+        params.token_cap = ONE / 10;
+        let quotes: Vec<TargetQuote> = (0..6)
+            .map(|n| quote(n, rates(POOL_XRP_TO_TOKEN, up(POOL_TOKEN_TO_XRP, 10))))
+            .collect();
+        let trades = trades_of(decide(&inputs(&quotes, EVEN, &params)));
+        assert_eq!(trades.len(), MAX_TRADES);
+    }
+
+    // spec/decisions/market-maker-inventory.md: beyond the threshold, a
+    // rebalance takes it back to even, before any trade.
+    #[test]
+    fn beyond_the_threshold_it_rebalances_to_even_first() {
+        let params = params();
+        let quotes = one(rates(up(POOL_XRP_TO_TOKEN, 10), up(POOL_TOKEN_TO_XRP, 10)));
+        // 300 XRP, worth 150, and 50 of the token: 75% in XRP.
+        let holdings = Holdings {
+            xrp: Holding {
+                total: 300 * ONE,
+                on_ledger: 200 * ONE,
+            },
+            token: Holding {
+                total: 50 * ONE,
+                on_ledger: 25 * ONE,
+            },
+        };
+        let Decision::Rebalance(rebalance) = decide(&inputs(&quotes, holdings, &params)) else {
+            panic!("a rebalance");
+        };
+        assert_eq!(rebalance.from, Side::Xrp);
+        // Half the difference, worth 50: 100 XRP.
+        assert_eq!(rebalance.send_max, Amount::Xrp(100_000_000));
+        let delivered = to_units(rebalance.deliver).unwrap();
+        assert!((44 * ONE..50 * ONE).contains(&delivered), "{delivered}");
+    }
+
+    #[test]
+    fn within_the_threshold_it_does_not_rebalance() {
+        let params = params();
+        // 55% in XRP: just within five points.
+        assert_eq!(
+            decide(&inputs(&[], held(110 * ONE, 45 * ONE), &params)),
             Decision::Hold(Hold::NoTarget)
         );
-        // A rebalance does not need a target: the bands are the node's.
-        let full = held(120 * ONE, 5 * ONE);
-        assert!(matches!(
-            decide(&inputs(&[], full, &params)),
-            Decision::Rebalance(Rebalance {
-                from: Side::Xrp,
-                ..
-            })
-        ));
     }
 
+    // A rebalance that may not go yet, or cannot, leaves the trades back
+    // toward even going on, and only those.
     #[test]
-    fn a_rebalance_comes_first_whatever_the_targets_offer() {
+    fn a_rebalance_that_cannot_go_leaves_trades_toward_even() {
         let params = params();
-        let better = rates(POOL_XRP_TO_TOKEN / 100 * 110, POOL_TOKEN_TO_XRP / 100 * 110);
-        let targets = [quote(0, better.clone()), quote(1, better)];
-        let full = held(50 * ONE, 60 * ONE);
-        assert!(matches!(
-            decide(&inputs(&targets, full, &params)),
-            Decision::Rebalance(Rebalance {
-                from: Side::Token,
-                ..
-            })
+        let both = one(rates(up(POOL_XRP_TO_TOKEN, 10), up(POOL_TOKEN_TO_XRP, 10)));
+        let skewed = held(300 * ONE, 50 * ONE);
+        let mut waiting = inputs(&both, skewed, &params);
+        waiting.may_rebalance = false;
+        let trades = trades_of(decide(&waiting));
+        assert!(!trades.is_empty());
+        assert!(
+            trades.iter().all(|trade| trade.from == Side::Xrp),
+            "{trades:?}"
+        );
+        // One that pays well only away from even is not taken, and one
+        // that pays less than the pool toward even is not either.
+        let away = one(rates(
+            POOL_XRP_TO_TOKEN / 100 * 95,
+            up(POOL_TOKEN_TO_XRP, 10),
         ));
+        let mut waiting = inputs(&away, skewed, &params);
+        waiting.may_rebalance = false;
+        assert_eq!(decide(&waiting), Decision::Hold(Hold::Margin));
+        // Nothing in the book to spend: the rebalance cannot go.
+        let mut empty_book = skewed;
+        empty_book.xrp.on_ledger = 0;
+        let trades = trades_of(decide(&inputs(&both, empty_book, &params)));
+        assert!(
+            trades.iter().all(|trade| trade.from == Side::Xrp),
+            "{trades:?}"
+        );
+    }
+
+    // spec/decisions/market-maker-inventory.md: what takes it beyond even
+    // pays what selling it back on the pool would cost; what brings it
+    // back toward even does not. With a pool fee of 1%, a target that pays
+    // 1.5% over the pool both ways gets the trade back toward even only.
+    #[test]
+    fn undoing_a_trade_beyond_even_is_charged() {
+        let params = params();
+        let quotes = one(rates(
+            POOL_XRP_TO_TOKEN / 1_000 * 1_015,
+            POOL_TOKEN_TO_XRP / 1_000 * 1_015,
+        ));
+        let mut inputs = inputs(&quotes, held(106 * ONE, 47 * ONE), &params);
+        inputs.pool = pool_with_fee(1_000);
+        let trades = trades_of(decide(&inputs));
+        assert!(!trades.is_empty());
+        assert!(
+            trades.iter().all(|trade| trade.from == Side::Xrp),
+            "{trades:?}"
+        );
     }
 
     #[test]
     fn the_reason_to_hold_is_the_furthest_any_target_got() {
         let params = params();
-        let none = no_rates();
-        let at_pool = rates(POOL_XRP_TO_TOKEN, POOL_TOKEN_TO_XRP);
-        // One names no rate, the other's trades miss the margin: whichever
-        // comes first, the margin is the reason.
-        for targets in [
-            [quote(0, none.clone()), quote(1, at_pool.clone())],
-            [quote(1, at_pool.clone()), quote(0, none.clone())],
-        ] {
-            assert_eq!(
-                decide(&inputs(&targets, MIDDLE, &params)),
-                Decision::Hold(Hold::Margin)
-            );
-        }
-        assert_eq!(further(Hold::Bands, Hold::NoRate), Hold::Bands);
-        assert_eq!(further(Hold::NoTarget, Hold::NoRate), Hold::NoRate);
-        assert_eq!(further(Hold::Range, Hold::Margin), Hold::Margin);
+        let quotes = [
+            quote(0, no_rates()),
+            quote(1, rates(POOL_XRP_TO_TOKEN, POOL_TOKEN_TO_XRP)),
+        ];
+        assert_eq!(
+            decide(&inputs(&quotes, EVEN, &params)),
+            Decision::Hold(Hold::Margin)
+        );
     }
 
     #[test]
-    fn an_asset_above_its_band_rebalances_into_the_other() {
+    fn a_rebalance_spends_only_what_the_account_holds() {
         let params = params();
-        let rate = POOL_XRP_TO_TOKEN / 100 * 102;
-        // The node received the token above its band: it buys XRP with
-        // it, spending what is above its band's middle, 60 − 27.5 = 32.5
-        // of the token at most. XRP's band has room for what that buys.
-        let full = held(20 * ONE, 60 * ONE);
-        let Decision::Rebalance(rebalance) =
-            decide(&inputs(&one(rates(rate, POOL_TOKEN_TO_XRP)), full, &params))
-        else {
+        let mut holdings = held(300 * ONE, 50 * ONE);
+        holdings.xrp.on_ledger = 30 * ONE;
+        let Decision::Rebalance(rebalance) = decide(&inputs(&[], holdings, &params)) else {
             panic!("a rebalance");
         };
-        assert_eq!(rebalance.from, Side::Token);
         assert_eq!(
-            rebalance.send_max,
-            to_amount(Side::Token, 32_500_000_000, token()).unwrap()
+            to_units(rebalance.send_max),
+            Some(30 * ONE - FEE_HEADROOM_UNITS)
         );
-        let Amount::Xrp(drops) = rebalance.deliver else {
-            panic!("XRP delivered");
-        };
-        // 32.5 / 1.01 of the token, into 500 of it against 1000 XRP: about
-        // 61 XRP, less than the price before the swap would give.
-        assert!(drops > 60_000_000 && drops < 65_000_000, "{drops}");
-        let cost = amm::swap_in(
-            pool().holds(Side::Token),
-            pool().holds(Side::Xrp),
-            0,
-            rebalance.deliver,
-        )
-        .unwrap();
-        // It costs about a slippage's share less than it may spend.
-        let (cost, most) = (
-            to_units(cost).unwrap(),
-            to_units(rebalance.send_max).unwrap(),
-        );
-        assert!(cost <= most);
-        assert!(clears(cost, most, params.slippage_ppm - 1));
-
-        // XRP above its band buys the token.
-        let full = held(120 * ONE, 5 * ONE);
-        let Decision::Rebalance(rebalance) =
-            decide(&inputs(&one(rates(rate, POOL_TOKEN_TO_XRP)), full, &params))
-        else {
-            panic!("a rebalance");
-        };
-        assert_eq!(rebalance.from, Side::Xrp);
-        assert_eq!(rebalance.send_max, Amount::Xrp(65_000_000));
-        // In whole millionths, as the token's owner book books it, rounded down
-        // from what the pool's exact price would give.
-        let Amount::Token(delivered) = rebalance.deliver else {
-            panic!("the token delivered");
-        };
-        let micros = delivered.value.floor_units(MICRO_DECIMALS).unwrap();
-        assert_eq!(
-            TokenValue::from_units(u64::try_from(micros).unwrap(), MICRO_DECIMALS),
-            Some(delivered.value)
-        );
-        let exact = amm::swap_out(
-            pool().holds(Side::Xrp),
-            pool().holds(Side::Token),
-            0,
-            to_amount(Side::Xrp, 65 * ONE * 100 / 101, token()).unwrap(),
-        )
-        .unwrap();
-        let Amount::Token(exact) = exact else {
-            panic!("the token out");
-        };
-        assert_ne!(exact.value, delivered.value, "a price of more digits");
-        assert_eq!(to_units(rebalance.deliver), to_units(Amount::Token(exact)));
     }
 
     #[test]
     fn a_rebalance_is_booked_once_the_books_fell_by_what_it_cost() {
         let params = params();
-        let rate = POOL_XRP_TO_TOKEN / 100 * 102;
-        let Decision::Rebalance(rebalance) = decide(&inputs(
-            &one(rates(rate, POOL_TOKEN_TO_XRP)),
-            held(20 * ONE, 60 * ONE),
-            &params,
-        )) else {
+        let Decision::Rebalance(rebalance) =
+            decide(&inputs(&[], held(300 * ONE, 50 * ONE), &params))
+        else {
             panic!("a rebalance");
         };
         let cost = amm::swap_in(
-            pool().holds(Side::Token),
             pool().holds(Side::Xrp),
+            pool().holds(Side::Token),
             0,
             rebalance.deliver,
         )
@@ -1217,7 +1294,10 @@ mod tests {
         // less than that still counts it booked.
         let cost = to_units(cost).unwrap();
         assert!(least < cost);
-        assert!(clears(least, cost, params.slippage_ppm - 1));
+        assert!(
+            u128::from(cost) * u128::from(MILLION)
+                >= u128::from(least) * u128::from(MILLION + params.slippage_ppm - 1)
+        );
         // Nothing fell: never booked.
         let dust = Rebalance {
             from: Side::Xrp,
@@ -1225,326 +1305,6 @@ mod tests {
             send_max: Amount::Xrp(0),
         };
         assert_eq!(least_spent(&dust, params.slippage_ppm), 1);
-    }
-
-    #[test]
-    fn a_rebalance_spends_only_what_the_account_holds() {
-        let params = params();
-        // The node holds 120 XRP, but only 30 of them in its owner book's
-        // account, the rest in the hub: the rebalance spends 30, less the
-        // fee's headroom.
-        let mut unsettled = held(120 * ONE, 25 * ONE);
-        unsettled.xrp.on_ledger = 30 * ONE;
-        let Decision::Rebalance(rebalance) = decide(&inputs(&one(rates(1, 1)), unsettled, &params))
-        else {
-            panic!("a rebalance");
-        };
-        assert_eq!(rebalance.send_max, Amount::Xrp(30_000_000 - MAX_FEE_DROPS));
-        // Everything in the hub: nothing to spend.
-        unsettled.xrp.on_ledger = 0;
-        assert_eq!(
-            decide(&inputs(&one(rates(1, 1)), unsettled, &params)),
-            Decision::Hold(Hold::Dust)
-        );
-    }
-
-    #[test]
-    fn a_rebalance_never_spends_below_the_band() {
-        let params = params();
-        for token in [50 * ONE + 1, 51 * ONE, 500 * ONE, u64::MAX / 2] {
-            let holdings = held(50 * ONE, token);
-            match decide(&inputs(&one(rates(1, 1)), holdings, &params)) {
-                Decision::Rebalance(rebalance) => {
-                    let spend = to_units(rebalance.send_max).unwrap();
-                    assert!(token - spend >= params.token.band.low);
-                }
-                Decision::Hold(_) => {}
-                Decision::Trade(_) => panic!("an asset above its band rebalances first"),
-            }
-        }
-    }
-
-    #[test]
-    fn a_rebalance_never_takes_the_other_asset_above_its_band() {
-        let mut params = params();
-        params.slippage_ppm = 0;
-        // The token is 10 above its band, and XRP's has room for only 5
-        // XRP: it delivers 5, spending what they cost, not the 32.5 of the
-        // token above its middle, which would buy about 61 XRP and send XRP
-        // above its band, to be rebalanced back.
-        let holdings = held(95 * ONE, 60 * ONE);
-        let Decision::Rebalance(rebalance) = decide(&inputs(&one(rates(1, 1)), holdings, &params))
-        else {
-            panic!("a rebalance");
-        };
-        assert_eq!(rebalance.from, Side::Token);
-        assert_eq!(rebalance.deliver, Amount::Xrp(5_000_000));
-        let cost = amm::swap_in(
-            pool().holds(Side::Token),
-            pool().holds(Side::Xrp),
-            0,
-            rebalance.deliver,
-        )
-        .unwrap();
-        // SendMax pays what the pool asks, and no more than that rounded
-        // up to a millionth.
-        let Amount::Token(cost) = cost else {
-            panic!("a token cost");
-        };
-        let Amount::Token(most) = rebalance.send_max else {
-            panic!("a token SendMax");
-        };
-        assert!(cost.value <= most.value);
-        assert_eq!(
-            to_units(rebalance.send_max),
-            to_units_up(Amount::Token(cost))
-        );
-        // With slippage, a share more, and never more than the excess.
-        params.slippage_ppm = 10_000;
-        let Decision::Rebalance(slipping) = decide(&inputs(&one(rates(1, 1)), holdings, &params))
-        else {
-            panic!("a rebalance");
-        };
-        assert_eq!(slipping.deliver, Amount::Xrp(5_000_000));
-        let (most, slipped) = (
-            to_units(rebalance.send_max).unwrap(),
-            to_units(slipping.send_max).unwrap(),
-        );
-        assert_eq!(
-            slipped,
-            most + most / 100 / UNITS_PER_MICRO * UNITS_PER_MICRO
-        );
-
-        // Both above their bands: nothing to rebalance into.
-        let full = held(100 * ONE, 60 * ONE);
-        assert_eq!(
-            decide(&inputs(&one(rates(1, 1)), full, &params)),
-            Decision::Hold(Hold::Full)
-        );
-    }
-
-    /// The bands and sizes the market maker's VM ran with when it stalled:
-    /// XRP 20–60, the token 5–40, trades of 2 of each.
-    fn vm_params() -> Params {
-        Params {
-            margin_ppm: 10_000,
-            slippage_ppm: 10_000,
-            xrp: AssetParams {
-                trade_size: 2 * ONE,
-                band: Band {
-                    low: 20 * ONE,
-                    high: 60 * ONE,
-                },
-            },
-            token: AssetParams {
-                trade_size: 2 * ONE,
-                band: Band {
-                    low: 5 * ONE,
-                    high: 40 * ONE,
-                },
-            },
-        }
-    }
-
-    /// The VM's rates, as its log has them: the target pays 0.8045 XRP for
-    /// the token, and 1.179 of the token for an XRP.
-    fn vm_rates() -> Quotes {
-        rates(1_179_291_322_564_294, 804_523_721_956_600)
-    }
-
-    /// The VM's target.
-    static VM_TARGETS: std::sync::LazyLock<[TargetQuote; 1]> =
-        std::sync::LazyLock::new(|| one(vm_rates()));
-
-    /// A pool at the testnet's price then: 0.76 XRP for the token, with a
-    /// fee of half a percent.
-    fn vm_inputs<'a>(holdings: Holdings, params: &'a Params) -> Inputs<'a> {
-        Inputs {
-            targets: &*VM_TARGETS,
-            last_target: None,
-            pool: Pool {
-                drops: 7_600 * 1_000_000,
-                value: TokenValue::parse("10000").unwrap(),
-                token: token(),
-                trading_fee: 500,
-            },
-            holdings,
-            params,
-        }
-    }
-
-    /// The VM's holdings after its first rebalance: XRP above its band's
-    /// top of 60, the token at its top of 40.
-    const VM_STALLED: Holdings = Holdings {
-        xrp: Holding {
-            total: 67_371_544_000,
-            on_ledger: 66_896_544_000,
-        },
-        token: Holding {
-            total: 40 * ONE,
-            on_ledger: 40 * ONE,
-        },
-    };
-
-    #[test]
-    fn a_rebalance_without_room_lets_a_trade_make_room() {
-        let params = vm_params();
-        let inputs = vm_inputs(VM_STALLED, &params);
-        // XRP's rebalance has no room in the token's band: deciding on it
-        // alone held, every tick.
-        assert_eq!(rebalance(&inputs, Side::Xrp), Err(Hold::Full));
-        // The node swaps the token with the target for XRP, which buys
-        // more of it back on the pool than it paid: a trade that lowers the
-        // asset without room.
-        let Decision::Trade(trade) = decide(&inputs) else {
-            panic!("a trade");
-        };
-        assert_eq!(trade.from, Side::Token);
-        assert_eq!(trade.debit, 2 * ONE);
-        assert!(near(trade.receive, 1_609_047_443), "{}", trade.receive);
-        assert!(clears(trade.debit, trade.back, params.margin_ppm));
-
-        // Once the swap came back, the token has room, and the rebalance
-        // comes first again, delivering what fits.
-        let traded = Holdings {
-            xrp: Holding {
-                total: VM_STALLED.xrp.total + trade.receive,
-                on_ledger: VM_STALLED.xrp.on_ledger,
-            },
-            token: Holding {
-                total: 38 * ONE,
-                on_ledger: 38 * ONE,
-            },
-        };
-        let Decision::Rebalance(rebalance) = decide(&vm_inputs(traded, &params)) else {
-            panic!("a rebalance");
-        };
-        assert_eq!(rebalance.from, Side::Xrp);
-        assert_eq!(
-            rebalance.deliver,
-            to_amount(Side::Token, 2 * ONE, token()).unwrap()
-        );
-    }
-
-    #[test]
-    fn a_rebalance_with_room_comes_before_a_trade() {
-        let params = vm_params();
-        // The token has room for 10: XRP's rebalance moves funds, so it
-        // comes first, though the trade would clear the margin.
-        let mut room = VM_STALLED;
-        room.token = Holding {
-            total: 30 * ONE,
-            on_ledger: 30 * ONE,
-        };
-        let Decision::Rebalance(rebalance) = decide(&vm_inputs(room, &params)) else {
-            panic!("a rebalance");
-        };
-        assert_eq!(rebalance.from, Side::Xrp);
-        assert_eq!(
-            rebalance.deliver,
-            to_amount(Side::Token, 10 * ONE, token()).unwrap()
-        );
-        // With XRP below its top, the node makes the same trade as above.
-        let mut within = room;
-        within.xrp.total = 50 * ONE;
-        let Decision::Trade(trade) = decide(&vm_inputs(within, &params)) else {
-            panic!("a trade");
-        };
-        assert_eq!(trade.from, Side::Token);
-    }
-
-    #[test]
-    fn a_rebalance_without_room_never_trades_into_the_other_asset() {
-        let params = vm_params();
-        // Only the trade the other way clears the margin: from XRP into
-        // the token, which has no room. It would take the token above its
-        // band, both above theirs: the rebalance holds.
-        let targets = one(rates(1_400_000_000_000_000, 700_000_000_000_000));
-        let mut inputs = vm_inputs(VM_STALLED, &params);
-        inputs.targets = &targets;
-        assert_eq!(decide(&inputs), Decision::Hold(Hold::Full));
-        // With XRP within its band, the node makes that trade.
-        inputs.holdings.xrp.total = 50 * ONE;
-        let Decision::Trade(trade) = decide(&inputs) else {
-            panic!("a trade");
-        };
-        assert_eq!(trade.from, Side::Xrp);
-
-        // Both above their bands: no trade either way, as neither asset
-        // could take a rebalance.
-        let mut both = VM_STALLED;
-        both.token.total = 45 * ONE;
-        assert_eq!(
-            decide(&vm_inputs(both, &params)),
-            Decision::Hold(Hold::Full)
-        );
-    }
-
-    #[test]
-    fn a_rebalance_that_can_spend_nothing_yet_lets_a_trade_go_on() {
-        let params = vm_params();
-        // Nothing of the XRP the node holds is in its owner book's account
-        // yet: its rebalance can spend nothing, and the token still trades
-        // into it, within its band.
-        let mut unsettled = VM_STALLED;
-        unsettled.xrp.on_ledger = 0;
-        unsettled.token = Holding {
-            total: 30 * ONE,
-            on_ledger: 30 * ONE,
-        };
-        let inputs = vm_inputs(unsettled, &params);
-        assert_eq!(rebalance(&inputs, Side::Xrp), Err(Hold::Dust));
-        let Decision::Trade(trade) = decide(&inputs) else {
-            panic!("a trade");
-        };
-        assert_eq!(trade.from, Side::Token);
-        // Not below the token's band.
-        unsettled.token.total = 5 * ONE;
-        assert_eq!(
-            decide(&vm_inputs(unsettled, &params)),
-            Decision::Hold(Hold::Dust)
-        );
-    }
-
-    // spec/areas/rate-feed.md#what-it-trusts: the least a swap may bring
-    // back, swapped back on the pool, clears the margin, and a unit less
-    // does not; at that rate per unit, any part of the swap clears it too.
-    #[test]
-    fn the_least_back_clears_the_margin_and_no_less_does() {
-        let mut pool = pool();
-        for fee in [0, 500, amm::MAX_TRADING_FEE] {
-            pool.trading_fee = fee;
-            for (from, debit) in [
-                (Side::Xrp, 2 * ONE),
-                (Side::Token, ONE),
-                (Side::Token, 1_234_567_891),
-                (Side::Xrp, 7 * ONE + 999),
-            ] {
-                for margin in [0, 5_000, MAX_MARGIN_PPM] {
-                    let least = least_back(&pool, from, debit, margin).unwrap();
-                    let back = swap_back(&pool, from.other(), least).unwrap();
-                    assert!(clears(debit, back, margin), "{from:?} {debit} {margin}");
-                    // A millionth or a drop less no longer does, but for the
-                    // rounding up to what the ledger holds.
-                    let step = match from.other() {
-                        Side::Xrp => UNITS_PER_DROP,
-                        Side::Token => UNITS_PER_MICRO,
-                    };
-                    let less = least.saturating_sub(4 * step);
-                    let short = swap_back(&pool, from.other(), less).unwrap();
-                    assert!(!clears(debit, short, margin), "{from:?} {debit} {margin}");
-                    // Half the swap at the same rate per unit clears too.
-                    let half = least / 2;
-                    let back = swap_back(&pool, from.other(), half).unwrap();
-                    assert!(clears(debit / 2, back, margin), "{from:?} {debit} {margin}");
-                }
-            }
-        }
-        // More than the pool holds cannot be bought back.
-        assert!(matches!(
-            least_back(&pool, Side::Xrp, 2_000 * ONE, 0),
-            Err(Hold::Pool(_))
-        ));
     }
 
     #[test]

@@ -314,17 +314,22 @@
       </p>
       <ul>
         <li>
-          <strong>It trades by swapping.</strong> When what a core node's
-          snapshot promises for a swap and the pool's price differ by more
-          than a margin, the market maker asks its node to swap with that
-          core node, at a rate no worse than the pool makes worth it. Each
-          such swap brings the core node what it lacks.
+          <strong>It values what it holds by a curve,</strong> as a core node
+          does, at the pool's price, but flatter: it gives a little more for
+          the asset it holds less of.
         </li>
         <li>
-          <strong>It rebalances on the pool.</strong> When it holds more of
-          one asset than its band allows, it trades the extra for the other
-          on the pool, with one payment from its XRP Ledger account to
-          itself, which never spends more than a set limit.
+          <strong>It trades by swapping.</strong> When what a core node's
+          snapshot promises for a swap beats that valuation by a margin,
+          after what selling it back on the pool would cost, the market maker
+          asks its node to swap with that core node, at a rate no worse than
+          that. Each such swap brings the core node what it lacks.
+        </li>
+        <li>
+          <strong>It rebalances on the pool.</strong> Once its own share of
+          one asset is too far from even, it trades back to even on the pool,
+          with one payment from its XRP Ledger account to itself, which never
+          spends more than a set limit.
         </li>
         <li>
           <strong>It holds no books.</strong> Every amount is moved by its

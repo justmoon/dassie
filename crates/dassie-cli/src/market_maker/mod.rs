@@ -2,9 +2,11 @@
 //! of its own, a periphery node in the settlement hubs of both assets of
 //! an AMM pool on the XRP Ledger, pinned to the core nodes it trades
 //! through, its targets. It reads the targets' snapshots its node is
-//! pushed, swaps through the one that pays best when its quotes and the
-//! pool leave a margin, and moves its own funds back on the ledger, from
-//! the owner book of one asset to the other's on the node's one account.
+//! pushed, values its own inventory by a flat curve at the pool's price,
+//! swaps through every target whose quote beats that by a margin, and
+//! moves its own funds back to even on the ledger, from the owner book of
+//! one asset to the other's on the node's one account, once its share of
+//! one is far from even (spec/decisions/market-maker-inventory.md).
 //!
 //! - [`config`]: the config file, checked whole before anything connects;
 //! - [`node`]: the node, over its IPC socket: what it holds, the targets'
@@ -13,8 +15,10 @@
 //! - [`strategy`]: what to do, as a pure function of all that.
 //!
 //! The loop decides once a tick, from the current snapshots, the pool and
-//! the node's holdings, and logs one line per decision. Every wait is
-//! bounded, and a tick does at most one thing. Its ticks and waits are
+//! the node's holdings, and logs one line per trade, rebalance or hold.
+//! Every wait is bounded, and a tick does one thing: a rebalance, or the
+//! trades it decided, at once, each over a connection to the node of its
+//! own. Its ticks and waits are
 //! tokio's timers, and what it decides by reads the [`Clock`] it is given:
 //! the command runs on the system clock and real time, and the tests run
 //! the loop beside daemons on tokio's paused time, with a clock that reads
@@ -42,7 +46,7 @@ use tokio_util::sync::CancellationToken;
 
 use self::config::Config;
 use self::node::{LedgerState, Node, PeerSnapshot};
-use self::strategy::{Decision, Holdings, Inputs, Quotes, Side, TargetQuote};
+use self::strategy::{Decision, Holdings, Inputs, Quotes, Side, TargetQuote, Trade};
 use self::xrpl::Xrpl;
 
 /// What its log lines are under.
@@ -55,10 +59,20 @@ const TICK: Duration = Duration::from_secs(10);
 /// from its account, or may have, before it decides again.
 const UNBOOKED_WAIT_MS: u64 = 2 * 60 * 1_000;
 
+/// How long a target whose trade failed or paid nothing, or a rebalance
+/// that failed, is left out at first, and at most: the wait doubles each
+/// time again (spec/decisions/market-maker-inventory.md).
+const FIRST_WAIT_MS: u64 = 60 * 1_000;
+const LONGEST_WAIT_MS: u64 = 30 * 60 * 1_000;
+
 /// The flags.
 #[derive(Debug)]
 pub struct Options {
     config: PathBuf,
+    /// Only check the config, and exit: how the VM's script, which comes
+    /// from `main`, tells whether the installed release reads the config it
+    /// writes (spec/areas/market-maker-vm.md).
+    check: bool,
 }
 
 /// Reads the flags after `market-maker`.
@@ -68,14 +82,16 @@ pub struct Options {
 /// A flag is unknown, or `--config` is missing.
 pub fn args(parser: &mut lexopt::Parser) -> Result<Options, lexopt::Error> {
     let mut config = None;
+    let mut check = false;
     while let Some(argument) = parser.next()? {
         match argument {
             Long("config") => config = Some(PathBuf::from(parser.value()?)),
+            Long("check") => check = true,
             other => return Err(other.unexpected()),
         }
     }
     let config = config.ok_or("market-maker needs --config <file>")?;
-    Ok(Options { config })
+    Ok(Options { config, check })
 }
 
 /// Runs the market maker until SIGTERM or SIGINT.
@@ -94,6 +110,10 @@ pub fn run(options: &Options) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if options.check {
+        println!("{}: a market maker's config", options.config.display());
+        return ExitCode::SUCCESS;
+    }
     let Ok(runtime) = tokio::runtime::Runtime::new() else {
         eprintln!("dassie: could not start the async runtime");
         return ExitCode::FAILURE;
@@ -128,9 +148,59 @@ pub struct MarketMaker {
     /// The node's XRPL account's keys, derived from its passphrase.
     wallet: Wallet,
     unbooked: Option<Unbooked>,
-    /// The target the last trade went through, so that targets that pay
-    /// alike take turns.
-    last_target: Option<dassie_identity::NodeId>,
+    /// The targets left out for a while, after a trade through them failed
+    /// or paid nothing: only ones the node holds a snapshot of, so at most
+    /// as many as it reads snapshots of.
+    waiting: Vec<(dassie_identity::NodeId, Wait)>,
+    /// The wait after a rebalance that failed, if one did last.
+    rebalance_wait: Option<Wait>,
+}
+
+/// A wait after a failure, which doubles each time it is begun again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Wait {
+    /// Until when.
+    until_ms: u64,
+    /// How long it was.
+    length_ms: u64,
+}
+
+/// Notes in `waiting` how a trade through `target` ended at `now_ms`: one
+/// that paid ends the target's wait; one that failed or paid nothing
+/// begins one, twice as long as its last.
+fn note_outcome(
+    waiting: &mut Vec<(dassie_identity::NodeId, Wait)>,
+    target: dassie_identity::NodeId,
+    paid: bool,
+    now_ms: u64,
+) {
+    let index = waiting.iter().position(|(node, _)| *node == target);
+    match (paid, index) {
+        (true, Some(index)) => {
+            waiting.swap_remove(index);
+        }
+        (true, None) => {}
+        (false, Some(index)) => {
+            if let Some((_, wait)) = waiting.get_mut(index) {
+                *wait = Wait::after(Some(*wait), now_ms);
+            }
+        }
+        (false, None) => waiting.push((target, Wait::after(None, now_ms))),
+    }
+}
+
+impl Wait {
+    /// The wait after `before`, from `now_ms`: the first, or twice the
+    /// last, up to the longest.
+    fn after(before: Option<Self>, now_ms: u64) -> Self {
+        let length_ms = before.map_or(FIRST_WAIT_MS, |wait| {
+            wait.length_ms.saturating_mul(2).min(LONGEST_WAIT_MS)
+        });
+        Self {
+            until_ms: now_ms.saturating_add(length_ms),
+            length_ms,
+        }
+    }
 }
 
 /// A rebalance that paid, or may have, from the node's account, which the
@@ -198,7 +268,8 @@ impl MarketMaker {
             node,
             wallet,
             unbooked: None,
-            last_target: None,
+            waiting: Vec::new(),
+            rebalance_wait: None,
         })
     }
 
@@ -250,37 +321,42 @@ impl MarketMaker {
         if self.awaits_booking(now_ms, &holdings).await {
             return;
         }
+        // Only targets the node still holds a snapshot of keep a wait, so
+        // the list stays as short as the node's.
+        self.waiting
+            .retain(|(node, _)| snapshots.iter().any(|listed| listed.node == *node));
         let targets = self.current(&snapshots, now_ms);
         let params = self.config.params;
         let inputs = Inputs {
             targets: &targets,
-            last_target: self.last_target,
             pool,
             holdings,
             params: &params,
+            may_rebalance: self
+                .rebalance_wait
+                .is_none_or(|wait| now_ms >= wait.until_ms),
         };
         match strategy::decide(&inputs) {
             Decision::Hold(hold) => {
-                tracing::info!(target: TARGET, ?hold, targets = ?targets, ?holdings, "hold");
+                let (current, waiting) = (targets.len(), self.waiting.len());
+                tracing::info!(target: TARGET, ?hold, current, waiting, ?holdings, "hold");
             }
-            Decision::Trade(trade) => {
-                let through = targets.iter().find(|quote| quote.target == trade.target);
-                assert!(through.is_some(), "a trade through a target it was given");
-                if let Some(through) = through {
-                    self.last_target = Some(trade.target);
-                    self.trade(&trade, &through.quotes).await;
-                }
-            }
+            Decision::Trades(trades) => self.trades(&trades, &targets).await,
             Decision::Rebalance(rebalance) => self.rebalance(&rebalance, &holdings).await,
         }
     }
 
     /// The targets whose snapshot counts at `now_ms`, each priced between
-    /// the two hubs' methods.
+    /// the two hubs' methods, but those left out for a while.
     fn current(&self, snapshots: &[PeerSnapshot], now_ms: u64) -> Vec<TargetQuote> {
         snapshots
             .iter()
             .filter(|listed| now_ms < listed.snapshot.valid_until_ms)
+            .filter(|listed| {
+                self.waiting
+                    .iter()
+                    .all(|(node, wait)| *node != listed.node || now_ms >= wait.until_ms)
+            })
             .map(|listed| TargetQuote {
                 target: listed.node,
                 quotes: Quotes::new(
@@ -320,34 +396,48 @@ impl MarketMaker {
         false
     }
 
-    /// Swaps through the trade's target, and logs what came back against
-    /// what the snapshot it was decided by promised for what was paid: the
-    /// node may have priced it by a newer one.
-    async fn trade(&mut self, trade: &strategy::Trade, quotes: &Quotes) {
-        let (pay_on, back_on) = (
-            &self.config.ledgers(trade.from).method,
-            &self.config.ledgers(trade.from.other()).method,
-        );
-        let outcome = self
-            .node
-            .swap(trade.target, pay_on, back_on, trade.debit, trade.rate())
-            .await;
-        let (target, from) = (trade.target, trade.from.name());
-        match outcome {
-            Ok(done) => {
-                let promised = quotes.out(trade.from, done.paid);
-                tracing::info!(
-                    target: TARGET, %target, from, debit = trade.debit,
-                    least = trade.least, snapshot_receive = trade.receive,
-                    paid = done.paid, received = done.received, ?promised,
-                    fulfilled = done.fulfilled, rejected = done.rejected,
-                    ended = ?done.ended, "trade"
-                );
-            }
-            Err(problem) => tracing::warn!(
-                target: TARGET, %target, from, debit = trade.debit, %problem,
-                "trade failed"
-            ),
+    /// Swaps through each trade's target at once, each over a connection
+    /// to the node of its own, and logs what came back against what the
+    /// snapshot it was decided by promised for what was paid: the node may
+    /// have priced it by a newer one. A target whose trade failed or paid
+    /// nothing is left out for a while; one whose trade paid is not.
+    async fn trades(&mut self, trades: &[Trade], targets: &[TargetQuote]) {
+        let mut nodes: Vec<Node> = trades.iter().map(|_| Node::new(&self.config)).collect();
+        let swaps = nodes.iter_mut().zip(trades).map(|(node, trade)| {
+            let (pay_on, back_on) = (
+                &self.config.ledgers(trade.from).method,
+                &self.config.ledgers(trade.from.other()).method,
+            );
+            node.swap(trade.target, pay_on, back_on, trade.debit, trade.rate())
+        });
+        let outcomes = futures_util::future::join_all(swaps).await;
+        let now_ms = self.clock.now_ms();
+        for (trade, outcome) in trades.iter().zip(outcomes) {
+            let (target, from) = (trade.target, trade.from.name());
+            let promised = targets
+                .iter()
+                .find(|quote| quote.target == target)
+                .and_then(|quote| quote.quotes.out(trade.from, trade.debit));
+            let paid = match outcome {
+                Ok(done) => {
+                    tracing::info!(
+                        target: TARGET, %target, from, debit = trade.debit,
+                        least = trade.least, snapshot_receive = trade.receive,
+                        paid = done.paid, received = done.received, ?promised,
+                        fulfilled = done.fulfilled, rejected = done.rejected,
+                        ended = ?done.ended, "trade"
+                    );
+                    done.paid > 0
+                }
+                Err(problem) => {
+                    tracing::warn!(
+                        target: TARGET, %target, from, debit = trade.debit, %problem,
+                        "trade failed"
+                    );
+                    false
+                }
+            };
+            note_outcome(&mut self.waiting, target, paid, now_ms);
         }
     }
 
@@ -356,6 +446,13 @@ impl MarketMaker {
         // each on its owner book of the node's one account.
         let account: AccountId = self.wallet.account();
         let outcome = self.xrpl.rebalance(&self.wallet, account, rebalance).await;
+        // One that cannot have paid is tried again only after a wait, and
+        // meanwhile the trades back toward even go on.
+        self.rebalance_wait = if outcome.as_ref().is_ok_and(xrpl::Outcome::may_have_paid) {
+            None
+        } else {
+            Some(Wait::after(self.rebalance_wait, self.clock.now_ms()))
+        };
         if outcome.as_ref().is_ok_and(xrpl::Outcome::may_have_paid) {
             self.unbooked = Some(Unbooked {
                 from: rebalance.from,
@@ -432,7 +529,7 @@ mod tests {
     use super::*;
     use crate::market_maker::strategy::Holding;
 
-    // spec/areas/rate-feed.md#bands: a rebalance counts as booked once
+    // spec/areas/rate-feed.md#rebalancing: a rebalance counts as booked once
     // the holding of the asset it spent fell by the least it can have
     // cost, and by whatever the node's own move between hub and book has on
     // its way besides, which lowers the holding by up to its amount: a
@@ -489,5 +586,32 @@ mod tests {
         let mut elsewhere = usd.clone();
         elsewhere.deposit_address = AccountId([4; 20]).to_address();
         assert!(check(Side::Token, &elsewhere).is_err());
+    }
+
+    // spec/decisions/market-maker-inventory.md: a target whose trade failed
+    // or paid nothing waits a minute, then twice as long each time again, up
+    // to half an hour; one trade through it that pays ends its wait.
+    #[test]
+    fn a_failing_target_waits_longer_each_time_until_a_trade_pays() {
+        let target = dassie_identity::NodeId::from_bytes(&[1; dassie_identity::NODE_ID_BYTES]);
+        let other = dassie_identity::NodeId::from_bytes(&[2; dassie_identity::NODE_ID_BYTES]);
+        let mut waiting = Vec::new();
+        note_outcome(&mut waiting, target, true, 0);
+        assert!(waiting.is_empty());
+        let mut lengths = Vec::new();
+        for now_ms in 0..8 {
+            note_outcome(&mut waiting, target, false, now_ms);
+            let [(node, wait)] = waiting.as_slice() else {
+                panic!("one target waits: {waiting:?}");
+            };
+            assert_eq!(*node, target);
+            assert_eq!(wait.until_ms, now_ms + wait.length_ms);
+            lengths.push(wait.length_ms / 60_000);
+        }
+        assert_eq!(lengths, [1, 2, 4, 8, 16, 30, 30, 30]);
+        note_outcome(&mut waiting, other, false, 0);
+        note_outcome(&mut waiting, target, true, 9);
+        assert_eq!(waiting.len(), 1);
+        assert_eq!(waiting.first().map(|(node, _)| *node), Some(other));
     }
 }

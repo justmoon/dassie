@@ -46,28 +46,28 @@ export const DSUSD: Asset = [DSUSD_HUB, DSUSD_BOOK];
 export const ISSUER = "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M";
 /** A whole XRP or dollar in the books' units, which count at scale 9. */
 export const UNIT = 1_000_000_000n;
-/** What the market maker pays through a core node in one trade: 2 dollars. */
-export const TRADE = 2n * UNIT;
+/** The most the market maker pays through a core node in one trade, of
+ * either asset: 2 units. */
+export const CAP = 2n * UNIT;
 /**
- * The least gain a trade must make: 1%. A core node holds about a
- * twentieth of its value in DSUSD, so its curve takes DSUSD in at up to its
- * cap, 5% above spot, less each packet's own impact: a trade clears the
- * margin after the pool's fee by a few percent.
+ * Its curve, 1%, the least gain a trade must make after the cost of
+ * undoing it, 0.2%, how far an asset's share may be from even before it
+ * rebalances, 5 points, and how far the pool's price may move against a
+ * rebalance, 1% (spec/decisions/market-maker-inventory.md). Its node starts
+ * with the faucet's XRP and a little DSUSD, so it rebalances to even
+ * first, through the pool, and then trades.
  */
-const MARGIN_PPM = 10_000;
-/** How far the pool's price may move against a swap: 1%. */
+const CURVE_PPM = 10_000;
+const MARGIN_PPM = 2_000;
+const THRESHOLD_PPM = 50_000;
 const SLIPPAGE_PPM = 10_000;
-/** The band of the market maker's XRP around what it holds at the start. */
-const XRP_BAND = 6n * UNIT;
-/** The band of its DSUSD, in dollars: room for every trade a run makes. */
-const DSUSD_LOW = 5n * UNIT;
-const DSUSD_HIGH = 40n * UNIT;
 /**
  * How long the market maker may take to make its first trade: it decides
- * as it starts, and the swap goes as fast as the node settles over both
- * hubs. A hang's guard, not what the test decides by.
+ * as it starts, rebalances first and waits for its node to book that, and
+ * the swap goes as fast as the node settles over both hubs. A hang's guard,
+ * not what the test decides by.
  */
-const TRADE_WITHIN_MS = 120_000;
+const TRADE_WITHIN_MS = 240_000;
 
 /** The nodes of a market maker's scenario. */
 export interface MarketMakerNodes {
@@ -167,8 +167,7 @@ export async function quoted(
  * Writes the market maker's config, and its node's passphrase beside it,
  * into `dir`: its node, with each asset's hub ledger and the owner book
  * that funds it, and the pool on the fake ledger. Its targets are its
- * node's peers. The band of its XRP is around what the node holds now, in
- * its hub and its book. Returns the config's path.
+ * node's peers. Returns the config's path.
  */
 export async function writeConfig(
   scenario: Scenario,
@@ -177,7 +176,6 @@ export async function writeConfig(
 ): Promise<string> {
   const phrase = join(dir, `${node.name}.phrase`);
   await writeFile(phrase, `${node.identity.phrase}\n`, { mode: 0o600 });
-  const xrpHeld = await held(node, XRP);
   const config = {
     socket: node.socket,
     passphraseFile: phrase,
@@ -188,19 +186,16 @@ export async function writeConfig(
     xrp: {
       ledger: XRP_HUB,
       ownerBook: XRP_BOOK,
-      tradeSize: Number(TRADE),
-      band: {
-        low: Number(xrpHeld - XRP_BAND),
-        high: Number(xrpHeld + XRP_BAND),
-      },
+      cap: Number(CAP),
     },
     token: {
       ledger: DSUSD_HUB,
       ownerBook: DSUSD_BOOK,
-      tradeSize: Number(TRADE),
-      band: { low: Number(DSUSD_LOW), high: Number(DSUSD_HIGH) },
+      cap: Number(CAP),
     },
+    curvePpm: CURVE_PPM,
     marginPpm: MARGIN_PPM,
+    thresholdPpm: THRESHOLD_PPM,
     slippagePpm: SLIPPAGE_PPM,
     // The dev CA, as the scenario's nodes trust it
     // (`DASSIE_EXTRA_CA_FILE`): a host such as CI's build sandbox has no
