@@ -288,6 +288,7 @@ pub fn outgoing(urls: &Urls, row: &OutgoingRow) -> proto::OutgoingPayment {
             .and_then(dassie_payments::pointer::payment_pointer)
             .unwrap_or_default(),
         fixed_debit: row.fixed_debit,
+        delivered_amount: row.delivered_amount,
     }
 }
 

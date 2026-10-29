@@ -150,11 +150,21 @@ function OutgoingRow(props: { payment: OutgoingPayment }): JSX.Element {
             <>
               <Show when={props.payment.receiveAmount}>
                 {(amount) => (
-                  <Amount
-                    value={amount().value}
-                    currency={ledgerCurrency(amount())}
-                    testid="outgoing-receive"
-                  />
+                  <>
+                    <Show when={props.payment.state !== "completed"}>
+                      <Amount
+                        value={props.payment.deliveredAmount}
+                        currency={ledgerCurrency(amount())}
+                        testid="outgoing-delivered"
+                      />
+                      {" of "}
+                    </Show>
+                    <Amount
+                      value={amount().value}
+                      currency={ledgerCurrency(amount())}
+                      testid="outgoing-receive"
+                    />
+                  </>
                 )}
               </Show>
               {/* One that failed after spending says what left. */}

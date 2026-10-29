@@ -208,19 +208,22 @@ fn the_comparison_sees_an_edited_baseline() {
     }
 }
 
-// The migrations after the baseline are the released ones, verbatim, as
-// the releases after the first ran them.
+// The migrations after the baseline start with the released ones,
+// verbatim, as the releases after the first ran them; any after those are
+// this version's, not released yet.
 #[test]
 fn the_migrations_after_the_baseline_are_the_released_ones() {
     let after = usize::try_from(BASELINE_VERSION).unwrap();
-    assert_eq!(&MIGRATIONS[1..], &RELEASED[after..]);
-    assert_eq!(SCHEMA_VERSION, i64::try_from(RELEASED.len()).unwrap());
+    let released = &RELEASED[after..];
+    assert_eq!(&MIGRATIONS[1..=released.len()], released);
+    assert!(SCHEMA_VERSION >= i64::try_from(RELEASED.len()).unwrap());
 }
 
 // spec/decisions/database-continuity.md: the database each release left
-// opens. One at an older version than this one's, 0.3.0's at 9 or 0.3.3's
-// at 10, migrates to it, keeping a copy as it was, and ends as a new
-// database is; 0.3.4's at 11 opens as it is, with no copy kept.
+// opens. One at an older version than this one's, as 0.3.0's at 9,
+// 0.3.3's at 10 and 0.3.4's at 11 are, migrates to it, keeping a copy as
+// it was, and ends as a new database is; one at this version opens as it
+// is, with no copy kept.
 #[test]
 fn every_releases_database_opens() {
     let temp = tempfile::tempdir().unwrap();
