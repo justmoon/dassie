@@ -47,7 +47,7 @@ const fn version_of(migrations: &[&str]) -> i64 {
 /// in the area doc that the comment before it names
 /// (spec/areas/node.md#persistence for what must survive a restart).
 /// Amounts are integers in their ledger's units, and times milliseconds
-/// since the epoch. `store/testdata/v0.3.4/` keeps the migrations the
+/// since the epoch. `store/testdata/v0.4.2/` keeps the migrations the
 /// releases ran, the first nine of which it folds, and a test holds it to
 /// them (`schema_tests.rs`).
 const BASELINE: &str = "

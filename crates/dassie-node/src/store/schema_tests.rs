@@ -1,7 +1,8 @@
 //! The schema against what the releases wrote
-//! (spec/decisions/database-continuity.md): `testdata/v0.3.4/` holds the
-//! eleven migrations Dassie 0.3.4 ran, as it shipped them. 0.3.0 ran the
-//! first nine, the same text, and 0.3.1 to 0.3.3 the first ten. A database
+//! (spec/decisions/database-continuity.md): `testdata/v0.4.2/` holds the
+//! twelve migrations Dassie 0.4.2 ran, as it shipped them. 0.3.0 ran the
+//! first nine, the same text, 0.3.1 to 0.3.3 the first ten, and 0.3.4 to
+//! 0.4.1 the first eleven. A database
 //! the first nine build, as 0.3.0 built one, is the one the baseline
 //! builds; the migrations after the baseline are the released ones; and a
 //! database each release left opens, and migrates to this version's.
@@ -21,24 +22,25 @@ use rusqlite::types::Value;
 use super::schema::{self, BASELINE_VERSION, MIGRATIONS};
 use super::{APPLICATION_ID, DATABASE_FILE, PRE_MIGRATION_FILE, SCHEMA_VERSION, Store};
 
-/// The migrations Dassie 0.3.4 ran, in order, as it shipped them.
-const RELEASED: [&str; 11] = [
-    include_str!("testdata/v0.3.4/01.sql"),
-    include_str!("testdata/v0.3.4/02.sql"),
-    include_str!("testdata/v0.3.4/03.sql"),
-    include_str!("testdata/v0.3.4/04.sql"),
-    include_str!("testdata/v0.3.4/05.sql"),
-    include_str!("testdata/v0.3.4/06.sql"),
-    include_str!("testdata/v0.3.4/07.sql"),
-    include_str!("testdata/v0.3.4/08.sql"),
-    include_str!("testdata/v0.3.4/09.sql"),
-    include_str!("testdata/v0.3.4/10.sql"),
-    include_str!("testdata/v0.3.4/11.sql"),
+/// The migrations Dassie 0.4.2 ran, in order, as it shipped them.
+const RELEASED: [&str; 12] = [
+    include_str!("testdata/v0.4.2/01.sql"),
+    include_str!("testdata/v0.4.2/02.sql"),
+    include_str!("testdata/v0.4.2/03.sql"),
+    include_str!("testdata/v0.4.2/04.sql"),
+    include_str!("testdata/v0.4.2/05.sql"),
+    include_str!("testdata/v0.4.2/06.sql"),
+    include_str!("testdata/v0.4.2/07.sql"),
+    include_str!("testdata/v0.4.2/08.sql"),
+    include_str!("testdata/v0.4.2/09.sql"),
+    include_str!("testdata/v0.4.2/10.sql"),
+    include_str!("testdata/v0.4.2/11.sql"),
+    include_str!("testdata/v0.4.2/12.sql"),
 ];
 
 /// Each release since the testnet's reset, at the version its database
 /// is: the number of the released migrations it ran.
-const RELEASES: [(&str, i64); 3] = [("0.3.0", 9), ("0.3.3", 10), ("0.3.4", 11)];
+const RELEASES: [(&str, i64); 4] = [("0.3.0", 9), ("0.3.3", 10), ("0.3.4", 11), ("0.4.2", 12)];
 
 /// Builds the database at `path` as a release that ran the first
 /// `version` released migrations did: its application ID, then each
