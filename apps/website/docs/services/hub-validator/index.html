@@ -281,7 +281,11 @@ Environment=DASSIE_VALIDATOR_CONFIG=/etc/dassie/validator.json</code></pre>
       </div>
       <p>
         The node's log says more. When a validator breaks the hub's rules,
-        your node logs which one.
+        your node logs which one. When the hub's consensus is stuck, waiting
+        for a block it cannot get, your node warns at most once a minute,
+        and names the view it waits for. No block is final while it waits.
+        If the warning stays, check that your node reaches the hub's other
+        validators over QUIC.
       </p>
       <p class="not-yet">
         Publishing the proof against such a validator is not there yet, and

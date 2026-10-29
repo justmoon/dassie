@@ -166,4 +166,18 @@ pub struct Stats {
     pub fetches: u64,
     /// Blocks finalized.
     pub finalized: u64,
+    /// Views we led and found nothing to build on: the block of the highest
+    /// notarized view, or one it builds on, or a view's certificate, was
+    /// missing. Once a view.
+    pub no_parent: u64,
+    /// Times the newest notarized or finalized view held lacked a block,
+    /// its own or one it builds on, for
+    /// [`STUCK_VIEWS`](super::STUCK_VIEWS) views: nothing becomes final
+    /// while it does ([`Engine::lacking`](super::Engine::lacking) says
+    /// what). Once each time. A host warns of any.
+    pub stuck: u64,
+    /// Votes, certificates, blocks and our own nullify refused because the
+    /// engine held as many views as it may
+    /// ([`MAX_ROUNDS`](super::MAX_ROUNDS)). A host warns of any.
+    pub no_room: u64,
 }

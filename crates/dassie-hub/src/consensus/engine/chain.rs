@@ -12,7 +12,7 @@ use super::{
     RETAINED_BLOCKS,
 };
 use crate::digest::Digest;
-use crate::validators::Signers;
+use crate::validators::{Signers, ValidatorIndex};
 
 /// How a block relates to the tip.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +66,10 @@ impl Engine {
             return digest;
         };
         let first = round.proposal.is_none();
+        let certified = [&round.notarization, &round.finalization]
+            .into_iter()
+            .flatten()
+            .any(|certificate| certificate.block == digest);
         let held = self
             .blocks
             .values()
@@ -77,10 +81,11 @@ impl Engine {
         };
         if admitted && held < BLOCKS_PER_VIEW {
             self.blocks.insert(digest, block);
-            // A certified block is kept across a restart: the chain to the
-            // highest notarized view must survive one, even below the
-            // floor. A proposal is, once we notarize it.
-            if why == Hold::Certified {
+            // A certified block is kept across a restart: what a block
+            // notarized or voted for builds on must survive one, even below
+            // the floor. So is a proposal whose certificate came first; any
+            // other once we notarize it, or its certificate comes.
+            if why == Hold::Certified || certified {
                 self.persist_block(digest);
             }
         }
@@ -217,6 +222,17 @@ impl Engine {
         let lower = self.want.as_ref().is_none_or(|(held, _)| view < *held);
         if lower {
             self.want = Some((view, from));
+        }
+    }
+
+    /// Notes that we lack what view `view` needs, and that validator
+    /// `holder` of the running set has it; from any validator if that is
+    /// us.
+    pub(super) fn want_from(&mut self, view: u64, holder: ValidatorIndex) {
+        let key = self.set().keys().get(holder.get()).copied();
+        match key.filter(|key| *key != self.public) {
+            Some(key) => self.want(view, Recipient::Validator(alloc::boxed::Box::new(key))),
+            None => self.want_from_any(view),
         }
     }
 
