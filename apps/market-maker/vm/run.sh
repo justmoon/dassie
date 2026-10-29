@@ -101,8 +101,10 @@ jq -n \
 # of bands: it gets one, with the defaults its own startup.sh had, until
 # the update timer installs a release that reads the config above. The
 # settings it reads are the metadata's, where a VM set up before has them.
-if ! "$dassie" market-maker --config "$dir/config.json" --check > /dev/null 2>&1; then
-  echo "Note: this release reads a market maker's config of bands; it gets one" >&2
+if ! checked=$("$dassie" market-maker --config "$dir/config.json" --check 2>&1); then
+  # The check's own words, in case a release that reads the curve refused
+  # the config for another reason, such as a setting out of its range.
+  echo "Note: the release refuses the config ($checked); it gets one of bands" >&2
   jq -n \
     --arg socket "$socket" \
     --arg phrase "$dir/node.phrase" \

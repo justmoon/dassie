@@ -190,10 +190,12 @@ fn note_outcome(
 }
 
 impl Wait {
-    /// The wait after `before`, from `now_ms`: the first, or twice the
-    /// last, up to the longest.
+    /// The wait after `before`, from `now_ms`: twice the last, up to the
+    /// longest, or the first after none, or after one that ended longer
+    /// ago than it lasted, which a failure long past began.
     fn after(before: Option<Self>, now_ms: u64) -> Self {
-        let length_ms = before.map_or(FIRST_WAIT_MS, |wait| {
+        let recent = before.filter(|wait| now_ms < wait.until_ms.saturating_add(wait.length_ms));
+        let length_ms = recent.map_or(FIRST_WAIT_MS, |wait| {
             wait.length_ms.saturating_mul(2).min(LONGEST_WAIT_MS)
         });
         Self {
@@ -206,7 +208,7 @@ impl Wait {
 /// A rebalance that paid, or may have, from the node's account, which the
 /// node may not have booked yet. Until it has, the holding of the asset it
 /// spent still counts what it spent, and a decision from it would spend
-/// that again: below the asset's band. It counts as booked once that
+/// that again, and take it further from even than it is. It counts as booked once that
 /// holding fell by at least what it can have cost and what the node's own
 /// move between the asset's hub and book has on its way, which lowers what
 /// the books say while it is, by up to its amount ([`Unbooked::booked`]).
@@ -414,12 +416,15 @@ impl MarketMaker {
         let now_ms = self.clock.now_ms();
         for (trade, outcome) in trades.iter().zip(outcomes) {
             let (target, from) = (trade.target, trade.from.name());
-            let promised = targets
-                .iter()
-                .find(|quote| quote.target == target)
-                .and_then(|quote| quote.quotes.out(trade.from, trade.debit));
             let paid = match outcome {
                 Ok(done) => {
+                    // What the snapshot it was decided by promised for what
+                    // was paid, which a swap that stopped partway paid less
+                    // than the trade's amount of.
+                    let promised = targets
+                        .iter()
+                        .find(|quote| quote.target == target)
+                        .and_then(|quote| quote.quotes.out(trade.from, done.paid));
                     tracing::info!(
                         target: TARGET, %target, from, debit = trade.debit,
                         least = trade.least, snapshot_receive = trade.receive,
@@ -590,7 +595,8 @@ mod tests {
 
     // spec/decisions/market-maker-inventory.md: a target whose trade failed
     // or paid nothing waits a minute, then twice as long each time again, up
-    // to half an hour; one trade through it that pays ends its wait.
+    // to half an hour; one trade through it that pays ends its wait, and a
+    // failure long after the last wait ended begins at a minute again.
     #[test]
     fn a_failing_target_waits_longer_each_time_until_a_trade_pays() {
         let target = dassie_identity::NodeId::from_bytes(&[1; dassie_identity::NODE_ID_BYTES]);
@@ -609,6 +615,13 @@ mod tests {
             lengths.push(wait.length_ms / 60_000);
         }
         assert_eq!(lengths, [1, 2, 4, 8, 16, 30, 30, 30]);
+        // A failure long after the last wait ended begins at a minute again.
+        let long_after = 100 * LONGEST_WAIT_MS;
+        note_outcome(&mut waiting, target, false, long_after);
+        assert_eq!(
+            waiting.first().map(|(_, wait)| wait.length_ms),
+            Some(FIRST_WAIT_MS)
+        );
         note_outcome(&mut waiting, other, false, 0);
         note_outcome(&mut waiting, target, true, 9);
         assert_eq!(waiting.len(), 1);

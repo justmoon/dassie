@@ -401,7 +401,7 @@ fn trades(inputs: &Inputs<'_>, valuation: &Valuation, from: &[Side]) -> Decision
     let mut chosen: Vec<Trade> = Vec::new();
     let mut hold = Hold::NoTarget;
     for _ in 0..MAX_TRADES {
-        let mut best: Option<(Trade, u128, u128)> = None;
+        let mut best: Option<(Trade, u128)> = None;
         for quote in inputs.targets {
             if chosen.iter().any(|trade| trade.target == quote.target) {
                 continue;
@@ -409,19 +409,16 @@ fn trades(inputs: &Inputs<'_>, valuation: &Valuation, from: &[Side]) -> Decision
             for &side in from {
                 match state.best_trade(inputs, quote, side) {
                     Ok(trade) => {
-                        let (gain, paid) = state.gain(trade.from, trade.debit, trade.receive);
-                        let better = best.is_none_or(|(_, best_gain, best_paid)| {
-                            gain.saturating_mul(best_paid) > best_gain.saturating_mul(paid)
-                        });
-                        if better {
-                            best = Some((trade, gain, paid));
+                        let per_paid = state.gain_ppm(trade.from, trade.debit, trade.receive);
+                        if best.is_none_or(|(_, best_per_paid)| per_paid > best_per_paid) {
+                            best = Some((trade, per_paid));
                         }
                     }
                     Err(reason) => hold = further(hold, reason),
                 }
             }
         }
-        let Some((trade, _, _)) = best else { break };
+        let Some((trade, _)) = best else { break };
         state = state.after(trade.from, trade.debit, trade.receive);
         chosen.push(trade);
     }
@@ -644,6 +641,15 @@ impl Valuation {
             .saturating_mul(after.weight(from, true))
             .saturating_mul(million + self.margin_ppm);
         (back.saturating_sub(cost), cost.max(1))
+    }
+
+    /// What paying `paid` of `from`'s asset for `received` of the other
+    /// gains per unit paid, in parts per million: the gain and what is paid
+    /// are about `10^21` for a whole unit, so their ratio, not their cross
+    /// products, is what compares two trades within 128 bits.
+    fn gain_ppm(&self, from: Side, paid: u64, received: u64) -> u128 {
+        let (gain, cost) = self.gain(from, paid, received);
+        gain.saturating_mul(u128::from(MILLION)) / cost
     }
 
     /// Whether paying `paid` of `from`'s asset for `received` of the other
@@ -1142,6 +1148,32 @@ mod tests {
                 "{trades:?}"
             );
         }
+    }
+
+    // spec/areas/rate-feed.md#trades: the trade that gains most per unit
+    // paid goes first, whatever the order of the targets, at whole units:
+    // here it takes all that is in the hub, so no other target gets one.
+    #[test]
+    fn the_target_that_pays_best_goes_first() {
+        let params = params();
+        let quotes = [
+            quote(
+                0,
+                rates(POOL_XRP_TO_TOKEN / 100 * 95, up(POOL_TOKEN_TO_XRP, 6)),
+            ),
+            quote(
+                1,
+                rates(POOL_XRP_TO_TOKEN / 100 * 95, up(POOL_TOKEN_TO_XRP, 12)),
+            ),
+        ];
+        let mut holdings = EVEN;
+        holdings.token.on_ledger = holdings.token.total - params.token_cap;
+        let trades = trades_of(decide(&inputs(&quotes, holdings, &params)));
+        let [trade] = trades.as_slice() else {
+            panic!("one trade: {trades:?}");
+        };
+        assert_eq!(trade.target, target(1));
+        assert_eq!(trade.debit, params.token_cap);
     }
 
     #[test]
