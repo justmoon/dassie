@@ -580,6 +580,7 @@ fn bare() -> BoxedStrategy<Method> {
         Method::ListDevices(proto::ListDevicesRequest {}),
         Method::ListLedgers(proto::ListLedgersRequest {}),
         Method::ListSettlementSchemes(proto::ListSettlementSchemesRequest {}),
+        Method::ListAssets(proto::ListAssetsRequest {}),
         Method::SubscribeLedgers(proto::SubscribeLedgersRequest {}),
         Method::ListBtpTokens(proto::ListBtpTokensRequest {}),
         Method::ListWalletAddresses(proto::ListWalletAddressesRequest {}),
@@ -654,6 +655,11 @@ fn ledgers() -> BoxedStrategy<Method> {
         scheme_id().prop_map(|id| {
             Method::RemoveSettlementScheme(proto::RemoveSettlementSchemeRequest { id })
         }),
+        proptest::collection::vec(
+            field(&["", "xrp", "dsusd", "usd", "rlusd", "eur", "XRP"]),
+            0..8
+        )
+        .prop_map(|names| Method::AddAssets(proto::AddAssetsRequest { names })),
         number().prop_map(|amount| Method::StubDeposit(proto::StubDepositRequest { amount })),
         scheme_id().prop_map(|settlement_scheme| {
             Method::AskFaucet(proto::AskFaucetRequest { settlement_scheme })

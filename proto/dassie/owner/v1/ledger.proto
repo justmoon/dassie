@@ -261,8 +261,8 @@ message AssetBalance {
   // hub_reserve is the hub's to spend, give or take what peers owe us or
   // we owe them.
   uint64 held_for_peers = 15;
-  // Of owner_balance, a deposit into the hub that left the owner's account
-  // and the hub has not credited yet.
+  // Of owner_balance, a move between the hub and the owner's account that
+  // left one and the other has not booked yet.
   uint64 on_its_way = 16;
 }
 

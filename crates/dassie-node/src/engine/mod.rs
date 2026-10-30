@@ -33,14 +33,15 @@ use tokio_util::sync::CancellationToken;
 #[cfg(feature = "testing")]
 pub use self::core::HubPeer;
 pub use self::core::{
-    AssetView, BalanceView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing,
-    Direction, EngineError, EngineEvent, Event, HubAccountState, HubEvent, HubEventKind, HubHold,
-    HubMoveEvent, HubOperation, HubPromise, HubStatus, HubStreamEvent, IncomingPolicy, LedgerEvent,
-    LedgerView, Lie, Measured, Move, MoveStage, NamesView, NetworkView, NewIncoming, NewOutgoing,
-    NewSwap, NewToken, NoSnapshots, Outbound, Output, OwnSnapshots, OwnerSwap, PacketEvent,
-    PaymentEvent, PeerEvent, PeerSnapshotView, PeerView, Prober, Quoting, RemovalBlocker, Role,
-    SCHEMES, SettlementEvent, Severity, SnapshotSource, SwapEnd, SwapOutcome, SwapReport, SwapSent,
-    SwapStats, TokenView, TracedPacket, ledger_realm, ledger_slug, offered,
+    ASSETS, AssetPlan, AssetView, BalanceView, BtpEvent, BtpSession, Changes, Core, CoreParts,
+    CreatedOutgoing, Direction, EngineError, EngineEvent, Event, HubAccountState, HubEvent,
+    HubEventKind, HubHold, HubMoveEvent, HubOperation, HubPromise, HubStatus, HubStreamEvent,
+    IncomingPolicy, LedgerEvent, LedgerView, Lie, Measured, Move, MoveStage, NamesView,
+    NetworkView, NewIncoming, NewOutgoing, NewSwap, NewToken, NoSnapshots, Outbound, Output,
+    OwnSnapshots, OwnerSwap, PacketEvent, PaymentEvent, PeerEvent, PeerSnapshotView, PeerView,
+    Prober, Quoting, RemovalBlocker, Role, SCHEMES, SettlementEvent, Severity, SnapshotSource,
+    SwapEnd, SwapOutcome, SwapReport, SwapSent, SwapStats, TokenView, TracedPacket, asset_offered,
+    asset_schemes, ledger_realm, ledger_slug, offered,
 };
 
 use crate::clock::clock_moved;
@@ -274,6 +275,12 @@ impl Engine {
     /// Activates a settlement scheme.
     pub async fn add_scheme(&self, id: String, config: String) -> Result<LedgerView, EngineError> {
         self.call(move |core| core.add_scheme(&id, config)).await
+    }
+
+    /// Adds assets, the schemes of each
+    /// (spec/decisions/owner-chooses-assets.md).
+    pub async fn add_assets(&self, names: Vec<String>) -> Result<Vec<LedgerView>, EngineError> {
+        self.call(move |core| core.add_assets(&names)).await
     }
 
     /// Deactivates a settlement scheme: at once, or, while peerings settle

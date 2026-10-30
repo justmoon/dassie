@@ -59,6 +59,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [open-rate-sources](open-rate-sources.md) | A node takes its rates only from sources whose terms allow its use: XRP's from mainnet's XRP/RLUSD pool, the fiat currencies' from central banks, with no peg guard until a dollar token has a price of its own (not built) | connector, xrpl, dsusd-keeper, wallet |
 | [own-books](own-books.md) | Each node keeps its own books | engineering, settlement, testing |
 | [own-fulfills](own-fulfills.md) | Each node books its own Fulfills | settlement, connector, peer-protocol |
+| [owner-chooses-assets](owner-chooses-assets.md) | The owner chooses assets, the node adds their schemes, and the balance counts everything the owner has | wallet, hubs, settlement, rpc |
 | [owner-ledger](owner-ledger.md) | Owner ledger and multi-currency accounts | ledger, connector |
 | [owners-share](owners-share.md) | Strangers never take the owner's share of a pool | payments, stream |
 | [packets-in-flight](packets-in-flight.md) | Money in flight with a peer stays within a few packets | connector, settlement |

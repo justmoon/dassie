@@ -174,6 +174,12 @@ mod tests {
             owner_pending: 0,
             spendable: 0,
             spendable_held: None,
+            account: owner_balance,
+            account_reserve: 0,
+            hub: 0,
+            hub_reserve: 0,
+            held_for_peers: 0,
+            on_its_way: 0,
         }
     }
 

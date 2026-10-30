@@ -731,8 +731,8 @@ export type AssetBalance = Message<"dassie.owner.v1.AssetBalance"> & {
   heldForPeers: bigint;
 
   /**
-   * Of owner_balance, a deposit into the hub that left the owner's account
-   * and the hub has not credited yet.
+   * Of owner_balance, a move between the hub and the owner's account that
+   * left one and the other has not booked yet.
    *
    * @generated from field: uint64 on_its_way = 16;
    */

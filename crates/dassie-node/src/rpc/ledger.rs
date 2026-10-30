@@ -29,6 +29,7 @@ pub async fn dispatch(node: &Arc<Node>, method: Method, items: &Items) -> Result
     match method {
         Method::ListTransfers(request) => return list_transfers(node, &request),
         Method::ListSettlementSchemes(_) => return list_schemes(node),
+        Method::ListAssets(_) => return list_assets(node),
         Method::GetRateSources(_) | Method::SetRateSources(_) | Method::SetDisplayCurrency(_) => {
             return super::rates::dispatch(node, method).await;
         }
@@ -47,6 +48,14 @@ pub async fn dispatch(node: &Arc<Node>, method: Method, items: &Items) -> Result
             node.wake_rates();
             response::Method::AddSettlementScheme(proto::AddSettlementSchemeResponse {
                 ledger: Some(ledger(&view)),
+            })
+        }
+        Method::AddAssets(request) => {
+            let views = engine.add_assets(request.names).await?;
+            // Their currencies may need rates.
+            node.wake_rates();
+            response::Method::AddAssets(proto::AddAssetsResponse {
+                ledgers: views.iter().map(ledger).collect(),
             })
         }
         Method::RemoveSettlementScheme(request) => {
@@ -350,6 +359,44 @@ fn list_schemes(node: &Node) -> Result<Reply, RpcError> {
     )))
 }
 
+/// The assets this node offers its owner, and any whose schemes all run
+/// (spec/decisions/owner-chooses-assets.md); answered without the engine.
+fn list_assets(node: &Node) -> Result<Reply, RpcError> {
+    let active = node
+        .store()
+        .settlement_schemes()
+        .map_err(RpcError::internal)?;
+    let is_active = |id: &str| active.iter().any(|(active, _)| active.as_str() == id);
+    let node_realm = crate::engine::ledger_realm(node.config().realm);
+    let assets = crate::engine::ASSETS
+        .iter()
+        .filter(|plan| plan.realm == node_realm)
+        .filter_map(|plan| {
+            let all_active = plan.schemes.iter().all(|id| is_active(id));
+            if !all_active && !crate::engine::asset_offered(plan, node_realm) {
+                return None;
+            }
+            let ledger = crate::engine::SCHEMES
+                .iter()
+                .find(|info| plan.schemes.first() == Some(&info.id))?
+                .ledger;
+            let asset = ledger.asset();
+            Some(proto::AssetInfo {
+                name: plan.name.into(),
+                asset_code: asset.code.into(),
+                asset_scale: asset.scale.into(),
+                realm: realm(plan.realm).into(),
+                schemes: plan.schemes.iter().map(|id| (*id).into()).collect(),
+                needs: plan.needs.iter().map(|name| (*name).into()).collect(),
+                active: all_active,
+            })
+        })
+        .collect();
+    Ok(Reply::Unary(response::Method::ListAssets(
+        proto::ListAssetsResponse { assets },
+    )))
+}
+
 fn cap(cap: &proto::SpendingCap) -> dassie_connector::SpendingCap {
     dassie_connector::SpendingCap {
         amount: cap.amount,
@@ -472,6 +519,12 @@ pub(super) fn balance(view: &BalanceView) -> proto::AssetBalance {
         realm: realm(first.map_or(dassie_ledger::Realm::Test, |ledger| ledger.realm())).into(),
         spendable: u64::try_from(view.spendable).unwrap_or(u64::MAX),
         spendable_held: view.spendable_held.unwrap_or_default().into(),
+        account: saturate(view.account),
+        account_reserve: u64::try_from(view.account_reserve).unwrap_or(u64::MAX),
+        hub: saturate(view.hub),
+        hub_reserve: u64::try_from(view.hub_reserve).unwrap_or(u64::MAX),
+        held_for_peers: u64::try_from(view.held_for_peers).unwrap_or(u64::MAX),
+        on_its_way: u64::try_from(view.on_its_way).unwrap_or(u64::MAX),
     }
 }
 
@@ -562,6 +615,7 @@ fn blocker(blocker: &RemovalBlocker) -> proto::LedgerRemovalBlocker {
         RemovalBlocker::BtpTokens(count) => (Kind::BtpTokens, count),
         RemovalBlocker::OutgoingPayments(count) => (Kind::OutgoingPayments, count),
         RemovalBlocker::HubMove => (Kind::HubMove, 1),
+        RemovalBlocker::HubFunds(count) => (Kind::HubFunds, count),
     };
     proto::LedgerRemovalBlocker {
         kind: kind.into(),

@@ -73,6 +73,162 @@ pub const SCHEMES: &[SchemeInfo] = &[
     },
 ];
 
+/// An asset the owner may hold: the settlement schemes that hold it, in the
+/// order the node adds them, and the assets it needs
+/// (spec/decisions/owner-chooses-assets.md). The owner chooses assets, never
+/// schemes: an asset on the XRP Ledger is the owner book of the owner's own
+/// account, then the hub over it, since peers settle only over hubs
+/// (spec/decisions/hubs-only.md), and a hub moves funds only while its
+/// books run ([`super::hub_moves::owner_book_ledger`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AssetPlan {
+    /// As its wallet address ends: [`LedgerId::wallet_name`] of each of its
+    /// ledgers.
+    pub name: &'static str,
+    /// The realm of its ledgers, the only one it is offered in.
+    pub realm: Realm,
+    /// Its schemes, in the order they are added: the owner book, then the
+    /// hub that funds from it.
+    pub schemes: &'static [&'static str],
+    /// The assets, by name, added before it: a token's, whose ledger pays
+    /// its fees, its reserve and its hub escrow's gas in the ledger's own
+    /// asset ([`super::hub_moves::gas_book_ledger`]). None needs another.
+    pub needs: &'static [&'static str],
+}
+
+/// Every asset the owner may hold, in a fixed order: the stub's dollars,
+/// then each realm's XRP before the token that needs it.
+pub const ASSETS: &[AssetPlan] = &[
+    AssetPlan {
+        name: "usd",
+        realm: Realm::Test,
+        schemes: &["stub"],
+        needs: &[],
+    },
+    AssetPlan {
+        name: "xrp",
+        realm: Realm::Test,
+        schemes: &[
+            dassie_xrpl::scheme::SCHEME_ID,
+            dassie_hub::member::SCHEME_ID,
+        ],
+        needs: &[],
+    },
+    AssetPlan {
+        name: "dsusd",
+        realm: Realm::Test,
+        schemes: &[
+            dassie_xrpl::dsusd::SCHEME_ID,
+            dassie_hub::member::DSUSD_SCHEME_ID,
+        ],
+        needs: &["xrp"],
+    },
+    AssetPlan {
+        name: "xrp",
+        realm: Realm::Live,
+        schemes: &[
+            dassie_xrpl::scheme::MAINNET_SCHEME_ID,
+            dassie_hub::member::MAINNET_SCHEME_ID,
+        ],
+        needs: &[],
+    },
+    AssetPlan {
+        name: "rlusd",
+        realm: Realm::Live,
+        schemes: &[
+            dassie_xrpl::rlusd::SCHEME_ID,
+            dassie_hub::member::RLUSD_SCHEME_ID,
+        ],
+        needs: &["xrp"],
+    },
+];
+
+/// The asset named `name` in `realm`, if there is one.
+#[must_use]
+pub fn asset_plan(name: &str, realm: Realm) -> Option<&'static AssetPlan> {
+    ASSETS
+        .iter()
+        .find(|plan| plan.name == name && plan.realm == realm)
+}
+
+/// Whether the owner of a node of `realm` may add `plan`: one of its realm
+/// whose every scheme is [`offered`], so the stub only in a build that runs
+/// it, and an asset over a hub only while a default hub of it is built in.
+#[must_use]
+pub fn asset_offered(plan: &AssetPlan, realm: Realm) -> bool {
+    asset_offered_in(plan, realm, &DEFAULT_HUBS)
+}
+
+/// [`asset_offered`], with the default hubs `hubs` built in.
+fn asset_offered_in(plan: &AssetPlan, realm: Realm, hubs: &DefaultHubs) -> bool {
+    plan.realm == realm
+        && plan.schemes.iter().all(|id| {
+            SCHEMES
+                .iter()
+                .find(|info| info.id == *id)
+                .is_some_and(|info| offered_in(info, realm, hubs))
+        })
+}
+
+/// The schemes adding the assets `names` of `realm` adds, in order, each
+/// once: each asset's needs before it. An unknown name, or none, is
+/// refused, as is one not [`asset_offered`] unless `active` says all its
+/// schemes run already; `active` tells which run, which are left out.
+///
+/// # Errors
+///
+/// No name, more than there are assets, an unknown one, or one not
+/// offered.
+pub fn asset_schemes(
+    names: &[String],
+    realm: Realm,
+    active: impl Fn(&str) -> bool,
+) -> Result<Vec<&'static str>, EngineError> {
+    asset_schemes_in(names, realm, active, &DEFAULT_HUBS)
+}
+
+/// [`asset_schemes`], with the default hubs `hubs` built in.
+pub(super) fn asset_schemes_in(
+    names: &[String],
+    realm: Realm,
+    active: impl Fn(&str) -> bool,
+    hubs: &DefaultHubs,
+) -> Result<Vec<&'static str>, EngineError> {
+    if names.is_empty() || names.len() > ASSETS.len() {
+        return Err(EngineError::Invalid(
+            "name between one and all of the assets".into(),
+        ));
+    }
+    let mut plans: Vec<&'static AssetPlan> = Vec::new();
+    for name in names {
+        let plan = asset_plan(name, realm)
+            .ok_or_else(|| EngineError::Invalid(format!("no asset {name} here")))?;
+        for need in plan.needs {
+            let needed = asset_plan(need, realm)
+                .ok_or_else(|| EngineError::Internal("an asset needs one not here".into()))?;
+            assert!(needed.needs.is_empty(), "an asset needed needs none");
+            if !plans.contains(&needed) {
+                plans.push(needed);
+            }
+        }
+        if !plans.contains(&plan) {
+            plans.push(plan);
+        }
+    }
+    let mut schemes = Vec::new();
+    for plan in plans {
+        let all_active = plan.schemes.iter().all(|id| active(id));
+        if !all_active && !asset_offered_in(plan, realm, hubs) {
+            return Err(EngineError::Precondition(format!(
+                "the node does not offer {}",
+                plan.name
+            )));
+        }
+        schemes.extend(plan.schemes.iter().copied().filter(|id| !active(id)));
+    }
+    Ok(schemes)
+}
+
 /// The schemes over a settlement hub, one per network and asset
 /// (spec/decisions/hub-scheme-names.md).
 const HUB_SCHEMES: [&str; 4] = [
@@ -1780,5 +1936,141 @@ mod tests {
                 .iter()
                 .any(|scheme| scheme.as_str() == id)
         );
+    }
+
+    /// The ledger of scheme `id`.
+    fn ledger_of(id: &str) -> LedgerId {
+        SCHEMES.iter().find(|info| info.id == id).unwrap().ledger
+    }
+
+    // spec/decisions/owner-chooses-assets.md: an asset is the owner book of
+    // its ledger, then the hub that funds from it, each named by the asset
+    // in its realm; a token needs the asset its fees and its hub's gas are
+    // paid in. Every scheme the node runs is an asset's, once.
+    #[test]
+    fn each_asset_is_its_owner_book_then_its_hub() {
+        use super::super::hub_moves::{gas_book_ledger, owner_book_ledger};
+
+        for plan in ASSETS {
+            let ledgers: Vec<LedgerId> = plan.schemes.iter().map(|id| ledger_of(id)).collect();
+            for ledger in &ledgers {
+                assert_eq!(ledger.wallet_name(), plan.name, "{}", plan.name);
+                assert_eq!(ledger.realm(), plan.realm, "{}", plan.name);
+            }
+            assert_eq!(
+                ASSETS
+                    .iter()
+                    .filter(|other| other.name == plan.name && other.realm == plan.realm)
+                    .count(),
+                1
+            );
+            let [book, hub] = ledgers[..] else {
+                assert_eq!(plan.schemes, ["stub"]);
+                assert!(plan.needs.is_empty());
+                continue;
+            };
+            assert!(!book.is_hub() && hub.is_hub(), "{}", plan.name);
+            assert_eq!(owner_book_ledger(hub), Some(book), "{}", plan.name);
+            let gas = gas_book_ledger(hub).unwrap();
+            if gas == book {
+                assert!(plan.needs.is_empty(), "{}", plan.name);
+            } else {
+                let [need] = plan.needs else {
+                    panic!("{} needs the asset of its gas", plan.name);
+                };
+                let needed = asset_plan(need, plan.realm).unwrap();
+                assert!(needed.needs.is_empty());
+                assert_eq!(ledger_of(needed.schemes[0]), gas, "{}", plan.name);
+            }
+        }
+        for info in SCHEMES {
+            assert_eq!(
+                ASSETS
+                    .iter()
+                    .filter(|plan| plan.schemes.contains(&info.id))
+                    .count(),
+                1,
+                "{}",
+                info.id
+            );
+        }
+    }
+
+    // Adding DSUSD adds the XRP it needs first, each scheme once however the
+    // assets are named, and nothing that runs already.
+    #[test]
+    fn an_asset_adds_what_it_needs_first() {
+        use dassie_hub::member::{DSUSD_SCHEME_ID, SCHEME_ID as XRP_HUB};
+        use dassie_xrpl::{dsusd, scheme};
+
+        let none = |_: &str| false;
+        let names = |names: &[&str]| -> Vec<String> {
+            names.iter().map(|name| (*name).to_string()).collect()
+        };
+        let dsusd_first = asset_schemes(&names(&["dsusd"]), Realm::Test, none);
+        let all = [
+            scheme::SCHEME_ID,
+            XRP_HUB,
+            dsusd::SCHEME_ID,
+            DSUSD_SCHEME_ID,
+        ];
+        // What this build's default hubs offer decides.
+        let offered_here =
+            |name: &str| asset_offered(asset_plan(name, Realm::Test).unwrap(), Realm::Test);
+        if offered_here("dsusd") {
+            assert_eq!(dsusd_first.unwrap(), all);
+            assert_eq!(
+                asset_schemes(&names(&["dsusd", "xrp"]), Realm::Test, none).unwrap(),
+                all
+            );
+        } else {
+            assert!(matches!(dsusd_first, Err(EngineError::Precondition(_))));
+        }
+        // What runs already is left out, and an asset whose schemes all run
+        // is no refusal, offered or not.
+        let book = |id: &str| id == scheme::SCHEME_ID;
+        if offered_here("xrp") {
+            assert_eq!(
+                asset_schemes(&names(&["xrp"]), Realm::Test, book).unwrap(),
+                [XRP_HUB]
+            );
+        }
+        for realm in [Realm::Test, Realm::Live] {
+            let every = |_: &str| true;
+            let mine: Vec<String> = ASSETS
+                .iter()
+                .filter(|plan| plan.realm == realm)
+                .map(|plan| plan.name.to_string())
+                .collect();
+            assert!(asset_schemes(&mine, realm, every).unwrap().is_empty());
+        }
+        for refused in [&[][..], &["eur"], &["dsusd"; 6]] {
+            assert!(matches!(
+                asset_schemes(&names(refused), Realm::Test, none),
+                Err(EngineError::Invalid(_))
+            ));
+        }
+        assert!(matches!(
+            asset_schemes(&names(&["dsusd"]), Realm::Live, none),
+            Err(EngineError::Invalid(_))
+        ));
+    }
+
+    // An asset is offered while every scheme it adds is: the stub's dollars
+    // in a build that runs the stub, and an asset over a hub only while a
+    // default hub of it is built in; never in the other realm.
+    #[test]
+    fn an_asset_is_offered_while_its_schemes_are() {
+        for plan in ASSETS {
+            for realm in [Realm::Test, Realm::Live] {
+                let every = plan
+                    .schemes
+                    .iter()
+                    .all(|id| offered(SCHEMES.iter().find(|info| info.id == *id).unwrap(), realm));
+                assert_eq!(asset_offered(plan, realm), every && plan.realm == realm);
+            }
+        }
+        let stub = asset_plan("usd", Realm::Test).unwrap();
+        assert!(asset_offered(stub, Realm::Test), "tests run the stub");
     }
 }

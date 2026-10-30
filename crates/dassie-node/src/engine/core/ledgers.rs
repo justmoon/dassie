@@ -167,8 +167,11 @@ pub struct BalanceView {
     /// The ledger the owner's payments in it start on: the one whose scheme
     /// peers, a hub's where the node is in one; `None` while none does.
     pub pays_from: Option<LedgerId>,
-    /// What the owner has of it, on all its ledgers and on its way between
-    /// them.
+    /// Everything the owner has of it: what its ledgers' books hold, a move
+    /// between them on its way, and the reserves the ledgers hold back,
+    /// which the books never count: [`account`](Self::account),
+    /// [`hub`](Self::hub) and [`on_its_way`](Self::on_its_way) together
+    /// (spec/decisions/one-balance-per-asset.md).
     pub owner_balance: i128,
     /// What packets in flight hold of it.
     pub owner_pending: u128,
@@ -180,6 +183,22 @@ pub struct BalanceView {
     /// Why that is less than the balance, where the owner book does not
     /// count toward it, for the owner to read.
     pub spendable_held: Option<&'static str>,
+    /// Of the balance, what is in the owner's own account: its books on
+    /// every ledger of the asset that is no hub's, and their reserves.
+    pub account: i128,
+    /// Of [`account`](Self::account), the reserves.
+    pub account_reserve: u128,
+    /// Of the balance, what is in its settlement hub: the hub ledger's
+    /// books, which count our holds toward peers, and its reserves.
+    pub hub: i128,
+    /// Of [`hub`](Self::hub), the account's reserve and our holds'.
+    pub hub_reserve: u128,
+    /// Of [`hub`](Self::hub), what our holds toward peers still hold, as
+    /// the hub last agreed.
+    pub held_for_peers: u128,
+    /// Of the balance, a move between the hub and the owner's account that
+    /// left one and the other has not booked yet.
+    pub on_its_way: u128,
 }
 
 /// What keeps a scheme from being removed, with how many. Peerings that
@@ -194,6 +213,10 @@ pub enum RemovalBlocker {
     /// A move between its hub and the owner book of the hub's asset is on
     /// its way: the move is its account's in that hub.
     HubMove,
+    /// Settlement hubs the node is in fund from it, as the owner book of
+    /// their asset or of the XRP their escrow's fees take: how many. An
+    /// asset goes hub first (spec/decisions/owner-chooses-assets.md).
+    HubFunds(u32),
 }
 
 impl RemovalBlocker {
@@ -204,6 +227,7 @@ impl RemovalBlocker {
             Self::BtpTokens(_) => "BTP tokens use its ledger",
             Self::OutgoingPayments(_) => "outgoing payments from its ledger have not finished",
             Self::HubMove => "a move between its hub and the owner book is on its way",
+            Self::HubFunds(_) => "settlement hubs fund from it: remove them first",
         }
     }
 }
@@ -371,6 +395,32 @@ impl Core {
         self.reconcile_owner_payments();
         self.ledger_view(ledger)
             .ok_or_else(|| EngineError::Internal("the ledger vanished".into()))
+    }
+
+    /// Adds the assets `names` of the node's realm
+    /// (spec/decisions/owner-chooses-assets.md): each one's needs first, then
+    /// each of its schemes not yet active, in order, as
+    /// [`add_scheme`](Self::add_scheme) with no config would. The ledgers it
+    /// added, in that order. Not all or none: what was added stays if a
+    /// later scheme fails, and asking again adds the rest.
+    ///
+    /// # Errors
+    ///
+    /// As [`super::schemes::asset_schemes`], before anything is added; then
+    /// as [`add_scheme`](Self::add_scheme).
+    pub fn add_assets(&mut self, names: &[String]) -> Result<Vec<LedgerView>, EngineError> {
+        let realm = super::ledger_realm(self.realm);
+        let schemes = super::schemes::asset_schemes_in(
+            names,
+            realm,
+            |id| Name::new(id).is_ok_and(|id| self.schemes.contains_key(&id)),
+            &self.settle.default_hubs,
+        )?;
+        let mut added = Vec::with_capacity(schemes.len());
+        for id in schemes {
+            added.push(self.add_scheme(id, String::new())?);
+        }
+        Ok(added)
     }
 
     /// Starts a scheme: makes it and the external asset it settles through,
@@ -1263,11 +1313,29 @@ impl Core {
                 usize::from(self.hub_move_on_its_way(id)),
                 RemovalBlocker::HubMove,
             ),
+            (
+                self.hubs_funding_from(ledger),
+                RemovalBlocker::HubFunds(count(self.hubs_funding_from(ledger))),
+            ),
         ]
         .into_iter()
         .filter(|(n, _)| *n > 0)
         .map(|(_, blocker)| blocker)
         .collect()
+    }
+
+    /// How many of the node's hubs fund from the owner book on `ledger`, as
+    /// the book of their asset or of their escrow's gas, one being removed
+    /// included: each moves funds through it until it is gone.
+    fn hubs_funding_from(&self, ledger: LedgerId) -> usize {
+        self.schemes
+            .values()
+            .map(|active| active.scheme.ledger())
+            .filter(|hub| {
+                super::hub_moves::owner_book_ledger(*hub) == Some(ledger)
+                    || super::hub_moves::gas_book_ledger(*hub) == Some(ledger)
+            })
+            .count()
     }
 
     /// The owner's balance in each asset of `views`, in their order: what
@@ -1288,6 +1356,12 @@ impl Core {
                         owner_pending: 0,
                         spendable: 0,
                         spendable_held: None,
+                        account: 0,
+                        account_reserve: 0,
+                        hub: 0,
+                        hub_reserve: 0,
+                        held_for_peers: 0,
+                        on_its_way: 0,
                     });
                     balances.len() - 1
                 }
@@ -1302,9 +1376,7 @@ impl Core {
                     .is_none_or(|first| first.asset() == view.id.asset()),
                 "an asset's ledgers count alike"
             );
-            balance.ledgers.push(view.id);
-            balance.owner_balance = balance.owner_balance.saturating_add(view.owner_balance);
-            balance.owner_pending = balance.owner_pending.saturating_add(view.owner_pending);
+            self.count_ledger(balance, view);
             let peers = self
                 .schemes
                 .values()
@@ -1323,6 +1395,7 @@ impl Core {
             {
                 let gone = i128::try_from(on_its_way.gone).unwrap_or(i128::MAX);
                 balance.owner_balance = balance.owner_balance.saturating_add(gone);
+                balance.on_its_way = balance.on_its_way.saturating_add(on_its_way.gone);
                 balance.owner_pending = balance.owner_pending.saturating_sub(on_its_way.held);
             }
         }
@@ -1335,6 +1408,50 @@ impl Core {
             }
         }
         balances
+    }
+
+    /// Counts the ledger of `view` toward `balance`, of its asset: its books
+    /// and the reserve it holds back, in the account or in the hub.
+    fn count_ledger(&self, balance: &mut BalanceView, view: &LedgerView) {
+        balance.ledgers.push(view.id);
+        let reserve = self.reserve_counted(view);
+        let has = view.owner_balance.saturating_add(i128::from(reserve));
+        balance.owner_balance = balance.owner_balance.saturating_add(has);
+        balance.owner_pending = balance.owner_pending.saturating_add(view.owner_pending);
+        if view.id.is_hub() {
+            balance.hub = balance.hub.saturating_add(has);
+            balance.hub_reserve = balance.hub_reserve.saturating_add(u128::from(reserve));
+            balance.held_for_peers = balance
+                .held_for_peers
+                .saturating_add(self.held_for_peers(&view.scheme));
+        } else {
+            balance.account = balance.account.saturating_add(has);
+            balance.account_reserve = balance.account_reserve.saturating_add(u128::from(reserve));
+        }
+    }
+
+    /// What the ledger of `view` holds back that is the owner's, which the
+    /// books never count: its reserve, once its account exists. An account
+    /// that waits for funds holds nothing back yet.
+    fn reserve_counted(&self, view: &LedgerView) -> u64 {
+        if view.status == LedgerStatus::Unfunded {
+            0
+        } else {
+            view.reserve
+        }
+    }
+
+    /// What our holds toward peers in the hub of scheme `scheme` still hold,
+    /// in its ledger's units, as the hub last agreed; nothing while the
+    /// scheme does not run or its account is not read up to date.
+    fn held_for_peers(&self, scheme: &str) -> u128 {
+        Name::new(scheme)
+            .ok()
+            .and_then(|scheme| self.hub_account(scheme))
+            .and_then(Self::held)
+            .map_or(0, |held| {
+                u128::from(held.ours) * u128::from(dassie_hub::member::UNITS_PER_DROP)
+            })
     }
 
     fn ledger_view(&self, ledger: LedgerId) -> Option<LedgerView> {
