@@ -1864,6 +1864,15 @@
   ],
   "releases": [
     {
+      "version": "0.4.5",
+      "date": "2026-10-30",
+      "changes": [
+        "A payment that fixes what the recipient gets now arrives in full, with no wait at the end. Its last packet could fit nothing that delivers a whole unit, so the payment sat just short, as at 0.9999 of 1 XRP, for a minute until its connection timed out. Now the last packet rounds up instead.",
+        "A payment you receive counts as paid only once its whole amount has arrived, never a little short of it. It may arrive a hair over, less than half a ten-thousandth of a unit, so it still reads as its amount to four decimal places.",
+        "Leaving a settlement hub that you were already leaving carries on after the node restarts, rather than saying the hub has not ended. `dassie hub status` reminds you to copy the hub's payout with `dassie hub payout <scheme>` before you leave."
+      ]
+    },
+    {
       "version": "0.4.4",
       "date": "2026-10-29",
       "changes": [
