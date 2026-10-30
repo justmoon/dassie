@@ -564,6 +564,7 @@ test(
       await signInWallet(page, node);
       assertEquals(await text(page, "node-id"), node.id);
       await text(page, "testnet-alert");
+      await picture(page, "00-choose-assets");
       // XRP starts ticked where the node offers it: only the stub's
       // dollars here.
       await text(page, "choose-asset-usd");
@@ -697,6 +698,44 @@ test(
         ([shown, reported]) => shown === reported,
       );
       await picture(page, "10-hubs");
+
+      // The asset's page and the dashboard: everything the owner has of
+      // XRP, the hold toward the peer a part of what is in the hub
+      // (spec/decisions/owner-chooses-assets.md).
+      const xrp = async () =>
+        (await member.rpc.call("listLedgers", {})).balances.find((balance) =>
+          balance.name === "xrp"
+        )!;
+      await scenario.until(
+        "the hold is counted in the hub",
+        async () => (await xrp()).heldForPeers > 0n,
+        HUB_WITHIN_MS,
+      );
+      const parts = await xrp();
+      assertEquals(
+        parts.ownerBalance,
+        parts.account + parts.hub + BigInt(parts.onItsWay),
+      );
+      assert(parts.accountReserve > 0n && parts.hubReserve > 0n, "reserves");
+      await visit(page, member, "/assets/xrp");
+      await until(
+        page,
+        "the balance shows",
+        async () => [
+          await attribute(page, "asset-balance-xrp", "data-value"),
+          `${(await xrp()).ownerBalance}`,
+        ],
+        ([shown, reported]) => shown === reported,
+      );
+      await text(page, "asset-part-account");
+      await text(page, "asset-part-hub");
+      await text(page, "asset-spendable");
+      await picture(page, "10-asset");
+      await visit(page, member, "/");
+      await text(page, "balance-xrp");
+      await picture(page, "10-dashboard");
+      await click(page, "nav-hubs");
+      await text(page, `hub-balance-${id}`);
 
       // 1 XRP, at the hub ledger's scale 9.
       const deposit = 1_000_000_000n;

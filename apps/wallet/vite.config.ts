@@ -22,6 +22,9 @@ export default defineConfig(({ mode }) => {
       // still finds the page.
       emptyOutDir: !dev,
       target: "esnext",
+      // Content-hashed files go under /static/, which the node caches for a
+      // year: /assets/ is the wallet's own route, to each asset's page.
+      assetsDir: "static",
       // Every asset is a file of its own. A `data:` URL would be refused by
       // the CSP's `connect-src 'self'` when the WASM module is fetched.
       assetsInlineLimit: 0,

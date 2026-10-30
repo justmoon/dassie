@@ -144,9 +144,9 @@ test("a balance is broken down by place, with what each sets aside", () => {
     },
     {
       id: "on-its-way",
-      label: "On its way into the hub",
+      label: "On its way",
       amount: 500_000n,
-      sub: ["A deposit the hub has not credited yet."],
+      sub: ["Moving between your account and the hub."],
     },
   ]);
   assertEquals(showsSpendable(xrpBalance), true);

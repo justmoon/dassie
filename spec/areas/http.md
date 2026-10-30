@@ -28,7 +28,7 @@ A node reached through a relay ([Peer protocol](peer-protocol.md#relayed-streams
 
 ### The wallet's files
 
-The wallet ([wallet.md](wallet.md)) is embedded in the binary (`dassie-wallet-assets`, [Node](node.md)) and served for any other `GET` (`http/assets.rs`). A path that names no file gets `index.html`, for the wallet's own routes, except under `/assets/`, where a missing file stays 404. Vite's content-hashed files under `/assets/` are cached as immutable, and everything else, `index.html` included, is revalidated, so a new build shows at once. A dev node serves a watch build from a directory instead ([dev.md](dev.md)), under the same policy.
+The wallet ([wallet.md](wallet.md)) is embedded in the binary (`dassie-wallet-assets`, [Node](node.md)) and served for any other `GET` (`http/assets.rs`). A path that names no file gets `index.html`, for the wallet's own routes, `/assets/` among them, except under `/static/`, where a missing file stays 404. Vite's content-hashed files under `/static/` are cached as immutable, and everything else, `index.html` included, is revalidated, so a new build shows at once. A dev node serves a watch build from a directory instead ([dev.md](dev.md)), under the same policy.
 
 ## Front doors
 

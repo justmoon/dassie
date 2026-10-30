@@ -132,7 +132,7 @@ function parts(entries: readonly [bigint, string][]): Segment[] {
 /**
  * An asset's balance by place: the owner's own account, with its reserve;
  * the settlement hub, with what is to spend, what is held for peers and
- * the hub's reserves; and a deposit on its way into the hub. A place the
+ * the hub's reserves; and a move between the two on its way. A place the
  * asset has no ledger in is left out, so the stub's dollars, which have
  * neither, have no rows: their headline is all there is.
  */
@@ -173,9 +173,9 @@ export function breakdownRows(balance: AssetBalance): BreakdownRow[] {
   if (balance.onItsWay > 0n) {
     rows.push({
       id: "on-its-way",
-      label: "On its way into the hub",
+      label: "On its way",
       amount: balance.onItsWay,
-      sub: ["A deposit the hub has not credited yet."],
+      sub: ["Moving between your account and the hub."],
     });
   }
   return rows;
