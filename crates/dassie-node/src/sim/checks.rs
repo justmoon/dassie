@@ -115,7 +115,7 @@ pub fn check_incoming(sim: &Sim, payment: &Payment) -> Result<(), Outcome> {
     }
     // One that expired first got what it got, never more than its limit.
     let scale = row.ledger.asset().scale;
-    let full = paid_in_full(payment.limit, row.received_amount, scale);
+    let full = paid_in_full(payment.limit, row.received_amount);
     let ceiling = payment
         .limit
         .map(|limit| limit + payment_tolerance(Some(limit), scale));
@@ -689,8 +689,8 @@ fn check_outgoing_payment(
             ),
         ));
     }
-    // Completed, it has all it asked for, to within the tolerance.
-    if !paid_in_full(Some(asked.value), received, asked.asset_scale) {
+    // Completed, it has all it asked for, or up to the tolerance more.
+    if !paid_in_full(Some(asked.value), received) {
         return Err(Outcome::liveness(
             "outgoing",
             format!(

@@ -305,6 +305,72 @@ fn a_converting_packet_takes_its_hops_method() {
     crate::sim::checks::check_hub_packets(&sim).unwrap();
 }
 
+// A payment that fixes what it delivers, across currencies, delivers all
+// of it, or up to its tolerance more, and ends as soon as its last packet
+// lands: the last units go at once, rounded up within the tolerance,
+// rather than the receiver counting it paid short, or the payment waiting
+// for its connection to go idle (spec/decisions/paid-within-a-tolerance.md).
+#[test]
+fn a_payment_across_currencies_delivers_its_last_units_at_once() {
+    let mut sim = line(54, true);
+    // An XRP, in billionths: under half a ten-thousandth of one over it.
+    let xrp = 1_000_000_000;
+    let tolerance = 49_999;
+    let mut incoming = None;
+    sim.step(2, |core| {
+        let payment = core
+            .create_incoming_payment(NewIncoming {
+                ledger: HUB,
+                wallet_address: "https://sim.example/.well-known/pay".into(),
+                client: None,
+                incoming_amount: Some(xrp),
+                expires_at_ms: None,
+                metadata: None,
+                uplink: None,
+            })
+            .unwrap();
+        incoming = Some(payment);
+    });
+    let incoming = incoming.unwrap();
+    let mut outgoing = None;
+    sim.step(0, |core| {
+        let created = core
+            .create_outgoing_payment(NewOutgoing {
+                ledger: USD,
+                wallet_address: "https://sim.example/.well-known/pay".into(),
+                client: None,
+                grant: None,
+                quote_id: None,
+                receiver: format!("https://n2.test/incoming-payments/{}", incoming.id),
+                destination: incoming.ilp_address.clone(),
+                shared_secret: incoming.shared_secret,
+                // Two dollars an XRP, and a tenth more for the fees.
+                debit_amount: 2_200_000_000,
+                receive_amount: ForeignAmount {
+                    value: xrp,
+                    asset_code: HUB.asset().code.into(),
+                    asset_scale: 9,
+                },
+                metadata: None,
+                recipient: None,
+                fixed_debit: false,
+            })
+            .unwrap();
+        outgoing = Some(created.row.id);
+    });
+    sim.outgoing.push((0, 2, incoming.id, outgoing.unwrap()));
+    let started = sim.now;
+    let (state, received) = ended(&mut sim, 0);
+    assert_eq!(state, OutgoingState::Completed);
+    assert!(
+        (xrp..=xrp + tolerance).contains(&received),
+        "received {received} of {xrp}"
+    );
+    let took = sim.now - started;
+    assert!(took < 30_000, "took {took} ms");
+    crate::sim::checks::check_hub_packets(&sim).unwrap();
+}
+
 // What a hop earned weighs per peer and ledger: node 1 charges a fee, and
 // the fees of a dollar payment count toward node 2's method in dollars
 // alone, those of a payment in the hub toward its method there.

@@ -241,10 +241,12 @@ while (!payment.completed &amp;&amp; new Date(payment.expiresAt) &gt; new Date()
 console.log(payment.completed, payment.receivedAmount);</code></pre>
       <pre><code><span class="output">true { value: '2000000000', assetCode: 'XRP', assetScale: 9 }</span></code></pre>
       <p>
-        <code>completed</code> turns true once what arrived is within a tiny
-        tolerance of what you asked for, a ten-thousandth of a unit at most.
-        So <code>receivedAmount</code> can be a hair under or over
-        <code>incomingAmount</code>; it is always what really arrived.
+        <code>completed</code> turns true once what you asked for has
+        arrived, never before. The last packet may round up past it, by less
+        than half a ten-thousandth of a unit, so <code>receivedAmount</code>
+        can be a hair over <code>incomingAmount</code>, never under, and
+        reads as it to four decimal places. It is always what really
+        arrived.
       </p>
       <p class="why">
         <a

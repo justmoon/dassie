@@ -26,8 +26,9 @@ export function incomingState(
 }
 
 /** What it shows it received: its amount once that is paid in full, as
- * the node counts what lands within a tolerance of it, under or over
- * (spec/decisions/paid-within-a-tolerance.md); else what arrived. */
+ * the node counts what lands on it or a hair over it, which reads as the
+ * amount to four decimal places (spec/decisions/paid-within-a-tolerance.md);
+ * else what arrived. */
 export function shownReceived(
   payment: {
     incomingAmount?: bigint;

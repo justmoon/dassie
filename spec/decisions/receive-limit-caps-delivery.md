@@ -27,7 +27,8 @@ Under a grant with a receive limit, a payment delivers no more than its receive 
 - A rate learned from a small packet understates what a larger one gets after rounding, so the larger one can overshoot by about a unit per hop.
 - The least packet sent when half the cap fits none overshoots by however much better than the payment's rate the path is: the least packet is a unit or a few.
 - After a restart the payment knows only what it sent, at its own rate. On a better path more got there, so the first packet of the new connection can overshoot by that difference, halved, until the receiver's first reply says what it has.
-- A payment can stop short of its cap by less than the least packet that delivers a unit: a unit or two.
+- The last packet rounds up within the receive amount's tolerance, so a payment lands on its cap or past it by less than half a ten-thousandth of a unit, and the receive limit with it ([paid-within-a-tolerance](paid-within-a-tolerance.md)).
+- Where rounding up does not fit the tolerance, a payment can stop short of its cap by less than the least packet that delivers a unit: a unit or two.
 - The node trusts what the receiver reports. A receiver that reports less than arrived is paid more, up to the payment's debit, which the debit limit still bounds.
 
 ## Rejected

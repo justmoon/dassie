@@ -333,6 +333,13 @@ impl Connection {
                     {
                         self.learn_rate(received, slot.source_amount);
                     }
+                    // A receiver that refuses money may take nothing over
+                    // what is left: its streams land short from now on.
+                    for &(id, _) in &slot.money {
+                        if let Some(stream) = self.stream_mut(id) {
+                            stream.delivery_tolerance = 0;
+                        }
+                    }
                     // The receiver refused; its new limits are applied, but
                     // sending again at once could repeat the refusal.
                     self.back_off_for(now, slot);

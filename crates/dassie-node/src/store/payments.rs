@@ -313,7 +313,7 @@ impl Store {
                 .map(|amount| u64::try_from(amount).map_err(|_| corrupt()))
                 .transpose()?;
             let paid = u64::try_from(paid).map_err(|_| corrupt())?;
-            let full = paid_in_full(amount, paid, ledger.asset().scale);
+            let full = paid_in_full(amount, paid);
             let received = connections
                 .query_map([id.0.as_slice()], |row| {
                     Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?))

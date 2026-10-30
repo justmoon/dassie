@@ -541,6 +541,19 @@ impl Connection {
         Ok(())
     }
 
+    /// Lets a stream's last packet deliver up to `amount` more than what
+    /// is left, in the remote's units, as a receiver that takes a payment
+    /// within a tolerance does: the packet rounds up to land on what is
+    /// left, rather than short of it, when that stays within `amount`.
+    /// Once the remote refuses a packet of the stream, it lands short
+    /// instead, as a receiver that takes nothing over needs
+    /// (spec/areas/stream.md#sending).
+    pub fn set_delivery_tolerance(&mut self, id: u64, amount: u64) -> Result<(), StreamError> {
+        let stream = self.open_stream_mut(id)?;
+        stream.delivery_tolerance = amount;
+        Ok(())
+    }
+
     /// Says the remote received at least `amount` on a stream already, in
     /// its units, as over an earlier connection with the same credentials:
     /// until the remote says more, the stream counts that as delivered, so
@@ -574,27 +587,25 @@ impl Connection {
     }
 
     /// Sets how much more the connection is to receive in total, over all
-    /// its streams, what was received before, and how far the total may
-    /// land from the limit and count as reached: a packet that would
-    /// exceed the limit by more than `tolerance` is rejected. The
-    /// application sets them before each packet when the connection pays
-    /// into something with a total, such as an incoming payment;
-    /// `u64::MAX` removes the limit.
+    /// its streams, what was received before, and how far past the limit
+    /// the total may land: a packet that would exceed the limit by more
+    /// than `tolerance` is rejected. The application sets them before each
+    /// packet when the connection pays into something with a total, such
+    /// as an incoming payment; `u64::MAX` removes the limit.
     ///
     /// Under a limit, each stream reports the application's count as what
     /// it received, and that count plus the limit as its maximum, so a
-    /// sender aims at the limit itself; the tolerance only absorbs what
-    /// rounding on the way puts over or under it. The maximum a stream is
-    /// told never falls, as RFC 29 requires
+    /// sender aims at the limit itself; the tolerance only takes what
+    /// rounding a last packet up puts over it, never less than the limit.
+    /// The maximum a stream is told never falls, as RFC 29 requires
     /// (spec/decisions/close-rather-than-lower.md): when something else
     /// takes from the total, the streams keep reporting the most they were
     /// told, and a packet that fits that but not what is left closes the
-    /// connection with `exhausted` instead. A limit within the tolerance
-    /// counts as nothing left: a packet that offers money is refused and
-    /// closes the connection with `exhausted`, which tells every sender to
-    /// stop, and why: `NO_ERROR` for a total that is reached, possibly by
-    /// another connection, another code for one the application stopped
-    /// short of it.
+    /// connection with `exhausted` instead. Once nothing is left, a packet
+    /// that offers money is refused and closes the connection with
+    /// `exhausted`, which tells every sender to stop, and why: `NO_ERROR`
+    /// for a total that is reached, possibly by another connection, another
+    /// code for one the application stopped short of it.
     pub fn set_money_limit(
         &mut self,
         remaining: u64,
@@ -617,14 +628,9 @@ impl Connection {
         self.money_exhausted = exhausted;
     }
 
-    /// What is left of the money limit once a remainder within the
-    /// tolerance counts as nothing: the room the streams report.
-    fn money_room(&self) -> u64 {
-        if self.money_limit <= self.money_tolerance {
-            0
-        } else {
-            self.money_limit
-        }
+    /// What is left of the money limit: the room the streams report.
+    const fn money_room(&self) -> u64 {
+        self.money_limit
     }
 
     /// The total `stream` is told it may receive under the limit: the

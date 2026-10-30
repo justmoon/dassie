@@ -731,10 +731,17 @@ impl Core {
             expected,
             payment.delivered,
         );
+        // Its last packet rounds up to land on what is left, within the
+        // tolerance a Dassie receiver takes over it, rather than short of it
+        // (spec/decisions/paid-within-a-tolerance.md).
+        let tolerance = payment_tolerance(Some(expected), payment.row.receive_amount.asset_scale);
         payment.stream = connection.open_stream().ok().filter(|stream| {
             connection.set_send_max(*stream, left).is_ok()
                 && connection.set_expected_delivery(*stream, expected).is_ok()
                 && connection.set_delivery_max(*stream, cap).is_ok()
+                && connection
+                    .set_delivery_tolerance(*stream, tolerance)
+                    .is_ok()
                 && connection.set_delivered(*stream, delivered).is_ok()
         });
         payment.base_sent = payment.row.sent_amount;

@@ -25,6 +25,27 @@ fn least_under_cap(rate: Rate) -> u64 {
     rate.min_source_for_one_unit().unwrap_or(1)
 }
 
+/// The most source units a packet may offer toward `room` destination
+/// units at `rate`, converted exactly, since hops only round down, so the
+/// last unit can go: the most that deliver at most `room`. With a
+/// `tolerance`, the fewest that deliver at least `room`, and at least
+/// `least`, when those deliver no more than `room + tolerance`, so the last
+/// packet lands on what is left rather than short of it, where it may
+/// offer no packet at all. Nothing is rounded up past a room that is gone.
+fn offer(rate: Rate, room: u64, least: u64, tolerance: u64) -> u64 {
+    let under = rate.exact_max_source_amount(room);
+    if tolerance == 0 || room == 0 {
+        return under;
+    }
+    let most = rate.exact_max_source_amount(room.saturating_add(tolerance));
+    let aim = rate
+        .min_source_amount(room)
+        .unwrap_or(u64::MAX)
+        .max(under)
+        .max(least);
+    if aim <= most { aim } else { under }
+}
+
 /// Counts and sizes the frames `visit` produces.
 pub(super) fn measure(visit: impl Fn(&mut dyn FnMut(Frame<'_>))) -> (usize, usize) {
     let mut count = 0;
@@ -175,11 +196,16 @@ impl Connection {
             // sent together never offer more than the receiver takes, or
             // than the application lets the stream deliver.
             let capped = stream.delivery_max != u64::MAX;
+            let least = if capped { least_under_cap(rate) } else { 1 };
             let cap = self.delivery_cap(stream, rate);
-            let room = room_rate
-                .max_source_amount(stream.remote_room())
-                .min(cap)
-                .saturating_sub(stream.held);
+            let room = offer(
+                room_rate,
+                stream.remote_room(),
+                least,
+                stream.delivery_tolerance,
+            )
+            .min(cap)
+            .saturating_sub(stream.held);
             let unsent = stream.unsent_amount();
             let mut sendable = unsent.min(room);
             let no_room = stream.remote_room() == 0;
@@ -235,39 +261,45 @@ impl Connection {
 
     /// Whether a stream delivered all its cap lets it: no packet that
     /// delivers a unit at the minimum rate fits what is left, at the
-    /// expected rate, and none of its money is in flight. False without a
-    /// cap or a rate.
+    /// expected rate, as a packet is offered, and none of its money is in
+    /// flight. False without a cap or a rate.
     pub(super) fn cap_reached(&self, stream: &Stream) -> bool {
         let Some(rate) = self.exchange_rate else {
             return false;
         };
         let room_rate = self.expected_rate.unwrap_or(rate);
+        let least = least_under_cap(rate);
         stream.delivery_max != u64::MAX
             && stream.held == 0
-            && room_rate.exact_max_source_amount(stream.delivery_room()) < least_under_cap(rate)
+            && offer(
+                room_rate,
+                stream.delivery_room(),
+                least,
+                stream.delivery_tolerance,
+            ) < least
     }
 
     /// The most source units a stream may offer under its delivery cap, at
     /// the expected rate: unlimited without one. What is left of the cap is
-    /// converted exactly, since hops only round down, so the last unit can
-    /// go. Until a reply showed the rate the path delivers, only half of
-    /// it, rounded up: sized at the minimum rate, a packet that fit the
-    /// whole would overshoot by however much better the path is. If half
-    /// fits no packet that delivers a unit at the minimum `rate`, but the
-    /// whole does, the least such packet goes, or the stream would never
-    /// send.
+    /// offered as the receiver's room is ([`offer`]): exactly, or rounded
+    /// up within the stream's tolerance. Until a reply showed the rate the
+    /// path delivers, only half of it, rounded up: sized at the minimum
+    /// rate, a packet that fit the whole would overshoot by however much
+    /// better the path is. If half fits no packet that delivers a unit at
+    /// the minimum `rate`, but the whole does, the least such packet goes,
+    /// or the stream would never send.
     fn delivery_cap(&self, stream: &Stream, rate: Rate) -> u64 {
         if stream.delivery_max == u64::MAX {
             return u64::MAX;
         }
         let room_rate = self.expected_rate.unwrap_or(rate);
         let left = stream.delivery_room();
-        let whole = room_rate.exact_max_source_amount(left);
+        let least = least_under_cap(rate);
+        let whole = offer(room_rate, left, least, stream.delivery_tolerance);
         if self.rate_seen {
             return whole;
         }
         let half = room_rate.exact_max_source_amount(left - left / 2);
-        let least = least_under_cap(rate);
         if half < least && whole >= least {
             least
         } else {

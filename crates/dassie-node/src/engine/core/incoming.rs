@@ -125,15 +125,14 @@ impl OpenIncoming {
         ceiling.saturating_sub(self.received)
     }
 
-    /// Whether it received all it asked for, or all but less than the
-    /// tolerance: one without an amount never does.
+    /// Whether it received all it asked for, or more: one without an
+    /// amount never does.
     fn full(&self) -> bool {
-        let scale = self.ledger.asset().scale;
-        dassie_payments::amount::paid_in_full(self.incoming_amount, self.received, scale)
+        dassie_payments::amount::paid_in_full(self.incoming_amount, self.received)
     }
 
-    /// How far it may land from its amount, over or under, and count as
-    /// paid in full (spec/decisions/paid-within-a-tolerance.md): nothing
+    /// How far past its amount it may land and count as paid in full
+    /// (spec/decisions/paid-within-a-tolerance.md): nothing
     /// for one without an amount, which is bounded only by what the books
     /// hold.
     fn tolerance(&self) -> u64 {
@@ -279,9 +278,9 @@ pub(super) fn admission(
             {
                 return refused;
             }
-            // Open, it has room unless it is full: the step that fills it,
-            // to within the tolerance, completes it. A packet may overshoot
-            // what is left by the tolerance.
+            // Open, it has room unless it is full: the step that fills it
+            // completes it. A packet may overshoot what is left by the
+            // tolerance.
             (
                 Admission::Accept {
                     money_limit: payment.remaining(),
@@ -802,7 +801,7 @@ mod tests {
             Admission::Accept {
                 money_limit: 1_000_000_000_000 - 32,
                 received: 0,
-                tolerance: 100_000,
+                tolerance: 49_999,
                 exhausted: StreamErrorCode::NO_ERROR,
             }
         );
@@ -833,8 +832,9 @@ mod tests {
     }
 
     #[test]
-    fn a_payment_is_full_within_its_tolerance() {
-        // A tenth of a dollar, in billionths: a ten-thousandth of a dollar.
+    fn a_payment_is_full_at_its_amount_or_over() {
+        // A tenth of a dollar, in billionths: under half a ten-thousandth
+        // of a dollar over it.
         let payment = |received| OpenIncoming {
             ledger: LedgerId::StubUsd,
             incoming_amount: Some(100_000_000),
@@ -844,11 +844,10 @@ mod tests {
             expires_at_ms: 1,
             client: None,
         };
-        assert_eq!(payment(0).tolerance(), 100_000);
-        assert!(!payment(99_899_999).full());
-        assert!(payment(99_900_000).full());
+        assert_eq!(payment(0).tolerance(), 49_999);
+        assert!(!payment(99_999_999).full());
         assert!(payment(100_000_000).full());
-        assert!(payment(100_100_000).full());
+        assert!(payment(100_049_999).full());
         let open = OpenIncoming {
             incoming_amount: None,
             ..payment(u64::MAX)

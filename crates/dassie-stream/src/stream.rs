@@ -39,6 +39,13 @@ pub struct Stream {
     /// The most the application lets the stream deliver in total, in the
     /// remote's units, as it counts: `u64::MAX` for no cap.
     pub(crate) delivery_max: u64,
+    /// How far past what is left, in the remote's units, the stream's
+    /// last packet may deliver, so it can round up to land on it rather
+    /// than short of it: what the remote takes over, as a Dassie receiver
+    /// does within its tolerance. Nothing until the application says, and
+    /// nothing again once the remote refused a packet
+    /// (spec/decisions/paid-within-a-tolerance.md).
+    pub(crate) delivery_tolerance: u64,
 
     // Money in, in our units.
     pub(crate) receive_max: u64,
@@ -79,6 +86,7 @@ impl Stream {
             remote_max_fell: false,
             expected_delivery: 0,
             delivery_max: u64::MAX,
+            delivery_tolerance: 0,
             receive_max: 0,
             received: 0,
             money_told: 0,

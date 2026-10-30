@@ -128,10 +128,12 @@
       </p>
       <p>
         A payment of what they receive counts as complete when the receiver
-        has it, give or take a ten-thousandth of a unit of its currency:
-        every node on the way rounds down in its own units, so no sender can
-        hit an amount to the last digit. It never counts more than a
-        thousandth of the payment that way.
+        has all of it. Every node on the way rounds down in its own units,
+        so no sender can hit an amount to the last digit: your node rounds
+        the last packet up, and the receiver may get a hair more, less than
+        half a ten-thousandth of a unit of its currency, so the amount
+        still reads the same to four decimal places. It is never more than a
+        thousandth of the payment.
       </p>
 
       <h2 id="why-a-payment-fails">Why a payment can fail</h2>

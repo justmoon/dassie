@@ -1202,10 +1202,9 @@ fn a_sender_fills_what_another_payer_left_across_a_rate() {
     // packets in flight at three units for two, and the receiver forgets
     // the sender's connection, so that it tells it the lower room: the
     // sender's next packets are refused, it takes the room their replies
-    // report, and sends what is left, which no packet at this rate fills
-    // to the unit. What it cannot fill is within the receiver's
-    // tolerance, so the receiver counts the total as reached, and closes
-    // the connection when the sender offers what it still sees room for.
+    // report, and sends what is left, to the unit, since what is left is
+    // converted exactly. The receiver then has its total, and closes the
+    // connection when the sender offers what it still sees room for.
     let path = Path {
         rate: (3, 2),
         max_packet_amount: 100,
@@ -1227,7 +1226,7 @@ fn a_sender_fills_what_another_payer_left_across_a_rate() {
         }
     }
     let left = sim.money_limit.unwrap();
-    assert!(left <= 2, "{left} left\n{}", sim.trace);
+    assert_eq!(left, 0, "{}", sim.trace);
     assert!(sim.client.is_closed(), "{}", sim.trace);
     let refused = sim.client.stats().packets_rejected;
     assert!(
@@ -1381,10 +1380,10 @@ fn a_packet_over_by_more_than_the_tolerance_is_told_the_room() {
 }
 
 #[test]
-fn a_payment_within_the_tolerance_under_takes_no_more() {
-    // A payment that has all but less than the tolerance counts as full:
-    // its streams report no more room, and a packet that offers money
-    // closes the connection as for a payment that has it all.
+fn a_payment_short_by_less_than_the_tolerance_takes_the_rest() {
+    // The tolerance is only how far past its total a payment may land: one
+    // short of it by less still has room for the rest, and a sender sends
+    // it (spec/decisions/paid-within-a-tolerance.md).
     let mut rng = SeededRng::new(9);
     let mut server = server(PAYEE);
     let mut payment = Payment::new(1_000, 10);
@@ -1395,16 +1394,14 @@ fn a_payment_within_the_tolerance_under_takes_no_more() {
         (1, 0)
     );
     assert_eq!(payment.remaining, 7);
-    assert_eq!(a.stream(a_stream).unwrap().remote_room(), 0);
-    // A sender that sends anyway is closed with the payment's code.
-    let (mut b, b_stream, _) = payer(&server, &mut rng, b"payment/b");
-    b.set_send_max(b_stream, 7).unwrap();
+    assert_eq!(a.stream(a_stream).unwrap().remote_room(), 7);
+    a.set_send_max(a_stream, 1_000).unwrap();
     assert_eq!(
-        pay(NOW, &mut rng, &mut server, &mut payment, &mut b),
-        (0, 1)
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut a),
+        (1, 0)
     );
-    assert_eq!(closed_by_remote(&mut b), Some(ErrorCode::NO_ERROR));
-    assert_eq!(payment.remaining, 7);
+    assert_eq!(payment.remaining, 0);
+    assert_eq!(payment.paid.values().sum::<u64>(), 1_000);
 }
 
 #[test]

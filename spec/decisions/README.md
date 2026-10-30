@@ -62,7 +62,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [owner-ledger](owner-ledger.md) | Owner ledger and multi-currency accounts | ledger, connector |
 | [owners-share](owners-share.md) | Strangers never take the owner's share of a pool | payments, stream |
 | [packets-in-flight](packets-in-flight.md) | Money in flight with a peer stays within a few packets | connector, settlement |
-| [paid-within-a-tolerance](paid-within-a-tolerance.md) | A payment within a tolerance of its amount is paid in full | payments, stream |
+| [paid-within-a-tolerance](paid-within-a-tolerance.md) | A payment is paid in full at its amount, and may land a hair over it | payments, stream |
 | [passive-rebalancing](passive-rebalancing.md) | Nodes rebalance passively: inventory pricing, published prices and market makers | connector, rate-feed, settlement |
 | [path-failures-retried](path-failures-retried.md) | A sender sends money again after a too-low rate or a node's final error, until failures without progress stop it | stream, payments |
 | [peer-protocol-v1](peer-protocol-v1.md) | Peer protocol: v0 or v1 | peer-protocol, identity |
