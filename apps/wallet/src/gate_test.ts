@@ -39,8 +39,8 @@ test("the node's state decides the screen", () => {
   });
 });
 
-// The first ledger shows the wallet at once, without polling.
-test("the owner chooses a first ledger, then sees the wallet", () => {
+// The first assets show the wallet at once, without polling.
+test("the owner chooses first assets, then sees the wallet", () => {
   assertEquals(ownerScreen(undefined), "loading");
   assertEquals(ownerScreen([]), "onboarding");
   assertEquals(ownerScreen([{ id: "stub+usd" }]), "wallet");
