@@ -64,6 +64,17 @@ fn an_asset_adds_its_book_then_its_hub_and_goes_hub_first() {
     );
     assert!(core.add_assets(&names(&["xrp"])).unwrap().is_empty());
 
+    // A hub being removed goes all the same: adding its asset meanwhile is
+    // refused, not taken as having it back.
+    let hub = dassie_ledger::Name::new(HUB).unwrap();
+    let now = core.now_ms();
+    core.schemes.get_mut(&hub).unwrap().removing = Some(now);
+    assert!(matches!(
+        core.add_assets(&names(&["xrp"])),
+        Err(EngineError::Precondition(why)) if why.contains("being removed")
+    ));
+    core.schemes.get_mut(&hub).unwrap().removing = None;
+
     let book = ledger(&core, LedgerId::XrplTestnetXrp);
     assert_eq!(book.removal_blockers, [RemovalBlocker::HubFunds(1)]);
     assert!(matches!(

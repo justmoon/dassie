@@ -489,7 +489,9 @@ export const ListAssetsResponseSchema: GenMessage<ListAssetsResponse> = /*@__PUR
  * yet active, in its order, each as AddSettlementScheme with no config
  * would. Not all or none: what was added stays if a later scheme fails,
  * and asking again adds the rest. INVALID_ARGUMENT for none, too many or an
- * unknown name; FAILED_PRECONDITION for one the node does not offer.
+ * unknown name; FAILED_PRECONDITION for one the node does not offer, or one
+ * a scheme of which is being removed (Ledger.removing_methods), which goes
+ * all the same.
  *
  * @generated from message dassie.owner.v1.AddAssetsRequest
  */

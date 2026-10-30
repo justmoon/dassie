@@ -406,10 +406,24 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// As [`super::schemes::asset_schemes`], before anything is added; then
-    /// as [`add_scheme`](Self::add_scheme).
+    /// As [`super::schemes::asset_schemes`], or a scheme of them being
+    /// removed, which goes all the same, before anything is added; then as
+    /// [`add_scheme`](Self::add_scheme).
     pub fn add_assets(&mut self, names: &[String]) -> Result<Vec<LedgerView>, EngineError> {
         let realm = super::ledger_realm(self.realm);
+        let every =
+            super::schemes::asset_schemes_in(names, realm, |_| false, &self.settle.default_hubs)?;
+        let removing = every.iter().any(|id| {
+            Name::new(id)
+                .ok()
+                .and_then(|id| self.schemes.get(&id))
+                .is_some_and(|active| active.removing.is_some())
+        });
+        if removing {
+            return Err(EngineError::Precondition(
+                "a scheme of it is being removed: add it again once it is gone".into(),
+            ));
+        }
         let schemes = super::schemes::asset_schemes_in(
             names,
             realm,

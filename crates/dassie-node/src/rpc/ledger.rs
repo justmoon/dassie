@@ -51,9 +51,11 @@ pub async fn dispatch(node: &Arc<Node>, method: Method, items: &Items) -> Result
             })
         }
         Method::AddAssets(request) => {
-            let views = engine.add_assets(request.names).await?;
-            // Their currencies may need rates.
+            let views = engine.add_assets(request.names).await;
+            // Their currencies may need rates, those of the schemes added
+            // before one failed too.
             node.wake_rates();
+            let views = views?;
             response::Method::AddAssets(proto::AddAssetsResponse {
                 ledgers: views.iter().map(ledger).collect(),
             })
