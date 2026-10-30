@@ -104,7 +104,7 @@ jobs:
           persist-credentials: false
       # The project's cache on the Nix cloud, which only the project's key
       # signs, so it trusts Dassie's builds alone. Anyone may read it;
-      # with the token, CI reads all of it, unpinned builds too.
+      # CI reads it with the project's token too.
       - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
         with:
           extra_nix_config: |
