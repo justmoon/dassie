@@ -89,7 +89,7 @@ The pages are in `apps/wallet/src/pages/`, and their routes in `apps/wallet/src/
 
 - Every amount carries its currency, a ledger's asset code and scale, as the node reports it ([owner-ledger](../decisions/owner-ledger.md)). Amounts are exact integers in the asset's smallest unit (bigints), never floats.
 - Display cuts digits, never rounds, and mutes the digits beyond cents, so a balance never shows more than it is.
-- A payment shows the amount it fixed. An incoming payment the node counts as paid in full shows its amount, not what arrived a little under or over it ([paid-within-a-tolerance](../decisions/paid-within-a-tolerance.md)); the node says which, so the wallet never judges by its own rule. An outgoing payment that fixed what the receiver gets leads with what the receiver said it received of that, and once complete with that amount, and what it cost follows; one that fixed what it sends leads with what it sent of its debit amount. Its bar fills by the amount it fixed.
+- A payment shows the amount it fixed. An incoming payment the node counts as paid in full shows its amount, not what arrived a hair over it ([paid-within-a-tolerance](../decisions/paid-within-a-tolerance.md)); the node says which, so the wallet never judges by its own rule. An outgoing payment that fixed what the receiver gets leads with what the receiver said it received of that, and once complete with that amount, and what it cost follows; one that fixed what it sends leads with what it sent of its debit amount. Its bar fills by the amount it fixed.
 - Input refuses a number with both a comma and a point, since `1,500` means different things on different keyboards.
 
 ## Debug pages

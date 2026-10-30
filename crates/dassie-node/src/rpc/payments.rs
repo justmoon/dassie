@@ -248,7 +248,6 @@ pub fn incoming(urls: &Urls, row: &IncomingRow) -> proto::IncomingPayment {
         paid_in_full: dassie_payments::amount::paid_in_full(
             row.incoming_amount,
             row.received_amount,
-            asset.scale,
         ),
     }
 }

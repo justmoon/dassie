@@ -333,6 +333,29 @@ impl Connection {
                     {
                         self.learn_rate(received, slot.source_amount);
                     }
+                    // A receiver that refused a packet rounded up past what
+                    // is left, though what arrived was within the stream's
+                    // tolerance over the room it reports, takes nothing over
+                    // it: the stream lands short from now on. One that
+                    // arrived further over, as the path's rate rose, or any
+                    // other refusal, says nothing of that, and the last
+                    // packet still rounds up. What arrived is the packet's,
+                    // so one that carried several streams' money is read as
+                    // the former.
+                    let several = slot.money.len() > 1;
+                    for &id in &slot.rounded_up {
+                        if let Some(stream) = self.stream_mut(id) {
+                            let within = reply.is_some_and(|received| {
+                                received
+                                    <= stream
+                                        .remote_room()
+                                        .saturating_add(stream.delivery_tolerance)
+                            });
+                            if several || within {
+                                stream.delivery_tolerance = 0;
+                            }
+                        }
+                    }
                     // The receiver refused; its new limits are applied, but
                     // sending again at once could repeat the refusal.
                     self.back_off_for(now, slot);

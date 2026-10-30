@@ -133,14 +133,13 @@ impl Connection {
                 .any(|frame| matches!(frame, Frame::StreamMoney { .. }));
         if self.money_room() == 0 && offers_money && decision.close.is_none() {
             // What the connection pays into is full, possibly by another
-            // connection, or within the tolerance of it, or closed short
-            // of it. Its streams' maxima cannot fall (RFC 29 §4.4.4), so
-            // a sender would offer money until its deadline. A close they
-            // all understand ends it, with the code the application gave
-            // for why; the response still reports the streams' totals, so
-            // the sender learns what it delivered. Rate probes and packets
-            // without money are answered as before, so a sender can still
-            // measure and open a stream.
+            // connection, or closed short of it. Its streams' maxima cannot
+            // fall (RFC 29 §4.4.4), so a sender would offer money until its
+            // deadline. A close they all understand ends it, with the code
+            // the application gave for why; the response still reports the
+            // streams' totals, so the sender learns what it delivered. Rate
+            // probes and packets without money are answered as before, so a
+            // sender can still measure and open a stream.
             decision.close = Some((self.money_exhausted, false));
             return decision;
         }

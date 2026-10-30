@@ -2937,11 +2937,6 @@ impl Sim {
         let mut buffer = vec![0u8; BUFFER_LENGTH];
         let mut rng = SeededRng::new(self.now);
         for index in 0..self.payments.len() {
-            let into = *self
-                .settling
-                .ledgers(self.payments[index].to)
-                .last()
-                .unwrap();
             let payment = &mut self.payments[index];
             if payment.done {
                 continue;
@@ -2959,11 +2954,11 @@ impl Sim {
                 .stream
                 .and_then(|id| payment.connection.stream(id))
                 .map_or(0, dassie_stream::Stream::remote_received);
-            // An incoming payment that has all but its tolerance is paid in
-            // full, and takes no more (spec/decisions/paid-within-a-tolerance.md).
-            let full = payment.limit.is_some_and(|limit| {
-                expected == limit && paid_in_full(Some(limit), remote, into.asset().scale)
-            });
+            // An incoming payment that has all it asked for is paid in full,
+            // and takes no more (spec/decisions/paid-within-a-tolerance.md).
+            let full = payment
+                .limit
+                .is_some_and(|limit| expected == limit && paid_in_full(Some(limit), remote));
             if sent(payment) == expected || remote >= expected || full {
                 payment.done = true;
                 continue;

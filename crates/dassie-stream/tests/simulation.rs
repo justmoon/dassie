@@ -538,3 +538,124 @@ fn a_kept_token_gives_the_same_credentials() {
         first.shared_secret
     );
 }
+
+/// Pays a capped stream into a receiver that counts its total as a Dassie
+/// receiver does, with a tolerance, until the cap is reached or the
+/// receiver closes: the time it took, and what the receiver has.
+fn pay_into_a_total(rate: (u64, u64), cap: u64, tolerance: u64) -> (u64, u64) {
+    let path = Path {
+        rate,
+        max_packet_amount: 700,
+        ..Path::default()
+    };
+    // The payment's rate: the quote, a little under the path's.
+    let floor = Rate::new(rate.0 * 99, rate.1 * 100).unwrap();
+    let (mut sim, stream) = capped_stream(path, floor, 2 * cap * rate.1 / rate.0 + 10, cap);
+    sim.money_limit = Some(cap);
+    sim.money_tolerance = tolerance;
+    sim.client
+        .set_delivery_tolerance(stream, tolerance)
+        .unwrap();
+    let start = sim.now.unix_ms;
+    sim.run_until(STEPS, |sim| {
+        sim.client.delivery_cap_reached(stream) || sim.client.is_closed()
+    });
+    (sim.now.unix_ms - start, sim.money_received)
+}
+
+// Found on testnet: a payment of 1 XRP from dollars waited a minute at
+// 0.9999. The receiver's last unit of room, rounded down at a rate below
+// one, fit no packet that delivers a unit, while the cap, converted
+// exactly, was not reached: nothing went until the idle timeout. Now the
+// last packet goes, and lands on the total or past it, within the
+// tolerance.
+#[test]
+fn the_last_units_go_at_once() {
+    for rate in [(79, 100), (5, 2)] {
+        let (took, received) = pay_into_a_total(rate, 5_000, 5);
+        assert!(took < 5_000, "{rate:?}: took {took} ms");
+        assert!(
+            (5_000..=5_005).contains(&received),
+            "{rate:?}: received {received}"
+        );
+    }
+}
+
+// At a rate above one, rounding down leaves the last few units, less than
+// a source unit delivers, unsent. Within the tolerance the last packet
+// rounds up to land on the total instead.
+#[test]
+fn the_last_packet_rounds_up_within_the_tolerance() {
+    let (_, short) = pay_into_a_total((3, 1), 5_000, 0);
+    assert!(short < 5_000, "received {short}");
+    let (_, rounded) = pay_into_a_total((3, 1), 5_000, 5);
+    assert!((5_000..=5_005).contains(&rounded), "received {rounded}");
+}
+
+// Found in review: a receiver also refuses an ordinary packet over what is
+// left, as when the path's rate rises while the last packets are in
+// flight. That refusal says nothing of rounding up, so the last packet
+// still rounds up: at more than one unit for one, landing under could miss
+// the last units, and the receiver would never count its payment paid.
+#[test]
+fn a_refused_overshoot_leaves_the_last_packet_rounding_up() {
+    // The path's rate, and how much better it gets once the receiver has
+    // a thousand units. At the second, the last packet, rounded up at the
+    // old rate, arrives further over than the tolerance and is refused.
+    for (rate, rise, tolerance) in [((5, 2), (101, 100), 5), ((3, 1), (105, 100), 20)] {
+        let path = Path {
+            rate,
+            max_packet_amount: 1_500,
+            ..Path::default()
+        };
+        let floor = Rate::new(rate.0 * 99, rate.1 * 100).unwrap();
+        let (mut sim, stream) = capped_stream(path, floor, 10_000, 5_000);
+        sim.money_limit = Some(5_000);
+        sim.money_tolerance = tolerance;
+        sim.client
+            .set_delivery_tolerance(stream, tolerance)
+            .unwrap();
+        sim.run_until(STEPS, |sim| sim.money_received >= 1_000);
+        sim.path.rate = (rate.0 * rise.0, rate.1 * rise.1);
+        sim.run_until(STEPS, |sim| {
+            sim.client.delivery_cap_reached(stream) || sim.client.is_closed()
+        });
+        assert!(sim.client.stats().packets_rejected > 0, "{rate:?}");
+        assert!(
+            (5_000..=5_000 + tolerance).contains(&sim.money_received),
+            "{rate:?}: received {}\n{}",
+            sim.money_received,
+            sim.trace
+        );
+    }
+}
+
+// A receiver that takes nothing over its maximum refuses the packet that
+// rounds up, and tells the room: the stream lands short of its cap
+// instead, without waiting.
+#[test]
+fn a_receiver_that_takes_nothing_over_is_paid_short() {
+    let path = Path {
+        rate: (3, 1),
+        ..Path::default()
+    };
+    let mut sim = Simulation::new(12, path, Policy::DEFAULT);
+    sim.server_receive_max = 5_000;
+    sim.client.set_exchange_rate(Rate::new(297, 100).unwrap());
+    let stream = sim.client.open_stream().unwrap();
+    sim.client.set_send_max(stream, 4_000).unwrap();
+    sim.client.set_delivery_max(stream, 5_000).unwrap();
+    sim.client.set_delivery_tolerance(stream, 5).unwrap();
+    let start = sim.now.unix_ms;
+    sim.run_until(STEPS, |sim| sim.client.delivery_cap_reached(stream));
+    let received = server_received(&sim);
+    assert!(
+        (4_998..=5_000).contains(&received),
+        "{received}\n{}",
+        sim.trace
+    );
+    assert!(sim.now.unix_ms - start < 5_000, "{}", sim.trace);
+    // The first packet, to a stream the receiver had not opened yet, and
+    // the one that rounded up were refused, and none after.
+    assert_eq!(sim.client.stats().packets_rejected, 2, "{}", sim.trace);
+}

@@ -914,14 +914,12 @@ fn crashes_past_what_it_survives(payer: usize, payee: usize) {
     }
 }
 
-// spec/decisions/paid-within-a-tolerance.md: a payment whose last packet
-// would carry less than its tolerance is paid in full by the packets
-// before it. Its incoming payment completes that much short, its outgoing
-// payment completes, and its client counts it done, rather than the checks
-// calling it unpaid, or the client reconnecting to a payment that takes no
-// more until it runs out of time.
+// spec/decisions/paid-within-a-tolerance.md: a payment is paid in full
+// only once it has its amount. One whose last packet carries less than its
+// tolerance gets that packet too: its incoming payment completes at its
+// amount, its outgoing payment completes, and its client counts it done.
 #[test]
-fn a_payment_short_by_less_than_its_tolerance_is_paid_in_full() {
+fn a_payments_last_packet_below_its_tolerance_is_paid_too() {
     let mut sim = trusting(76, 2);
     sim.loss_per_mille = 0;
     sim.run_until(START + 60_000);
@@ -931,14 +929,14 @@ fn a_payment_short_by_less_than_its_tolerance_is_paid_in_full() {
     // traffic draws its delays.
     let latency_ms = sim.latency_ms.1;
     sim.latency_ms = (latency_ms, latency_ms);
-    // Three of the largest packets and fifty thousand units, less than
-    // the tolerance of a hundred thousand.
-    let amount = 3 * Policies::DEFAULT.connector.max_packet_amount + 50_000;
+    // Three of the largest packets and twenty thousand units, less than
+    // the tolerance of 49,999.
+    let amount = 3 * Policies::DEFAULT.connector.max_packet_amount + 20_000;
     assert!(sim.pay(0, 1, amount, None, Some(amount)));
     sim.pay_outgoing(0, 1, amount).unwrap();
     sim.run_until(sim.now + 300_000);
     let paid = received(&sim, &sim.payments[0]);
-    assert!(paid < amount, "received {paid} of {amount}: no remainder");
+    assert_eq!(paid, amount, "{}", sim.trace.join("\n"));
     assert!(sim.payments[0].done, "{}", sim.trace.join("\n"));
     check(&sim).unwrap();
 }

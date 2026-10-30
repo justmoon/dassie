@@ -1941,20 +1941,23 @@ fn admitted(
     super::incoming::admission(&core.incoming, &core.finished_incoming, ledger, NOW, &tag).0
 }
 
-// An incoming payment counts as paid in full within its tolerance, under
-// its amount or over it (spec/decisions/paid-within-a-tolerance.md): it
-// completes, tells its senders it is full, says so again after a restart,
-// and shows what it really received.
+// An incoming payment counts as paid in full once it has its amount, and
+// takes up to its tolerance more (spec/decisions/paid-within-a-tolerance.md):
+// one over it completes, tells its senders it is full, says so again after
+// a restart, and shows what it really received. One short of it by less
+// than the tolerance stays open, with room for the rest.
 #[test]
-fn a_payment_within_its_tolerance_is_paid_in_full() {
+fn a_payment_is_paid_in_full_at_its_amount_and_up_to_its_tolerance_over() {
     use dassie_ledger::LedgerId;
     use dassie_stream::{Admission, ErrorCode};
 
     use super::incoming::NewIncoming;
     use crate::store::{ConnectionKey, IncomingPaid};
 
-    // A dollar, in billionths: a ten-thousandth of a dollar either way.
+    // A dollar, in billionths: under half a ten-thousandth of a dollar
+    // over it.
     const DOLLAR: u64 = 1_000_000_000;
+    const TOLERANCE: u64 = 49_999;
     let store = Arc::new(Store::open_in_memory().unwrap());
     let key = ConnectionKey([8; 16]);
     let full = |received| Admission::Accept {
@@ -1963,11 +1966,17 @@ fn a_payment_within_its_tolerance_is_paid_in_full() {
         tolerance: 0,
         exhausted: ErrorCode::NO_ERROR,
     };
-    let paid = [DOLLAR - 100_000, DOLLAR + 100_000];
+    let left = |received| Admission::Accept {
+        money_limit: DOLLAR - received,
+        received,
+        tolerance: TOLERANCE,
+        exhausted: ErrorCode::NO_ERROR,
+    };
+    let (short, over) = (DOLLAR - 1, DOLLAR + TOLERANCE);
     let ids = {
         let mut core = core_on(Arc::clone(&store), 5);
         add_stub(&mut core, TRUSTING);
-        let ids = paid.map(|amount| {
+        let ids = [short, over].map(|amount| {
             let payment = core
                 .create_incoming_payment(NewIncoming {
                     ledger: LedgerId::StubUsd,
@@ -1979,13 +1988,7 @@ fn a_payment_within_its_tolerance_is_paid_in_full() {
                     uplink: None,
                 })
                 .unwrap();
-            let open = Admission::Accept {
-                money_limit: DOLLAR,
-                received: 0,
-                tolerance: 100_000,
-                exhausted: ErrorCode::NO_ERROR,
-            };
-            assert_eq!(admitted(&core, payment.id, key), open);
+            assert_eq!(admitted(&core, payment.id, key), left(0));
             core.incoming_received(IncomingPaid {
                 payment: payment.id,
                 connection: key,
@@ -1995,18 +1998,18 @@ fn a_payment_within_its_tolerance_is_paid_in_full() {
             payment.id
         });
         core.flush();
-        for (id, amount) in ids.into_iter().zip(paid) {
-            assert_eq!(admitted(&core, id, key), full(amount));
-        }
+        assert_eq!(admitted(&core, ids[0], key), left(short));
+        assert_eq!(admitted(&core, ids[1], key), full(over));
         ids
     };
     let core = core_on(Arc::clone(&store), 6);
-    for (id, amount) in ids.into_iter().zip(paid) {
-        assert_eq!(admitted(&core, id, key), full(amount));
-        let row = store.incoming_payment(id).unwrap().unwrap();
-        assert_eq!(row.received_amount, amount);
-        assert!(row.completed_at_ms.is_some());
-    }
+    assert_eq!(admitted(&core, ids[1], key), full(over));
+    let row = store.incoming_payment(ids[1]).unwrap().unwrap();
+    assert_eq!(row.received_amount, over);
+    assert!(row.completed_at_ms.is_some());
+    let row = store.incoming_payment(ids[0]).unwrap().unwrap();
+    assert_eq!(row.received_amount, short);
+    assert!(row.completed_at_ms.is_none());
 }
 
 /// The `n`th connection key.
