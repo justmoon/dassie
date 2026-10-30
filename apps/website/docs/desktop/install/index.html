@@ -48,11 +48,15 @@
         </li>
       </ul>
       <p>
-        Nix builds the app from Dassie's source, the wallet included. That
-        takes a while, so start it when you have a few minutes to spare.
-        Once you have installed it, the app starts in a moment. A
-        <code>nix run</code> of the main branch, below, builds again whenever
-        the branch has moved since you last ran it.
+        For a release, Nix fetches the app ready-built from Dassie's cache,
+        once you let it use the cache:
+        <a href="#dassies-cache">Dassie's cache</a>, below, says how.
+        Otherwise Nix builds the app from Dassie's source, the wallet
+        included. That takes a while, so start it when you have a few
+        minutes to spare. Once you have the app, it starts in a moment. A
+        <code>nix run</code> of the main branch, below, is always built,
+        and builds again whenever the branch has moved since you last ran
+        it.
       </p>
       <p class="not-yet">
         Packages for other distributions, macOS and Windows are not there
@@ -71,12 +75,15 @@
       </p>
       <pre><code><span class="prompt">$</span>nix --extra-experimental-features 'nix-command flakes' run github:justmoon/dassie#desktop</code></pre>
       <p>
-        This builds the newest commit on Dassie's main branch. To build a
-        release instead, which Nix builds once and then starts in a moment,
-        put its tag after the repository's name, as in
-        <code>github:justmoon/dassie/&lt;tag&gt;#desktop</code>. The
-        <a href="/docs/reference/releases/">release notes</a> list the
-        releases and their tags.
+        This builds the newest commit on Dassie's main branch. To run a
+        release instead, which Nix fetches from Dassie's cache, put its tag
+        after the repository's name:
+      </p>
+      <pre><code><span class="prompt">$</span>nix run github:justmoon/dassie/&lt;tag&gt;#desktop</code></pre>
+      <p>
+        The <a href="/docs/reference/releases/">release notes</a> list the
+        releases and their tags. The same goes for installing, below: put
+        the tag after the repository's name.
       </p>
       <p>
         An app started with <code>nix run</code> does not start itself at
@@ -125,6 +132,59 @@
         <code>nix flake update dassie</code> moves it to the newest one. This
         is the desktop app only. To run a node on a server with NixOS, follow
         <a href="/docs/node/nixos/">Dassie on NixOS</a>.
+      </p>
+
+      <h2 id="dassies-cache">Dassie's cache</h2>
+      <p>
+        Every release's app is built once, on the Vorstand Nix cloud where
+        Dassie's releases are built, and kept in Dassie's cache there. Nix
+        fetches it from the cache when it trusts the cache's key. That key
+        signs Dassie's builds and nothing else, so trusting it lets in only
+        what Dassie's releases built. The main branch's newest commit is not
+        kept there, so Nix builds it.
+      </p>
+      <p>
+        Dassie's flake names the cache. The first time you run or install
+        the app, Nix asks whether to use its settings,
+        <code>extra-substituters</code> and
+        <code>extra-trusted-public-keys</code>. Answer yes to each, and to
+        whether to remember the answer, or add
+        <code>--accept-flake-config</code> to the command.
+      </p>
+      <p>
+        Nix takes these settings from a flake only if your user is one it
+        trusts. If it warns that it ignores them, or builds the app anyway,
+        add the cache to Nix's own settings instead. On NixOS, in your
+        system's configuration:
+      </p>
+      <figure class="file">
+        <figcaption>configuration.nix</figcaption>
+        <pre><code>nix.settings = {
+  extra-substituters = [ "https://nix.vorstand.app/cache/dassie" ];
+  extra-trusted-public-keys = [
+    "nix.vorstand.app-dassie-1:DASSIE_KEY_TODO="
+  ];
+};</code></pre>
+      </figure>
+      <p>
+        On other systems, add these lines to <code>/etc/nix/nix.conf</code>
+        and restart the Nix daemon, with
+        <code>sudo systemctl restart nix-daemon</code>:
+      </p>
+      <figure class="file">
+        <figcaption>/etc/nix/nix.conf</figcaption>
+        <pre><code>extra-substituters = https://nix.vorstand.app/cache/dassie
+extra-trusted-public-keys = nix.vorstand.app-dassie-1:DASSIE_KEY_TODO=</code></pre>
+      </figure>
+      <p>
+        To see whether Nix fetches a release's app or builds it, ask it
+        without doing either. It lists what it would fetch and what it would
+        build:
+      </p>
+      <pre><code><span class="prompt">$</span>nix build github:justmoon/dassie/&lt;tag&gt;#desktop --dry-run</code></pre>
+      <p>
+        Without the cache, Nix builds the app, as it builds the main branch.
+        Nothing else changes.
       </p>
 
       <h2 id="first-start">First start</h2>
