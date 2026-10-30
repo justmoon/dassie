@@ -149,6 +149,9 @@ struct Slot {
     min_destination_amount: u64,
     /// (stream ID, source amount)
     money: Vec<(u64, u64)>,
+    /// Streams whose money in it rounded up past what fits the room
+    /// exactly, within their delivery tolerance.
+    rounded_up: Vec<u64>,
     /// (stream ID, start offset, end offset)
     data: Vec<(u64, u64, u64)>,
     /// Streams whose `StreamClose` the packet carries.
@@ -172,6 +175,7 @@ impl Slot {
             source_amount: 0,
             min_destination_amount: 0,
             money: Vec::with_capacity(streams),
+            rounded_up: Vec::with_capacity(streams),
             data: Vec::with_capacity(streams),
             closes: Vec::with_capacity(streams),
             announced: false,
@@ -182,6 +186,7 @@ impl Slot {
     fn reset(&mut self) {
         self.active = false;
         self.money.clear();
+        self.rounded_up.clear();
         self.data.clear();
         self.closes.clear();
         self.announced = false;
@@ -545,8 +550,9 @@ impl Connection {
     /// is left, in the remote's units, as a receiver that takes a payment
     /// within a tolerance does: the packet rounds up to land on what is
     /// left, rather than short of it, when that stays within `amount`.
-    /// Once the remote refuses a packet of the stream, it lands short
-    /// instead, as a receiver that takes nothing over needs
+    /// Once the remote refuses a packet that rounded up, though it arrived
+    /// within `amount` over the room the remote reports, the stream lands
+    /// short instead, as a receiver that takes nothing over needs
     /// (spec/areas/stream.md#sending).
     pub fn set_delivery_tolerance(&mut self, id: u64, amount: u64) -> Result<(), StreamError> {
         let stream = self.open_stream_mut(id)?;

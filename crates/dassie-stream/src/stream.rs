@@ -43,7 +43,8 @@ pub struct Stream {
     /// last packet may deliver, so it can round up to land on it rather
     /// than short of it: what the remote takes over, as a Dassie receiver
     /// does within its tolerance. Nothing until the application says, and
-    /// nothing again once the remote refused a packet
+    /// nothing again once the remote refused a packet that rounded up,
+    /// though it arrived within the tolerance
     /// (spec/decisions/paid-within-a-tolerance.md).
     pub(crate) delivery_tolerance: u64,
 

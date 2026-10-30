@@ -197,15 +197,20 @@ impl Connection {
             // than the application lets the stream deliver.
             let capped = stream.delivery_max != u64::MAX;
             let least = if capped { least_under_cap(rate) } else { 1 };
-            let cap = self.delivery_cap(stream, rate);
-            let room = offer(
-                room_rate,
-                stream.remote_room(),
-                least,
-                stream.delivery_tolerance,
-            )
-            .min(cap)
-            .saturating_sub(stream.held);
+            let tolerance = stream.delivery_tolerance;
+            let cap = self.delivery_cap(stream, rate, tolerance);
+            let room_for = |tolerance, cap: u64| {
+                offer(room_rate, stream.remote_room(), least, tolerance)
+                    .min(cap)
+                    .saturating_sub(stream.held)
+            };
+            let room = room_for(tolerance, cap);
+            // What fits the room exactly, without rounding up.
+            let exact = if tolerance == 0 {
+                room
+            } else {
+                room_for(0, self.delivery_cap(stream, rate, 0))
+            };
             let unsent = stream.unsent_amount();
             let mut sendable = unsent.min(room);
             let no_room = stream.remote_room() == 0;
@@ -238,6 +243,9 @@ impl Connection {
             }
             if amount > 0 {
                 slot.money.push((stream.id, amount));
+                if amount > exact && !no_room {
+                    slot.rounded_up.push(stream.id);
+                }
                 budget -= amount;
                 slot.source_amount += amount;
             }
@@ -252,6 +260,7 @@ impl Connection {
             .any(|other| other.active && other.source_amount > 0);
         if slot.source_amount < self.policy.de_minimis_amount && money_in_flight {
             slot.money.clear();
+            slot.rounded_up.clear();
             slot.source_amount = 0;
         }
         if slot.source_amount > 0 {
@@ -282,20 +291,20 @@ impl Connection {
     /// The most source units a stream may offer under its delivery cap, at
     /// the expected rate: unlimited without one. What is left of the cap is
     /// offered as the receiver's room is ([`offer`]): exactly, or rounded
-    /// up within the stream's tolerance. Until a reply showed the rate the
+    /// up within `tolerance`. Until a reply showed the rate the
     /// path delivers, only half of it, rounded up: sized at the minimum
     /// rate, a packet that fit the whole would overshoot by however much
     /// better the path is. If half fits no packet that delivers a unit at
     /// the minimum `rate`, but the whole does, the least such packet goes,
     /// or the stream would never send.
-    fn delivery_cap(&self, stream: &Stream, rate: Rate) -> u64 {
+    fn delivery_cap(&self, stream: &Stream, rate: Rate, tolerance: u64) -> u64 {
         if stream.delivery_max == u64::MAX {
             return u64::MAX;
         }
         let room_rate = self.expected_rate.unwrap_or(rate);
         let left = stream.delivery_room();
         let least = least_under_cap(rate);
-        let whole = offer(room_rate, left, least, stream.delivery_tolerance);
+        let whole = offer(room_rate, left, least, tolerance);
         if self.rate_seen {
             return whole;
         }

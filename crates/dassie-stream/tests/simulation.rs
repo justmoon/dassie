@@ -592,6 +592,44 @@ fn the_last_packet_rounds_up_within_the_tolerance() {
     assert!((5_000..=5_005).contains(&rounded), "received {rounded}");
 }
 
+// Found in review: a receiver also refuses an ordinary packet over what is
+// left, as when the path's rate rises while the last packets are in
+// flight. That refusal says nothing of rounding up, so the last packet
+// still rounds up: at more than one unit for one, landing under could miss
+// the last units, and the receiver would never count its payment paid.
+#[test]
+fn a_refused_overshoot_leaves_the_last_packet_rounding_up() {
+    // The path's rate, and how much better it gets once the receiver has
+    // a thousand units. At the second, the last packet, rounded up at the
+    // old rate, arrives further over than the tolerance and is refused.
+    for (rate, rise, tolerance) in [((5, 2), (101, 100), 5), ((3, 1), (105, 100), 20)] {
+        let path = Path {
+            rate,
+            max_packet_amount: 1_500,
+            ..Path::default()
+        };
+        let floor = Rate::new(rate.0 * 99, rate.1 * 100).unwrap();
+        let (mut sim, stream) = capped_stream(path, floor, 10_000, 5_000);
+        sim.money_limit = Some(5_000);
+        sim.money_tolerance = tolerance;
+        sim.client
+            .set_delivery_tolerance(stream, tolerance)
+            .unwrap();
+        sim.run_until(STEPS, |sim| sim.money_received >= 1_000);
+        sim.path.rate = (rate.0 * rise.0, rate.1 * rise.1);
+        sim.run_until(STEPS, |sim| {
+            sim.client.delivery_cap_reached(stream) || sim.client.is_closed()
+        });
+        assert!(sim.client.stats().packets_rejected > 0, "{rate:?}");
+        assert!(
+            (5_000..=5_000 + tolerance).contains(&sim.money_received),
+            "{rate:?}: received {}\n{}",
+            sim.money_received,
+            sim.trace
+        );
+    }
+}
+
 // A receiver that takes nothing over its maximum refuses the packet that
 // rounds up, and tells the room: the stream lands short of its cap
 // instead, without waiting.
@@ -617,6 +655,7 @@ fn a_receiver_that_takes_nothing_over_is_paid_short() {
         sim.trace
     );
     assert!(sim.now.unix_ms - start < 5_000, "{}", sim.trace);
-    // The packet that rounded up was refused once, and none after.
-    assert_eq!(sim.client.stats().packets_rejected, 1, "{}", sim.trace);
+    // The first packet, to a stream the receiver had not opened yet, and
+    // the one that rounded up were refused, and none after.
+    assert_eq!(sim.client.stats().packets_rejected, 2, "{}", sim.trace);
 }
