@@ -15,6 +15,7 @@ import { useNodeData } from "@dassie/ui/node-data";
 import { describe, useClient } from "@dassie/ui/rpc";
 import { Link, useRouter } from "@dassie/ui/router";
 import { Alert, Card, ErrorText, PageTitle, Spinner } from "@dassie/ui/ui";
+import { useToast } from "@dassie/ui/toast";
 import { Lockup } from "@dassie/ui/kopje";
 import { assetText } from "../schemes.ts";
 import { assetLabel } from "../payments/WalletAddresses.tsx";
@@ -66,6 +67,7 @@ function Choices(props: { done: string }): JSX.Element {
   const client = useClient();
   const data = useNodeData();
   const router = useRouter();
+  const toast = useToast();
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string>();
   const rows = createMemo(async () =>
@@ -87,6 +89,14 @@ function Choices(props: { done: string }): JSX.Element {
     } catch (failure) {
       setError(describe(failure));
       setBusy(false);
+      // What was added before the failure stays, and its ledgers may open
+      // the wallet in place of this page, error and all: a notice outlives
+      // the switch.
+      toast({
+        title: "Not every asset was added",
+        description: `${describe(failure)} Add it again on Assets.`,
+        tone: "destructive",
+      });
     }
   };
   return (
