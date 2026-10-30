@@ -119,6 +119,8 @@ message Request {
     RemoveSettlementSchemeRequest remove_settlement_scheme = 52;
     StubDepositRequest stub_deposit = 53;
     ListSettlementSchemesRequest list_settlement_schemes = 54;
+    ListAssetsRequest list_assets = 146;
+    AddAssetsRequest add_assets = 147;
     // Streaming.
     SubscribeLedgersRequest subscribe_ledgers = 55;
     AskFaucetRequest ask_faucet = 56;
@@ -259,6 +261,8 @@ message Response {
     RemoveSettlementSchemeResponse remove_settlement_scheme = 52;
     StubDepositResponse stub_deposit = 53;
     ListSettlementSchemesResponse list_settlement_schemes = 54;
+    ListAssetsResponse list_assets = 146;
+    AddAssetsResponse add_assets = 147;
     AskFaucetResponse ask_faucet = 56;
     SetAssetConfigResponse set_asset_config = 57;
 
