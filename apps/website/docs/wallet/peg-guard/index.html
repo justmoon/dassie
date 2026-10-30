@@ -99,18 +99,10 @@
 
       <h2 id="what-you-see">What you see in the wallet</h2>
       <p>
-        Open <strong>Ledgers</strong>. The card for
-        <em>DSUSD on the XRP Ledger Testnet</em> shows the guard's last
-        reading in small print, such as:
+        Open <strong>Assets</strong>, then DSUSD. Its Deposit section shows
+        the guard's last reading in small print, such as:
       </p>
       <pre><code><span class="output">DSUSD on its XRP/DSUSD pool: $1.0002, as of ledger 12345678</span></code></pre>
-      <p>
-        The card for <em>DSUSD in a settlement hub on the XRP Ledger
-        Testnet</em> shows the same guard, but for now it names the token by
-        its ledger's currency, USD, and the pool as XRP/USD:
-        <em>USD on its XRP/USD pool</em>, and <em>USD</em> in its notices.
-        It is the same DSUSD and the same XRP/DSUSD pool.
-      </p>
       <p>
         The price is cut to four decimals, never rounded, so it never looks
         closer to a dollar than it is. While the guard pauses the token, a
@@ -130,8 +122,7 @@
         </li>
       </ul>
       <p>
-        On the hub's card, the notices say USD where these say DSUSD. The
-        DSUSD tab under <strong>Receive</strong> shows your own DSUSD
+        The DSUSD tab under <strong>Receive</strong> shows your own DSUSD
         account, with the same notice, since what arrives there is still
         booked while the token is paused. The node also writes each pause and each recovery to its log.
       </p>
@@ -195,7 +186,7 @@
       </p>
       <ol class="steps">
         <li>
-          <strong>The XRP rate.</strong> On <strong>Ledgers</strong>, the
+          <strong>The XRP rate.</strong> On <strong>Assets</strong>, the
           Exchange rates card shows how old the XRP rate is. If it is more
           than ten minutes old, or says stale, the guard cannot read the
           price, so check your rate sources; see
@@ -204,7 +195,7 @@
         <li>
           <strong>The ledger connection.</strong> A DSUSD ledger that says
           it is connecting or catching up has no fresh readings. See
-          <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> and
+          <a href="/docs/wallet/assets/">Add and fund an asset</a> and
           <a href="/docs/node/troubleshooting/">Troubleshooting</a>.
         </li>
         <li>

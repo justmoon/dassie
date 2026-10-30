@@ -34,13 +34,21 @@
       <p>
         The <strong>Dashboard</strong> is the first page after you log in. Its
         balance card lists what you have of each asset, such as XRP or
-        DSUSD, in its own currency: what is in your settlement hub and on
+        DSUSD, in its own currency: everything, in your settlement hub and on
         your own account together, since your node moves money between the
-        two by itself. The numbers update as payments move. Beside it,
+        two by itself, the reserves and what is held for your peers
+        included. Each asset's row opens its own page. The numbers update as
+        payments move. Beside it,
         <strong>Recent</strong> shows your last few payments, with a link
         to all your activity.
       </p>
       <ul>
+        <li>
+          <strong>Spendable.</strong> Where a payment cannot spend all of a
+          balance, a quiet line under it says how much it can, such as
+          <em>15.55 spendable</em>. The rest is reserves, and what is held
+          for your peers.
+        </li>
         <li>
           <strong>In flight.</strong> A small figure in brackets, such as
           <em>(XRP 0.25 in flight)</em>, is the part of that balance that
@@ -62,12 +70,11 @@
         muted ones.
       </p>
       <p>
-        <strong>Ledgers</strong> shows each ledger in more detail: the part
-        of the balance on it, and below it what the account on the underlying ledger
-        holds, less what that ledger holds back as a reserve. The two differ
-        while settlements are on their way, and by what you owe peers or
-        they owe you. <a href="/docs/wallet/ledgers/">Add and fund a ledger</a>
-        explains that page.
+        An asset's own page, from its row or from <strong>Assets</strong>,
+        breaks its balance down: what is in your own account, what is in the
+        hub, what is on its way between them, and what each part sets aside.
+        <a href="/docs/wallet/assets/#an-assets-page">An asset's page</a>
+        explains it.
       </p>
       <aside class="note">
         <p>
@@ -193,41 +200,29 @@
       <p>
         Your balances are your node's books. The money behind them sits in
         accounts outside it: your account on the XRP Ledger testnet, and your
-        account in each settlement hub you are in. Open
-        <strong>Assets</strong> in the top menu to see them, on a page called
-        External assets.
+        account in each settlement hub you are in. Each asset's page on
+        <strong>Assets</strong> shows them.
       </p>
       <p>
-        Each card is one account. The XRP Ledger account is called
-        <em>XRP Ledger Testnet account</em>. A hub account shows under the
-        ID of the scheme over it, such as <code>hub-xrpl-testnet-xrp</code>.
-        Each card shows:
+        Under <strong>What the XRP Ledger holds</strong>, the page shows your
+        account as the ledger last reported it, never added up from the
+        books:
       </p>
       <ul>
-        <li>
-          its address, where it has one, as text and as a QR code: where
-          you send money to fund it;
-        </li>
-        <li>
-          what it holds of each asset, as the ledger last said, never added up
-          from the books: XRP, and each token on a trust line, with its
-          issuer;
-        </li>
-        <li>the reserve the ledger holds back, which is never spent;</li>
+        <li>its XRP, and the reserve the ledger holds back on it;</li>
+        <li>each token on a trust line, with its issuer;</li>
         <li>
           a red notice if a token's issuer froze your line or the whole
-          token, and what that stops;
-        </li>
-        <li>
-          which of your ledgers settle through it, each a link to its
-          Receive tab.
+          token, and what that stops.
         </li>
       </ul>
       <p>
-        The testnet account also has a <strong>Get test XRP</strong> button,
-        which asks the testnet faucet for free test XRP, once a minute at
-        most. If the card says the account does not exist yet, send it XRP
-        or wait for the faucet.
+        Its Deposit section has the account's address, as text and as a QR
+        code, where you send money to fund it, and on the testnet a
+        <strong>Get test XRP</strong> button, which asks the testnet faucet
+        for free test XRP, once a minute at most. If the page says the
+        account does not exist yet, send it XRP or wait for the faucet.
+        <a href="/docs/wallet/assets/">Add and fund an asset</a> says more.
       </p>
       <p>
         For your hub accounts in detail (balance, holds toward peers,

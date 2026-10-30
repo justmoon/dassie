@@ -45,6 +45,7 @@ export const SEARCH = "/docs/search/";
 export const MOVED: readonly { from: string; to: string }[] = [
   { from: "/guides/quick-start/", to: "/docs/start/quick-start/" },
   { from: "/guides/nixos/", to: "/docs/node/nixos/" },
+  { from: "/docs/wallet/ledgers/", to: "/docs/wallet/assets/" },
 ];
 
 /** The sections, in sidebar order. */
@@ -96,8 +97,8 @@ export const SECTIONS: readonly Section[] = [
     pages: [
       { path: "/docs/wallet/setup/", title: "Set up your wallet" },
       { path: "/docs/wallet/backup/", title: "Back up your phrase" },
+      { path: "/docs/wallet/assets/", title: "Add and fund an asset" },
       { path: "/docs/wallet/hubs/", title: "Your hubs" },
-      { path: "/docs/wallet/ledgers/", title: "Add and fund a ledger" },
       { path: "/docs/wallet/receive/", title: "Receive money" },
       { path: "/docs/wallet/send/", title: "Send money" },
       { path: "/docs/wallet/names/", title: "Choose a name" },

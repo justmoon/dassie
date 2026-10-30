@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Choose the assets your node holds, read what each balance is made of, put test money on it from the faucet or another wallet, and remove one you no longer use."
+    />
+    <title>Add and fund an asset · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Add and fund an asset</h1>
+      <p class="lede">
+        An asset is money your node holds for you, such as test XRP or DSUSD.
+        You choose it in the wallet, and your node sets up where it keeps it:
+        your own account on the XRP Ledger, and the asset's settlement hub.
+        Then you put test money on it, and remove it when you are done with
+        it.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="choose-assets">Choose your assets</h2>
+      <p>
+        You choose from the same checklist twice: once during
+        <a href="/docs/wallet/setup/#choose-assets">setup</a>, under
+        <strong>Choose what your node holds</strong>, and later on the
+        <strong>Assets</strong> page, under <strong>+ Add an asset</strong>.
+        It lists the assets your node offers and does not hold yet.
+      </p>
+      <ol class="steps">
+        <li>Tick each asset you want.</li>
+        <li>
+          Choose <strong>Continue →</strong>. It stays grayed out while nothing
+          is ticked.
+        </li>
+      </ol>
+      <p>On the testnet, your node offers two:</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Asset</th>
+              <th>What it is</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Test XRP</td>
+              <td>
+                XRP on the XRP Ledger testnet, free from the testnet's faucet.
+                Your node joins the testnet's XRP hub to pay and be paid in
+                it. It is ticked to start with.
+              </td>
+            </tr>
+            <tr>
+              <td>Test DSUSD</td>
+              <td>
+                DSUSD, Dassie's test dollar token, on the same account. Your
+                node joins the testnet's DSUSD hub for it.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Some assets need another. DSUSD's ledger takes its fees and reserve
+        in XRP, so ticking Test DSUSD ticks Test XRP too, and holds it there,
+        with the note "Needed for DSUSD's fees."
+      </p>
+      <p>
+        For each asset you choose, your node adds two things: your own account
+        on the asset's ledger, which holds your money and funds the hub, and
+        the asset's settlement hub, built into your release, which four of the
+        testnet's bootstrap nodes keep. Your node settles with peers only
+        through <a href="/docs/wallet/hubs/">hubs</a>, so it finds its peers
+        there. There is nothing more to join. The
+        <a href="/docs/reference/schemes/">settlement schemes</a> reference
+        lists every ledger a node can run.
+      </p>
+      <p class="not-yet">
+        The list also shows XRP and RLUSD on the XRP Ledger mainnet, but you
+        cannot tick them: a node refuses real money for now.
+        <a href="/docs/project/roadmap/#real-money">What's next</a>
+      </p>
+      <p>
+        A development build offers <strong>Stub dollars</strong> too: the
+        made-up dollars that Dassie's tests and the
+        <a href="/docs/build/dev-network/">local dev network</a> run on. A
+        release build never offers them.
+      </p>
+
+      <h2 id="the-assets-page">The Assets page</h2>
+      <p>
+        <strong>Assets</strong> in the top menu shows a card for each asset
+        you hold: its balance, what you can spend of it where that is less,
+        how your node's connection to its ledgers stands, and
+        <strong>Open</strong>, which opens the asset's own page.
+        <strong>+ Add an asset</strong> opens the checklist above, with the
+        assets you do not hold yet.
+      </p>
+      <p>
+        At the bottom, the Exchange rates card lists what one dollar buys in
+        each of your currencies, and how old each rate is.
+        <a href="/docs/wallet/rates/">Exchange-rate settings</a> says where
+        the rates come from.
+      </p>
+
+      <h2 id="an-assets-page">An asset's page</h2>
+      <p>
+        Open an asset from its card on <strong>Assets</strong>, or from its
+        row on the Dashboard. The Balance card shows your balance in large
+        figures, and below it where the money is, with what each part sets
+        aside:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>On the card</th>
+              <th>What it means</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>In your account</td>
+              <td>
+                What your own account on the XRP Ledger holds, and how much of
+                it is the XRP Ledger's reserve. A token such as DSUSD has its
+                reserve in XRP, so the card says it is counted with your XRP.
+              </td>
+            </tr>
+            <tr>
+              <td>In the hub</td>
+              <td>
+                What your account in the settlement hub holds: what is there
+                to spend, what is held for your peers, and the hub's reserves.
+              </td>
+            </tr>
+            <tr>
+              <td>On its way into the hub</td>
+              <td>
+                A deposit the hub has not credited yet. Shown only while there
+                is one.
+              </td>
+            </tr>
+            <tr>
+              <td>You can pay … now</td>
+              <td>What a payment in this asset can spend right now.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Under it are <strong>Send</strong> and <strong>Receive</strong> for the
+        asset, its Deposit section (<a href="#fund-with-test-xrp">below</a>),
+        what the XRP Ledger holds, the hub, and the asset's ledgers.
+      </p>
+
+      <h2 id="spendable">What you can spend</h2>
+      <p>
+        Your balance counts everything you have of the asset: the reserves
+        too, both your XRP Ledger account's and your hub account's, the
+        reserves of what your node holds for its peers, and what is held for
+        them. A payment cannot spend all of that. Where it can spend less than
+        the balance, a quiet line under the balance says how much, such as
+        <em>15.55 spendable</em>, on the Dashboard and on Assets alike.
+      </p>
+      <p>
+        Usually your node counts what is in your own account toward what you
+        can spend: it moves money into the hub as a payment needs it. When it
+        cannot, such as while you have stopped its own moves into the hub,
+        only what is in the hub counts, and the asset's page says why next to
+        <em>You can pay … now</em>.
+        <a href="/docs/wallet/hubs/#automatic-moves">Your hubs</a> says more
+        about those moves.
+      </p>
+
+      <h2 id="fund-with-test-xrp">Fund it with test XRP</h2>
+      <p>
+        A new account does not exist on the XRP Ledger until it receives
+        enough XRP for its reserve. Until then, the wallet says "The account
+        does not exist yet", and your node asks the testnet faucet for XRP by
+        itself. Usually that is all it takes.
+      </p>
+      <p>
+        To ask for more, or to send test XRP from another wallet, open the XRP
+        page and go to its Deposit section:
+      </p>
+      <ol class="steps">
+        <li>
+          Choose <strong>Get test XRP</strong> to ask the faucet, once a
+          minute at most. The XRP shows up once the ledger validates it.
+        </li>
+        <li>
+          Or send test XRP from another testnet wallet to your account's
+          address, shown as text and as a QR code. It needs no destination
+          tag: the address is your node's alone. The section also says how
+          much the XRP Ledger holds back as the account's reserve.
+        </li>
+      </ol>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Send only test XRP, on the XRP Ledger
+          testnet. Never send real XRP to this address: your node does not
+          follow the live XRP Ledger.
+        </p>
+      </aside>
+      <p>
+        <strong>Receive</strong> shows the same address and the faucet on the
+        asset's tab. Whatever you deposit lands in your own account. Your node
+        moves into the hub what it needs there, and what is beyond a float in
+        the hub back to your account
+        (<a href="/docs/wallet/receive/#where-it-is-kept">Where the money
+        stays</a>).
+      </p>
+
+      <h2 id="fund-with-dsusd">Fund it with DSUSD</h2>
+      <p>
+        DSUSD lives on the same account as your test XRP, on a trust line to
+        Dassie's DSUSD issuer that your node sets up itself. The account pays
+        its fees and the trust line's reserve in XRP, so it needs XRP first.
+      </p>
+      <ol class="steps">
+        <li>
+          Choose <strong>Test DSUSD</strong>, and open its page. Its Deposit
+          section names both what the account needs: the token, and XRP for
+          the fees.
+        </li>
+        <li>
+          If the account does not exist yet, choose <strong>Get test XRP</strong>
+          for its fees. DSUSD cannot arrive before the account and its trust
+          line exist, and the page says when the line is there.
+        </li>
+        <li>
+          DSUSD has no faucet. Buy it with test XRP on the testnet's XRP/DSUSD
+          pool, from any XRP Ledger wallet: a payment to your deposit address
+          whose amount is DSUSD, paid for with XRP, swaps through the pool and
+          arrives as DSUSD.
+        </li>
+      </ol>
+      <p>
+        The section shows the issuer's address, what the trust line holds, and
+        how much XRP the account has for fees. Send only DSUSD of that issuer,
+        and test XRP: other tokens may be lost.
+      </p>
+      <p>
+        Your node watches DSUSD's price on its pool, and stops converting it
+        while the price is off a dollar. The Deposit section shows the guard's
+        last reading.
+        <a href="/docs/wallet/peg-guard/">Dollar tokens and the peg guard</a>
+        explains what that pause does.
+      </p>
+
+      <h2 id="what-the-ledger-holds">What the XRP Ledger holds</h2>
+      <p>
+        Your balance is your node's books. This section of an asset's page
+        shows the account behind them as the XRP Ledger last reported it,
+        never added up from the books:
+      </p>
+      <ul>
+        <li>its XRP, and the reserve the ledger holds back on it;</li>
+        <li>each token on a trust line, with its issuer;</li>
+        <li>
+          a red notice if a token's issuer froze your line or the whole
+          token, and what that stops.
+        </li>
+      </ul>
+      <p>
+        The two differ while settlements are on their way, and by what you
+        owe peers or they owe you.
+      </p>
+
+      <h2 id="the-hub">The hub</h2>
+      <p>
+        The Hub card says how your account in the asset's settlement hub
+        stands. <strong>Hub details on the Hubs page</strong> opens
+        <a href="/docs/wallet/hubs/">Hubs</a>, where you deposit and withdraw
+        yourself, set the target your node keeps the hub near, and see what
+        you and your peers hold for each other.
+      </p>
+
+      <h2 id="remove-an-asset">Remove an asset</h2>
+      <p>
+        At the bottom of an asset's page, <strong>Ledgers</strong> lists the
+        ledgers that hold it, by their scheme's name: your own account, such
+        as <code>xrpl-testnet-xrp</code>, and its hub's, such as
+        <code>hub-xrpl-testnet-xrp</code>. Each has a
+        <strong>Remove</strong> link. Remove the hub first, then the account:
+        a hub funds from your account, so the account stays while a hub
+        needs it. Your XRP account stays too while you are in the DSUSD hub,
+        whose escrow pays its fees in XRP.
+      </p>
+      <ol class="steps">
+        <li>Choose <strong>Remove</strong> next to the ledger.</li>
+        <li>
+          Read the checklist. These keep a ledger in use, and must go first:
+          hubs that fund from it, BTP tokens that use it, ended peerings still
+          to be settled on it, payments from it still being sent, and money
+          on its way between it and its settlement hub.
+        </li>
+        <li>
+          Type the confirmation the page asks for, such as
+          <code>DELETE HUB-XRPL-TESTNET-XRP</code>, and choose
+          <strong>Remove ledger account</strong>.
+        </li>
+      </ol>
+      <p>
+        A hub's ledger first settles up with the peers that settle on it, which
+        takes a few minutes at most, then waits about an hour for what they
+        may still send, and goes. The page says "Being removed" meanwhile.
+      </p>
+      <p>
+        The page warns of a possibility to lose funds: removing a ledger stops
+        your node from using it, and while the ledger is gone your node does
+        not settle on it. What your books hold on it stays, and comes back
+        when you add the asset again. The money on the XRP Ledger stays on
+        your account, whose keys come from your
+        <a href="/docs/wallet/backup/">recovery phrase</a>.
+      </p>
+
+      <h2 id="when-it-fails">When something is wrong</h2>
+      <ul>
+        <li>
+          <strong>"Connecting to the ledger: waiting, as …"</strong> names what
+          your node waits for, such as a list of validators it has none of
+          yet. It usually clears by itself.
+        </li>
+        <li>
+          <strong>"Something is wrong with the ledger"</strong> names the
+          problem. Check that your node reaches the internet, and look at
+          <code>dassie status</code>.
+        </li>
+        <li>
+          <strong>The faucet refuses.</strong> It gives once a minute at most,
+          and the testnet's faucet is sometimes down. Try again later, or send
+          test XRP from another wallet.
+        </li>
+      </ul>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/one-balance-per-asset.md">Why it works this way</a>:
+        why you hold one balance per asset, and your node manages the hub's
+        part of it.
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/external-assets.md">Why
+        the wallet shows what the XRP Ledger reports</a>, and not what the
+        books add up to.
+        <a href="/docs/concepts/ledgers/">Ledgers, books and realms</a>
+        explains it in plain words.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

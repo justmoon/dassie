@@ -39,19 +39,20 @@
 
       <h2 id="joining-a-hub">Joining a hub</h2>
       <p>
-        A node is in at most one hub per asset. It joins a hub when you add
-        the hub's ledger on <strong>Ledgers</strong>, such as
-        <strong>XRP in a settlement hub on the XRP Ledger Testnet</strong>
-        (<code>hub-xrpl-testnet-xrp</code>), and stays in that hub for as long
-        as you keep the ledger. A hub needs the ledger it is funded from: for
-        the XRP hub, <strong>XRP Ledger Testnet</strong>, so add and
-        <a href="/docs/wallet/ledgers/">fund that one</a> first. The DSUSD hub
-        (<code>hub-xrpl-testnet-dsusd</code>) needs both
-        <strong>DSUSD on the XRP Ledger Testnet</strong>, which funds it, and
-        <strong>XRP Ledger Testnet</strong>, which pays its escrow's fees.
+        A node is in at most one hub per asset. It joins a hub when you
+        <a href="/docs/wallet/assets/#choose-assets">choose its asset</a>,
+        during setup or on <strong>Assets</strong>: choosing
+        <strong>Test XRP</strong> adds both your own account on the XRP
+        Ledger testnet (<code>xrpl-testnet-xrp</code>), which funds the hub,
+        and the testnet's XRP hub over it
+        (<code>hub-xrpl-testnet-xrp</code>). Your node stays in that hub for
+        as long as you keep the hub's ledger. The DSUSD hub
+        (<code>hub-xrpl-testnet-dsusd</code>) is funded from your DSUSD, and
+        pays its escrow's fees in XRP, so choosing Test DSUSD needs Test XRP
+        too.
       </p>
       <p>
-        Once you add the hub's ledger, your node opens its account there by
+        Once it is in the hub, your node opens its account there by
         itself: it moves money in from your own ledger of the hub's asset,
         enough for the account's reserve and some to spend. It does so once
         that ledger holds enough, unless you
@@ -64,9 +65,9 @@
       <p>
         The testnet's XRP hub and DSUSD hub are built into your release as its
         default hubs. Four of the testnet's bootstrap nodes keep them, and the
-        wallet offers both. A hub's ledger joins the default hub of its asset
-        when you add it, and stays in that hub even if a later release builds
-        in another. The wallet joins no hub by itself.
+        wallet offers both. Your node joins the default hub of an asset when
+        you choose the asset, and stays in that hub even if a later release
+        builds in another.
         <code>dassie setup</code> joins the XRP hub unless
         <code>--hub</code> names others, or none with <code>--hub none</code>.
         To join a hub that is not a default, give its scheme that hub's rules
@@ -83,8 +84,8 @@
         lists every option of <code>dassie setup</code>.
       </p>
       <p>
-        While your node is in no hub, the Hubs page says so, and links to
-        <strong>Ledgers</strong>, where you add one.
+        While your node is in no hub, the Hubs page says so: it joins one
+        when you add an asset, on <strong>Assets</strong>.
       </p>
       <p class="not-yet">
         No hub of real XRP or RLUSD is built in yet. Those come with the
@@ -368,8 +369,8 @@
         copy it first if no one has submitted it yet.
       </p>
       <p>
-        Then add the hub's ledger again on the <strong>Ledgers</strong> page to
-        join the default hub of its asset, as a ledger never added. A hub that
+        Then add its asset again on the <strong>Assets</strong> page to join
+        the default hub of the asset, as if you had never added it. A hub that
         still runs, or that only stalled and has no signed payout yet, cannot
         be left yet.
       </p>
