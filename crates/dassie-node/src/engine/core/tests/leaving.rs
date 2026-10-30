@@ -410,6 +410,9 @@ fn a_leave_under_way_carries_on_after_a_restart() {
 
     let mut core = core_taking_downlinks(Arc::clone(&store), Realm::Test, LiveRealm::Refused, now);
     assert!(core.schemes[&hub_scheme()].leaving);
+    // Leaving again succeeds, even before the payout keeper has told the
+    // engine again that the hub ended.
+    assert_eq!(core.leave_hub(SCHEME_ID), Ok(false));
     // The wait counts from the start, once no method is on the scheme.
     let wait = core.removal_wait_ms();
     core.begin_step(now + 1_000);

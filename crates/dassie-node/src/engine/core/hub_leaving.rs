@@ -90,6 +90,15 @@ impl Core {
     /// tokens or the owner's unfinished payments use its ledger.
     pub fn leave_hub(&mut self, scheme: &str) -> Result<bool, EngineError> {
         let scheme = self.chosen_hub(scheme)?;
+        // Leaving a hub being left succeeds, even before the payout keeper
+        // has told the engine again after a restart that the hub ended.
+        if self
+            .schemes
+            .get(&scheme)
+            .is_some_and(|active| active.leaving)
+        {
+            return Ok(false);
+        }
         let account = self
             .hub_account(scheme)
             .ok_or_else(|| EngineError::Internal("the hub scheme vanished".into()))?;
@@ -106,9 +115,6 @@ impl Core {
             .get(&scheme)
             .ok_or_else(|| EngineError::Internal("the hub scheme vanished".into()))?;
         let ledger = active.scheme.ledger();
-        if active.leaving {
-            return Ok(false);
-        }
         // The move on its way never keeps the node in a hub that ended: it
         // is forgotten below.
         if let Some(blocker) = self
