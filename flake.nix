@@ -11,7 +11,7 @@
   # trusted users; the desktop app's docs say how others add it.
   nixConfig = {
     extra-substituters = [ "https://nix.vorstand.app/cache/dassie" ];
-    extra-trusted-public-keys = [ "nix.vorstand.app-dassie-1:DASSIE_KEY_TODO=" ];
+    extra-trusted-public-keys = [ "nix.vorstand.app-dassie-1:oUWp1VA+DI2VlKFSUt7Iyffry2enZ06fUGWVd7qHSBM=" ];
   };
 
   inputs = {

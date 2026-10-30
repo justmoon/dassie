@@ -108,7 +108,7 @@ jobs:
         with:
           extra_nix_config: |
             extra-substituters = https://nix.vorstand.app/cache/dassie
-            extra-trusted-public-keys = nix.vorstand.app-dassie-1:DASSIE_KEY_TODO=
+            extra-trusted-public-keys = nix.vorstand.app-dassie-1:oUWp1VA+DI2VlKFSUt7Iyffry2enZ06fUGWVd7qHSBM=
             netrc-file = /etc/nix/netrc
       - name: Nix cloud token
         env:
@@ -148,7 +148,7 @@ jobs:
         with:
           extra_nix_config: |
             extra-substituters = https://nix.vorstand.app/cache/dassie
-            extra-trusted-public-keys = nix.vorstand.app-dassie-1:DASSIE_KEY_TODO=
+            extra-trusted-public-keys = nix.vorstand.app-dassie-1:oUWp1VA+DI2VlKFSUt7Iyffry2enZ06fUGWVd7qHSBM=
             netrc-file = /etc/nix/netrc
             system-features = nixos-test benchmark big-parallel kvm
       - name: Nix cloud token
@@ -177,7 +177,7 @@ jobs:
         with:
           extra_nix_config: |
             extra-substituters = https://nix.vorstand.app/cache/dassie
-            extra-trusted-public-keys = nix.vorstand.app-dassie-1:DASSIE_KEY_TODO=
+            extra-trusted-public-keys = nix.vorstand.app-dassie-1:oUWp1VA+DI2VlKFSUt7Iyffry2enZ06fUGWVd7qHSBM=
             netrc-file = /etc/nix/netrc
       - name: Nix cloud token
         env:
