@@ -429,7 +429,8 @@ fn ended_text(status: &proto::HubStatus) -> Option<String> {
     if status.ended {
         Some(format!(
             "a quorum of its validators signed its payout set (`dassie hub payout {0}`), which \
-             anyone may submit; leave the hub with `dassie hub leave {0}` to join another",
+             anyone may submit; leave the hub with `dassie hub leave {0}` to join another, \
+             once you copied the payout: after you leave, `dassie hub payout` no longer shows it",
             status.scheme
         ))
     } else if status.stopped {
