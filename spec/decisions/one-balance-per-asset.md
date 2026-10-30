@@ -13,7 +13,7 @@
 
 ## Decision
 
-- **The owner holds one balance per asset:** what the owner book holds, what the hub account holds and what is on its way between them. The hub account is the node's to manage, like its holds: its details are on the Hubs page, never a balance of its own.
+- **The owner holds one balance per asset:** what the owner book holds, what the hub account holds and what is on its way between them, the reserves the ledgers hold back included ([owner-chooses-assets](owner-chooses-assets.md)). The hub account is the node's to manage, like its holds: never a balance of its own, it is a part of the asset's balance on the asset's own page, and its details are on the Hubs page.
 - **The hub keeps a float, and the rest goes to the owner's own account.** Above the ceiling, the node withdraws to the owner book down to the midpoint; below the floor, it deposits up to it. There is no setting for where received money is kept.
 - **Deposits go to the owner's own account,** on the asset's own ledger, never to the hub's escrow. The node moves into the hub what it needs there. The hub ledger names no deposit address.
 - **A payment may spend the whole balance.** One the hub account does not cover waits while the node deposits the shortfall from the owner book, as a hold is funded on request, within the payment's deadline.

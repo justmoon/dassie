@@ -1,12 +1,10 @@
 /**
- * A ledger's deposit address: its QR code, the address to copy, and what
- * the ledger holds back (spec/areas/wallet.md#pages).
+ * A ledger's deposit address: its QR code and the address to copy
+ * (spec/areas/wallet.md#pages).
  */
 
 import type { JSX } from "@solidjs/web";
 import type { Ledger } from "@dassie/rpc/proto";
-import { Show } from "solid-js";
-import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { Qr } from "@dassie/ui/qr";
 import { CopyButton } from "@dassie/ui/ui";
 
@@ -16,8 +14,6 @@ export function DepositAddress(props: {
   /** The test IDs' prefix, before the ledger's ID. */
   testid: string;
   pixels?: number;
-  /** Whether to say what the ledger holds back. */
-  reserve?: boolean;
 }): JSX.Element {
   return (
     <div class="deposit">
@@ -35,16 +31,6 @@ export function DepositAddress(props: {
           </code>{" "}
           <CopyButton text={props.address} label="Copy address" />
         </p>
-        <Show when={props.reserve && props.ledger.reserve > 0n}>
-          <p class="muted">
-            The ledger holds back{" "}
-            <Amount
-              value={props.ledger.reserve}
-              currency={ledgerCurrency(props.ledger)}
-            />{" "}
-            as a reserve: never spent, and not in the balance.
-          </p>
-        </Show>
       </div>
     </div>
   );

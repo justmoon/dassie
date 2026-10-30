@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="A node on your own server: install with one command, run dassie init, and finish in the browser with your recovery phrase, a ledger and a hub."
+      content="A node on your own server: install with one command, run dassie init, and finish in the browser with your recovery phrase and the assets your node holds."
     />
     <title>Quick Start · Dassie</title>
     <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
@@ -18,7 +18,7 @@
       <h1>Quick Start</h1>
       <p class="lede">
         This page takes you from an empty server to a node with a wallet,
-        a ledger and a settlement hub. It takes a few commands and a few
+        test XRP and a settlement hub. It takes a few commands and a few
         minutes in your browser.
       </p>
       <aside class="early">
@@ -157,64 +157,51 @@
         what the 20 words hold, and how they fix a word you misread.
       </p>
 
-      <h2 id="ledger">Choose a ledger</h2>
+      <h2 id="assets">Choose what your node holds</h2>
       <p>
-        Next the wallet asks you to <strong>Choose a ledger type</strong>.
-        It lists the ledgers your node can hold money on, all of them on the
-        XRP Ledger's test network: your own account there, and the
-        testnet's settlement hubs. Start with your account.
+        Next the wallet asks you to <strong>Choose what your node holds</strong>.
+        It lists the assets your node offers, all of them on the XRP Ledger's
+        test network. <strong>Test XRP</strong> is ticked to start with.
       </p>
       <ol class="steps">
         <li>
-          Next to <strong>XRP Ledger Testnet Settlement</strong>, choose
-          <strong>Select →</strong>. This is your node's own account on the XRP
-          Ledger testnet, which holds your test XRP.
+          Leave <strong>Test XRP</strong> ticked, and choose
+          <strong>Continue →</strong>. Your node adds its own account on the
+          XRP Ledger testnet, which holds your test XRP, and joins the
+          testnet's XRP hub.
         </li>
         <li>
           Wait for the test XRP. While the account does not exist on the
           ledger yet, your node asks the testnet faucet for XRP by itself.
           The XRP shows up once the ledger validates it. To ask for more,
-          open <strong>Assets</strong> and choose
+          open <strong>Assets</strong>, open XRP, and choose
           <strong>Get test XRP</strong>.
         </li>
       </ol>
       <p>
-        The list also offers <strong>DSUSD on the XRP Ledger Testnet
-        Settlement</strong>, which holds Dassie's test dollar in the same
-        account, and the testnet's two hubs, which you join next.
-        <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> covers it.
+        The list also offers <strong>Test DSUSD</strong>, Dassie's test
+        dollar, in the same account. You can add it now or later, from
+        <strong>+ Add an asset</strong> on <strong>Assets</strong>.
+        <a href="/docs/wallet/assets/">Add and fund an asset</a> covers it.
       </p>
 
-      <h2 id="hub">Join a settlement hub</h2>
+      <h2 id="hub">Your settlement hub</h2>
       <p>
         Your XRP Ledger account holds your money, but your node never pays
         its peers from it directly. Peers settle through a settlement hub
-        they share, so your node needs to join one.
+        they share. The testnet's XRP hub is built into your node, and four
+        of the bootstrap nodes keep it. Choosing Test XRP joined it.
       </p>
       <p>
-        The testnet's XRP hub is built into your node, and four of the
-        bootstrap nodes keep it. To join it:
-      </p>
-      <ol class="steps">
-        <li>
-          In the wallet, open <strong>Ledgers</strong> and choose
-          <strong>+ Add ledger</strong>.
-        </li>
-        <li>
-          Next to <strong>XRP in a settlement hub on the XRP Ledger Testnet
-          Settlement</strong>, choose <strong>Select →</strong>.
-        </li>
-      </ol>
-      <p>
-        Your node then moves about 2.5 test XRP from your account into the
-        hub: the hub account's reserve of 2 XRP, and some to spend. From
-        then on it keeps its balance in the hub above a floor by itself. The
-        <strong>Hubs</strong> page shows your account there.
+        Once your account has XRP, your node moves about 2.5 test XRP from it
+        into the hub: the hub account's reserve of 2 XRP, and some to spend.
+        From then on it keeps its balance in the hub above a floor by itself.
+        The <strong>Hubs</strong> page shows your account there.
         <a href="/docs/wallet/hubs/">Your hubs</a> says more.
       </p>
       <p>
-        The testnet's DSUSD hub is built in too, for when you hold DSUSD.
-        <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> covers it.
+        The testnet's DSUSD hub is built in too, and your node joins it when
+        you choose Test DSUSD.
       </p>
 
       <h2 id="network">Join the network</h2>

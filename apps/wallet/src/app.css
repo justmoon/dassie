@@ -7,6 +7,7 @@
 @import "@dassie/ui/ui.css";
 @import "./onboard/onboard.css";
 @import "./pages/payments/payments.css";
+@import "./pages/assets/assets.css";
 @import "./pages/grants/grants.css";
 @import "./pages/hubs/hubs.css";
 @import "./pages/ledgers/ledgers.css";

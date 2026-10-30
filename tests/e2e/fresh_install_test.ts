@@ -168,8 +168,8 @@ test(
       const page = await browser.newPage();
       await page.goto(setupUrl!, { waitUntil: "load" });
       const phrase = await generateWallet(page);
-      // Without a ledger yet, the owner first chooses one.
-      await text(page, "page-create-ledger");
+      // Without a ledger yet, the owner first chooses assets.
+      await text(page, "page-choose-assets");
       assertEquals(await text(page, "node-id"), expectedNodeId(phrase));
 
       // Logging out and in again, with a wrong phrase first.

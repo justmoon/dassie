@@ -1,13 +1,14 @@
 /**
- * Removing a ledger (spec/areas/wallet.md#pages): what blocks it, as
- * the node reports it live, and a typed confirmation.
+ * Removing a ledger of an asset (spec/areas/wallet.md#pages): what blocks
+ * it, as the node reports it live, and a typed confirmation. It goes back
+ * to the asset's page, or to Assets once the asset has no other ledger.
  */
 
 import type { JSX } from "@solidjs/web";
 import { createSignal, createUniqueId, Show } from "solid-js";
 import { useNodeData } from "@dassie/ui/node-data";
 import { describe, useClient } from "@dassie/ui/rpc";
-import { Navigate, type RouteProps, useRouter } from "@dassie/ui/router";
+import { Link, Navigate, type RouteProps, useRouter } from "@dassie/ui/router";
 import { useToast } from "@dassie/ui/toast";
 import {
   Alert,
@@ -31,7 +32,7 @@ export function DeleteLedger(props: RouteProps): JSX.Element {
       entry.settlementScheme === props.params.scheme
     );
   return (
-    <Show when={ledger()} fallback={<Navigate href="/ledgers" />}>
+    <Show when={ledger()} fallback={<Navigate href="/assets" />}>
       {(found) => <Removal scheme={found().settlementScheme} />}
     </Show>
   );
@@ -52,14 +53,25 @@ function Removal(props: { scheme: string }): JSX.Element {
   const blockers = () => ledger()?.removalBlockers ?? [];
   const removing = () => removingNotice(ledger()?.removingMethods);
   const confirmed = () => typed() === expectedConfirmation(props.scheme);
+  // The asset it is a ledger of, while it has another.
+  const back = () => {
+    const id = ledger()?.id;
+    const asset = data.balances().find((balance) =>
+      id !== undefined && balance.ledgers.includes(id)
+    );
+    return asset && asset.ledgers.length > 1
+      ? `/assets/${asset.name}`
+      : "/assets";
+  };
   const remove = async () => {
     setPending(true);
     setError(undefined);
+    const to = back();
     try {
       await client.call("removeSettlementScheme", { id: props.scheme });
       // It goes at once, or once its peers have settled up.
       toast({ title: `Removing ${schemeName(props.scheme)}` });
-      router.navigate("/ledgers");
+      router.navigate(to);
     } catch (failure) {
       setError(describe(failure));
       setPending(false);
@@ -67,6 +79,9 @@ function Removal(props: { scheme: string }): JSX.Element {
   };
   return (
     <div class="page-narrow">
+      <p class="breadcrumb">
+        <Link href="/assets">Assets</Link> ›
+      </p>
       <PageTitle>Removing ledger {schemeName(props.scheme)}</PageTitle>
       <Card testid="page-delete-ledger" class="ledger-removal">
         <Alert title="Possibility to lose funds" tone="danger">

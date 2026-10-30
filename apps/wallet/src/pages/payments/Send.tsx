@@ -35,6 +35,8 @@ export function Send(): JSX.Element {
   const router = useRouter();
   const id = createUniqueId();
   const to = useSearchParam("to");
+  // An asset's page names its asset.
+  const asset = useSearchParam("asset");
   const addresses = useWalletAddresses();
   const [step, setStep] = createSignal<Step>("recipient");
   const [input, setInput] = createSignal(to() ?? "");
@@ -52,9 +54,10 @@ export function Send(): JSX.Element {
 
   // The owner pays in an asset, from its one balance, which the node pays
   // from the ledger it names (spec/decisions/one-balance-per-asset.md): the
-  // one chosen, else one in the recipient's asset, else the default,
-  // `$host`'s. The node pays from the ledger the route starts on, and says
-  // so if it is another. An asset no route can start from is not offered.
+  // one chosen, else the one the link names, else one in the recipient's
+  // asset, else the default, `$host`'s. The node pays from the ledger the
+  // route starts on, and says so if it is another. An asset no route can
+  // start from is not offered.
   const balances = () =>
     data.balances().filter((balance) => balance.paysFrom !== "");
   const chosen = () => {
@@ -65,7 +68,8 @@ export function Send(): JSX.Element {
     );
     const fallback = addresses.addresses()?.find((address) => address.isDefault)
       ?.ledger;
-    const wanted = ledger() ?? same?.paysFrom;
+    const named = all.find((balance) => balance.name === asset());
+    const wanted = ledger() ?? named?.paysFrom ?? same?.paysFrom;
     return all.find((balance) => balance.paysFrom === wanted) ??
       all.find((balance) =>
         fallback !== undefined && balance.ledgers.includes(fallback)
@@ -262,7 +266,8 @@ export function Send(): JSX.Element {
                 fallback={
                   <p class="error" role="alert">
                     You have nothing to pay from. Payments go through a
-                    settlement hub: <Link href="/ledgers/create">add one</Link>.
+                    settlement hub:{" "}
+                    <Link href="/assets/add">add an asset</Link>.
                   </p>
                 }
               >

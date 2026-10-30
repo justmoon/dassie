@@ -43,10 +43,10 @@ export function decideScreen(
 
 /**
  * What the signed-in owner sees: nothing until the ledgers are known, the
- * forced choice of a first ledger without one
+ * forced choice of first assets without a ledger
  * (spec/areas/wallet.md#the-gate), the wallet otherwise. It follows
- * the live ledgers, so adding the first ledger, or removing the last, takes
- * effect at once.
+ * the live ledgers, so adding the first assets, or removing the last
+ * ledger, takes effect at once.
  */
 export function ownerScreen(
   ledgers: readonly unknown[] | undefined,

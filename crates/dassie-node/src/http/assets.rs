@@ -8,11 +8,11 @@
 //! headers, compressed nothing and answered `HEAD` with 404. Here:
 //!
 //! - every file has its type, and an ETag from its content;
-//! - Vite's hashed files under `/assets/` are cached for a year, and
+//! - Vite's hashed files under `/static/` are cached for a year, and
 //!   `index.html` is revalidated each time, so a new build shows at once;
 //! - files that shrink are served gzipped to clients that accept it;
 //! - other paths get `index.html`, for the wallet's own routing, except
-//!   under `/assets/`, where a missing file is a 404.
+//!   under `/static/`, where a missing file is a 404.
 //!
 //! In development (`DASSIE_DEV_WALLET_DIR`), the wallet is read from a
 //! directory that `vite build --watch` writes, under the same CSP, so a
@@ -101,7 +101,7 @@ impl std::fmt::Debug for Wallet {
 }
 
 /// The directory of Vite's content-hashed files.
-const HASHED_PREFIX: &str = "/assets/";
+const HASHED_PREFIX: &str = "/static/";
 
 /// Answers `GET` or `HEAD` for `path` from `wallet`.
 pub fn serve(wallet: Wallet, method: &Method, path: &str, headers: &HeaderMap) -> Response<Body> {
@@ -320,23 +320,23 @@ mod tests {
         let outside = tempfile::tempdir().unwrap();
         std::fs::write(outside.path().join("secret.txt"), "no").unwrap();
         let root = temp.path().join("dist");
-        std::fs::create_dir_all(root.join("assets")).unwrap();
+        std::fs::create_dir_all(root.join("static")).unwrap();
         let root = std::fs::canonicalize(root).unwrap();
         std::fs::write(root.join("index.html"), "<p>wallet</p>").unwrap();
-        std::fs::write(root.join("assets/app.js"), "x").unwrap();
+        std::fs::write(root.join("static/app.js"), "x").unwrap();
         std::os::unix::fs::symlink(outside.path(), root.join("escape")).unwrap();
         let get = |path: &'static str| {
             let root = root.clone();
             async move { serve_dir(&root, &Method::GET, path, &headers(&[])).await }
         };
-        let script = get("/assets/app.js").await;
+        let script = get("/static/app.js").await;
         assert_eq!(script.status(), StatusCode::OK);
         assert_eq!(
             script.headers()[header::CONTENT_TYPE],
             "text/javascript; charset=utf-8"
         );
         assert_eq!(script.headers()[header::CACHE_CONTROL], "no-cache");
-        assert_eq!(get("/assets/gone.js").await.status(), StatusCode::NOT_FOUND);
+        assert_eq!(get("/static/gone.js").await.status(), StatusCode::NOT_FOUND);
         for path in [
             "/escape/secret.txt",
             "/../dist/index.html",
@@ -361,7 +361,7 @@ mod tests {
             serve(
                 Wallet::PLACEHOLDER,
                 &Method::GET,
-                "/assets/missing.js",
+                "/static/missing.js",
                 &headers(&[])
             )
             .status(),

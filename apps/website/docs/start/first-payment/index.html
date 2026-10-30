@@ -70,11 +70,11 @@
         you.
       </p>
       <ol class="steps">
-        <li>In the wallet, open <strong>Assets</strong>.</li>
         <li>
-          Under your XRP Ledger testnet account, choose
-          <strong>Get test XRP</strong>.
+          In the wallet, open <strong>Assets</strong>, and choose
+          <strong>Open</strong> on XRP's card.
         </li>
+        <li>Under Deposit, choose <strong>Get test XRP</strong>.</li>
         <li>
           Wait for the ledger to validate it. The account's XRP then shows
           on the same page, and your balance on the
@@ -83,27 +83,24 @@
       </ol>
       <p>
         You can ask the faucet at most once a minute. The ledger holds back
-        part of what the account holds as its reserve, so you cannot spend
-        all of it.
+        part of what the account holds as its reserve. Your balance counts
+        it, so a line under the balance says how much of it you can spend.
       </p>
 
       <h2 id="hub">2. Put some of it in your hub</h2>
       <p>
         Your node pays its peers only through a settlement hub, never from
         your XRP Ledger account directly. So some of your XRP needs to be in
-        the hub. If you joined the hub in the Quick Start, your node has
+        the hub. If you chose Test XRP in the Quick Start, your node has
         done this already, and you can go on to
         <a href="/docs/start/first-payment/#peers">step 3</a>.
       </p>
       <p>
-        Your node joins a hub when you add the hub's ledger. The testnet's
-        XRP hub is built in: open <strong>Ledgers</strong>, choose
-        <strong>+ Add ledger</strong>, and next to <strong>XRP in a
-        settlement hub on the XRP Ledger Testnet Settlement</strong> choose
-        <strong>Select →</strong>, as
-        <a href="/docs/start/quick-start/#hub">Join a settlement hub</a>
+        Your node joins an asset's hub when you choose the asset. The
+        testnet's XRP hub is built in, and choosing Test XRP joined it, as
+        <a href="/docs/start/quick-start/#hub">Your settlement hub</a>
         in the Quick Start shows. A node set up with
-        <code>dassie setup</code> joined it already, unless
+        <code>dassie setup</code> joined it too, unless
         <code>--hub</code> said otherwise. Once your node is in the
         hub, it moves about 2.5 test XRP into it at once: the hub account's
         reserve, and some to spend. Open <strong>Hubs</strong> to see your

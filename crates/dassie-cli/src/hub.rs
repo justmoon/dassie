@@ -228,7 +228,7 @@ fn left_text(scheme: &str, gone: bool) -> String {
     format!(
         "{when}: what its books held of the account there is written off, and the hub's \
          payout set pays it to your own XRP Ledger account, where it is booked as it \
-         arrives. Join the default hub of its asset again on the wallet's Ledgers page, or \
+         arrives. Join the default hub of its asset again on the wallet's Assets page, or \
          with `dassie setup --hub {scheme}` on a node set up from its phrase."
     )
 }

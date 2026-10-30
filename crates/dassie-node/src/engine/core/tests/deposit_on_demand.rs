@@ -317,8 +317,12 @@ fn one_balance_counts_the_book_the_hub_and_a_deposit_on_its_way() {
         ledgers,
         [LedgerId::XrplTestnetXrp, LedgerId::HubXrplTestnetXrp]
     );
+    // The books of both ledgers, and the reserves they never count.
     let views = core.ledger_views();
-    let parts: i128 = views.iter().map(|view| view.owner_balance).sum();
+    let parts: i128 = views
+        .iter()
+        .map(|view| view.owner_balance + i128::from(view.reserve))
+        .sum();
     assert_eq!(before, parts, "nothing on its way");
 
     wait_and_close(&mut core, &mut ledger, 4_000);

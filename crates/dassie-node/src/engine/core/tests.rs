@@ -6893,7 +6893,11 @@ fn an_owner_payment_outlives_its_scheme_removed_and_added_again() {
     let units = dassie_xrpl::UNITS_PER_DROP;
     let (posted, _) = owner_xrp(&core);
     core.hub_deposit(3_000_000 * units).unwrap();
-    core.remove_scheme("xrpl-testnet-xrp").unwrap();
+    // The owner removes the book only once its hub is gone; the scheme
+    // still goes, as one a start leaves out does.
+    assert!(core.remove_scheme("xrpl-testnet-xrp").is_err());
+    let book = dassie_ledger::Name::new("xrpl-testnet-xrp").unwrap();
+    core.start_removal(book, dassie_ledger::LedgerId::XrplTestnetXrp);
     follow_xrpl(&mut core, &mut ledger);
     let fee = dassie_xrpl::account::MAX_FEE_DROPS * units;
     assert_eq!(
@@ -7414,6 +7418,10 @@ mod liquidity;
 
 // Leaving a hub that ended, and books a move by hand left behind.
 mod leaving;
+
+// The assets the owner chooses, and what the owner's one balance of each
+// counts.
+mod assets;
 
 /// The package's directory, as cargo and nextest name it to a test they
 /// run, never `env!`'s from when the test compiled: a build is reused in

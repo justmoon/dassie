@@ -107,6 +107,10 @@ message LedgerRemovalBlocker {
     // A move between its settlement hub and the owner book of the hub's
     // asset is on its way (hub_member.proto). Its count is 1.
     KIND_HUB_MOVE = 5;
+    // Settlement hubs the node is in fund from this owner book, as their
+    // asset's book or as the book of the XRP their escrow's fees take: how
+    // many. Remove the hubs first.
+    KIND_HUB_FUNDS = 6;
   }
 }
 
@@ -133,6 +137,53 @@ message ListSettlementSchemesRequest {}
 message ListSettlementSchemesResponse {
   // In a fixed order.
   repeated SettlementSchemeInfo schemes = 1;
+}
+
+// An asset the owner may hold (spec/decisions/owner-chooses-assets.md): an
+// account on its underlying ledger and its settlement hub, or the stub's
+// dollars in a development build. The owner chooses assets, never schemes:
+// the node adds the schemes of each.
+message AssetInfo {
+  // As its wallet address ends, and AssetBalance.name: usd, xrp, dsusd or
+  // rlusd.
+  string name = 1;
+  string asset_code = 2;
+  uint32 asset_scale = 3;
+  // The realm its money belongs to: the node's.
+  Realm realm = 4;
+  // The settlement schemes it adds, in the order it adds them: the owner
+  // book on its ledger, then the hub over it.
+  repeated string schemes = 5;
+  // The assets it needs, by name, which adding it adds first: a token's
+  // ledger pays its fees in the ledger's own asset, so DSUSD needs XRP.
+  repeated string needs = 6;
+  // Whether every scheme it adds is active.
+  bool active = 7;
+}
+
+// The assets the node offers its owner, those of its realm whose every
+// scheme it offers, and any whose schemes are all active.
+message ListAssetsRequest {}
+
+message ListAssetsResponse {
+  // In a fixed order.
+  repeated AssetInfo assets = 1;
+}
+
+// Adds assets: for each, the assets it needs, then each of its schemes not
+// yet active, in its order, each as AddSettlementScheme with no config
+// would. Not all or none: what was added stays if a later scheme fails,
+// and asking again adds the rest. INVALID_ARGUMENT for none, too many or an
+// unknown name; FAILED_PRECONDITION for one the node does not offer, or one
+// a scheme of which is being removed (Ledger.removing_methods), which goes
+// all the same.
+message AddAssetsRequest {
+  repeated string names = 1;
+}
+
+message AddAssetsResponse {
+  // The ledgers it added, in the order it added them.
+  repeated Ledger ledgers = 1;
 }
 
 message ListLedgersRequest {}
@@ -166,7 +217,14 @@ message AssetBalance {
   string name = 1;
   string asset_code = 2;
   uint32 asset_scale = 3;
-  // What the owner has of it. May be negative after a ledger lost money.
+  // Everything the owner has of it: what its ledgers' books hold, a
+  // move between them on its way, and the reserves the ledgers hold back,
+  // which the books never count (the owner book's account reserve, the hub
+  // account's and each of our holds' in the hub): theirs, though not
+  // spendable while the account or the hold is open. So it is more than
+  // the ledgers' owner_balance together by account_reserve and
+  // hub_reserve. May be negative after a ledger lost money. It is account,
+  // hub and on_its_way together.
   int64 owner_balance = 4;
   // Of that, what packets in flight hold. A deposit into the hub on its
   // way is not one.
@@ -188,6 +246,26 @@ message AssetBalance {
   // owner to read, with what to do: the node's own moves are off, or the
   // hub takes no deposits. Empty while it counts.
   string spendable_held = 10;
+  // Of owner_balance, what is in the owner's own account on the asset's
+  // ledger: its book, and its reserve.
+  int64 account = 11;
+  // Of account, what the ledger holds back as the account's reserve, in
+  // this asset: none for a token, whose line's reserve is in XRP.
+  uint64 account_reserve = 12;
+  // Of owner_balance, what is in the settlement hub: its book, which counts
+  // our holds toward peers and what peers' holds toward us we may take, and
+  // its reserves.
+  int64 hub = 13;
+  // Of hub, its account reserve and our holds' reserves.
+  uint64 hub_reserve = 14;
+  // Of hub, what our holds toward peers still hold: the credit the node
+  // extends them, set aside for them. What is left of hub less this and
+  // hub_reserve is the hub's to spend, give or take what peers owe us or
+  // we owe them.
+  uint64 held_for_peers = 15;
+  // Of owner_balance, a move between the hub and the owner's account that
+  // left one and the other has not booked yet.
+  uint64 on_its_way = 16;
 }
 
 // Something the node holds outside its books, which settlement schemes

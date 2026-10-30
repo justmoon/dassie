@@ -12,19 +12,21 @@ import { assert } from "@std/assert";
 import { assertCspClean, exists, scripts } from "@dassie/ui/testing/csp";
 
 const dist = new URL("dist", import.meta.url).pathname;
+/** Where the build puts its content-hashed files (vite.config.ts). */
+const HASHED = "static";
 const built = await exists(`${dist}/index.html`);
 
 test(
   "the built page has no inline script or style, and nothing from elsewhere",
   { skip: !built },
-  () => assertCspClean(dist),
+  () => assertCspClean(dist, HASHED),
 );
 
 test(
   "the production build cannot log in from the URL",
   { skip: !built },
   async () => {
-    for (const [name, code] of await scripts(dist)) {
+    for (const [name, code] of await scripts(dist, HASHED)) {
       assert(!code.includes("dassie-dev-login"), name);
     }
   },

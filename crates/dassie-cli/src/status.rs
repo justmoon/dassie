@@ -718,7 +718,7 @@ fn balances_line(balances: Result<Vec<proto::AssetBalance>, String>) -> String {
         Err(problem) => return format!("unknown ({problem})"),
     };
     if balances.is_empty() {
-        return "none yet: add a ledger in the wallet".into();
+        return "none yet: choose assets in the wallet".into();
     }
     entries(balances.iter().map(|balance| {
         format!(
@@ -735,7 +735,7 @@ fn ledgers_line(ledgers: Result<Vec<proto::Ledger>, String>) -> String {
         Err(problem) => return format!("unknown ({problem})"),
     };
     if ledgers.is_empty() {
-        return "none yet: add one in the wallet".into();
+        return "none yet: choose assets in the wallet".into();
     }
     entries(ledgers.iter().map(|ledger| {
         format!(
@@ -871,7 +871,7 @@ mod tests {
         );
         assert_eq!(
             balances_line(Ok(Vec::new())),
-            "none yet: add a ledger in the wallet"
+            "none yet: choose assets in the wallet"
         );
     }
 

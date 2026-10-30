@@ -202,8 +202,8 @@ function NoHubs(): JSX.Element {
   return (
     <Card testid="hubs-none">
       <p class="muted">
-        Your node is in no settlement hub yet. It joins one when you add the
-        hub's settlement scheme, on <Link href="/ledgers/create">Ledgers</Link>.
+        Your node is in no settlement hub yet. It joins one when you add an
+        asset, on <Link href="/assets/add">Assets</Link>.
       </p>
     </Card>
   );
@@ -324,7 +324,7 @@ function Leave(
             toast({
               title: gone ? "Left the hub" : "Leaving the hub",
               description:
-                "Add its scheme again on the Ledgers page to join another hub.",
+                "Add its asset again on the Assets page to join another hub.",
             });
           } catch (failure) {
             setError(describe(failure));

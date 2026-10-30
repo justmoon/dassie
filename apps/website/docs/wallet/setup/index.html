@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="Open the setup link, make a recovery phrase or bring yours, choose your first ledger, and join the testnet's hub."
+      content="Open the setup link, make a recovery phrase or bring yours, and choose the assets your node holds."
     />
     <title>Set up your wallet · Dassie</title>
     <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
@@ -19,8 +19,9 @@
       <p class="lede">
         A new node waits for its owner. You claim it once, in your browser,
         with a recovery phrase: a new one the wallet makes for you, or one you
-        already have. Then you choose the first ledger it keeps your money on,
-        and join the testnet's settlement hub so that your node has peers.
+        already have. Then you choose what your node holds, such as test XRP,
+        and it joins the testnet's settlement hub of each, where it finds its
+        peers.
       </p>
 
       <aside class="early">
@@ -81,8 +82,8 @@
           first four letters, and choose <strong>Verify</strong>.
         </li>
         <li>
-          The wallet sets your node up. Once it is done, it opens on the choice
-          of your first ledger.
+          The wallet sets your node up. Once it is done, it asks what your
+          node holds.
         </li>
       </ol>
       <p>
@@ -124,54 +125,41 @@
         words, that a node no longer reads. Make a new phrase instead.
       </p>
 
-      <h2 id="first-ledger">Choose your first ledger</h2>
+      <h2 id="choose-assets">Choose what your node holds</h2>
       <p>
-        A ledger is where your node keeps your money in one asset. Until you
-        add one, the wallet shows only <strong>Choose a ledger type</strong>,
-        with the node ID you are signed in to. A note at the top says that you
-        are on the Dassie test network, and that none of the choices use real
-        money.
+        Until your node holds an asset, the wallet shows only
+        <strong>Choose what your node holds</strong>, with the node you are
+        signed in to and a <strong>Log out</strong> button. On the testnet, a
+        note at the top says that nothing here is real money.
       </p>
       <ol class="steps">
         <li>
-          Pick <strong>XRP Ledger Testnet Settlement</strong> to start. It
-          holds test XRP on the XRP Ledger testnet, which its faucet hands out
-          for free. <strong>DSUSD on the XRP Ledger Testnet Settlement</strong>
-          holds Dassie's test dollar token, and takes a little more to fund.
+          Tick the assets you want. <strong>Test XRP</strong> is ticked to
+          start with: XRP on the XRP Ledger testnet, which its faucet hands out
+          for free. <strong>Test DSUSD</strong> is Dassie's test dollar token,
+          and takes a little more to fund. Its ledger takes its fees in XRP,
+          so ticking it ticks Test XRP too.
         </li>
         <li>
-          Choose <strong>Select →</strong> next to it. The node adds the
-          ledger, and the wallet opens on your ledgers.
+          Choose <strong>Continue →</strong>. For each asset, your node adds
+          your own account on the XRP Ledger testnet and joins the testnet's
+          settlement hub of the asset.
         </li>
       </ol>
+      <p>
+        Peers settle with each other only through settlement hubs, so that is
+        where your node finds its peers. The testnet's two hubs, one of XRP
+        and one of DSUSD, are built into your release, and four of the
+        testnet's bootstrap nodes keep them. There is no hub to join by hand.
+      </p>
       <p>
         The node starts on test XRP right away: while its account on the
-        testnet does not exist yet, it asks the faucet itself.
-        <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> shows how to
-        follow that, and how to add more.
-      </p>
-
-      <h2 id="join-the-hub">Join the testnet's hub</h2>
-      <p>
-        Your own ledger peers with no one. Peers settle with each other
-        through settlement hubs, and the testnet's two hubs, one of XRP and
-        one of DSUSD, are built into your release. Four of the testnet's
-        bootstrap nodes keep them. The wallet joins none for you, so add the
-        XRP hub yourself:
-      </p>
-      <ol class="steps">
-        <li>Open <strong>Ledgers</strong> and choose <strong>+ Add ledger</strong>.</li>
-        <li>
-          Choose <strong>Select →</strong> next to
-          <strong>XRP in a settlement hub on the XRP Ledger Testnet
-          Settlement</strong>.
-        </li>
-      </ol>
-      <p>
-        The hub is funded from your <strong>XRP Ledger Testnet</strong>
-        ledger, so pick that one first, as above. Your node then looks for
-        peers in the hub by itself.
-        <a href="/docs/wallet/hubs/">Your hubs</a> shows your account there.
+        testnet does not exist yet, it asks the faucet itself, and then moves
+        what the hub needs into it.
+        <a href="/docs/wallet/assets/">Add and fund an asset</a> shows how to
+        follow that, and how to add more later.
+        <a href="/docs/wallet/hubs/">Your hubs</a> shows your account in the
+        hub.
       </p>
 
       <h2 id="without-a-browser">Without a browser</h2>

@@ -115,7 +115,7 @@ Nodes without a public IP join as periphery nodes: they connect only to core nod
 
 ### Onboarding
 
-A new owner opens a setup URL, enters a passphrase and chooses a first ledger ([Overview](overview.md#life-of-a-node)); every other choice is a default in the node's environment. An onboarding in the wallet is to walk the owner through the choices that matter, explaining each. It is not designed yet; what it must hold so far:
+A new owner opens a setup URL, enters a passphrase and chooses the assets the node holds ([Overview](overview.md#life-of-a-node)); every other choice is a default in the node's environment. An onboarding in the wallet is to walk the owner through the choices that matter, explaining each. It is not designed yet; what it must hold so far:
 
 - **Choosing a relay** is one of its steps. A node without a hostname keeps a connection to the `dassiepay.net` front door by default, so that it is reached at its default name ([default-relay](decisions/default-relay.md)). The step explains what that costs: a machine the project runs learns when the node is online, and reads the Open Payments requests it passes on, as any front door does. The owner keeps it, names another relay, or keeps none and is not reached at that name.
 - **Done when:** an owner sets a node up in the wallet without the command line, and makes each choice the node otherwise defaults, the relay among them, knowing what it costs.
