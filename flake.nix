@@ -5,6 +5,15 @@
   # releases (nix/release.nix).
   description = "Dassie: a multi-currency, peer-to-peer, Interledger-enabled payment network";
 
+  # The project's cache on the Vorstand Nix cloud, which keeps each release's
+  # desktop app (spec/areas/desktop.md#the-package), signed by a key that
+  # signs Dassie's builds alone. Nix asks before it uses this, and only for
+  # trusted users; the desktop app's docs say how others add it.
+  nixConfig = {
+    extra-substituters = [ "https://nix.vorstand.app/cache/dassie" ];
+    extra-trusted-public-keys = [ "nix.vorstand.app-dassie-1:oUWp1VA+DI2VlKFSUt7Iyffry2enZ06fUGWVd7qHSBM=" ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     rust-overlay = {

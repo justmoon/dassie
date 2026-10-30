@@ -8,7 +8,12 @@
 # `build` follows the build's log and exits 0 only once it succeeded,
 # printing the outputs' store paths last. `cancel` stops the build that
 # `build` started on this runner, for a workflow run that was cancelled.
-# Both read the project's token from NIX_CLOUD_TOKEN.
+# Both read the project's token from NIX_CLOUD_TOKEN. With NIX_CLOUD_PIN=true,
+# `build` asks the cloud to pin the build: its cache keeps the outputs, with
+# all they need, until the build is unpinned, rather than while it has room.
+# Pins count against the project's storage; when that is full, the cloud
+# refuses a pinned build (409). To unpin one, `DELETE /v1/builds/<id>/pin`
+# with the token, or "Unpin" on the project's page in Vorstand Code.
 #
 # The Nix cloud answers 429 while it holds as many builds as it takes:
 # `build` then asks again, waiting longer each time (or as long as it says),
@@ -43,7 +48,8 @@ build() {
   local commit=$1
   shift
   local body job
-  body=$(jq -n --arg c "$commit" '{commit: $c, attrs: $ARGS.positional}' --args "$@")
+  body=$(jq -n --arg c "$commit" --argjson pin "${NIX_CLOUD_PIN:-false}" \
+    '{commit: $c, attrs: $ARGS.positional} + (if $pin then {pin: true} else {} end)' --args "$@")
   job=$(submit "$body")
   if [ -z "$job" ] || [ "$job" = null ]; then
     echo "::error::The Nix cloud started no build" >&2

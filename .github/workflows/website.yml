@@ -102,13 +102,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      # The Nix cloud's cache, which only its signing key may fill, and
-      # which a project's token reads.
+      # The project's cache on the Nix cloud, which only the project's key
+      # signs, so it trusts Dassie's builds alone. Anyone may read it;
+      # with the token, CI reads all of it, unpinned builds too.
       - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
         with:
           extra_nix_config: |
             extra-substituters = https://nix.vorstand.app/cache/dassie
-            extra-trusted-public-keys = nix-cloud-1:9HgKchsAo5NaX4Zbk7kxJ1r/U/4Zg4pqIif1c021AKE=
+            extra-trusted-public-keys = nix.vorstand.app-dassie-1:oUWp1VA+DI2VlKFSUt7Iyffry2enZ06fUGWVd7qHSBM=
             netrc-file = /etc/nix/netrc
       - name: Nix cloud token
         env:
