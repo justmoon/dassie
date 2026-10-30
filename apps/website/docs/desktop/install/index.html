@@ -48,8 +48,8 @@
         </li>
       </ul>
       <p>
-        For a release, Nix fetches the app ready-built from Dassie's cache,
-        once you let it use the cache:
+        For a release after 0.4.5, Nix fetches the app ready-built from
+        Dassie's cache, once you let it use the cache:
         <a href="#dassies-cache">Dassie's cache</a>, below, says how.
         Otherwise Nix builds the app from Dassie's source, the wallet
         included. That takes a while, so start it when you have a few
@@ -136,12 +136,15 @@
 
       <h2 id="dassies-cache">Dassie's cache</h2>
       <p>
-        Every release's app is built once, on the Vorstand Nix cloud where
-        Dassie's releases are built, and kept in Dassie's cache there. Nix
-        fetches it from the cache when it trusts the cache's key. That key
-        signs Dassie's builds and nothing else, so trusting it lets in only
-        what Dassie's releases built. The main branch's newest commit is not
-        kept there, so Nix builds it.
+        From the release after 0.4.5 on, every release's app is built once,
+        on the Vorstand Nix cloud where Dassie's releases are built, and
+        kept in Dassie's cache there. Nix fetches it from the cache when it
+        trusts the cache's key. That key signs the builds the Nix cloud
+        makes for Dassie and nothing else: the releases', and those of every
+        change Dassie's checks build. Trusting it lets in none but Dassie's
+        builds. The cache keeps a release's app for good, and the main
+        branch's app only for a while, if at all, so Nix builds the main
+        branch's app, and the app of 0.4.5 or older.
       </p>
       <p>
         Dassie's flake names the cache. The first time you run or install
