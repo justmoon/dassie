@@ -76,8 +76,8 @@
       <pre><code><span class="prompt">$</span>nix --extra-experimental-features 'nix-command flakes' run github:justmoon/dassie#desktop</code></pre>
       <p>
         This builds the newest commit on Dassie's main branch. To run a
-        release instead, which Nix fetches from Dassie's cache, put its tag
-        after the repository's name:
+        release instead, which Nix fetches from Dassie's cache after 0.4.5,
+        put its tag after the repository's name:
       </p>
       <pre><code><span class="prompt">$</span>nix run github:justmoon/dassie/&lt;tag&gt;#desktop</code></pre>
       <p>
@@ -142,9 +142,11 @@
         trusts the cache's key. That key signs the builds the Nix cloud
         makes for Dassie and nothing else: the releases', and those of every
         change Dassie's checks build. Trusting it lets in none but Dassie's
-        builds. The cache keeps a release's app for good, and the main
-        branch's app only for a while, if at all, so Nix builds the main
-        branch's app, and the app of 0.4.5 or older.
+        builds. The cache keeps a release's app until Dassie removes it to
+        make room for newer ones, and the main branch's app only for a
+        while, if at all. Nix builds whatever the cache does not have: the
+        main branch's app, the app of 0.4.5 or older, and that of a release
+        the cache no longer keeps.
       </p>
       <p>
         Dassie's flake names the cache. The first time you run or install
