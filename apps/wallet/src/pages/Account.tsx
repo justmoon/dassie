@@ -2,9 +2,10 @@
  * Home (spec/areas/wallet.md#pages): the owner's balance, the total in the
  * display currency (spec/decisions/owner-ledger.md) while the rates allow
  * and below it each asset in its own currency, as it changes, its
- * settlement hub's and its own account's together
- * (spec/decisions/one-balance-per-asset.md); Send and Receive; the last few
- * payments; and the payment pointer.
+ * settlement hub's and its own account's together, reserves included
+ * (spec/decisions/one-balance-per-asset.md), what a payment may spend of
+ * it where that is less, and a link to its own page; Send and Receive; the
+ * last few payments; and the payment pointer.
  *
  * It is the top of the wallet in Kopje's brand page
  * (apps/website/brand/index.html, "Node wallet"): the balance on a
@@ -25,6 +26,7 @@ import {
 import { ReceiveIcon, SendIcon } from "./payments/icons.tsx";
 import { Recent } from "./payments/Recent.tsx";
 import { Card, LiveNote, PageTitle } from "@dassie/ui/ui";
+import { showsSpendable } from "./assets/assets.ts";
 
 const GRASS = new URL("./balance-grass.svg", import.meta.url).href;
 
@@ -73,24 +75,43 @@ function Balance(): JSX.Element {
           <For each={data.balances()} keyed={(balance) => balance.name}>
             {(balance) => (
               <li>
-                <span class="balance-asset">
-                  {assetLabel(balance().name)}
-                </span>
-                <Amount
-                  value={balance().ownerBalance}
-                  currency={ledgerCurrency(balance())}
-                  size={data.total() ? "md" : "lg"}
-                  testid={`balance-${balance().name}`}
-                />
-                <Show when={balance().ownerPending > 0n}>
-                  <span class="balance-note">
-                    (<Amount
-                      value={balance().ownerPending}
-                      currency={ledgerCurrency(balance())}
-                    />{" "}
-                    in flight)
+                <Link
+                  href={`/assets/${balance().name}`}
+                  class="balance-row"
+                  testid={`balance-open-${balance().name}`}
+                >
+                  <span class="balance-asset">
+                    {assetLabel(balance().name)}
                   </span>
-                </Show>
+                  <Amount
+                    value={balance().ownerBalance}
+                    currency={ledgerCurrency(balance())}
+                    size={data.total() ? "md" : "lg"}
+                    testid={`balance-${balance().name}`}
+                  />
+                  <Show when={balance().ownerPending > 0n}>
+                    <span class="balance-note">
+                      (<Amount
+                        value={balance().ownerPending}
+                        currency={ledgerCurrency(balance())}
+                      />{" "}
+                      in flight)
+                    </span>
+                  </Show>
+                  <Show when={showsSpendable(balance())}>
+                    <span
+                      class="balance-note"
+                      data-testid={`balance-spendable-${balance().name}`}
+                    >
+                      <Amount
+                        value={balance().spendable}
+                        currency={ledgerCurrency(balance())}
+                      />{" "}
+                      spendable
+                    </span>
+                  </Show>
+                  <span class="balance-chevron" aria-hidden="true">›</span>
+                </Link>
               </li>
             )}
           </For>

@@ -351,10 +351,10 @@ test("every page of the wallet works against two nodes", {
     // Its removal would settle up with the peer first, and then drop its
     // method (spec/decisions/settlement-methods.md): peers no longer keep
     // it. The page says so; the ledger stays, for the steps after.
-    await t.test("ledgers: peers do not keep a ledger", async () => {
-      await visit(page, d1, "/ledgers");
+    await t.test("assets: peers do not keep a ledger", async () => {
+      await visit(page, d1, "/assets/usd");
       await text(page, "ledger-stub+usd");
-      await picture(page, "03-ledgers");
+      await picture(page, "03-asset");
       await click(page, "ledger-delete-stub");
       assertEquals(
         await attribute(page, "prereq-peers", "data-state"),
@@ -546,7 +546,7 @@ test("every page of the wallet works against two nodes", {
 });
 
 test(
-  "a node without a ledger asks for one, and a removed last ledger asks again",
+  "a node without a ledger asks for assets, and a removed last ledger asks again",
   { skip: missing !== undefined },
   async () => {
     const scenario = await Scenario.temporary("one-node", {
@@ -564,8 +564,20 @@ test(
       await signInWallet(page, node);
       assertEquals(await text(page, "node-id"), node.id);
       await text(page, "testnet-alert");
-      await click(page, "select-scheme-stub");
+      // XRP starts ticked where the node offers it: only the stub's
+      // dollars here.
+      await text(page, "choose-asset-usd");
+      const xrpTicked = await page.evaluate(() =>
+        document.querySelector<HTMLInputElement>(
+          '[data-testid="choose-asset-xrp"]',
+        )?.checked === true
+      );
+      if (xrpTicked) await click(page, "choose-asset-xrp");
+      await click(page, "choose-asset-usd");
+      await click(page, "assets-continue");
       // The wallet, at once, without a reload.
+      await text(page, "page-account");
+      await visit(page, node, "/assets/usd");
       await text(page, "ledger-stub+usd");
       await click(page, "ledger-delete-stub");
       assertEquals(
@@ -574,7 +586,7 @@ test(
       );
       await type(page, "delete-confirmation", "DELETE STUB");
       await click(page, "delete-submit");
-      await text(page, "page-create-ledger");
+      await text(page, "page-choose-assets");
       assert(
         !(await page.evaluate(() => location.pathname.startsWith("/setup"))),
       );

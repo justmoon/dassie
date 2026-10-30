@@ -14,13 +14,13 @@ import {
   Show,
 } from "solid-js";
 import { Account } from "../pages/Account.tsx";
+import { Asset } from "../pages/assets/Asset.tsx";
 import { Assets } from "../pages/assets/Assets.tsx";
-import { CreateLedger } from "../pages/ledgers/CreateLedger.tsx";
+import { AddAssets } from "../pages/assets/ChooseAssets.tsx";
 import { DeleteLedger } from "../pages/ledgers/DeleteLedger.tsx";
-import { Ledgers } from "../pages/ledgers/Ledgers.tsx";
 import { Receive } from "../pages/Receive.tsx";
 import { useClient } from "@dassie/ui/rpc";
-import { Routes } from "@dassie/ui/router";
+import { Navigate, Routes } from "@dassie/ui/router";
 import { PageError, Spinner } from "@dassie/ui/ui";
 import { MainNav } from "./MainNav.tsx";
 
@@ -64,11 +64,14 @@ const ROUTES = [
   { path: "/names", component: Names },
   { path: "/network/:node", component: Network },
   { path: "/network", component: Network },
-  { path: "/ledgers/create", component: CreateLedger },
-  { path: "/ledgers/delete/:scheme", component: DeleteLedger },
-  { path: "/ledgers", component: Ledgers },
-  { path: "/hubs", component: Hubs },
+  { path: "/assets/add", component: AddAssets },
+  { path: "/assets/remove/:scheme", component: DeleteLedger },
+  { path: "/assets/:name", component: Asset },
   { path: "/assets", component: Assets },
+  // Ledgers and External assets were merged into Assets.
+  { path: "/ledgers", component: ToAssets },
+  { path: "/ledgers/*rest", component: ToAssets },
+  { path: "/hubs", component: Hubs },
   { path: "/receive", component: Receive },
   { path: "/send", component: Send },
   { path: "/payments/:id", component: PaymentStatus },
@@ -79,6 +82,11 @@ const ROUTES = [
   { path: "/debug", component: DebugPage },
   { path: "/debug/*rest", component: DebugPage },
 ];
+
+/** Where Ledgers was: Assets, in place of the old page in the history. */
+function ToAssets(): JSX.Element {
+  return <Navigate href="/assets" />;
+}
 
 export function Shell(): JSX.Element {
   return (

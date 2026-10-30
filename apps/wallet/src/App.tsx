@@ -6,8 +6,8 @@
  * - uninitialized: the setup wizard at `/setup/<token>`, otherwise a note
  *   on where to find that URL;
  * - anonymous: the login page, whatever the URL;
- * - authenticated: the forced choice of a first ledger without one, the
- *   wallet otherwise.
+ * - authenticated: the forced choice of first assets without a ledger,
+ *   the wallet otherwise.
  */
 
 import { RpcClient } from "@dassie/rpc";
@@ -16,7 +16,7 @@ import type { JSX } from "@solidjs/web";
 import { createSignal, Errored, lazy, Loading, Match, Switch } from "solid-js";
 import { decideScreen, isSetupPath, ownerScreen } from "./gate.ts";
 import { Shell } from "./layout/Shell.tsx";
-import { Onboarding } from "./pages/ledgers/CreateLedger.tsx";
+import { Onboarding } from "./pages/assets/ChooseAssets.tsx";
 import { createNodeData, NodeDataContext } from "@dassie/ui/node-data";
 import { RpcContext } from "@dassie/ui/rpc";
 import { Router } from "@dassie/ui/router";

@@ -1,9 +1,9 @@
 /*
- * Ledgers, deposits and their QR codes. Receive shows the deposits, and
- * Assets and Devices show addresses and QR codes too.
+ * Ledgers, deposits and their QR codes. Receive and an asset's page show
+ * the deposits, and Devices shows a QR code too.
  */
 
-/* Ledgers */
+/* A card's heading, with its button on the right. */
 .ledger-head {
   display: flex;
   flex-wrap: wrap;
@@ -21,7 +21,7 @@
   font-size: 14px;
 }
 
-/* The ledger's part of the balance, marked by the value cube. */
+/* A balance, marked by the value cube. */
 .ledger-balance {
   display: flex;
   align-items: center;
@@ -116,7 +116,7 @@ p.deposit-address {
   margin-top: 0;
 }
 
-/* The ledgers to choose from. */
+/* The assets to choose from. */
 .choices {
   margin: 0;
   padding: 0;
@@ -151,7 +151,7 @@ p.deposit-address {
   margin: 0;
 }
 
-/* The first ledger: the lockup above the choice. */
+/* The first assets: the lockup above the choice. */
 .onboarding > .brand {
   margin-bottom: 24px;
 }

@@ -1,166 +1,113 @@
 /**
- * External assets (spec/areas/wallet.md#pages): what the node holds outside
- * its books, such as its account on the XRP Ledger testnet, each with its
- * address, what it holds as its ledger says (never as the books add it up,
- * spec/decisions/external-assets.md), the reserve, and a line its issuer
- * froze. It is where the owner funds them.
+ * Assets (spec/areas/wallet.md#pages): each asset the owner holds, with
+ * its one balance (spec/decisions/one-balance-per-asset.md), what a
+ * payment may spend of it where that is less, how its ledgers stand, and
+ * a link to its own page; a way to add another; and the exchange rates
+ * the node converts at, with their age (spec/decisions/exchange-rates.md).
  */
 
 import type { JSX } from "@solidjs/web";
-import type { ExternalAsset, Holding } from "@dassie/rpc/proto";
+import type { AssetBalance } from "@dassie/rpc/proto";
 import { For, Show } from "solid-js";
-import { Amount } from "@dassie/ui/amount";
+import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { useNodeData } from "@dassie/ui/node-data";
-import { Qr } from "@dassie/ui/qr";
 import { Link } from "@dassie/ui/router";
-import { Alert, Card, CopyButton, LiveNote, PageTitle } from "@dassie/ui/ui";
+import { Card, LiveNote, PageTitle, ValueCube } from "@dassie/ui/ui";
+import { ageText, rateText } from "../settings/rates.ts";
 import { connectionText } from "../ledgers/connection.ts";
-import { Faucet } from "../ledgers/Faucet.tsx";
-import { schemeName } from "../schemes.ts";
-import {
-  assetName,
-  freezeText,
-  holdingCurrency,
-  nativeAsset,
-} from "./assets.ts";
+import { assetTitle, showsSpendable } from "./assets.ts";
 
 export function Assets(): JSX.Element {
   const data = useNodeData();
   return (
     <div class="page-wide stack">
-      <PageTitle>External assets</PageTitle>
-      <p class="muted">
-        What your node holds outside its books, as the ledger reports it. Your
-        ledgers settle through these.
-      </p>
+      <PageTitle>Assets</PageTitle>
       <LiveNote status={data.ledgersStatus()} />
-      <Show
-        when={data.externalAssets().length > 0}
-        fallback={
-          <p class="muted" data-testid="assets-none">
-            None of your ledgers settles through an external asset.
-          </p>
-        }
-      >
-        <For each={data.externalAssets()} keyed={(asset) => asset.id}>
-          {(asset) => <AssetCard asset={asset()} />}
+      <div class="asset-list">
+        <For each={data.balances()} keyed={(balance) => balance.name}>
+          {(balance) => <AssetCard balance={balance()} />}
         </For>
+      </div>
+      <div class="actions">
+        <Link href="/assets/add" class="button primary" testid="add-asset">
+          + Add an asset
+        </Link>
+      </div>
+      <Show when={data.rates().some((rate) => rate.assetCode !== "USD")}>
+        <Card title="Exchange rates" testid="rates">
+          <ul class="rate-list">
+            <For
+              each={data.rates().filter((rate) => rate.assetCode !== "USD")}
+            >
+              {(rate) => (
+                <li
+                  data-testid={`rate-${rate.assetCode}`}
+                  data-stale={rate.stale ? "yes" : "no"}
+                >
+                  <span class="rate">
+                    {rateText(rate.assetCode, rate.perUsd)}
+                  </span>{" "}
+                  <span class="muted">
+                    ({ageText(rate.asOfUnixMs, Date.now(), rate.stale)})
+                  </span>
+                </li>
+              )}
+            </For>
+          </ul>
+          <p class="muted">
+            Change their sources in <Link href="/settings">Settings</Link>.
+          </p>
+        </Card>
       </Show>
     </div>
   );
 }
 
-function AssetCard(props: { asset: ExternalAsset }): JSX.Element {
-  const id = () => props.asset.id;
+function AssetCard(props: { balance: AssetBalance }): JSX.Element {
+  const data = useNodeData();
+  const name = () => props.balance.name;
+  const currency = () => ledgerCurrency(props.balance);
+  // How each of its ledgers stands, once each, while one is not synced.
+  const connection = () => [
+    ...new Set(
+      props.balance.ledgers.flatMap((id) => {
+        const ledger = data.ledgers()?.find((entry) => entry.id === id);
+        const text = ledger && connectionText(ledger);
+        return text ? [text] : [];
+      }),
+    ),
+  ];
   return (
-    <Card testid={`asset-${id()}`} class="ledger external-asset">
-      <h2>{assetName(id())}</h2>
-      <Show when={connectionText(props.asset)}>
-        {(text) => <p data-testid={`asset-connection-${id()}`}>{text()}</p>}
-      </Show>
-      <Show when={props.asset.address}>
-        {(address) => (
-          <div class="deposit">
-            <Qr
-              text={address()}
-              label={`Address ${address()}`}
-              testid={`asset-qr-${id()}`}
-            />
-            <div>
-              <p class="overline">Address</p>
-              <p>
-                <code data-testid={`asset-address-${id()}`}>{address()}</code>
-                {" "}
-                <CopyButton text={address()} label="Copy address" />
-              </p>
-            </div>
-          </div>
-        )}
-      </Show>
-      <Show
-        when={props.asset.holdings.length > 0}
-        fallback={
-          <p class="muted">The ledger has not said what it holds yet.</p>
-        }
-      >
-        <dl class="facts">
-          <For each={props.asset.holdings}>
-            {(holding) => <HoldingFacts asset={id()} holding={holding} />}
-          </For>
-        </dl>
-      </Show>
-      <p class="muted">
-        Settles{" "}
-        <For each={props.asset.settlementSchemes}>
-          {(scheme, index) => (
-            <>
-              {index() > 0 ? " and " : ""}
-              <Link
-                href={`/receive?tab=${scheme}`}
-                testid={`asset-scheme-${scheme}`}
-              >
-                {schemeName(scheme)}
-              </Link>
-            </>
-          )}
-        </For>
-        .
-      </p>
-      <Show when={props.asset.faucet && props.asset.settlementSchemes[0]}>
-        {(scheme) => (
-          <Faucet scheme={scheme()} assetCode={nativeAsset(id()) ?? ""} />
-        )}
-      </Show>
-    </Card>
-  );
-}
-
-function HoldingFacts(
-  props: { asset: string; holding: Holding },
-): JSX.Element {
-  const testid = () =>
-    `asset-holding-${props.asset}-${props.holding.assetCode}`;
-  const currency = () => holdingCurrency(props.holding);
-  return (
-    <>
-      <dt>{props.holding.assetCode}</dt>
-      <dd>
+    <Card testid={`asset-${name()}`} class="asset-card">
+      <div class="ledger-head">
+        <h2>{assetTitle(props.balance)}</h2>
+        <Link
+          href={`/assets/${name()}`}
+          class="button"
+          testid={`asset-open-${name()}`}
+          aria-label={`Open ${assetTitle(props.balance)}`}
+        >
+          Open
+        </Link>
+      </div>
+      <div class="ledger-balance">
+        <ValueCube />
         <Amount
-          value={props.holding.amount}
+          value={props.balance.ownerBalance}
           currency={currency()}
           size="lg"
-          testid={testid()}
+          testid={`asset-balance-${name()}`}
         />
-        <Show when={props.holding.issuer}>
-          {(issuer) => (
-            <p class="muted">
-              Issued by <code>{issuer()}</code>, on the account's trust line
-            </p>
-          )}
-        </Show>
-        <Show when={props.holding.reserve > 0n}>
-          <p class="muted">
-            The ledger holds back{" "}
-            <Amount
-              value={props.holding.reserve}
-              currency={currency()}
-              testid={`${testid()}-reserve`}
-            />{" "}
-            as a reserve: never spent.
-          </p>
-        </Show>
-        <Show when={freezeText(props.holding)}>
-          {(text) => (
-            <Alert
-              title="Frozen by its issuer"
-              tone="danger"
-              testid={`${testid()}-frozen`}
-            >
-              {text()}
-            </Alert>
-          )}
-        </Show>
-      </dd>
-    </>
+      </div>
+      <Show when={showsSpendable(props.balance)}>
+        <p class="muted" data-testid={`asset-spendable-${name()}`}>
+          <Amount value={props.balance.spendable} currency={currency()} />{" "}
+          spendable
+        </p>
+      </Show>
+      <For each={connection()}>
+        {(text) => <p data-testid={`asset-connection-${name()}`}>{text}</p>}
+      </For>
+    </Card>
   );
 }

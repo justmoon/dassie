@@ -64,6 +64,16 @@ export function removalChecklist(
           "Funds are on their way between its settlement hub and the ledger that funds it; wait for them, or give the move up on the Hubs page once it is late",
         state: "invalid",
       });
+    } else if (blocker.kind === Kind.HUB_FUNDS) {
+      // A hub's account is funded from this book, or its escrow's fees
+      // are: the hub goes first.
+      items.push({
+        id: "hub-funds",
+        label: `Your ${
+          plural(blocker.count, "settlement hub funds", "settlement hubs fund")
+        } from it: remove ${blocker.count === 1 ? "it" : "them"} first`,
+        state: "invalid",
+      });
     } else {
       items.push({
         id: `other-${blocker.kind}`,

@@ -71,7 +71,8 @@ export function LedgerDeposit(
           <dt>Reserve</dt>
           <dd>
             The ledger holds back {reserve()}{" "}
-            on the account: never spent, and not in your balance.
+            on the account: counted in your balance, but not spendable while the
+            account is open.
           </dd>
         </Show>
         <dt>Arrives</dt>

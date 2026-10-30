@@ -55,6 +55,22 @@ test("a move of the ledger's hub on its way blocks the removal", () => {
   );
 });
 
+test("a hub that funds from the ledger is removed first", () => {
+  const items = removalChecklist([blocker(Kind.HUB_FUNDS, 1)]);
+  assertEquals(items.map((item) => [item.id, item.state]), [
+    ["peers", "valid"],
+    ["hub-funds", "invalid"],
+  ]);
+  assertEquals(
+    items[1].label,
+    "Your 1 settlement hub funds from it: remove it first",
+  );
+  assertEquals(
+    removalChecklist([blocker(Kind.HUB_FUNDS, 2)])[1].label,
+    "Your 2 settlement hubs fund from it: remove them first",
+  );
+});
+
 test("a ledger being removed settles up with its peers first", () => {
   assertEquals(removingNotice(undefined), undefined);
   assertEquals(
