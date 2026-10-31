@@ -423,6 +423,11 @@
         time in one commit, so on a node that validates several hubs there
         are more steps than commits. Commits that take tens of milliseconds
         mean a slow disk, which slows the hubs' blocks.
+        Once a hub runs version 3 of the hub protocol, a
+        <samp>Hub batches</samp> line says how many messages your node's
+        validators sent other validators, in how many batches: the messages
+        of all the hubs two validators share go together while one batch is
+        on its way.
         A node that founds a hub gets a <samp>Founding</samp> line, which
         says how far the founding is. Both are covered in
         <a href="/docs/services/hub-validator/">Validate a settlement hub</a>

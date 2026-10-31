@@ -707,13 +707,13 @@ fn releases_vector(rules: &Rules) -> Value {
     })
 }
 
-/// A hub of version 1 moved to version 2 (spec/decisions/hub-protocol-version.md):
-/// a validator's vote, and the hub's states after a quorum's votes and
-/// once their notice passed, which pin how the version and the move
-/// waiting are in the state root.
-fn upgrade_vector() -> Value {
-    let rules = rules(1);
-    let vote = ValidatorOperation::Upgrade { version: 2 };
+/// A hub of version `from` moved to version `to`
+/// (spec/decisions/hub-protocol-version.md): a validator's vote, and the
+/// hub's states after a quorum's votes and once their notice passed, which
+/// pin how the version and the move waiting are in the state root.
+fn upgrade_vector(from: u16, to: u16) -> Value {
+    let rules = rules(from);
+    let vote = ValidatorOperation::Upgrade { version: to };
     let mut state = Ledger::genesis(rules.clone(), GENESIS_MS).unwrap();
     let votes: Vec<Operation> = (0..3)
         .map(|index| by_validator(&rules, index, 1, vote.clone()))
@@ -722,7 +722,7 @@ fn upgrade_vector() -> Value {
     let voted = state.state_root();
     let at = state.pending_upgrade().unwrap().at;
     apply(&mut state, 2, at, &[]);
-    assert_eq!(state.version(), 2);
+    assert_eq!(state.version(), to);
     json!({
         "rules": hex(&rules.to_vec()),
         "vote": hex(&votes[0].to_vec()),
@@ -756,7 +756,8 @@ pub fn all(version: u16) -> Value {
     });
     if version >= 2 {
         vectors["releases"] = releases_vector(&rules);
-        vectors["upgrade"] = upgrade_vector();
+        // Each version's vectors move a hub of the version before to it.
+        vectors["upgrade"] = upgrade_vector(version - 1, version);
     }
     vectors
 }

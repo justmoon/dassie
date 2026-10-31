@@ -506,6 +506,21 @@ fn validating_lines(node: &proto::GetStatusResponse, now_ms: i64) {
     if let Some(writes) = &node.hub_writes {
         line("Hub writes", &hub_writes_line(writes));
     }
+    if let Some(batches) = node.hub_batches.as_ref().filter(|b| b.batches > 0) {
+        line(
+            "Hub batches",
+            &format!(
+                "{} in {} {}",
+                plural(batches.messages, "message"),
+                batches.batches,
+                if batches.batches == 1 {
+                    "batch"
+                } else {
+                    "batches"
+                },
+            ),
+        );
+    }
 }
 
 /// How the validators of the node's hubs wrote their steps: more steps

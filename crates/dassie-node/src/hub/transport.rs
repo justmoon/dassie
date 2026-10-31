@@ -132,7 +132,8 @@ pub const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 /// one (consensus sends again).
 pub const INBOX: usize = 256;
 
-const FRAME_LENGTH_BYTES: usize = 4;
+/// The bytes of a frame's length, ahead of the message.
+pub const FRAME_LENGTH_BYTES: usize = 4;
 
 // One message of the largest size fits in a reply, with its status, and
 // so does a validator's longest answer to a member, framed.
@@ -437,6 +438,8 @@ pub struct Hubs {
     state_serves: Arc<tokio::sync::Semaphore>,
     /// How the validators wrote their steps, since the node started.
     writes: Arc<super::writer::WriteCounters>,
+    /// The batches the validators sent, since the node started.
+    batches: Arc<super::outbox::BatchCounters>,
 }
 
 impl Default for Hubs {
@@ -451,6 +454,7 @@ impl Default for Hubs {
             members_held: Arc::default(),
             state_serves: Arc::new(tokio::sync::Semaphore::new(MAX_STATE_SERVES)),
             writes: Arc::default(),
+            batches: Arc::default(),
         }
     }
 }
@@ -461,6 +465,13 @@ impl Hubs {
     #[must_use]
     pub const fn write_counters(&self) -> &Arc<super::writer::WriteCounters> {
         &self.writes
+    }
+
+    /// The batches the validators of the node's hubs sent other validators,
+    /// and the messages they held, since the node started.
+    #[must_use]
+    pub const fn batch_counters(&self) -> &Arc<super::outbox::BatchCounters> {
+        &self.batches
     }
 
     /// A place for one exchange of the account `asset` with its validator
@@ -632,13 +643,30 @@ impl Hubs {
         let Some((hub, message)) = decode_request(request) else {
             return HubAnswer::Malformed;
         };
+        match self.hand(&from, &hub, message, false) {
+            Ok(replied) => replied.await,
+            Err(answer) => answer,
+        }
+    }
+
+    /// Hands `message` for `hub` from `from` to the hub's validator, in its
+    /// queue for what validators send if `from` is one, and otherwise in
+    /// the members' queue, unless `validators_only`: what waits for its
+    /// reply, or the answer at once if it was not taken.
+    pub(super) fn hand(
+        &self,
+        from: &Sender,
+        hub: &HubId,
+        message: &[u8],
+        validators_only: bool,
+    ) -> Result<impl Future<Output = HubAnswer> + Send + 'static, HubAnswer> {
         // Which hub, and who asks, before anything of the message is read:
         // only a validator of the hub sends more than a member's request.
         let route = self
             .routes
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .get(&hub)
+            .get(hub)
             .map(|route| {
                 if route.nodes.contains(&from.0.node_id()) {
                     (HubAccess::Validator, route.validators.clone())
@@ -647,13 +675,15 @@ impl Hubs {
                 }
             });
         let Some((access, inbox)) = route else {
-            return HubAnswer::UnknownHub;
+            return Err(HubAnswer::UnknownHub);
         };
-        if access == HubAccess::Member && message.len() > MAX_MEMBER_MESSAGE_BYTES {
-            return HubAnswer::Malformed;
+        if access == HubAccess::Member
+            && (validators_only || message.len() > MAX_MEMBER_MESSAGE_BYTES)
+        {
+            return Err(HubAnswer::Malformed);
         }
         if Message::decode_exact(message).is_err() {
-            return HubAnswer::Malformed;
+            return Err(HubAnswer::Malformed);
         }
         let (reply, replied) = oneshot::channel();
         let inbound = Inbound {
@@ -663,14 +693,27 @@ impl Hubs {
             reply: Some(reply),
         };
         if inbox.try_send(inbound).is_err() {
-            return HubAnswer::Busy;
+            return Err(HubAnswer::Busy);
         }
-        match tokio::time::timeout(REPLY_TIMEOUT, replied).await {
-            Ok(Ok(messages)) => HubAnswer::Taken(messages),
-            // The validator stopped, or took too long: nothing it did is
-            // known to have reached the asker.
-            Ok(Err(_)) | Err(_) => HubAnswer::Busy,
-        }
+        Ok(async move {
+            match tokio::time::timeout(REPLY_TIMEOUT, replied).await {
+                Ok(Ok(messages)) => HubAnswer::Taken(messages),
+                // The validator stopped, or took too long: nothing it did is
+                // known to have reached the asker.
+                Ok(Err(_)) | Err(_) => HubAnswer::Busy,
+            }
+        })
+    }
+
+    /// Whether `from` is a validator of any hub the node validates.
+    #[must_use]
+    pub fn validates_with(&self, from: &NodeIdentity) -> bool {
+        let node = from.node_id();
+        self.routes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .any(|route| route.nodes.contains(&node))
     }
 
     /// Answers a request for the state after one of a hub's final blocks
@@ -852,6 +895,42 @@ impl HubClient {
         };
         let request = encode_request(hub, message);
         let sent = quic.hub_exchange(node, endpoint, &request, &self.resolver, timeout / 2);
+        tokio::time::timeout(timeout, sent)
+            .await
+            .unwrap_or_else(|_| Err(HubExchangeError::Failed("timed out".into())))
+    }
+
+    /// Sends the batch `request` of `frames` validators' messages to the
+    /// validator whose node is `node`, at its `endpoint`, over QUIC pinned
+    /// to its node key, in at most half of `timeout` for the connection,
+    /// and hands each frame's answer to `records` as it comes, within
+    /// `timeout` in all ([`super::batch`]).
+    ///
+    /// # Errors
+    ///
+    /// See [`HubExchangeError`]; the answers that came before are handed
+    /// over all the same.
+    pub async fn exchange_batch(
+        &self,
+        node: NodeId,
+        endpoint: &str,
+        request: &[u8],
+        frames: usize,
+        records: &mpsc::Sender<(u8, HubAnswer)>,
+        timeout: Duration,
+    ) -> Result<(), HubExchangeError> {
+        let Some(quic) = &self.quic else {
+            return Err(HubExchangeError::Unreachable);
+        };
+        let sent = quic.hub_batch_exchange(
+            node,
+            endpoint,
+            request,
+            frames,
+            records,
+            &self.resolver,
+            timeout / 2,
+        );
         tokio::time::timeout(timeout, sent)
             .await
             .unwrap_or_else(|_| Err(HubExchangeError::Failed("timed out".into())))

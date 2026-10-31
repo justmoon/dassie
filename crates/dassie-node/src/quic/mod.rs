@@ -192,6 +192,9 @@ pub enum StreamKind {
     /// A sponsor's request while it founds a hub, then the validator's
     /// answer ([`crate::hub::transport`]).
     HubFounding = 5,
+    /// A hub validator's messages to another, of the hubs both validate,
+    /// then an answer to each as it comes ([`crate::hub::batch`]).
+    HubBatch = 6,
 }
 
 impl StreamKind {
@@ -205,6 +208,7 @@ impl StreamKind {
             3 => Some(Self::Hub),
             4 => Some(Self::HubState),
             5 => Some(Self::HubFounding),
+            6 => Some(Self::HubBatch),
             _ => None,
         }
     }
@@ -285,6 +289,26 @@ pub trait Handler: Send + Sync + 'static {
         _request: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Option<crate::hub::transport::StateReply>> + Send + 'a>> {
         Box::pin(async { None })
+    }
+
+    /// How a batch of hub validators' messages from the node `from` is
+    /// taken, decided before anything of it is read: the node validates no
+    /// hub with anyone, unless a handler says otherwise, and the stream is
+    /// reset unread ([`crate::hub::batch`]).
+    fn hub_batch_access(&self, _from: &NodeIdentity) -> crate::hub::batch::BatchAccess {
+        crate::hub::batch::BatchAccess::Unknown
+    }
+
+    /// Hands each message of a batch from the node `from` to its hub's
+    /// validator, and returns what answers each ([`crate::hub::batch`]);
+    /// `None` resets the stream: the request is no batch, or the node
+    /// validates no hub, unless a handler says otherwise.
+    fn hub_batch(
+        &self,
+        _from: NodeIdentity,
+        _request: &[u8],
+    ) -> Option<Vec<crate::hub::batch::FrameReply>> {
+        None
     }
 
     /// Whether a request on a hub's founding stream from the node `from`
@@ -1492,6 +1516,7 @@ impl On {
             Some(StreamKind::Hub) => self.hub(send, recv).await,
             Some(StreamKind::HubState) => self.hub_state(send, recv).await,
             Some(StreamKind::HubFounding) => self.hub_founding(send, recv).await,
+            Some(StreamKind::HubBatch) => self.hub_batch(send, recv).await,
             None => {
                 let _ = send.reset(0u32.into());
                 let _ = recv.stop(0u32.into());

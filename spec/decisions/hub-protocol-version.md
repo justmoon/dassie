@@ -12,7 +12,7 @@
 
 ## Decision
 
-- **A version of the hub protocol** names what every validator of a hub must agree on: the hub's encodings and digests, what its ledger does with a block, and its consensus rules. It is not the release's version: a release that changes none of them keeps it, and one that changes any of them, however small, makes a new one.
+- **A version of the hub protocol** names what every validator of a hub must agree on: the hub's encodings and digests, what its ledger does with a block, its consensus rules, and how its validators exchange its messages ([batched-validator-messages](batched-validator-messages.md)). It is not the release's version: a release that changes none of them keeps it, and one that changes any of them, however small, makes a new one.
 - **The terms name the version a hub was founded under, first,** so the hub ID commits to it. New rules name the version the hub runs then.
 - **A release runs a range of versions** (`rules::OLDEST_HUB_VERSION` to `rules::HUB_VERSION`), each exactly as that version says, and founds hubs under the newest. Terms of a version outside it neither decode nor check: a validator neither accepts nor signs the genesis of such a hub, its file of hubs is refused, a member does not join, and a stored hub of another version does not load.
 - **Validators move a running hub to a newer version with a vote of its own,** `upgrade`, which every version counts alike, whether its code runs the version voted for or not, so validators of different releases agree on the vote. Once a quorum votes for one version, the hub runs it from the first block after the notice for new rules, before that block's operations; the hub keeps its rules and its ID, and its state names the version it runs. One move waits at a time, never beside new rules waiting, which name the version the hub runs before it; and a change of validators starts the votes afresh, as every vote.
@@ -27,6 +27,7 @@
 - A validator of a release from before the `upgrade` vote cannot read a block that holds one, and stops at the first, though no quorum agrees yet: a faulty validator's vote alone does it. A member of such a release reads no validator's votes, and is cut off only once the hub runs the new version and states it. The order above keeps either from happening to anyone who updated.
 - A release keeps the code of every version it runs. The oldest goes once no hub runs it.
 - A version that changes consensus needs the engine to switch at the block the move takes effect in, as epochs hand over; version 2 changes the ledger alone.
+- A version that changes only how validators exchange messages, as version 3 does, still cuts off a hub's members on releases that do not run it, though nothing changes for them: a member stops using a hub whose version its release does not run.
 
 ## Rejected
 

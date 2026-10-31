@@ -2,10 +2,10 @@
 //! one version of the hub's protocol to standard output, from the fixed
 //! keys of `tests/support/vectors.rs`. Ed25519 and the XRP Ledger's
 //! signatures are deterministic, so the output is the same every time. From
-//! the repository root, for version 2:
+//! the repository root, for version 3:
 //!
 //! ```text
-//! cargo run -p dassie-hub --example hub_vectors -- 2 > testdata/hub/vectors-v2.json
+//! cargo run -p dassie-hub --example hub_vectors -- 3 > testdata/hub/vectors-v3.json
 //! ```
 //!
 //! What the vectors pin is frozen (spec/overview.md#frozen-surfaces):

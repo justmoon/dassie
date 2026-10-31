@@ -14,7 +14,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/node.proto.
  */
 export const file_dassie_owner_v1_node: GenFile = /*@__PURE__*/
-  fileDesc("ChpkYXNzaWUvb3duZXIvdjEvbm9kZS5wcm90bxIPZGFzc2llLm93bmVyLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrgBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USKQoFc3RhdGUYASABKA4yGi5kYXNzaWUub3duZXIudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IvoEChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEikKB3J1bnRpbWUYAiABKA4yGC5kYXNzaWUub3duZXIudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSMQoLY2VydGlmaWNhdGUYBCABKAsyHC5kYXNzaWUub3duZXIudjEuQ2VydGlmaWNhdGUSKQoEYWNtZRgFIAEoCzIbLmRhc3NpZS5vd25lci52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIrCgVyZWxheRgJIAEoCzIcLmRhc3NpZS5vd25lci52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkSJwoEZmVlZBgLIAEoCzIZLmRhc3NpZS5vd25lci52MS5SYXRlRmVlZBIxCgp2YWxpZGF0aW5nGAwgAygLMh0uZGFzc2llLm93bmVyLnYxLkh1YlZhbGlkYXRvchIuCghmb3VuZGluZxgNIAMoCzIcLmRhc3NpZS5vd25lci52MS5IdWJGb3VuZGluZxIwCgdwYWNrZXRzGA4gASgLMh8uZGFzc2llLm93bmVyLnYxLlBhY2tldENvdW50ZXJzEjQKDXBlZXJfcHJvdG9jb2wYDyABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlckNvdW50ZXJzEjUKCmh1Yl93cml0ZXMYECABKAsyIS5kYXNzaWUub3duZXIudjEuSHViV3JpdGVDb3VudGVycyJoChBIdWJXcml0ZUNvdW50ZXJzEg0KBXN0ZXBzGAEgASgEEg8KB2NvbW1pdHMYAiABKAQSFQoNY29tbWl0X21pY3JvcxgDIAEoBBIdChVsb25nZXN0X2NvbW1pdF9taWNyb3MYBCABKAQiywEKDlBhY2tldENvdW50ZXJzEhAKCHByZXBhcmVzGAEgASgEEhEKCWZvcndhcmRlZBgCIAEoBBIQCghhbnN3ZXJlZBgDIAEoBBIRCglmdWxmaWxsZWQYBCABKAQSEAoIcmVqZWN0ZWQYBSABKAQSDwoHZXhwaXJlZBgGIAEoBBIaChJ3cm9uZ19mdWxmaWxsbWVudHMYByABKAQSHAoUdW5leHBlY3RlZF9yZXNwb25zZXMYCCABKAQSEgoKZHVwbGljYXRlcxgJIAEoBCLqBAoMUGVlckNvdW50ZXJzEhUKDXJlcXVlc3RzX3NlbnQYASABKAQSFwoPcmVxdWVzdHNfZmFpbGVkGAIgASgEEhgKEHJlcXVlc3RzX2Ryb3BwZWQYAyABKAQSFwoPaW5ib3VuZF9yZWZ1c2VkGAQgASgEEhwKFGxpbmtfc3RhdGVzX2FjY2VwdGVkGAUgASgEEhsKE2xpbmtfc3RhdGVzX2Ryb3BwZWQYBiABKAQSEAoIcGVlcmluZ3MYByABKAQSFAoMdGVybWluYXRpb25zGAggASgEEhcKD2Fuc3dlcnNfZHJvcHBlZBgJIAEoBBIdChVzZXR0bGVtZW50c19kZWxpdmVyZWQYCiABKAQSGwoTc2V0dGxlbWVudHNfYXBwbGllZBgLIAEoBBIdChVzZXR0bGVtZW50c19kdXBsaWNhdGUYDCABKAQSHQoVc2V0dGxlbWVudHNfcmVxdWVzdGVkGA0gASgEEhcKD2NoYW5uZWxzX2Nsb3NlZBgOIAEoBBIaChJjb21taXRtZW50c19sb2dnZWQYDyABKAQSGgoSY29tbWl0bWVudHNfbGFwc2VkGBAgASgEEhUKDW5hbWVzX2dyYW50ZWQYESABKAQSFQoNbmFtZXNfcmVuZXdlZBgSIAEoBBITCgtuYW1lc19mcmVlZBgTIAEoBBIWCg5uYW1lc19yZWxlYXNlZBgUIAEoBBIdChVyZWdpc3RyYXRpb25zX3N0YXJ0ZWQYFSABKAQSHwoXcmVnaXN0cmF0aW9uc19hYmFuZG9uZWQYFiABKAQSFQoNcmVuZXdhbHNfc2VudBgXIAEoBCKqAgoMSHViVmFsaWRhdG9yEgsKA2h1YhgBIAEoCRINCgVpbmRleBgCIAEoDRISCgp2YWxpZGF0b3JzGAMgASgNEg4KBmhlaWdodBgEIAEoBBIVCg1maW5hbF91bml4X21zGAUgASgDEgwKBHZpZXcYBiABKAQSKAoFcGhhc2UYByABKA4yGS5kYXNzaWUub3duZXIudjEuSHViUGhhc2USDwoHc3RhbGxlZBgIIAEoCBIWCg5lc2Nyb3dfY2hlY2tlZBgJIAEoCBIWCg54cnBsX2Nvbm5lY3RlZBgKIAEoCBIYChBwcm90b2NvbF92ZXJzaW9uGAsgASgNEhcKD3VwZ3JhZGVfdmVyc2lvbhgMIAEoDRIXCg91cGdyYWRlX3VuaXhfbXMYDSABKAMiiwEKCFJhdGVGZWVkEg8KB3NlcnZpbmcYASABKAgSDwoHYWRkcmVzcxgCIAEoCRITCgtzZW5kX2ZhaWxlZBgGIAEoBBIQCghyZWNlaXZlZBgIIAEoBBIPCgdpZ25vcmVkGA4gASgEEhAKCGFuc3dlcmVkGBAgASgEEhMKC292ZXJfYnVkZ2V0GBEgASgEIl4KC0Nob3NlblJlbGF5EgwKBG5vZGUYASABKAkSCwoDdXJsGAIgASgJEjQKCmNvbm5lY3Rpb24YBCABKA4yIC5kYXNzaWUub3duZXIudjEuUmVsYXlDb25uZWN0aW9uIlEKCkFjbWVTdGF0dXMSEwoLaGFzX2FjY291bnQYASABKAgSGgoSbmV4dF9jaGVja191bml4X21zGAIgASgDEhIKCmxhc3RfZXJyb3IYAyABKAkqfQoJTm9kZVN0YXRlEhoKFk5PREVfU1RBVEVfVU5TUEVDSUZJRUQQABIcChhOT0RFX1NUQVRFX1VOSU5JVElBTElaRUQQARIYChROT0RFX1NUQVRFX0FOT05ZTU9VUxACEhwKGE5PREVfU1RBVEVfQVVUSEVOVElDQVRFRBADKm4KCEh1YlBoYXNlEhkKFUhVQl9QSEFTRV9VTlNQRUNJRklFRBAAEhUKEUhVQl9QSEFTRV9SVU5OSU5HEAESGwoXSFVCX1BIQVNFX1NIVVRUSU5HX0RPV04QAhITCg9IVUJfUEhBU0VfRU5ERUQQAyqWAQoPUmVsYXlDb25uZWN0aW9uEiAKHFJFTEFZX0NPTk5FQ1RJT05fVU5TUEVDSUZJRUQQABIeChpSRUxBWV9DT05ORUNUSU9OX0NPTk5FQ1RFRBABEh8KG1JFTEFZX0NPTk5FQ1RJT05fQ09OTkVDVElORxACEiAKHFJFTEFZX0NPTk5FQ1RJT05fVU5SRUFDSEFCTEUQAypPCgdSdW50aW1lEhcKE1JVTlRJTUVfVU5TUEVDSUZJRUQQABIWChJSVU5USU1FX1NUQU5EQUxPTkUQARITCg9SVU5USU1FX1NZU1RFTUQQAmIGcHJvdG8z", [file_dassie_owner_v1_hub_founding, file_dassie_owner_v1_tls]);
+  fileDesc("ChpkYXNzaWUvb3duZXIvdjEvbm9kZS5wcm90bxIPZGFzc2llLm93bmVyLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrgBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USKQoFc3RhdGUYASABKA4yGi5kYXNzaWUub3duZXIudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IrIFChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEikKB3J1bnRpbWUYAiABKA4yGC5kYXNzaWUub3duZXIudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSMQoLY2VydGlmaWNhdGUYBCABKAsyHC5kYXNzaWUub3duZXIudjEuQ2VydGlmaWNhdGUSKQoEYWNtZRgFIAEoCzIbLmRhc3NpZS5vd25lci52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIrCgVyZWxheRgJIAEoCzIcLmRhc3NpZS5vd25lci52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkSJwoEZmVlZBgLIAEoCzIZLmRhc3NpZS5vd25lci52MS5SYXRlRmVlZBIxCgp2YWxpZGF0aW5nGAwgAygLMh0uZGFzc2llLm93bmVyLnYxLkh1YlZhbGlkYXRvchIuCghmb3VuZGluZxgNIAMoCzIcLmRhc3NpZS5vd25lci52MS5IdWJGb3VuZGluZxIwCgdwYWNrZXRzGA4gASgLMh8uZGFzc2llLm93bmVyLnYxLlBhY2tldENvdW50ZXJzEjQKDXBlZXJfcHJvdG9jb2wYDyABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlckNvdW50ZXJzEjUKCmh1Yl93cml0ZXMYECABKAsyIS5kYXNzaWUub3duZXIudjEuSHViV3JpdGVDb3VudGVycxI2CgtodWJfYmF0Y2hlcxgRIAEoCzIhLmRhc3NpZS5vd25lci52MS5IdWJCYXRjaENvdW50ZXJzIjUKEEh1YkJhdGNoQ291bnRlcnMSDwoHYmF0Y2hlcxgBIAEoBBIQCghtZXNzYWdlcxgCIAEoBCJoChBIdWJXcml0ZUNvdW50ZXJzEg0KBXN0ZXBzGAEgASgEEg8KB2NvbW1pdHMYAiABKAQSFQoNY29tbWl0X21pY3JvcxgDIAEoBBIdChVsb25nZXN0X2NvbW1pdF9taWNyb3MYBCABKAQiywEKDlBhY2tldENvdW50ZXJzEhAKCHByZXBhcmVzGAEgASgEEhEKCWZvcndhcmRlZBgCIAEoBBIQCghhbnN3ZXJlZBgDIAEoBBIRCglmdWxmaWxsZWQYBCABKAQSEAoIcmVqZWN0ZWQYBSABKAQSDwoHZXhwaXJlZBgGIAEoBBIaChJ3cm9uZ19mdWxmaWxsbWVudHMYByABKAQSHAoUdW5leHBlY3RlZF9yZXNwb25zZXMYCCABKAQSEgoKZHVwbGljYXRlcxgJIAEoBCLqBAoMUGVlckNvdW50ZXJzEhUKDXJlcXVlc3RzX3NlbnQYASABKAQSFwoPcmVxdWVzdHNfZmFpbGVkGAIgASgEEhgKEHJlcXVlc3RzX2Ryb3BwZWQYAyABKAQSFwoPaW5ib3VuZF9yZWZ1c2VkGAQgASgEEhwKFGxpbmtfc3RhdGVzX2FjY2VwdGVkGAUgASgEEhsKE2xpbmtfc3RhdGVzX2Ryb3BwZWQYBiABKAQSEAoIcGVlcmluZ3MYByABKAQSFAoMdGVybWluYXRpb25zGAggASgEEhcKD2Fuc3dlcnNfZHJvcHBlZBgJIAEoBBIdChVzZXR0bGVtZW50c19kZWxpdmVyZWQYCiABKAQSGwoTc2V0dGxlbWVudHNfYXBwbGllZBgLIAEoBBIdChVzZXR0bGVtZW50c19kdXBsaWNhdGUYDCABKAQSHQoVc2V0dGxlbWVudHNfcmVxdWVzdGVkGA0gASgEEhcKD2NoYW5uZWxzX2Nsb3NlZBgOIAEoBBIaChJjb21taXRtZW50c19sb2dnZWQYDyABKAQSGgoSY29tbWl0bWVudHNfbGFwc2VkGBAgASgEEhUKDW5hbWVzX2dyYW50ZWQYESABKAQSFQoNbmFtZXNfcmVuZXdlZBgSIAEoBBITCgtuYW1lc19mcmVlZBgTIAEoBBIWCg5uYW1lc19yZWxlYXNlZBgUIAEoBBIdChVyZWdpc3RyYXRpb25zX3N0YXJ0ZWQYFSABKAQSHwoXcmVnaXN0cmF0aW9uc19hYmFuZG9uZWQYFiABKAQSFQoNcmVuZXdhbHNfc2VudBgXIAEoBCKqAgoMSHViVmFsaWRhdG9yEgsKA2h1YhgBIAEoCRINCgVpbmRleBgCIAEoDRISCgp2YWxpZGF0b3JzGAMgASgNEg4KBmhlaWdodBgEIAEoBBIVCg1maW5hbF91bml4X21zGAUgASgDEgwKBHZpZXcYBiABKAQSKAoFcGhhc2UYByABKA4yGS5kYXNzaWUub3duZXIudjEuSHViUGhhc2USDwoHc3RhbGxlZBgIIAEoCBIWCg5lc2Nyb3dfY2hlY2tlZBgJIAEoCBIWCg54cnBsX2Nvbm5lY3RlZBgKIAEoCBIYChBwcm90b2NvbF92ZXJzaW9uGAsgASgNEhcKD3VwZ3JhZGVfdmVyc2lvbhgMIAEoDRIXCg91cGdyYWRlX3VuaXhfbXMYDSABKAMiiwEKCFJhdGVGZWVkEg8KB3NlcnZpbmcYASABKAgSDwoHYWRkcmVzcxgCIAEoCRITCgtzZW5kX2ZhaWxlZBgGIAEoBBIQCghyZWNlaXZlZBgIIAEoBBIPCgdpZ25vcmVkGA4gASgEEhAKCGFuc3dlcmVkGBAgASgEEhMKC292ZXJfYnVkZ2V0GBEgASgEIl4KC0Nob3NlblJlbGF5EgwKBG5vZGUYASABKAkSCwoDdXJsGAIgASgJEjQKCmNvbm5lY3Rpb24YBCABKA4yIC5kYXNzaWUub3duZXIudjEuUmVsYXlDb25uZWN0aW9uIlEKCkFjbWVTdGF0dXMSEwoLaGFzX2FjY291bnQYASABKAgSGgoSbmV4dF9jaGVja191bml4X21zGAIgASgDEhIKCmxhc3RfZXJyb3IYAyABKAkqfQoJTm9kZVN0YXRlEhoKFk5PREVfU1RBVEVfVU5TUEVDSUZJRUQQABIcChhOT0RFX1NUQVRFX1VOSU5JVElBTElaRUQQARIYChROT0RFX1NUQVRFX0FOT05ZTU9VUxACEhwKGE5PREVfU1RBVEVfQVVUSEVOVElDQVRFRBADKm4KCEh1YlBoYXNlEhkKFUhVQl9QSEFTRV9VTlNQRUNJRklFRBAAEhUKEUhVQl9QSEFTRV9SVU5OSU5HEAESGwoXSFVCX1BIQVNFX1NIVVRUSU5HX0RPV04QAhITCg9IVUJfUEhBU0VfRU5ERUQQAyqWAQoPUmVsYXlDb25uZWN0aW9uEiAKHFJFTEFZX0NPTk5FQ1RJT05fVU5TUEVDSUZJRUQQABIeChpSRUxBWV9DT05ORUNUSU9OX0NPTk5FQ1RFRBABEh8KG1JFTEFZX0NPTk5FQ1RJT05fQ09OTkVDVElORxACEiAKHFJFTEFZX0NPTk5FQ1RJT05fVU5SRUFDSEFCTEUQAypPCgdSdW50aW1lEhcKE1JVTlRJTUVfVU5TUEVDSUZJRUQQABIWChJSVU5USU1FX1NUQU5EQUxPTkUQARITCg9SVU5USU1FX1NZU1RFTUQQAmIGcHJvdG8z", [file_dassie_owner_v1_hub_founding, file_dassie_owner_v1_tls]);
 
 /**
  * @generated from message dassie.owner.v1.GetBasicStateRequest
@@ -220,6 +220,16 @@ export type GetStatusResponse = Message<"dassie.owner.v1.GetStatusResponse"> & {
    * @generated from field: dassie.owner.v1.HubWriteCounters hub_writes = 16;
    */
   hubWrites?: HubWriteCounters | undefined;
+
+  /**
+   * The batches the validators of the hubs the node validates sent other
+   * validators since the node started
+   * (spec/areas/peer-protocol.md#the-batch-stream); unset on a node that
+   * validates none.
+   *
+   * @generated from field: dassie.owner.v1.HubBatchCounters hub_batches = 17;
+   */
+  hubBatches?: HubBatchCounters | undefined;
 };
 
 /**
@@ -228,6 +238,37 @@ export type GetStatusResponse = Message<"dassie.owner.v1.GetStatusResponse"> & {
  */
 export const GetStatusResponseSchema: GenMessage<GetStatusResponse> = /*@__PURE__*/
   messageDesc(file_dassie_owner_v1_node, 3);
+
+/**
+ * The batches a node's validators send other validators: the messages of
+ * every hub two validators share go to the other in one batch while it is
+ * on its way, so more messages than batches means they shared batches.
+ * Each only grows while the node runs.
+ *
+ * @generated from message dassie.owner.v1.HubBatchCounters
+ */
+export type HubBatchCounters = Message<"dassie.owner.v1.HubBatchCounters"> & {
+  /**
+   * Batches sent.
+   *
+   * @generated from field: uint64 batches = 1;
+   */
+  batches: bigint;
+
+  /**
+   * Messages they held.
+   *
+   * @generated from field: uint64 messages = 2;
+   */
+  messages: bigint;
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubBatchCounters.
+ * Use `create(HubBatchCountersSchema)` to create a new message.
+ */
+export const HubBatchCountersSchema: GenMessage<HubBatchCounters> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_node, 4);
 
 /**
  * How the validators of the hubs the node validates write their steps: one
@@ -271,7 +312,7 @@ export type HubWriteCounters = Message<"dassie.owner.v1.HubWriteCounters"> & {
  * Use `create(HubWriteCountersSchema)` to create a new message.
  */
 export const HubWriteCountersSchema: GenMessage<HubWriteCounters> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 4);
+  messageDesc(file_dassie_owner_v1_node, 5);
 
 /**
  * The connector's counters: what came of the Prepares it took. Read in one
@@ -350,7 +391,7 @@ export type PacketCounters = Message<"dassie.owner.v1.PacketCounters"> & {
  * Use `create(PacketCountersSchema)` to create a new message.
  */
 export const PacketCountersSchema: GenMessage<PacketCounters> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 5);
+  messageDesc(file_dassie_owner_v1_node, 6);
 
 /**
  * The peer protocol's counters, read as the connector's are.
@@ -518,7 +559,7 @@ export type PeerCounters = Message<"dassie.owner.v1.PeerCounters"> & {
  * Use `create(PeerCountersSchema)` to create a new message.
  */
 export const PeerCountersSchema: GenMessage<PeerCounters> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 6);
+  messageDesc(file_dassie_owner_v1_node, 7);
 
 /**
  * How the node's validator of one settlement hub stands.
@@ -624,7 +665,7 @@ export type HubValidator = Message<"dassie.owner.v1.HubValidator"> & {
  * Use `create(HubValidatorSchema)` to create a new message.
  */
 export const HubValidatorSchema: GenMessage<HubValidator> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 7);
+  messageDesc(file_dassie_owner_v1_node, 8);
 
 /**
  * What the node's UDP endpoint for its snapshot does
@@ -698,7 +739,7 @@ export type RateFeed = Message<"dassie.owner.v1.RateFeed"> & {
  * Use `create(RateFeedSchema)` to create a new message.
  */
 export const RateFeedSchema: GenMessage<RateFeed> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 8);
+  messageDesc(file_dassie_owner_v1_node, 9);
 
 /**
  * @generated from message dassie.owner.v1.ChosenRelay
@@ -727,7 +768,7 @@ export type ChosenRelay = Message<"dassie.owner.v1.ChosenRelay"> & {
  * Use `create(ChosenRelaySchema)` to create a new message.
  */
 export const ChosenRelaySchema: GenMessage<ChosenRelay> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 9);
+  messageDesc(file_dassie_owner_v1_node, 10);
 
 /**
  * @generated from message dassie.owner.v1.AcmeStatus
@@ -760,7 +801,7 @@ export type AcmeStatus = Message<"dassie.owner.v1.AcmeStatus"> & {
  * Use `create(AcmeStatusSchema)` to create a new message.
  */
 export const AcmeStatusSchema: GenMessage<AcmeStatus> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 10);
+  messageDesc(file_dassie_owner_v1_node, 11);
 
 /**
  * @generated from enum dassie.owner.v1.NodeState
