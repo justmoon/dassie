@@ -7,6 +7,8 @@
 //! ledger holds, however it lies; and a token hub's issuer's acts, from
 //! proofs (spec/decisions/token-hubs.md).
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use dassie_hub::escrow::{escrow_master, setup};
 use dassie_hub::ledger::TESTNET_NETWORK;
 use dassie_hub::operation::ValidatorOperation;
@@ -1348,6 +1350,7 @@ fn a_burst_drops_its_highest_and_keeps_those_in_flight() {
     }
     let kept: Vec<Option<u32>> = setup
         .watcher
+        .escrow
         .submits
         .iter()
         .map(|kept| kept.sequence)
@@ -1658,12 +1661,12 @@ fn a_hold_its_server_cannot_name_is_searched_once_a_connection() {
     let checks = u32::try_from(ISSUER_CHECK_EVERY_MS / 4_000).unwrap();
     setup.closes(3);
     for _ in 0..checks {
-        if setup.watcher.issuer_checked_ms == Some(setup.now) {
+        if setup.watcher.escrow.issuer_checked_ms == Some(setup.now) {
             break;
         }
         setup.close();
     }
-    assert_eq!(setup.watcher.issuer_checked_ms, Some(setup.now));
+    assert_eq!(setup.watcher.escrow.issuer_checked_ms, Some(setup.now));
     setup.xrpl.freeze(escrow, DSUSD, true).unwrap();
     setup.close();
     setup.xrpl.forget_history();
