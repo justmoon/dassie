@@ -1287,6 +1287,9 @@ impl EscrowWatcher {
         }
         self.reread_overflow(link);
         self.read_history(link);
+        // Signed withdrawals go whatever chain the cursor is of: one sent to
+        // a chain the escrow is not on is refused, at no cost.
+        self.send_submits(link);
         // Nothing is proven or attested from a chain its cursor may not be
         // of: its hints wait for the check.
         if self.doubted {
@@ -1296,7 +1299,6 @@ impl EscrowWatcher {
         self.start_walk(link);
         self.step_walk(link);
         self.search_hold(link);
-        self.send_submits(link);
         let now = link.now_ms();
         if !self.following() || !self.fresh(now) {
             return self.advance_cursor(link);
