@@ -202,7 +202,8 @@
 }
 
 /* Payments, one row each: a pebble, whom it was with and when, and the
-   amount on the right, money in in green. */
+   amount on the right, money in in green. The amount takes at most half the
+   row: a longer one wraps rather than squeezing the name. */
 .tx-list {
   margin: 0;
   padding: 0;
@@ -211,7 +212,7 @@
 
 .tx {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-columns: 36px minmax(0, 1fr) fit-content(50%);
   gap: 0 12px;
   align-items: center;
   padding: 10px 0;
