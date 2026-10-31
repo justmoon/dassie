@@ -1,10 +1,19 @@
 //! What following a hub's escrow holds of its connection and its network
 //! rather than of the escrow: the WebSocket's requests and their ids, the
 //! verifier and its proof requests, where the server stands, and what the
-//! host keeps of the verifier across a restart. One [`Link`] is meant to
-//! serve every escrow on its network; the escrow's own part is
-//! [`EscrowWatcher`](super::watch::EscrowWatcher), which takes the link
+//! host keeps of the verifier across a restart. One [`Link`] serves one
+//! escrow ([`super::Watcher`]), or every escrow of the hubs the node
+//! validates on its network ([`super::LinkWatcher`]); the escrow's own part
+//! is [`EscrowWatcher`](super::watch::EscrowWatcher), which takes the link
 //! along on each call.
+//!
+//! A link that serves several escrows tags what each asks and hands its
+//! host with the hub whose call it is, so that answers and attestations
+//! reach their own; gives each escrow a fair share of what is bounded, the
+//! verifier's queries and its own requests, so that a flood of one's hints
+//! leaves the others theirs; and connects anew for one escrow's reasons
+//! only every so often ([`ESCROW_RECONNECT_MS`]), since a new connection
+//! is every escrow's.
 //!
 //! The verifier answers some queries at once, in the call that asked: an
 //! escrow's drain handles its own verdicts and anchors as they come, as
@@ -13,13 +22,16 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+use dassie_hub::HubId;
 use dassie_xrpl::api::{self, ApiError};
 use dassie_xrpl::unl::{Anchor, ValidationSignatures};
 use dassie_xrpl::validator_list::UnlConfig;
 use dassie_xrpl::verifier::{self, ANCHOR_EVERY_MS, Ask, QueryId, Verdict, Verifier};
 use serde_json::Value;
 
+use super::watch::{HINT_RETRY_MS, MAX_HINT_TRIES};
 use super::{Chain, KEEP_VERIFIER_EVERY_MS, Kept, Out, RETRY_MS, Unrestored, chain as judge_chain};
+use crate::hub::config::MAX_VALIDATED_HUBS;
 use crate::store::{EscrowCursor, MAX_HUB_VERIFIER_BYTES};
 
 /// The most requests of its own waiting for an answer.
@@ -32,6 +44,18 @@ const MAX_PENDING_SUBMITS: usize = MAX_PENDING / 2;
 /// The most proof requests the verifier has waiting on a connection: the
 /// verifier's own bound, with room for those of a round it gave up on.
 const MAX_PROOF_ASKS: usize = 4 * verifier::MAX_QUERIES;
+
+/// How long after an escrow's reason ended the connection another
+/// escrow's, or the same one's, may end it again, on a link that serves
+/// several: as long as one escrow takes to give up on a server that does
+/// not prove what it hints at, so no escrow connects anew more often for
+/// sharing its link than it would alone. The verifier's reasons, which are
+/// every escrow's, end it at once.
+pub(super) const ESCROW_RECONNECT_MS: u64 = MAX_HINT_TRIES as u64 * HINT_RETRY_MS;
+
+/// Who a request or an output is for: the hub whose escrow it is, or none,
+/// the link's own, as everything is on a link that serves one escrow.
+pub(super) type Owner = Option<HubId>;
 
 /// What a request of its own was.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,9 +91,9 @@ enum Phase {
 pub(super) enum Parked {
     /// A verdict on a query that is not the draining escrow's.
     Verdict(QueryId, Verdict),
-    /// A newest anchor, `true` if a reset, which the draining escrow took
-    /// at once: the others take it after.
-    Anchored(Anchor, bool),
+    /// A newest anchor, `true` if a reset, which the draining escrow, if
+    /// one did, took at once: the others take it after.
+    Anchored(Anchor, bool, Owner),
 }
 
 /// One connection to an XRPL server, and the verifier that proves what it
@@ -77,9 +101,18 @@ pub(super) enum Parked {
 #[derive(Debug)]
 pub(super) struct Link {
     network: u32,
+    /// Whether it serves several escrows, each tagged by its hub, rather
+    /// than one.
+    shared: bool,
+    /// How many escrows it serves, at least one: each has a share of what
+    /// is bounded.
+    escrows: usize,
+    /// The hub whose escrow's call this is, on a shared link: what it asks
+    /// and hands the host is that hub's.
+    serving: Owner,
     phase: Phase,
     next_id: u64,
-    pending: BTreeMap<u64, Asked>,
+    pending: BTreeMap<u64, (Asked, Owner)>,
     /// The verifier's asks on this connection, by their request's id.
     proof_asks: BTreeMap<u64, Ask>,
     verifier: Verifier,
@@ -104,8 +137,19 @@ pub(super) struct Link {
     over_bound: bool,
     /// What escrows' drains parked, empty between calls.
     parked: VecDeque<Parked>,
+    /// The anchor index of the reset its server was last asked again for,
+    /// on this connection: every escrow's reset asks once.
+    again_for: Option<u32>,
+    /// When an escrow's reason last ended the connection.
+    escrow_reconnect_ms: Option<u64>,
+    /// The server's validated ledger, as it last said: what an escrow
+    /// subscribed to later reads its history up to.
+    validated: Option<u32>,
+    /// The keys the verifier reads proven transactions' threads for, on a
+    /// shared link: every escrow's.
+    threads: Vec<[u8; 32]>,
     now_ms: u64,
-    out: VecDeque<Out>,
+    out: VecDeque<(Owner, Out)>,
 }
 
 /// Building and reading it.
@@ -119,6 +163,9 @@ impl Link {
     ) -> Self {
         Self {
             network,
+            shared: false,
+            escrows: 1,
+            serving: None,
             phase: Phase::Disconnected,
             next_id: 1,
             pending: BTreeMap::new(),
@@ -132,8 +179,25 @@ impl Link {
             keeping: None,
             over_bound: false,
             parked: VecDeque::new(),
+            again_for: None,
+            escrow_reconnect_ms: None,
+            validated: None,
+            threads: Vec::new(),
             now_ms: 0,
             out: VecDeque::new(),
+        }
+    }
+
+    /// The same, to serve up to [`MAX_VALIDATED_HUBS`] escrows, each
+    /// tagged by its hub.
+    pub(super) fn shared(
+        network: u32,
+        unl: UnlConfig,
+        signatures: Box<dyn ValidationSignatures + Send>,
+    ) -> Self {
+        Self {
+            shared: true,
+            ..Self::new(network, unl, signatures)
         }
     }
 
@@ -159,6 +223,8 @@ impl Link {
         let verifier = Verifier::restore(self.network, config, signatures, state, now_ms)
             .ok_or(Unrestored::Unread)?;
         self.verifier = verifier;
+        // Its threads are no part of its state: they are told it again.
+        self.threads.clear();
         self.now(now_ms);
         self.taken_back = self.verifier.anchor().is_some();
         self.kept_changes = self.verifier.changes();
@@ -173,6 +239,77 @@ impl Link {
 
     pub(super) const fn network(&self) -> u32 {
         self.network
+    }
+
+    /// Whether it serves several escrows rather than one.
+    pub(super) const fn is_shared(&self) -> bool {
+        self.shared
+    }
+
+    /// It serves `escrows` escrows now, of at most [`MAX_VALIDATED_HUBS`]:
+    /// each has a share of what is bounded.
+    pub(super) fn set_escrows(&mut self, escrows: usize) {
+        assert!(self.shared, "only a shared link serves several");
+        assert!(escrows <= MAX_VALIDATED_HUBS, "escrows are bounded");
+        self.escrows = escrows.max(1);
+    }
+
+    /// What follows is the call of `hub`'s escrow, or the link's own.
+    pub(super) fn serve(&mut self, hub: Owner) {
+        assert!(self.shared || hub.is_none(), "one escrow is untagged");
+        self.serving = hub;
+    }
+
+    /// How many of the verifier's queries an escrow may have open: an
+    /// equal share, so the shares fit the verifier's bound together.
+    pub(super) const fn query_share(&self) -> usize {
+        verifier::MAX_QUERIES / self.escrows
+    }
+
+    /// How many of them may prove hints, leaving the rest of its share for
+    /// the escrow's and the issuer's state and the walk.
+    pub(super) const fn hint_share(&self) -> usize {
+        self.query_share() / 2
+    }
+
+    /// How many of its own requests an escrow may have waiting, on a shared
+    /// link: an equal share of all but one, which is the link's own.
+    const fn pending_share(&self) -> usize {
+        (MAX_PENDING - 1) / self.escrows
+    }
+
+    /// How many of them may submit an escrow transaction.
+    const fn submit_share(&self) -> usize {
+        MAX_PENDING_SUBMITS / self.escrows
+    }
+
+    /// The server's validated ledger, as it last said.
+    pub(super) const fn validated(&self) -> Option<u32> {
+        self.validated
+    }
+
+    /// The stream said ledger `index` closed, validated.
+    pub(super) const fn closed(&mut self, index: u32) {
+        self.validated = Some(index);
+    }
+
+    /// The verifier reads proven transactions for the threads of `keys`,
+    /// of every escrow it serves, from now on.
+    pub(super) fn thread(&mut self, keys: Vec<[u8; 32]>) {
+        if keys != self.threads {
+            self.verifier.thread(keys.clone());
+            self.threads = keys;
+        }
+    }
+
+    /// The keys it reads threads for.
+    pub(super) fn threads(&self) -> &[[u8; 32]] {
+        &self.threads
+    }
+
+    /// How many escrows it serves.
+    pub(super) const fn escrows(&self) -> usize {
+        self.escrows
     }
 
     pub(super) const fn now_ms(&self) -> u64 {
@@ -215,19 +352,79 @@ impl Link {
         self.taken_back = false;
     }
 
-    /// Hands `out` to the host, after what it was handed before.
+    /// Hands `out` to the host, after what it was handed before, as the
+    /// escrow's whose call this is. A new connection an escrow asks for, on
+    /// a shared link, goes only [`ESCROW_RECONNECT_MS`] after the last
+    /// one an escrow asked for.
     pub(super) fn push(&mut self, out: Out) {
-        self.out.push_back(out);
+        if self.shared && self.serving.is_some() && matches!(out, Out::Reconnect) {
+            let now = self.now_ms;
+            if (self.escrow_reconnect_ms)
+                .is_some_and(|at| now.saturating_sub(at) < ESCROW_RECONNECT_MS)
+            {
+                return;
+            }
+            self.escrow_reconnect_ms = Some(now);
+        }
+        self.out.push_back((self.serving, out));
+    }
+
+    /// Hands `out` to the host as the link's own.
+    fn push_own(&mut self, out: Out) {
+        self.out.push_back((None, out));
     }
 
     /// The next thing to do.
     pub(super) fn poll(&mut self) -> Option<Out> {
+        self.out.pop_front().map(|(_, out)| out)
+    }
+
+    /// The next thing to do, and whose it is.
+    pub(super) fn poll_owned(&mut self) -> Option<(Owner, Out)> {
         self.out.pop_front()
+    }
+
+    /// How many things it has for the host to do.
+    pub(super) fn queued(&self) -> usize {
+        self.out.len()
+    }
+
+    /// The hub whose escrow's call this is, if any.
+    pub(super) const fn serving(&self) -> Owner {
+        self.serving
+    }
+
+    /// Whether what it handed the host holds a cursor.
+    pub(super) fn cursor_queued(&self) -> bool {
+        (self.out.iter()).any(|(_, out)| matches!(out, Out::Cursor(_)))
+    }
+
+    /// Whether it has the verifier's state to hand over with a cursor.
+    pub(super) const fn keeping(&self) -> bool {
+        self.keeping.is_some()
     }
 
     /// Parks what the draining escrow did not take, or not alone.
     pub(super) fn park(&mut self, parked: Parked) {
         self.parked.push_back(parked);
+    }
+
+    /// Parks a copy of a newest anchor, `true` if a reset, which the
+    /// escrow whose call this is took at once.
+    pub(super) fn park_anchor(&mut self, anchor: Anchor, reset: bool) {
+        (self.parked).push_back(Parked::Anchored(anchor, reset, self.serving));
+    }
+
+    /// Forgets what `hub`'s escrow asked and was to hand the host: it is
+    /// served no more.
+    pub(super) fn forget_hub(&mut self, hub: HubId) {
+        self.pending.retain(|_, (_, owner)| *owner != Some(hub));
+        self.out.retain(|(owner, _)| *owner != Some(hub));
+    }
+
+    /// Whom its requests waiting are for.
+    pub(super) fn pending_owners(&self) -> impl Iterator<Item = Owner> + '_ {
+        self.pending.values().map(|(_, owner)| *owner)
     }
 
     /// The next thing parked, to hand on.
@@ -249,6 +446,17 @@ impl Link {
         );
         assert!(self.pending_submits() <= MAX_PENDING_SUBMITS);
         assert!(self.parked.is_empty(), "what is parked is handed on");
+        assert!(self.serving.is_none(), "a call is served within it");
+        assert!(self.escrows >= 1 && self.escrows <= MAX_VALIDATED_HUBS);
+        assert!(self.threads.len() <= api::MAX_PROOF_KEYS);
+        if !self.shared {
+            assert_eq!(self.escrows, 1, "one escrow");
+            assert!(
+                (self.out.iter()).all(|(owner, _)| owner.is_none())
+                    && self.pending_owners().all(|owner| owner.is_none()),
+                "one escrow is untagged"
+            );
+        }
         if self.phase == Phase::Disconnected {
             assert!(self.pending.is_empty() && self.proof_asks.is_empty());
         }
@@ -261,8 +469,10 @@ impl Link {
     /// verifier anchor on it.
     pub(super) fn connected(&mut self) {
         self.forget_connection();
+        self.again_for = None;
+        self.validated = None;
         self.phase = Phase::Checking;
-        self.ask(Asked::ServerState, api::server_state);
+        self.ask_own(Asked::ServerState, api::server_state);
         self.verifier.connected(self.now_ms);
     }
 
@@ -280,15 +490,20 @@ impl Link {
         // the next one is asked anew, and is not ended for this one's
         // sake.
         self.out
-            .retain(|out| !matches!(out, Out::Send(_) | Out::Reconnect));
+            .retain(|(_, out)| !matches!(out, Out::Send(_) | Out::Reconnect));
     }
 
-    /// What its server said goes with a reset of the chain: it is asked
-    /// where it stands again, if connected.
-    pub(super) fn check_again(&mut self) {
+    /// What its server said goes with a reset of the chain, proven at
+    /// `anchor`: it is asked where it stands again, if connected; once for
+    /// each reset, however many escrows met it.
+    pub(super) fn check_again(&mut self, anchor: u32) {
+        if self.phase == Phase::Checking && self.again_for == Some(anchor) {
+            return;
+        }
+        self.again_for = Some(anchor);
         self.forget_connection();
         self.phase = Phase::Checking;
-        self.ask(Asked::ServerState, api::server_state);
+        self.ask_own(Asked::ServerState, api::server_state);
     }
 
     /// What was asked on the connection is forgotten. The verifier asks its
@@ -313,7 +528,7 @@ impl Link {
             && self.now_ms.saturating_sub(since_ms) >= RETRY_MS
         {
             self.phase = Phase::Checking;
-            self.ask(Asked::ServerState, api::server_state);
+            self.ask_own(Asked::ServerState, api::server_state);
         }
         let aging = anchored_ms.is_none_or(|at| self.now_ms.saturating_sub(at) >= ANCHOR_EVERY_MS);
         let rested = self
@@ -331,18 +546,18 @@ impl Link {
     }
 
     /// An answer to the request `id`: the verifier's own it takes itself;
-    /// another of its own it hands back, with what it was.
+    /// another of its own it hands back, with what it was and whose.
     pub(super) fn response(
         &mut self,
         id: u64,
         outcome: Result<Value, ApiError>,
-    ) -> Option<(Asked, Result<Value, ApiError>)> {
+    ) -> Option<(Asked, Owner, Result<Value, ApiError>)> {
         if let Some(ask) = self.proof_asks.remove(&id) {
             self.verifier.answered(&ask, outcome, self.now_ms);
             return None;
         }
-        let asked = self.pending.remove(&id)?;
-        Some((asked, outcome))
+        let (asked, owner) = self.pending.remove(&id)?;
+        Some((asked, owner, outcome))
     }
 
     /// Where the server stands, by `result`: on the hub's network, and on
@@ -357,11 +572,14 @@ impl Link {
     ) -> Option<u32> {
         let state = api::server_state_result(result)?;
         if state.network_id != Some(self.network) {
-            self.out.push_back(Out::Problem(
-                "the XRPL server is on another network than the hub's escrow",
-            ));
+            self.push_own(Out::Problem(if self.shared {
+                "the XRPL server is on another network than the hubs' escrows it serves"
+            } else {
+                "the XRPL server is on another network than the hub's escrow"
+            }));
             return None;
         }
+        self.validated = Some(state.validated_ledger);
         match judge_chain(
             newest,
             self.network,
@@ -374,7 +592,7 @@ impl Link {
                 return None;
             }
             Chain::WentBack => {
-                self.out.push_back(Out::Problem(
+                self.push_own(Out::Problem(
                     "the XRPL server's ledger went back on a network that is never reset",
                 ));
                 return None;
@@ -387,27 +605,55 @@ impl Link {
 
 /// Requests.
 impl Link {
-    /// Asks the server, unless its requests are full: whether it did.
+    /// Asks the server for the escrow whose call this is, unless its
+    /// requests are full, or that escrow's share of them on a shared link:
+    /// whether it did.
     pub(super) fn ask(&mut self, asked: Asked, request: impl FnOnce(u64) -> Vec<u8>) -> bool {
+        let owner = self.serving;
+        if self.shared && owner.is_some() && self.pending_of(owner) >= self.pending_share() {
+            return false;
+        }
+        self.ask_as(owner, asked, request)
+    }
+
+    /// Asks the server for the link itself.
+    fn ask_own(&mut self, asked: Asked, request: impl FnOnce(u64) -> Vec<u8>) -> bool {
+        self.ask_as(None, asked, request)
+    }
+
+    fn ask_as(&mut self, owner: Owner, asked: Asked, request: impl FnOnce(u64) -> Vec<u8>) -> bool {
         if self.pending.len() >= MAX_PENDING {
             return false;
         }
         let id = self.fresh_id();
-        self.pending.insert(id, asked);
-        self.out.push_back(Out::Send(request(id)));
+        self.pending.insert(id, (asked, owner));
+        self.out.push_back((owner, Out::Send(request(id))));
         true
     }
 
+    /// How many of its requests waiting are `owner`'s.
+    fn pending_of(&self, owner: Owner) -> usize {
+        self.pending_owners().filter(|of| *of == owner).count()
+    }
+
     /// Whether its requests have room for one more that submits an escrow
-    /// transaction.
+    /// transaction, of the escrow whose call this is: within its share on
+    /// a shared link.
     pub(super) fn room_to_submit(&self) -> bool {
+        if self.shared {
+            let owner = self.serving;
+            let submits = (self.pending.values())
+                .filter(|(asked, of)| *asked == Asked::Submit && *of == owner)
+                .count();
+            return submits < self.submit_share();
+        }
         self.pending_submits() < MAX_PENDING_SUBMITS
     }
 
     /// How many of its requests submit an escrow transaction.
     fn pending_submits(&self) -> usize {
         (self.pending.values())
-            .filter(|asked| **asked == Asked::Submit)
+            .filter(|(asked, _)| *asked == Asked::Submit)
             .count()
     }
 
@@ -423,27 +669,38 @@ impl Link {
     /// it.
     pub(super) fn carry_out(&mut self, out: verifier::Out) {
         match out {
-            verifier::Out::Ask(Ask::Fetch(url)) => self.out.push_back(Out::Fetch(url)),
+            verifier::Out::Ask(Ask::Fetch(url)) => self.push_own(Out::Fetch(url)),
             verifier::Out::Ask(ask) => self.ask_proof(ask),
             verifier::Out::Verdict(id, verdict) => self.park(Parked::Verdict(id, verdict)),
-            verifier::Out::Anchored(anchor) => self.park(Parked::Anchored(anchor, false)),
-            verifier::Out::Reset(anchor) => self.park(Parked::Anchored(anchor, true)),
+            verifier::Out::Anchored(anchor) => self.park(Parked::Anchored(anchor, false, None)),
+            verifier::Out::Reset(anchor) => self.park(Parked::Anchored(anchor, true, None)),
             verifier::Out::Reconnect => {
-                self.out.push_back(Out::Problem(
+                self.push_own(Out::Problem(
                     "the XRPL server's answers did not prove, or it refused or left them: connecting anew",
                 ));
-                self.out.push_back(Out::Reconnect);
+                self.push_own(Out::Reconnect);
             }
         }
+    }
+
+    /// Carries out what the verifier decided, with no escrow to take its
+    /// verdicts and anchors: they are parked, for none.
+    pub(super) fn drain_alone(&mut self) {
+        for out in self.verifier.take_out() {
+            self.carry_out(out);
+        }
+        self.tell_failed();
     }
 
     /// Says once that the verifier stopped, once it did.
     pub(super) fn tell_failed(&mut self) {
         if self.verifier.failed() && !self.failed_told {
             self.failed_told = true;
-            self.out.push_back(Out::Problem(
-                "the XRP Ledger's validators validated two chains of a network that never resets: the escrow is followed no more",
-            ));
+            self.push_own(Out::Problem(if self.shared {
+                "the XRP Ledger's validators validated two chains of a network that never resets: no escrow on it is followed any more"
+            } else {
+                "the XRP Ledger's validators validated two chains of a network that never resets: the escrow is followed no more"
+            }));
         }
     }
 
@@ -452,13 +709,13 @@ impl Link {
             return;
         }
         if self.proof_asks.len() >= MAX_PROOF_ASKS {
-            self.out.push_back(Out::Reconnect);
+            self.push_own(Out::Reconnect);
             return;
         }
         let id = self.fresh_id();
         if let Some(request) = ask.request(id) {
             self.proof_asks.insert(id, ask);
-            self.out.push_back(Out::Send(request));
+            self.push_own(Out::Send(request));
         }
     }
 }
@@ -496,15 +753,15 @@ impl Link {
             }
             self.over_bound = true;
             self.keeping = Some(Kept::Dropped);
-            self.out.push_back(Out::Problem(
+            self.push_own(Out::Problem(
                 "the XRPL verifier's lists are too large to keep: a restart fetches them and anchors anew",
             ));
         } else {
             self.over_bound = false;
             self.keeping = Some(Kept::State(kept));
         }
-        if !(self.out.iter()).any(|out| matches!(out, Out::Cursor(_))) {
-            self.out.push_back(Out::Cursor(cursor));
+        if !self.cursor_queued() {
+            self.push_own(Out::Cursor(cursor));
         }
     }
 }

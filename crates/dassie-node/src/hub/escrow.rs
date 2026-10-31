@@ -101,7 +101,8 @@
 //! Its parts: `link`, what is the connection's and the network's, its
 //! requests, its verifier, where its server stands, and what its host keeps
 //! of the verifier; and `watch`, what is the escrow's. A [`Watcher`] is one
-//! of each.
+//! of each; a [`LinkWatcher`] (`shared`) is one link and the escrows of
+//! every hub the node validates on its network.
 
 use dassie_hub::Rules;
 use dassie_hub::ledger::Withdrawal;
@@ -116,9 +117,11 @@ use serde_json::Value;
 
 use crate::store::EscrowCursor;
 use link::{Asked, Link, Parked};
+pub use shared::{LinkOut, LinkWatcher};
 use watch::EscrowWatcher;
 
 mod link;
+mod shared;
 mod watch;
 
 /// How far back from the last ledger attested a catch-up starts: what was
@@ -475,7 +478,7 @@ impl Watcher {
     /// did not find, and look again at outcomes held.
     pub fn tick(&mut self, now_ms: u64, view: &EscrowView) {
         self.link.now(now_ms);
-        self.escrow.see(&mut self.link, view);
+        self.see(view);
         self.link.tick(self.escrow.anchored_ms());
         self.escrow.tick(&mut self.link);
         self.escrow.drain(&mut self.link);
@@ -487,10 +490,10 @@ impl Watcher {
     /// Takes a message from the server.
     pub fn message(&mut self, now_ms: u64, bytes: &[u8], view: &EscrowView) {
         self.link.now(now_ms);
-        self.escrow.see(&mut self.link, view);
+        self.see(view);
         match api::parse(bytes) {
             Message::Response { id, outcome } => {
-                if let Some((asked, outcome)) = self.link.response(id, outcome) {
+                if let Some((asked, _, outcome)) = self.link.response(id, outcome) {
                     self.answer(asked, outcome);
                 }
             }
@@ -514,7 +517,7 @@ impl Watcher {
     /// often it asks, that is at most once per anchor.
     pub fn check_escrow(&mut self, now_ms: u64, view: &EscrowView) {
         self.link.now(now_ms);
-        self.escrow.see(&mut self.link, view);
+        self.see(view);
         self.escrow.want_check(view);
         self.escrow.work(&mut self.link);
         self.hand_on();
@@ -561,6 +564,14 @@ impl Watcher {
         match self.link.server_state(result, self.escrow.newest()) {
             Some(validated) => self.escrow.catch_up(&mut self.link, validated),
             None => self.escrow.wait(&mut self.link),
+        }
+    }
+
+    /// What the validator's ledger says now; the verifier threads the
+    /// escrow's objects as they are.
+    fn see(&mut self, view: &EscrowView) {
+        if self.escrow.see(&mut self.link, view) {
+            self.escrow.thread(&mut self.link);
         }
     }
 
