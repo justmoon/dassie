@@ -206,13 +206,12 @@ fn start(
 }
 
 /// What the validators of the node's hubs share, for as long as the
-/// service runs: the writer of their steps, when they send again to a
-/// validator they could not reach, and the batches they send other
-/// validators.
+/// service runs: the writer of their steps, and the batches they send
+/// other validators, with when it sends a batch again to a node it could
+/// not reach.
 #[derive(Clone, Debug)]
 pub struct Shared {
     writer: HubWriter,
-    backoffs: Backoffs,
     outbox: Outbox,
 }
 
@@ -233,16 +232,14 @@ impl Shared {
         client: &HubClient,
         stop: &CancellationToken,
     ) -> Self {
-        let backoffs = Backoffs::default();
         let outbox = Outbox::new(
             client.clone(),
-            backoffs.clone(),
+            Backoffs::default(),
             Arc::clone(hubs.batch_counters()),
             stop.clone(),
         );
         Self {
             writer: HubWriter::new(store, Arc::clone(hubs.write_counters())),
-            backoffs,
             outbox,
         }
     }
@@ -306,7 +303,9 @@ pub struct HubTask {
     clock: Arc<dyn Clock>,
     /// What writes its steps.
     writer: HubWriter,
-    /// When it sends again to a validator it could not reach.
+    /// When it sends a message of its own hub again to a validator it
+    /// could not reach, on a stream of the message's own: the hub's alone,
+    /// since a validator may refuse one hub's messages and take another's.
     backoffs: Backoffs,
     /// Where it puts what it sends other validators in batches.
     outbox: Outbox,
@@ -383,7 +382,7 @@ impl HubTask {
             hubs,
             clock,
             writer: shared.writer,
-            backoffs: shared.backoffs,
+            backoffs: Backoffs::default(),
             outbox: shared.outbox,
             attestations,
             submits,
@@ -424,7 +423,6 @@ impl HubTask {
     #[must_use]
     pub fn sharing(mut self, shared: &Shared) -> Self {
         self.writer = shared.writer.clone();
-        self.backoffs = shared.backoffs.clone();
         self.outbox = shared.outbox.clone();
         self
     }
@@ -487,6 +485,7 @@ impl HubTask {
                 }
                 Input::Message(inbound) => {
                     self.backoffs.heard_from(&inbound);
+                    self.outbox.heard_from(&inbound);
                     let now = self.clock.now_ms();
                     let node = inbound.node.as_ref();
                     let step = self

@@ -9,10 +9,14 @@
 //! where it opened one per message.
 //!
 //! Each answer that comes back goes to its hub's validator as a message
-//! from the node it was sent to, as soon as it comes. A batch that brings
-//! any answer reached its node; one that brings only busy answers found it
-//! up but full; one that brings none failed, and the node is left alone
-//! for a while ([`Backoffs`]).
+//! from the node it was sent to, as soon as it comes. The wait before
+//! sending again to a node is one per node, for every hub, so it grows only
+//! with what says the node itself is out of reach ([`Backoffs`]): no
+//! connection to it, or a reply that is no reply. A batch that brings any
+//! answer but busy reached it; one that brings only busy answers, or none
+//! because its stream broke off or ran out of time, as when the only hubs
+//! in it are slow at the node or the node left them out, found the node up,
+//! and goes again shortly, as one that found it busy.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -319,18 +323,21 @@ impl Outbox {
             (reached, busy)
         };
         let (sent, (reached, busy)) = tokio::join!(sent, delivered);
-        match sent {
-            _ if reached => self.inner.backoffs.reached(&peer.node),
-            Ok(()) if busy => self
-                .inner
-                .backoffs
-                .failed(peer.node, &HubExchangeError::Refused(HubAnswer::Busy)),
-            Ok(()) => self.inner.backoffs.reached(&peer.node),
-            Err(error) => {
-                self.inner.backoffs.failed(peer.node, &error);
-                tracing::debug!(target: target::HUB, node = %peer.node, %error, "a validator could not be reached");
+        match waited(&sent, reached, busy) {
+            None => self.inner.backoffs.reached(&peer.node),
+            Some(wait) => {
+                self.inner.backoffs.failed(peer.node, &wait);
+                if let Err(error) = sent {
+                    tracing::debug!(target: target::HUB, node = %peer.node, %error, "a batch to a validator went unanswered");
+                }
             }
         }
+    }
+
+    /// Ends the wait before sending a batch again to the node that sent
+    /// `inbound`, in any hub, as [`Backoffs::heard_from`] says.
+    pub fn heard_from(&self, inbound: &Inbound) {
+        self.inner.backoffs.heard_from(inbound);
     }
 
     fn queues(&self) -> std::sync::MutexGuard<'_, BTreeMap<Destination, PeerQueue>> {
@@ -338,6 +345,29 @@ impl Outbox {
             .queues
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// What a batch's outcome says of its node, for the wait before the next
+/// ([`Backoffs::failed`]): `None` if it reached the node, otherwise the
+/// failure to wait after. Only what says the node itself is out of reach
+/// grows the wait, no connection or a reply that is none; a batch that
+/// brought only busy answers, or none because its stream broke off or ran
+/// out of time, found the node up, and goes again shortly, as busy: what
+/// failed may be one hub's at the node, and the wait is every hub's.
+fn waited(
+    sent: &Result<(), HubExchangeError>,
+    reached: bool,
+    busy: bool,
+) -> Option<HubExchangeError> {
+    let busy_now = HubExchangeError::Refused(HubAnswer::Busy);
+    match sent {
+        _ if reached => None,
+        Ok(()) if busy => Some(busy_now),
+        Ok(()) => None,
+        Err(HubExchangeError::Unreachable) => Some(HubExchangeError::Unreachable),
+        Err(HubExchangeError::BadReply) => Some(HubExchangeError::BadReply),
+        Err(_) => Some(busy_now),
     }
 }
 
@@ -450,5 +480,30 @@ mod tests {
         assert_eq!(queue.next_batch().map(|b| b.len()), Some(1), "one fits");
         queue.finished();
         assert_eq!(queue.next_batch().map(|b| b.len()), Some(1));
+    }
+
+    // Only the node's own failures grow the wait every hub shares: a batch
+    // that went unanswered, as when its only hub is slow at the node or
+    // was left out there, goes again shortly; any answer but busy ends it.
+    #[test]
+    fn only_a_node_out_of_reach_grows_the_wait() {
+        let busy = Some(HubExchangeError::Refused(HubAnswer::Busy));
+        let timed_out = Err(HubExchangeError::Failed("timed out".into()));
+        assert_eq!(waited(&timed_out, false, false), busy);
+        let reset = Err(HubExchangeError::Failed("the reply broke off".into()));
+        assert_eq!(waited(&reset, false, false), busy);
+        let full = Err(HubExchangeError::Refused(HubAnswer::Busy));
+        assert_eq!(waited(&full, false, false), busy);
+        assert_eq!(waited(&Ok(()), false, true), busy);
+        assert_eq!(
+            waited(&Err(HubExchangeError::Unreachable), false, false),
+            Some(HubExchangeError::Unreachable)
+        );
+        assert_eq!(
+            waited(&Err(HubExchangeError::BadReply), false, false),
+            Some(HubExchangeError::BadReply)
+        );
+        assert_eq!(waited(&timed_out, true, true), None, "an answer came");
+        assert_eq!(waited(&Ok(()), false, false), None);
     }
 }

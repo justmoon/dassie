@@ -27,7 +27,7 @@ use crate::hub::batch::{
 use crate::hub::founding::FoundingAccess;
 use crate::hub::transport::{
     HUB_ID_BYTES, HubAnswer, HubExchangeError, MAX_FOUNDING_BYTES, MAX_MEMBER_MESSAGE_BYTES,
-    MAX_MESSAGE_BYTES, MAX_REPLY_BYTES, MAX_STATE_REPLY_BYTES, STATE_REQUEST_BYTES,
+    MAX_MESSAGE_BYTES, MAX_REPLY_BYTES, MAX_STATE_REPLY_BYTES, REPLY_TIMEOUT, STATE_REQUEST_BYTES,
 };
 use crate::outbound::Resolver;
 
@@ -37,6 +37,12 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 /// Time to write a state to a client: a state is far larger than a
 /// message, up to [`MAX_STATE_REPLY_BYTES`].
 const STATE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Time for a batch's whole reply: its answers, each within
+/// [`REPLY_TIMEOUT`], and writing them, as a single message's reply has
+/// [`REPLY_TIMEOUT`] and then [`ANSWER_TIMEOUT`] to be written.
+const BATCH_REPLY_TIMEOUT: Duration =
+    Duration::from_secs(REPLY_TIMEOUT.as_secs() + ANSWER_TIMEOUT.as_secs());
 
 /// How one exchange on a connection went.
 enum Exchanged<T = Vec<u8>> {
@@ -488,11 +494,20 @@ impl On {
             reset(&mut send, &mut recv);
             return;
         };
+        // One deadline for the whole reply, its answers and their writes, as
+        // a single message's reply has: a batch holds its place no longer
+        // than one message on the hub's stream does.
         let stopped = send.stopped();
-        tokio::select! {
-            () = write_records(&mut send, replies) => {}
-            // The client stopped reading: nobody waits for the rest.
-            _ = stopped => {}
+        let replied = tokio::time::timeout(BATCH_REPLY_TIMEOUT, async {
+            tokio::select! {
+                () = write_records(&mut send, replies) => {}
+                // The client stopped reading: nobody waits for the rest.
+                _ = stopped => {}
+            }
+        })
+        .await;
+        if replied.is_err() {
+            let _ = send.reset(0u32.into());
         }
     }
 }
@@ -508,9 +523,7 @@ async fn write_records(send: &mut quinn::SendStream, replies: Vec<crate::hub::ba
     let mut replies: futures_util::stream::FuturesUnordered<_> = replies.into_iter().collect();
     while let Some((index, answer)) = replies.next().await {
         let record = budget.record(index, answer);
-        let written = tokio::time::timeout(ANSWER_TIMEOUT, send.write_all(&record)).await;
-        if !matches!(written, Ok(Ok(()))) {
-            let _ = send.reset(0u32.into());
+        if send.write_all(&record).await.is_err() {
             return;
         }
     }

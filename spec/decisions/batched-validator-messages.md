@@ -16,13 +16,15 @@
 - **Each message is answered on its own, as its answer comes,** as the hub's stream would answer it. One slow hub, catching up or writing a large state, holds up no other hub's answers.
 - **A batch is read only from a validator of a hub the node validates, and each message only from a validator of its own hub,** so a batch never carries a member's request and never takes a member's place.
 - **Validators batch only for hubs of the hub protocol's version 3 or later.** A release that reads batches takes them for any hub it validates, whatever its version, so a hub moves to version 3 once its validators run such a release, as any move goes. Version 3 changes nothing a ledger executes.
-- **A node waits once per validator node before it sends again to one it could not reach,** for every hub it validates: a node that is down is down for all of them, and one that answers in any hub is up.
+- **Batches wait once per validator node before going again to one they could not reach,** for every hub, and the wait grows only with what says the node itself is out of reach: no connection, or a reply that is none. A batch that went unanswered, its stream reset or out of time, found the node up, and goes again shortly. A node that is down is down for all of its hubs, but one hub's refusal or slowness at a node is that hub's: a node may have left one hub out and validate another. A hub's messages on streams of their own keep a wait per hub.
+- **A batch's reply has one deadline,** as a single message's has, so a batch holds a place among validators' requests no longer than one message does.
 
 ## Accepted
 
 - A hub's version now also names how its validators exchange its messages, not only what they agree on. Moving a hub to version 3 cuts off its members on releases that do not run it, though nothing changes for members, so the release reaches members first, as any move asks.
 - Batching for one hub waits until that hub moved, though its validators may run a release that reads batches long before.
-- A batch holds a place among validators' requests for as long as its slowest message's step takes, as one message did.
+- A batch holds a place among validators' requests for as long as its slowest message's step takes, as one message did, within the same deadline.
+- A node that left out every hub a batch's messages are of is sent batches again after a short wait each time rather than a growing one: the messages are few, each batch is one stream, and it costs no more than the streams one message each did.
 
 ## Rejected
 

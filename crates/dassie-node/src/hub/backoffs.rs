@@ -1,8 +1,10 @@
 //! When a validator sends to another validator again after it could not be
 //! reached (spec/areas/hubs.md#the-validator-in-the-node): one wait per
-//! node, which every hub the node validates shares, since a node that is
-//! down is down for each of its hubs, and one that answers in any hub is
-//! up for all of them.
+//! node. A hub's messages on streams of their own wait per hub, each hub's
+//! task keeping its own, since a node may refuse one hub's messages and
+//! take another's; batches wait per node for every hub, and grow the wait
+//! only for what says the node itself is out of reach
+//! ([`super::outbox`]).
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
