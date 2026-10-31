@@ -106,7 +106,7 @@ message NetworkPeer {
   repeated PeerMethod methods = 16;
   // Where a downlink with a URL, which asks to be promoted by having one,
   // stands toward its promotion (spec/decisions/promotion-to-core.md);
-  // unset for any other peer. Shown, not acted on yet.
+  // unset for any other peer.
   Promotion promotion = 17;
 }
 
@@ -114,8 +114,7 @@ message NetworkPeer {
 // sees it (spec/decisions/promotion-to-core.md).
 message Promotion {
   // The checks it does not pass yet: "registered", "standing",
-  // "heartbeats", "room", "settled", "clock", "url", "https" or
-  // "not-banned".
+  // "heartbeats", "funded", "clock", "url", "https" or "not-banned".
   repeated string pending = 1;
   // How long it has been in good standing without a break, in ms.
   uint64 standing_ms = 2;
@@ -123,10 +122,11 @@ message Promotion {
   // answered.
   uint32 heartbeats_sent = 3;
   uint32 heartbeats_answered = 4;
-  // Its most room in our books on a method, in the largest packets.
-  uint64 room_packets = 5;
-  // Whether it ever paid us a settlement of at least one largest packet.
-  bool paid_us = 6;
+  // Whether its own account in the hub of one of its methods could spend,
+  // as the hub last said, one request to settle at the default credit for
+  // each edge joining the core asks; unset until read, which only a
+  // registered candidate's is.
+  optional bool funded = 10;
   // How far its clock is ahead of ours, negative behind, as its link
   // states show; unset until one came straight from it.
   optional sint64 clock_skew_ms = 7;

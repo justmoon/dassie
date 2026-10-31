@@ -155,12 +155,30 @@ pub const fn hub_limits(target: u64) -> (u64, u64) {
 /// deposit again (spec/decisions/generous-hub-target.md).
 #[must_use]
 pub fn hub_spendable(max_packet: u64, credit: u64, peerings: u64, target: u64) -> u64 {
-    let asked = requested_amount(u128::from(credit), trigger(max_packet), minimum(max_packet));
-    let each = asked.max(minimum(max_packet));
+    let each = one_request(max_packet, credit);
     let peerings = if peerings == 0 { 1 } else { peerings };
     let least = each.saturating_mul(peerings);
     let most = hub_step(target) / 2;
     if least < most { least } else { most }
+}
+
+/// The most one request to settle has a payer over a hub fund its hold
+/// with: what it would settle at the default `credit`, its hold counted as
+/// paid in advance, and never less than the least settlement.
+#[must_use]
+pub fn one_request(max_packet: u64, credit: u64) -> u64 {
+    let asked = requested_amount(u128::from(credit), trigger(max_packet), minimum(max_packet));
+    asked.max(minimum(max_packet))
+}
+
+/// What a downlink's own account in a settlement hub must be able to spend
+/// for its uplink to promote it: one request to settle at the default
+/// `credit` for each of the `edges` joining the core asks, what funding a
+/// hold toward each of its first core peers takes
+/// (spec/decisions/promotion-to-core.md).
+#[must_use]
+pub fn promotion_funds(max_packet: u64, credit: u64, edges: u64) -> u64 {
+    one_request(max_packet, credit).saturating_mul(edges)
 }
 
 /// The floor of the default [`hub_target`] ([`hub_limits`]).
@@ -331,6 +349,16 @@ mod tests {
         assert_eq!((hub_floor(P), hub_ceiling(P)), (900 * P, 1_100 * P));
         assert_eq!(hub_limits(hub_target(P)), (hub_floor(P), hub_ceiling(P)));
         assert_eq!(hub_floor(P).midpoint(hub_ceiling(P)), hub_target(P));
+    }
+
+    // spec/decisions/promotion-to-core.md: a candidate's hub account must
+    // spend one request at the default credit per edge, 4.75 packets each.
+    #[test]
+    fn promotion_asks_one_request_per_edge() {
+        assert_eq!(one_request(P, C), 475 * P / 100);
+        assert_eq!(one_request(P, 0), P, "never less than the least settlement");
+        assert_eq!(promotion_funds(P, C, 1), 475 * P / 100);
+        assert_eq!(promotion_funds(P, C, 2), 950 * P / 100);
     }
 
     // spec/decisions/generous-hub-target.md: whatever it keeps in its hub,

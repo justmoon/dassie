@@ -38,7 +38,7 @@ use crate::wire::{
 
 pub use lifecycle::BanError;
 pub use membership::{RegisterError, RegistrationStatus};
-pub use promotion::{PROMOTION_ROOM_PACKETS, Promotion, PromotionCheck};
+pub use promotion::{Promotion, PromotionCheck};
 pub use snapshots::{
     SUBSCRIPTION_CHECK_MS, SUBSCRIPTION_REFUSED_MS, SUBSCRIPTION_RETRY_MS, SUBSCRIPTION_SILENCE_MS,
 };
@@ -90,13 +90,21 @@ pub struct Offer {
     /// its details; on any other, such as the stub, none, and its details
     /// are empty.
     pub hub: Option<HubDetails>,
+    /// Over a hub: our account key's signature saying it is ours, which
+    /// our link state carries while we have a URL
+    /// ([`EXTENSION_HUB_KEYS`](crate::wire::EXTENSION_HUB_KEYS)).
+    pub key_proof: Option<[u8; 64]>,
 }
 
 impl Offer {
     /// An offer on `scheme`, whose details are empty, as the stub's.
     #[must_use]
     pub const fn plain(scheme: SchemeId) -> Self {
-        Self { scheme, hub: None }
+        Self {
+            scheme,
+            hub: None,
+            key_proof: None,
+        }
     }
 
     /// An offer on `scheme` over the settlement hub `hub`.
@@ -105,6 +113,16 @@ impl Offer {
         Self {
             scheme,
             hub: Some(hub),
+            key_proof: None,
+        }
+    }
+
+    /// The same, with our account key's signature saying it is ours.
+    #[must_use]
+    pub const fn with_key_proof(self, proof: [u8; 64]) -> Self {
+        Self {
+            key_proof: Some(proof),
+            ..self
         }
     }
 
@@ -1017,7 +1035,8 @@ impl PeerNode {
         self.tend_names();
         self.send_names();
         self.seek_peers(hooks);
-        self.check_urls();
+        self.read_funds();
+        self.check_urls(hooks);
         self.seek_methods(hooks);
         self.tend_snapshots(hooks);
         self.update_routes();

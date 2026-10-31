@@ -627,6 +627,8 @@ pub(super) fn restore_scheme(scheme: &mut HubScheme, state: &[u8]) -> Option<()>
             payee: read_payee(&mut reader, version)?,
             look_up_ms: 0,
             pay_after_ms: 0,
+            read_funds: false,
+            funds: None,
         };
         if scheme.peers.insert(name, peer).is_some() {
             return None;

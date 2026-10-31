@@ -41,8 +41,11 @@ pub(super) struct Hooks<'a> {
     pub settings: PeerSettings,
     /// The step's time, which a peer's snapshot must not have expired by.
     pub now_ms: u64,
-    /// The largest packet, which a downlink's room is counted in.
+    /// The largest packet, and the default credit, which what a candidate
+    /// for promotion must hold in its hub is counted in
+    /// (spec/decisions/promotion-to-core.md).
     pub max_packet: u64,
+    pub peer_credit: u64,
     /// The hubs whose pool takes no newcomer of a kind
     /// (spec/decisions/slots-by-liquidity.md).
     pub liquidity: &'a super::liquidity::Liquidity,
@@ -302,14 +305,26 @@ impl PeeringHooks for Hooks<'_> {
         Ok(Agreed { state, credit_out })
     }
 
+    fn funded(
+        &self,
+        peer: NodeId,
+        scheme: SchemeId,
+        edges: u64,
+        proof: Option<&[u8; 64]>,
+    ) -> Option<bool> {
+        super::settlement::funded(
+            self.schemes,
+            (self.max_packet, self.peer_credit),
+            peer,
+            (scheme, edges),
+            proof,
+        )
+    }
+
     /// A downlink turning core gets a core peer's accounts on each of its
     /// methods' ledgers where it has none, in the core peers' share, which
     /// must have room for them all; a downlink's opened only once value
     /// moved with it (spec/decisions/lazy-downlink-accounts.md).
-    fn room_packets(&self, peer: NodeId, scheme: SchemeId) -> u64 {
-        super::settlement::room_packets(self.schemes, self.ledger, self.max_packet, peer, scheme)
-    }
-
     fn open_core_accounts(&mut self, now_ms: u64, peer: NodeId, schemes: &[SchemeId]) -> bool {
         let Some(name) = name(peer) else {
             return false;
@@ -743,7 +758,9 @@ impl Core {
                     let config = self.peer.config();
                     let promotion = self
                         .peer
-                        .promotion(&view.id, |scheme| self.room_packets(view.id, scheme))
+                        .promotion(&view.id, |scheme, edges, proof| {
+                            self.funded(view.id, scheme, edges, proof)
+                        })
                         .map(|promotion| (promotion, promotion.pending(config)));
                     Some(PeerView {
                         id: view.id,
@@ -793,6 +810,7 @@ impl Core {
             settings: self.peer_settings,
             now_ms: now,
             max_packet: self.settle.max_packet,
+            peer_credit: self.peer_credit,
             liquidity: &self.liquidity,
         };
         f(&mut self.peer, &mut hooks, now)
@@ -1424,6 +1442,10 @@ impl Core {
                         .on_peer_advertised(peer, details.hub_id, details.account);
                 }
             }
+            // A registered candidate for promotion: each hub of its
+            // peering reads what its own account there can spend
+            // (spec/decisions/promotion-to-core.md).
+            Event::CheckFunds { peer } => self.read_funds(peer),
             // The names the node answers to follow its view
             // (spec/areas/payments.md#the-nodes-names).
             Event::Name(NameEvent::HoldersChanged { .. }) => {
@@ -1494,6 +1516,30 @@ impl Core {
                 });
             }
             _ => {}
+        }
+    }
+
+    /// Has each hub of `peer`'s peering read what the peer's own account
+    /// there can spend, for its promotion: its schemes take the result as
+    /// the hub answers, and the peer node asks them for it
+    /// ([`PeeringHooks::funded`](dassie_peer::PeeringHooks::funded)).
+    fn read_funds(&mut self, peer: NodeId) {
+        let Some(name) = name(peer) else {
+            return;
+        };
+        let schemes: Vec<SchemeId> = self
+            .peer
+            .peering_of(&peer)
+            .map(|peering| peering.schemes().collect())
+            .unwrap_or_default();
+        for scheme in schemes {
+            let active = Name::new(scheme.as_str())
+                .ok()
+                .and_then(|scheme| self.schemes.get_mut(&scheme))
+                .filter(|active| active.over_hub && active.failed.is_none());
+            if let Some(active) = active {
+                active.scheme.read_peer_funds(name);
+            }
         }
     }
 

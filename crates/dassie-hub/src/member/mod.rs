@@ -140,6 +140,18 @@ pub fn member_key(node: &NodeKey, hub: &crate::rules::HubId) -> NodeKey {
     NodeKey::from_bytes(secret.as_bytes())
 }
 
+/// The digest a member's account key in `hub` signs to say it is the key of
+/// the node `node`, by its node ID, as the node's link state carries it
+/// (spec/decisions/promotion-to-core.md). A key copied from another node's
+/// membership comes with no such signature over the copier's ID.
+#[must_use]
+pub fn key_proof_digest(hub: &crate::rules::HubId, node: &str) -> Digest {
+    Digest::of(
+        crate::digest::Domain::KeyProof,
+        &[hub.0.as_bytes(), node.as_bytes()],
+    )
+}
+
 /// Internal units per unit of a hub's asset: the books count XRP and a
 /// dollar token at scale 9, a hub in its asset's smallest unit, drops of
 /// XRP or millionths of a token ([`TOKEN_DECIMALS`](crate::rules::TOKEN_DECIMALS)),

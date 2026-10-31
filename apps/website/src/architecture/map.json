@@ -564,7 +564,7 @@
         "Link states that carry both keys a node ID commits to, Ed25519 and SLH-DSA, offer each settlement scheme a node takes peers on with what the scheme says of itself, such as the hub a scheme settles over and the node's account there, and say whether a node is a periphery node and where a core node answers requests for its snapshot",
         "Peering on its own, and routing, keeping a few first hops per node, picked by a hash only the node itself can compute",
         "The core, which every node computes alike from the signed data: it starts from the bootstrap nodes and takes in every registered node that two core nodes peer with, shown to the owner. Every node starts in the periphery, a node with a URL too, and is a core node only once it is in the core, so nothing a node says about itself makes it core",
-        "Promotion: an uplink advertises a downlink with a URL once it passes every check, its registration, good standing, answered heartbeats, room in the node's books, settlement, clock, and that it answers at its URL over QUIC and over HTTPS with a publicly issued certificate, which the node checks itself and shows the owner; the node then joins the core, and uses its own address once that has held a while, paid beneath its uplinks until then",
+        "Promotion: an uplink advertises a downlink with a URL once it passes every check, its registration, good standing, answered heartbeats, enough funds in its own hub account, read from the hub, its clock, and that it answers at its URL over QUIC and over HTTPS with a publicly issued certificate, which the node checks itself and shows the owner; the node then joins the core, and uses its own address once that has held a while, paid beneath its uplinks until then",
         "Bootstrap nodes check the URL of each node registered with them, and end the registration of one whose URL keeps failing, so a node that went away loses its place in the network",
         "Core nodes say in their link states how many more core peers they take, and a node seeking to be promoted asks those that can promote it first",
         "Periphery nodes, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any, as many as a market maker trades through; one without a URL lists no neighbors in its link state; a peer that joins the core or leaves it stays peered, its peering changing kind in place, and is still reached at the address it was paid at beneath its uplink",
@@ -1673,7 +1673,7 @@
           "ids": [
             "peer"
           ],
-          "text": "Each uplink watches it: an hour in good standing, its heartbeats answered, room in the uplink's books and a settlement paid, a clock in bounds, and its URL answering over QUIC and over HTTPS with a publicly issued certificate. Once it passes every check, the uplink lists it as a neighbor."
+          "text": "Each uplink watches it: an hour in good standing, its heartbeats answered, enough in its own account in the hub to fund holds toward its first core peers, which the uplink reads from the hub's validators once it is registered, under a key its link state signs as its own, a clock in bounds, and its URL answering over QUIC and over HTTPS with a publicly issued certificate. Once it passes every check, the uplink lists it as a neighbor."
         },
         {
           "ids": [

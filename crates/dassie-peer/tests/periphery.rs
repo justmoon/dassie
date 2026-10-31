@@ -20,7 +20,7 @@ use dassie_peer::wire::{
     PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SettlementOffer, SignedNodeInfo,
     sign_node_info,
 };
-use dassie_peer::{Config, Event, Sources};
+use dassie_peer::{Config, Event, PeeringHooks, Sources};
 
 fn settle(network: &mut Network, ms: u64) {
     let until = network.now + ms;
@@ -1046,12 +1046,12 @@ fn an_unregistered_downlink_with_a_url_stays_one_across_a_restart() {
 
 // spec/decisions/promotion-to-core.md: an uplink watches its downlink with
 // a URL, which asks to be promoted by having one: its good standing, the
-// heartbeats it answers, its room in our books, its settlement and its
-// clock. Registered it is not, cut off from the bootstrap node, so that is
-// all that is left once the time has passed and it has paid.
+// heartbeats it answers, its own funds in the hub and its clock. Its funds
+// are read only once it is registered, and its URL checked only once they
+// are enough, so keys made for nothing cost the uplink nothing.
 #[test]
 fn an_uplink_watches_its_downlink_for_promotion() {
-    use dassie_peer::{PROMOTION_ROOM_PACKETS, PromotionCheck};
+    use dassie_peer::PromotionCheck;
 
     let (core, periphery) = (3, 1);
     let mut network = Network::with_periphery(37, core, 1, periphery, Config::DEV);
@@ -1061,9 +1061,16 @@ fn an_uplink_watches_its_downlink_for_promotion() {
     let Some(uplink) = (1..core).find(|at| network.node(*at).is_downlink(&node)) else {
         panic!("an uplink that is not the bootstrap node");
     };
-    let room = std::cell::Cell::new(0);
-    let promotion = |network: &Network| network.node(uplink).promotion(&node, |_| room.get());
+    let promotion = |network: &Network| {
+        let hooks = &network.nodes[uplink].hooks;
+        network
+            .node(uplink)
+            .promotion(&node, |scheme, edges, proof| {
+                hooks.funded(node, scheme, edges, proof)
+            })
+    };
     assert_eq!(promotion(&network), None, "no URL, no candidate");
+    // Cut off from the bootstrap node, it does not register.
     network.cut_one_way.insert((turning, 0));
     set_url(&mut network, turning, Some(dassie_peer::sim::url(turning)));
     settle(&mut network, 30_000);
@@ -1072,40 +1079,52 @@ fn an_uplink_watches_its_downlink_for_promotion() {
     for check in [
         PromotionCheck::Registered,
         PromotionCheck::Standing,
-        PromotionCheck::Room,
-        PromotionCheck::Settled,
+        PromotionCheck::Funded,
     ] {
         assert!(pending.contains(&check), "{check:?} in {pending:?}");
     }
     assert!(early.skew_ms.is_some(), "its clock, from its link state");
-    assert_eq!(
-        early.url_answered, None,
-        "a URL is checked only once it paid us"
-    );
+    assert_eq!(early.funded, None, "funds are read only once registered");
+    assert_eq!(early.url_answered, None, "a URL only once funded");
 
-    room.set(PROMOTION_ROOM_PACKETS);
-    network.act_with_hooks(uplink, |peer, hooks, now| peer.paid_by(now, hooks, &node));
-    settle(&mut network, Config::DEV.promotion_standing_ms);
-    // The node checked its URL over HTTPS, as the uplink asked, and it
-    // answered: what a check finds counts for that URL only.
-    let asked = promotion(&network).expect("a candidate still");
-    assert_eq!(asked.https_answered, Some(true), "answered over HTTPS");
+    // Registered, its funds are read: not enough, so its URL waits.
+    network.cut_one_way.clear();
+    let start = network.now;
+    while !promotion(&network).expect("a candidate still").registered {
+        settle(&mut network, 5_000);
+        assert!(network.now < start + 60_000, "it registers");
+    }
+    settle(&mut network, 5_000);
+    let unfunded = promotion(&network).expect("a candidate still");
+    assert_eq!(unfunded.funded, Some(false), "read, and short");
+    assert_eq!(unfunded.url_answered, None, "a URL only once funded");
+
+    // Enough: its URL is checked at once, over QUIC and, by the node, over
+    // HTTPS, where what a check finds counts for that URL only.
+    network.nodes[uplink].hooks.funds.insert(node, true);
+    settle(&mut network, 5_000);
+    let funded = promotion(&network).expect("a candidate still");
+    assert_eq!(funded.funded, Some(true));
+    assert_eq!(funded.url_answered, Some(true), "it answers at its URL");
+    assert_eq!(funded.https_answered, Some(true), "answered over HTTPS");
     network.act(uplink, |peer, now| {
         peer.https_checked(now, &node, "https://elsewhere.test", false);
     });
-    assert_eq!(promotion(&network).unwrap().https_answered, Some(true));
     let later = promotion(&network).expect("a candidate still");
+    assert_eq!(later.https_answered, Some(true));
     assert_eq!(
         later.pending(&Config::DEV),
-        vec![PromotionCheck::Registered],
+        vec![PromotionCheck::Standing],
         "{later:?}"
     );
     assert!(later.heartbeats.sent > 0 && later.heartbeats.answered > 0);
-    assert_eq!(later.url_answered, Some(true), "it answers at its URL");
-    assert!(network.node(uplink).is_downlink(&node), "not acted on");
+    assert!(
+        network.node(uplink).is_downlink(&node),
+        "not before its hour"
+    );
     // Its URL no longer answers us: the next check finds it so.
     network.cut_one_way.insert((uplink, turning));
-    settle(&mut network, Config::DEV.promotion_standing_ms / 3);
+    settle(&mut network, Config::DEV.promotion_standing_ms / 4);
     let cut = promotion(&network).expect("a candidate still");
     assert_eq!(cut.url_answered, Some(false));
     assert!(cut.pending(&Config::DEV).contains(&PromotionCheck::Url));
@@ -1118,8 +1137,6 @@ fn an_uplink_watches_its_downlink_for_promotion() {
 // own address once that has held for as long as its status settles.
 #[test]
 fn a_node_with_a_url_is_promoted_into_the_core() {
-    use dassie_peer::PROMOTION_ROOM_PACKETS;
-
     let (core, periphery) = (3, 1);
     let mut network = Network::with_periphery(41, core, 3, periphery, Config::DEV);
     network.set_dev_core(&[]);
@@ -1142,10 +1159,7 @@ fn a_node_with_a_url_is_promoted_into_the_core() {
         .collect();
     assert_eq!(uplinks.len(), 2, "as many uplinks as the core needs edges");
     for (at, _) in &uplinks {
-        network.act_with_hooks(*at, |peer, hooks, now| {
-            hooks.room_packets.insert(node, PROMOTION_ROOM_PACKETS);
-            peer.paid_by(now, hooks, &node);
-        });
+        network.nodes[*at].hooks.funds.insert(node, true);
     }
     settle(&mut network, Config::DEV.promotion_standing_ms);
     assert!(
@@ -1253,18 +1267,13 @@ fn a_promoted_node_comes_back_after_a_rollout(
     }
 }
 
-/// Node `index` pays and has room at each of `uplinks`, as a downlink that
-/// asks to be promoted does (spec/decisions/promotion-to-core.md); its URL
+/// Node `index`'s own hub account holds enough for promotion, as each of
+/// `uplinks` reads it (spec/decisions/promotion-to-core.md); its URL
 /// answers their checks over HTTPS, as the simulation's do.
-fn pays_for_promotion(network: &mut Network, index: usize, uplinks: &[usize]) {
+fn funds_for_promotion(network: &mut Network, index: usize, uplinks: &[usize]) {
     let node = id(index);
     for at in uplinks {
-        network.act_with_hooks(*at, |peer, hooks, now| {
-            hooks
-                .room_packets
-                .insert(node, dassie_peer::PROMOTION_ROOM_PACKETS);
-            peer.paid_by(now, hooks, &node);
-        });
+        network.nodes[*at].hooks.funds.insert(node, true);
     }
 }
 
@@ -1305,7 +1314,7 @@ fn promoted_beyond_the_bootstrap_nodes() -> Network {
     network.pin_uplinks(promoted[1], vec![id(0), id(promoted[0])]);
     network.pin_uplinks(downlink, vec![id(promoted[1])]);
     settle(&mut network, 90_000);
-    pays_for_promotion(&mut network, promoted[0], &[0, 1]);
+    funds_for_promotion(&mut network, promoted[0], &[0, 1]);
     settle(&mut network, Config::DEV.promotion_standing_ms);
     until_core(&mut network, id(promoted[0]), 5, 120_000);
     // The second asks the first once it is core.
@@ -1318,7 +1327,7 @@ fn promoted_beyond_the_bootstrap_nodes() -> Network {
         settle(&mut network, 5_000);
         assert!(network.now < start + 120_000, "it peers with the first");
     }
-    pays_for_promotion(&mut network, promoted[1], &[0, promoted[0]]);
+    funds_for_promotion(&mut network, promoted[1], &[0, promoted[0]]);
     settle(&mut network, Config::DEV.promotion_standing_ms);
     until_core(&mut network, id(promoted[1]), 5, 120_000);
     let start = network.now;

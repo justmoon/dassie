@@ -104,9 +104,11 @@ pub struct StubHooks {
     /// methods or more, each scheme standing for a ledger of its own
     /// (spec/decisions/peer-swaps.md).
     pub swaps: bool,
-    /// The room each peer has in the node's books, in the largest packets,
-    /// on every scheme: none unless set.
-    pub room_packets: BTreeMap<NodeId, u64>,
+    /// Whether each peer's own hub account could spend what promotion
+    /// asks, on every scheme, once read: not unless set.
+    pub funds: BTreeMap<NodeId, bool>,
+    /// The peers whose funds the node read ([`Event::CheckFunds`]).
+    pub funds_read: BTreeSet<NodeId>,
 }
 
 impl StubHooks {
@@ -122,8 +124,16 @@ impl StubHooks {
 }
 
 impl PeeringHooks for StubHooks {
-    fn room_packets(&self, peer: NodeId, _scheme: SchemeId) -> u64 {
-        self.room_packets.get(&peer).copied().unwrap_or(0)
+    fn funded(
+        &self,
+        peer: NodeId,
+        _scheme: SchemeId,
+        _edges: u64,
+        _proof: Option<&[u8; 64]>,
+    ) -> Option<bool> {
+        self.funds_read
+            .contains(&peer)
+            .then(|| self.funds.get(&peer).copied().unwrap_or(false))
     }
 
     fn speaks(&self, scheme: SchemeId) -> bool {
@@ -858,6 +868,13 @@ impl Network {
         let node_now = node.now_ms;
         self.check_https(index, &events);
         let sim = &mut self.nodes[index];
+        // A read of a candidate's funds lands at once: the hub says what
+        // the test set.
+        for event in &events {
+            if let Event::CheckFunds { peer } = event {
+                sim.hooks.funds_read.insert(*peer);
+            }
+        }
         let mut changes = granted(sim, &events, &batch);
         changes.extend(released(sim, &events, &batch, node_now));
         let viewed = view_changes(&mut sim.seen_holders, sim.node.as_ref().unwrap());

@@ -1,21 +1,20 @@
 //! What an uplink checks of its downlink before promoting it, advertising it
 //! as a neighbor (spec/decisions/promotion-to-core.md): computed from what
-//! the node holds, and shown to the owner, but not acted on yet. Whether the
-//! downlink answers at its URL is checked apart.
+//! the node holds, acted on in the listing, and shown to the owner. Whether
+//! the downlink answers at its URL is checked apart, and what its own hub
+//! accounts hold is read by the node's schemes.
 
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
+use dassie_oer::Decode;
 
 use super::{PeerNode, Problem, Purpose};
 use crate::config::Config;
+use crate::hooks::PeeringHooks;
 use crate::io::Event;
 use crate::table::{Beats, Entry, Sources};
-use crate::wire::{Content, Endpoint, SchemeId};
-
-/// The room in our books, in the largest packets, a downlink must have on a
-/// method of its peering to be promoted.
-pub const PROMOTION_ROOM_PACKETS: u64 = 20;
+use crate::wire::{Content, Endpoint, HubDetails, SchemeId};
 
 /// A check a downlink must pass to be promoted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -28,10 +27,10 @@ pub enum PromotionCheck {
     /// Answered at least [`Config::promotion_heartbeat_percent`] of our
     /// heartbeats over that time.
     Heartbeats,
-    /// At least [`PROMOTION_ROOM_PACKETS`] of room in our books.
-    Room,
-    /// Paid us a settlement of at least one largest packet.
-    Settled,
+    /// Its own account in the hub of a method of its peering could spend,
+    /// as the hub last said, what funding a hold toward each of its first
+    /// core peers takes ([`PeeringHooks::funded`]).
+    Funded,
     /// Its clock within bounds of ours, as its link states show.
     Clock,
     /// Answered at its URL, with its own link state, the last time we
@@ -54,11 +53,10 @@ pub struct Promotion {
     /// Our heartbeats to it over [`Config::promotion_standing_ms`], and
     /// those it answered.
     pub heartbeats: Beats,
-    /// Its most room in our books on a method of its peering, in the
-    /// largest packets.
-    pub room_packets: u64,
-    /// Whether it ever paid us a settlement of at least one largest packet.
-    pub paid_us: bool,
+    /// Whether its own account in the hub of a method of its peering could
+    /// spend what promotion asks, as the hub last said: on any method,
+    /// if one was read. None before any was.
+    pub funded: Option<bool>,
     /// How far its clock is ahead of ours, if a link state of its came
     /// straight from it.
     pub skew_ms: Option<i64>,
@@ -90,11 +88,7 @@ impl Promotion {
                 PromotionCheck::Standing,
             ),
             (heartbeats, PromotionCheck::Heartbeats),
-            (
-                self.room_packets >= PROMOTION_ROOM_PACKETS,
-                PromotionCheck::Room,
-            ),
-            (self.paid_us, PromotionCheck::Settled),
+            (self.funded == Some(true), PromotionCheck::Funded),
             (clock, PromotionCheck::Clock),
             (self.url_answered == Some(true), PromotionCheck::Url),
             (self.https_answered == Some(true), PromotionCheck::Https),
@@ -111,19 +105,19 @@ impl PeerNode {
     /// Where `peer` stands toward its promotion, if it is a candidate: our
     /// downlink, its peering active, whose link state has a URL. Asking is
     /// having one: nothing else in its link state says it wants to be core
-    /// (spec/decisions/promotion-to-core.md). `room_packets` is its room in
-    /// our books on a scheme, in the largest packets: what it may still owe
-    /// us there, our own position for it, the only side a node knows
-    /// (spec/decisions/own-fulfills.md).
+    /// (spec/decisions/promotion-to-core.md). `funded` says, of a scheme,
+    /// the edges joining the core asks and the proof the peer's link state
+    /// gives that its key in the scheme's hub is its own, whether its own
+    /// account there could spend what promotion asks, as
+    /// [`PeeringHooks::funded`] does.
     #[must_use]
     pub fn promotion(
         &self,
         peer: &NodeId,
-        room_packets: impl Fn(SchemeId) -> u64,
+        funded: impl Fn(SchemeId, u64, Option<&[u8; 64]>) -> Option<bool>,
     ) -> Option<Promotion> {
         let entry = self.table.get(peer).filter(|entry| is_candidate(entry))?;
-        let peering = entry.active_peering()?;
-        let room_packets = peering.schemes().map(room_packets).max().unwrap_or(0);
+        let funded = self.funded(entry, funded);
         Some(Promotion {
             registered: entry.sources.contains(Sources::MAJORITY),
             standing_ms: entry
@@ -131,12 +125,7 @@ impl PeerNode {
                 .since_ms
                 .map_or(0, |since| self.now_ms.saturating_sub(since)),
             heartbeats: entry.standing.counted(),
-            room_packets,
-            // An active peering's channel is open.
-            paid_us: self
-                .channels
-                .get(peer)
-                .is_some_and(|channel| channel.paid_us),
+            funded,
             skew_ms: entry.standing.skew_ms,
             banned: self.bans.contains(peer),
             url_answered: entry.url.quic,
@@ -144,28 +133,85 @@ impl PeerNode {
         })
     }
 
+    /// Whether `entry`'s own account in the hub of a method of its active
+    /// peering could spend what promotion asks: on any of them, if one was
+    /// read, by `funded` with the edges joining the core asks and the proof
+    /// its link state gives that its key in that hub is its own.
+    fn funded(
+        &self,
+        entry: &Entry,
+        funded: impl Fn(SchemeId, u64, Option<&[u8; 64]>) -> Option<bool>,
+    ) -> Option<bool> {
+        let edges = crate::core_nodes::edges_to_join(self.bootstrap.len());
+        let edges = u64::try_from(edges).unwrap_or(u64::MAX);
+        let proof = |scheme: SchemeId| {
+            let link = entry.link.as_ref()?;
+            let offered = link.offers.iter().find(|offer| offer.scheme == scheme)?;
+            let hub = HubDetails::decode_exact(&offered.details).ok()?.hub_id;
+            link.hub_keys
+                .iter()
+                .find(|(proved, _)| *proved == hub)
+                .map(|(_, proof)| proof)
+        };
+        // `false < true`: any method that passes passes.
+        entry
+            .active_peering()?
+            .schemes()
+            .filter_map(|scheme| funded(scheme, edges, proof(scheme)))
+            .max()
+    }
+
+    /// Asks the node's schemes to read what each registered candidate's own
+    /// hub accounts can spend, again once per bucket of its standing, and
+    /// at once with each peering (spec/decisions/promotion-to-core.md).
+    /// Only a registered candidate's: the bootstrap nodes throttle
+    /// registrations, so keys made for nothing cost the node no reads.
+    pub(super) fn read_funds(&mut self) {
+        let (now, bucket) = (self.now_ms, self.standing_bucket_ms());
+        let due: Vec<NodeId> = self
+            .table
+            .iter()
+            .filter(|(_, entry)| {
+                is_candidate(entry)
+                    && entry.sources.contains(Sources::MAJORITY)
+                    && entry.standing.funds_at_ms <= now
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for peer in due {
+            if let Some(entry) = self.table.get_mut(&peer) {
+                entry.standing.funds_at_ms = now.saturating_add(bucket);
+            }
+            self.event(Event::CheckFunds { peer });
+        }
+    }
+
     /// Checks that each candidate answers at its URL, again once per
     /// bucket of its standing: a `linkStateRequest` for it at its URL, on a
     /// connection pinned to its key, which must return its own link state
     /// at the sequence we hold or later, as a probe for a registration does
     /// (spec/areas/network.md#registration), and over HTTPS by the node.
-    /// Checked are a candidate that paid us, a settlement of at least one
-    /// largest packet, which keys made for nothing never pay, so a node's
-    /// free downlinks cost it no checks; and, on a bootstrap node, every
+    /// Checked are a registered candidate whose own hub account the hub
+    /// last said could spend what promotion asks ([`Self::read_funds`]),
+    /// which keys made for nothing never can, so a node's free downlinks
+    /// cost it no checks; and, on a bootstrap node, every
     /// node registered with it, whose registration a URL that fails for
     /// long enough ends ([`maintain`](Self::maintain)). The checks have a
     /// bucket of their own, sized for every downlink and registration the
     /// node may have, apart from the probes inbound requests wait on, so
     /// they never take those probes' room, and none goes twice at once to a
     /// node or host.
-    pub(super) fn check_urls(&mut self) {
+    pub(super) fn check_urls(&mut self, hooks: &dyn PeeringHooks) {
         let now = self.now_ms;
         let due: Vec<(NodeId, Endpoint, u64)> = self
             .table
             .iter()
             .filter(|(id, entry)| {
                 let candidate = is_candidate(entry)
-                    && self.channels.get(id).is_some_and(|channel| channel.paid_us);
+                    && entry.sources.contains(Sources::MAJORITY)
+                    && self.funded(entry, |scheme, edges, proof| {
+                        hooks.funded(**id, scheme, edges, proof)
+                    }) == Some(true);
                 entry.url.check_at_ms <= now && (candidate || entry.registration.is_some())
             })
             .filter_map(|(id, entry)| {
@@ -301,8 +347,7 @@ mod tests {
                 sent: 100,
                 answered: 91,
             },
-            room_packets: PROMOTION_ROOM_PACKETS,
-            paid_us: true,
+            funded: Some(true),
             skew_ms: Some(-i64::try_from(Config::DEFAULT.max_future_ms).unwrap()),
             banned: false,
             url_answered: Some(true),
@@ -338,11 +383,8 @@ mod tests {
                 with(|p| p.heartbeats = Beats::default()),
                 PromotionCheck::Heartbeats,
             ),
-            (
-                with(|p| p.room_packets = PROMOTION_ROOM_PACKETS - 1),
-                PromotionCheck::Room,
-            ),
-            (with(|p| p.paid_us = false), PromotionCheck::Settled),
+            (with(|p| p.funded = Some(false)), PromotionCheck::Funded),
+            (with(|p| p.funded = None), PromotionCheck::Funded),
             (with(|p| p.skew_ms = Some(over)), PromotionCheck::Clock),
             (with(|p| p.skew_ms = Some(-over)), PromotionCheck::Clock),
             (with(|p| p.skew_ms = None), PromotionCheck::Clock),

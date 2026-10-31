@@ -90,6 +90,19 @@ pub const EXTENSION_FEED: u16 = 3;
 /// `UInt16`. A node that is not core leaves it out.
 pub const EXTENSION_FREE_CORE: u16 = 4;
 
+/// The link-state extension in which a node's account keys in its hubs say
+/// they are its own (spec/decisions/promotion-to-core.md): any node may
+/// name another member's account and key as its own, so an uplink counts a
+/// candidate's funds in a hub only for a key that signed the candidate's
+/// node ID. Its value is a run of [`HUB_KEY_PROOF_BYTES`] each: a hub's ID
+/// and the account key's signature, which the hub's scheme checks. A node
+/// without a URL, which is never promoted, leaves it out.
+pub const EXTENSION_HUB_KEYS: u16 = 5;
+
+/// The bytes of one hub's proof in [`EXTENSION_HUB_KEYS`]: its ID and a
+/// signature.
+pub const HUB_KEY_PROOF_BYTES: usize = 32 + 64;
+
 /// Most bytes in the commitment a `methodPacket` carries with its Prepare
 /// on a method over a hub: a signature and what it covers, well within
 /// this.

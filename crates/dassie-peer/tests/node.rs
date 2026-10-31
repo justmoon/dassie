@@ -637,6 +637,32 @@ fn a_node_offers_its_schemes_in_its_link_state() {
     assert_eq!(state.info.entries.len(), 1, "the free core relationships");
 }
 
+// A node with a URL says in its link state that its account keys in its
+// hubs are its own, each hub's proof as its scheme signed it, so that an
+// uplink counts its funds there for its promotion
+// (spec/decisions/promotion-to-core.md); offers without one carry none.
+#[test]
+fn a_node_proves_its_hub_keys_in_its_link_state() {
+    let (own, boot) = (key(0), key(1));
+    let offers = vec![
+        hub_offer("hub-xrp", 1).with_key_proof([7; 64]),
+        Offer::plain(SchemeId::parse("stub").unwrap()),
+        hub_offer("hub-usd", 2),
+    ];
+    let mut node = with_feed(&own, &boot, None);
+    node.set_offers(START, offers);
+    let bytes = own_link_state(node);
+    let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
+    assert!(state.verify().is_ok());
+    assert_eq!(state.info.hub_key_proofs(), vec![([1; 32], [7; 64])]);
+
+    let mut node = with_feed(&own, &boot, None);
+    node.set_offers(START, vec![hub_offer("hub-xrp", 1)]);
+    let bytes = own_link_state(node);
+    let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
+    assert!(state.info.hub_key_proofs().is_empty(), "none signed");
+}
+
 // A node's own list offers no scheme twice, no hub twice, and at most
 // `MAX_OWN_HUBS` schemes over hubs, one per asset
 // (spec/areas/peer-protocol.md#settlement-offers); setting one that does
