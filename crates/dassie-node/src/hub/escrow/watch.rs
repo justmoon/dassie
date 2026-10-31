@@ -12,6 +12,7 @@ use dassie_hub::escrow::{
     outcome_of, withdrawal_outcome,
 };
 use dassie_hub::operation::{Deposit, Issuer, ValidatorOperation};
+use dassie_hub::rules::Asset;
 use dassie_hub::service::MAX_WAITING_DEPOSITS;
 use dassie_xrpl::AccountId;
 use dassie_xrpl::account::HISTORY_BOUND;
@@ -23,10 +24,10 @@ use dassie_xrpl::unl::Anchor;
 use dassie_xrpl::verifier::{self, ANCHOR_EVERY_MS, Query, QueryId, Verdict};
 use serde_json::Value;
 
-use super::link::{Asked, Link, Parked};
+use super::link::{Asked, Link};
 use super::{
     ANCHOR_FRESH_MS, Chain, ESCROW_CHECK_EVERY_MS, EscrowView, ISSUER_CHECK_EVERY_MS, MAX_HINTS,
-    MAX_QUEUED_SUBMITS, Out, RESCAN_LEDGERS, RESUBMIT_MS, chain as judge_chain,
+    MAX_QUEUED_SUBMITS, Out, RESCAN_LEDGERS, RESUBMIT_MS, RETRY_MS, chain as judge_chain,
 };
 use crate::store::EscrowCursor;
 
@@ -50,13 +51,15 @@ const MAX_PROVEN_RECORDS: usize = MAX_HINTS;
 const MAX_CHAIN_STEPS: usize = MAX_PROVEN + 1;
 
 /// The most hints proven at once, leaving the verifier room for the
-/// escrow's and the issuer's state.
+/// escrow's and the issuer's state: half its queries, for the one escrow of
+/// a link; of a link that serves several, half each escrow's share of them
+/// ([`Link::hint_share`]).
 const MAX_HINT_QUERIES: usize = verifier::MAX_QUERIES / 2;
 
 /// How long after a server found no transaction it hinted at the watcher
 /// asks for its proof again, and how many times before it connects anew.
-const HINT_RETRY_MS: u64 = 2 * ANCHOR_EVERY_MS;
-const MAX_HINT_TRIES: u32 = 4;
+pub(super) const HINT_RETRY_MS: u64 = 2 * ANCHOR_EVERY_MS;
+pub(super) const MAX_HINT_TRIES: u32 = 4;
 
 /// The most transactions remembered as attested, to attest each once.
 const MAX_REMEMBERED: usize = 4096;
@@ -82,6 +85,9 @@ enum Purpose {
     /// The issuer's hold as of the ledger before the one it is proven the
     /// same since.
     HoldBefore,
+    /// The ledger of a doubted cursor's newest, on the anchor's chain: the
+    /// cursor's chain, if it closed when the cursor says.
+    Chain,
 }
 
 /// One object's chain in a walk of the escrow's history: the transactions
@@ -284,6 +290,16 @@ pub(super) struct EscrowWatcher {
     ceiling: Option<u32>,
     /// The cursor last persisted.
     persisted: Option<EscrowCursor>,
+    /// When to subscribe again, on a shared link whose server failed to
+    /// answer what it asked of this escrow alone.
+    resubscribe_at_ms: Option<u64>,
+    /// Whether its cursor, kept before it joined a shared link, may be of
+    /// a chain the link's verifier left, on a network that resets: until
+    /// its newest ledger is proven on the verifier's chain, no anchor that
+    /// passes it is taken as current ([`Self::doubt_cursor`]).
+    doubted: bool,
+    /// The newest anchor held back while the cursor is doubted.
+    held_anchor: Option<Anchor>,
 }
 
 /// Building and reading it.
@@ -326,12 +342,38 @@ impl EscrowWatcher {
             untaken: BTreeMap::new(),
             ceiling: None,
             persisted: cursor,
+            resubscribe_at_ms: None,
+            doubted: false,
+            held_anchor: None,
         }
+    }
+
+    /// Doubts its cursor, kept before it joined a shared link on a network
+    /// that resets: the link's verifier may follow a chain that reset since
+    /// the cursor was kept, and once that chain's ledgers pass the cursor's
+    /// newest, judging an anchor against the cursor alone takes it as
+    /// current and misses the reset. So the first anchor that passes the
+    /// cursor is held back until the cursor's newest ledger is proven on
+    /// its chain: closed when the cursor says, the chain is the cursor's;
+    /// closed at another time, or not on it, the chain reset.
+    pub(super) fn doubt_cursor(&mut self) {
+        self.doubted = self.cursor.is_some();
+    }
+
+    /// The escrow it follows.
+    pub(super) const fn escrow(&self) -> AccountId {
+        self.escrow
     }
 
     /// Whether any of the verifier's queries is open for it.
     pub(super) fn querying(&self) -> bool {
         !self.queries.is_empty()
+    }
+
+    /// Whether its server hinted at `hash`, and it is not proven yet.
+    #[cfg(test)]
+    pub(super) fn hinted_at(&self, hash: &[u8; 32]) -> bool {
+        self.hints.contains_key(hash)
     }
 
     /// Tells the verifier of `link` the threads it reads proven
@@ -346,6 +388,37 @@ impl EscrowWatcher {
     /// Whether it follows the escrow's stream now.
     pub(super) fn following(&self) -> bool {
         self.stream == Stream::Following
+    }
+
+    /// The keys of the objects whose history it walks.
+    pub(super) fn walk_keys(&self) -> &[[u8; 32]] {
+        &self.walk_keys
+    }
+
+    /// Whether `id` is one of its open queries.
+    pub(super) fn owns(&self, id: QueryId) -> bool {
+        self.queries.contains_key(&id)
+    }
+
+    /// How many of the verifier's queries are open for it.
+    pub(super) fn open_queries(&self) -> usize {
+        self.queries.len()
+    }
+
+    /// Whether `record`, which a server streamed, names the escrow: as its
+    /// sender or its destination, or sent by a token hub's issuer, as a
+    /// clawback or a freeze of the escrow's line is.
+    pub(super) fn concerns(&self, record: &TxRecord) -> bool {
+        let issuer = self
+            .view
+            .as_ref()
+            .and_then(|view| match view.rules.terms.asset {
+                Asset::Token { issuer, .. } => Some(issuer),
+                Asset::Xrp => None,
+            });
+        record.account == self.escrow
+            || record.destination == Some(self.escrow)
+            || issuer == Some(record.account)
     }
 
     /// Whether it is subscribed to the escrow on its link.
@@ -417,6 +490,11 @@ impl EscrowWatcher {
         assert!(self.proven.len() <= MAX_PROVEN, "proofs kept are bounded");
         assert_eq!(self.proven.len(), self.proven_order.len());
         assert!(
+            (self.proven.values().flat_map(|ahead| &ahead.threads))
+                .all(|(key, _)| self.walk_keys.contains(key)),
+            "a proof kept threads the escrow's own objects"
+        );
+        assert!(
             (self.proven.values())
                 .filter(|ahead| ahead.record.is_some())
                 .count()
@@ -443,6 +521,25 @@ impl EscrowWatcher {
         if self.reading.is_some() {
             assert!(self.subscribed(), "the history is read once subscribed");
         }
+        if !link.is_shared() {
+            assert!(
+                self.resubscribe_at_ms.is_none(),
+                "one escrow waits with its link"
+            );
+            assert!(!self.doubted, "a cursor is doubted on a shared link");
+        }
+        if self.doubted {
+            assert!(self.cursor.is_some(), "a cursor is doubted");
+            assert!(self.anchored.is_none(), "no anchor taken while doubted");
+        } else {
+            assert!(self.held_anchor.is_none(), "held while doubted");
+        }
+        assert!(
+            self.walk_keys
+                .iter()
+                .all(|key| !link.is_shared() || link.threads().contains(key)),
+            "the verifier threads every escrow's objects"
+        );
     }
 
     /// Asserts what holds of its queries, its walk and its search.
@@ -465,6 +562,7 @@ impl EscrowWatcher {
                     Some(*id),
                     "the search's query is its own"
                 ),
+                Purpose::Chain => assert!(self.doubted, "a cursor's check is a doubted one's"),
                 Purpose::Escrow | Purpose::Issuer | Purpose::Walk => {}
             }
         }
@@ -554,12 +652,25 @@ impl EscrowWatcher {
         self.reading = None;
         self.overflow_from = None;
         self.streamed_to = 0;
+        self.resubscribe_at_ms = None;
         // The next server may keep more history than this one.
         self.unnamed = None;
         // What was sent on it goes again on the next, once following.
         for submit in &mut self.submits {
             submit.sent_ms = None;
         }
+    }
+
+    /// Lets go of every query of its own on the verifier of `link`: the
+    /// escrow is followed no more on it.
+    pub(super) fn release(&mut self, link: &mut Link) {
+        for id in std::mem::take(&mut self.queries).into_keys() {
+            link.verifier_mut().cancel(id);
+        }
+        self.walk = None;
+        self.search = None;
+        self.hints.clear();
+        self.unsubscribe();
     }
 
     /// Submits a signed escrow transaction once it follows the escrow and
@@ -651,16 +762,41 @@ impl EscrowWatcher {
     /// again later, and the history is read again once it follows the
     /// server again.
     pub(super) fn wait(&mut self, link: &mut Link) {
+        self.unsubscribe();
+        link.wait();
+    }
+
+    /// The escrow is subscribed to no more on its link, whose server is not
+    /// checked: its history is read again once it is.
+    pub(super) fn unsubscribe(&mut self) {
         self.reading = None;
         self.overflow_from = None;
         self.stream = Stream::Unsubscribed;
-        link.wait();
+    }
+
+    /// The link's server failed to answer what it asked of this escrow, or
+    /// what it answered does not read. On a link of its own, the link waits
+    /// ([`Self::wait`]); on a shared one, only this escrow does, and
+    /// subscribes again [`RETRY_MS`] later, while the others follow on.
+    pub(super) fn fail(&mut self, link: &mut Link) {
+        if !link.is_shared() {
+            return self.wait(link);
+        }
+        self.unsubscribe();
+        self.resubscribe_at_ms = Some(link.now_ms().saturating_add(RETRY_MS));
+    }
+
+    /// Whether it waits to subscribe again, on a shared link, and it is
+    /// time to.
+    pub(super) fn resubscribe_due(&self, now_ms: u64) -> bool {
+        !self.subscribed() && self.resubscribe_at_ms.is_some_and(|at| at <= now_ms)
     }
 
     /// The link's server is on the hub's network and on the chain followed,
     /// its validated ledger `validated`: subscribe to the escrow, and read
     /// its history from the cursor, a window back, up to there.
     pub(super) fn catch_up(&mut self, link: &mut Link, validated: u32) {
+        self.resubscribe_at_ms = None;
         let from = self
             .cursor
             .map_or(0, |cursor| cursor.scanned_to.saturating_sub(RESCAN_LEDGERS));
@@ -673,7 +809,12 @@ impl EscrowWatcher {
             through: from.saturating_sub(1),
         });
         let escrow = self.escrow;
-        link.ask(Asked::Subscribe, |id| api::subscribe(id, escrow));
+        let asked = link.ask(Asked::Subscribe, |id| api::subscribe(id, escrow));
+        // On a shared link, the other escrows' requests may fill its share:
+        // it subscribes again later.
+        if !asked && link.is_shared() {
+            self.fail(link);
+        }
     }
 
     /// The newest ledger proven, and when it closed.
@@ -707,7 +848,7 @@ impl EscrowWatcher {
             link.push(Out::Problem(
                 "the XRPL server's history of the escrow is unreadable",
             ));
-            return self.wait(link);
+            return self.fail(link);
         };
         for record in &page.transactions {
             self.hinted(record);
@@ -804,11 +945,11 @@ impl EscrowWatcher {
                 }
                 verifier::Out::Anchored(anchor) => {
                     self.anchored(link, anchor, false);
-                    link.park(Parked::Anchored(anchor, false));
+                    link.park_anchor(anchor, false);
                 }
                 verifier::Out::Reset(anchor) => {
                     self.anchored(link, anchor, true);
-                    link.park(Parked::Anchored(anchor, true));
+                    link.park_anchor(anchor, true);
                 }
                 out => link.carry_out(out),
             }
@@ -822,8 +963,9 @@ impl EscrowWatcher {
     /// to it; lower and closed later, a reset of the test network, attested
     /// once, by the ledger it was proven at, unless the hub wrote one off
     /// since that ledger closed: a quorum saw it before this validator did,
-    /// and a late vote only waits out the hub's quiet period.
-    fn anchored(&mut self, link: &mut Link, anchor: Anchor, reset: bool) {
+    /// and a late vote only waits out the hub's quiet period. Each escrow
+    /// of a link judges each anchor against its own cursor.
+    pub(super) fn anchored(&mut self, link: &mut Link, anchor: Anchor, reset: bool) {
         link.anchor_proven();
         let close_time = u64::from(anchor.close_time);
         let judged = match judge_chain(self.newest(), link.network(), anchor.index, close_time) {
@@ -831,6 +973,7 @@ impl EscrowWatcher {
             judged => judged,
         };
         match judged {
+            Chain::Current if self.doubted => self.hold_anchor(link, anchor),
             Chain::Current => {
                 self.anchored = Some((anchor, link.now_ms()));
                 let cursor = self.cursor.map_or(
@@ -857,8 +1000,91 @@ impl EscrowWatcher {
         }
     }
 
+    /// An anchor that passes a doubted cursor: held back until the
+    /// cursor's newest ledger is proven on its chain, which the anchor
+    /// itself proves when it is that ledger.
+    fn hold_anchor(&mut self, link: &mut Link, anchor: Anchor) {
+        let Some(cursor) = self.cursor else {
+            self.doubted = false;
+            return self.anchored(link, anchor, false);
+        };
+        if anchor.index == cursor.newest_ledger {
+            let same = u64::from(anchor.close_time) == cursor.newest_close_time;
+            return self.chain_proven(link, anchor, same);
+        }
+        self.held_anchor = Some(anchor);
+    }
+
+    /// Asks for the ledger of a doubted cursor's newest, on the chain of
+    /// the anchor held back, unless it asked already.
+    fn check_chain(&mut self, link: &mut Link) {
+        let (Some(cursor), Some(_)) = (self.cursor, self.held_anchor) else {
+            return;
+        };
+        if self.open(Purpose::Chain) {
+            return;
+        }
+        let query = Query::State {
+            keys: vec![records::account_key(self.escrow)],
+            at: Some(cursor.newest_ledger),
+        };
+        self.query(link, Purpose::Chain, query);
+    }
+
+    /// What the anchor's chain holds at a doubted cursor's newest ledger:
+    /// that ledger closed when the cursor says, or another, or none.
+    fn chain_checked(&mut self, link: &mut Link, verdict: Verdict) {
+        let Some(anchor) = self.held_anchor.or_else(|| link.verifier().anchor()) else {
+            return;
+        };
+        match (verdict, self.cursor) {
+            (Verdict::State(state), Some(cursor)) => {
+                let same = state.header.sequence == cursor.newest_ledger
+                    && u64::from(state.header.close_time) == cursor.newest_close_time;
+                self.chain_proven(link, anchor, same);
+            }
+            (Verdict::NoLedger, _) => self.chain_proven(link, anchor, false),
+            // The server keeps no state that old: what is not proven is
+            // judged as it was before the cursor was doubted, against the
+            // cursor alone.
+            _ => {
+                link.push(Out::Problem(
+                    "the XRPL server keeps no ledger as old as the escrow's cursor: whether the testnet reset since is judged by the cursor alone",
+                ));
+                self.chain_proven(link, anchor, true);
+            }
+        }
+    }
+
+    /// The doubted cursor is of `anchor`'s chain, if `same`, and the anchor
+    /// is taken as current; else the chain reset since it was kept.
+    fn chain_proven(&mut self, link: &mut Link, anchor: Anchor, same: bool) {
+        self.doubted = false;
+        self.held_anchor = None;
+        if same {
+            self.anchored(link, anchor, false);
+        } else {
+            self.restarted(link, anchor);
+        }
+    }
+
+    /// Gives up a doubted cursor's check: the chain reset anyway.
+    fn cancel_chain_check(&mut self, link: &mut Link) {
+        self.doubted = false;
+        self.held_anchor = None;
+        let asked: Vec<QueryId> = (self.queries.iter())
+            .filter(|(_, purpose)| **purpose == Purpose::Chain)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in asked {
+            self.queries.remove(&id);
+            link.verifier_mut().cancel(id);
+        }
+    }
+
     /// A reset of the test network, proven at `anchor`.
     fn restarted(&mut self, link: &mut Link, anchor: Anchor) {
+        self.cancel_chain_check(link);
         let close_time = u64::from(anchor.close_time);
         let closed_ms = close_time
             .saturating_add(XRPL_EPOCH_S)
@@ -908,10 +1134,11 @@ impl EscrowWatcher {
         // gone, a restart would meet the new one as another reset.
         link.keep(true, self.persisted);
         // What the server said of the old chain goes with it: the escrow's
-        // history is read again on the new one.
+        // history is read again on the new one. The server is asked where
+        // it stands once, whichever of a link's escrows met the reset first.
         if link.is_connected() {
             self.forget_connection(link);
-            link.check_again();
+            link.check_again(anchor.index);
         }
     }
 
@@ -924,7 +1151,7 @@ impl EscrowWatcher {
         match (purpose, verdict) {
             (Purpose::Hint(hash), Verdict::Applied(proven) | Verdict::Before(proven)) => {
                 self.hints.remove(&hash);
-                let decoded = proven.decoded;
+                let decoded = self.own_threads(proven.decoded);
                 if decoded.record.hash != hash {
                     return;
                 }
@@ -939,7 +1166,7 @@ impl EscrowWatcher {
             (Purpose::Walk, Verdict::State(state)) => self.walk_from(link, &state),
             (Purpose::Step(key), Verdict::Applied(proven) | Verdict::Before(proven)) => {
                 if let Some(index) = self.stepped(key, id) {
-                    let decoded = &proven.decoded;
+                    let decoded = &self.own_threads(proven.decoded);
                     let record = &decoded.record;
                     self.found(
                         link,
@@ -957,10 +1184,20 @@ impl EscrowWatcher {
                 }
             }
             (Purpose::HoldBefore, verdict) => self.hold_before(link, id, verdict),
+            (Purpose::Chain, verdict) if self.doubted => self.chain_checked(link, verdict),
+            (Purpose::Chain, _) => {}
             // Not proven: checked again at a newer anchor.
             (Purpose::Escrow, _) => self.escrow_check_wanted = true,
             (Purpose::Issuer | Purpose::Walk, _) => {}
         }
+    }
+
+    /// `decoded` with the threads of this escrow's objects alone: a
+    /// verifier that serves several escrows threads every escrow's, and a
+    /// payment between two escrows changes both.
+    fn own_threads(&self, mut decoded: Decoded) -> Decoded {
+        (decoded.threads).retain(|(key, _)| self.walk_keys.contains(key));
+        decoded
     }
 
     /// The server found no transaction it hinted at: it proved nothing, not
@@ -1050,11 +1287,18 @@ impl EscrowWatcher {
         }
         self.reread_overflow(link);
         self.read_history(link);
+        // Signed withdrawals go whatever chain the cursor is of: one sent to
+        // a chain the escrow is not on is refused, at no cost.
+        self.send_submits(link);
+        // Nothing is proven or attested from a chain its cursor may not be
+        // of: its hints wait for the check.
+        if self.doubted {
+            return self.check_chain(link);
+        }
         self.prove_hints(link);
         self.start_walk(link);
         self.step_walk(link);
         self.search_hold(link);
-        self.send_submits(link);
         let now = link.now_ms();
         if !self.following() || !self.fresh(now) {
             return self.advance_cursor(link);
@@ -1117,6 +1361,11 @@ impl EscrowWatcher {
     /// what it decided at once: its verdict among it, which closes the
     /// query before the caller sees its id.
     fn query(&mut self, link: &mut Link, purpose: Purpose, query: Query) -> Option<QueryId> {
+        // On a shared link, within its share of the verifier's queries: a
+        // flood of one escrow's leaves the others theirs.
+        if link.is_shared() && self.queries.len() >= link.query_share() {
+            return None;
+        }
         let now = link.now_ms();
         let id = link.verifier_mut().query(query, now).ok()?;
         self.queries.insert(id, purpose);
@@ -1125,7 +1374,7 @@ impl EscrowWatcher {
     }
 
     /// Asks for the proofs of hints, the oldest ledgers first, as many at
-    /// once as [`MAX_HINT_QUERIES`].
+    /// once as its link's [`Link::hint_share`].
     fn prove_hints(&mut self, link: &mut Link) {
         // Proven against an anchor taken back, a transaction of a chain
         // that reset while the validator was down would be applied.
@@ -1137,7 +1386,7 @@ impl EscrowWatcher {
             .values()
             .filter(|hint| hint.query.is_some())
             .count();
-        let room = MAX_HINT_QUERIES.saturating_sub(open);
+        let room = link.hint_share().saturating_sub(open);
         if room == 0 {
             return;
         }
@@ -1260,7 +1509,9 @@ impl EscrowWatcher {
 
     /// What the validator's ledger says now: when it let go of the escrow,
     /// and which deposits' attestations it recorded, which wait no more.
-    pub(super) fn see(&mut self, link: &mut Link, view: &EscrowView) {
+    /// Whether the objects whose history it walks changed, which its link's
+    /// verifier is to thread.
+    pub(super) fn see(&mut self, link: &mut Link, view: &EscrowView) -> bool {
         let was_held = self.view.as_ref().is_some_and(|seen| seen.issuer.holds());
         if was_held && !view.issuer.holds() {
             self.thawed_ms = Some(link.now_ms());
@@ -1273,14 +1524,15 @@ impl EscrowWatcher {
             }
         }
         let keys = walk_keys(&view.rules.terms);
-        if keys != self.walk_keys {
-            link.verifier_mut().thread(keys.clone());
+        let rethread = keys != self.walk_keys;
+        if rethread {
             self.walk_keys = keys;
         }
         self.view = Some(view.clone());
         if recorded {
             self.advance_cursor(link);
         }
+        rethread
     }
 
     /// Whether the issuer holds a token hub's escrow, as of the hub's last

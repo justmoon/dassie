@@ -693,6 +693,8 @@ async fn a_live_realm_sponsor_founds_hubs_on_mainnet() {
     );
 
     let xrp = found_and_check(&net, &serde_json::json!({})).await;
+    let xrp_escrow = dassie_xrpl::AccountId::parse(&xrp.escrow).unwrap();
+    let connections = followed_on_one_websocket(&net, &[xrp_escrow], usize::MAX).await;
     let rules = rules_of(&xrp);
     assert_eq!(rules.terms.network, MAINNET.id);
     assert_eq!(rules.terms.asset, Asset::Xrp);
@@ -706,8 +708,7 @@ async fn a_live_realm_sponsor_founds_hubs_on_mainnet() {
         dassie_hub::escrow::escrow_master(&sponsor_key, TESTNET.id, &rules.terms.nonce);
     assert_ne!(testnet_master.account().0, rules.terms.escrow);
     // Paid from the sponsor's mainnet account.
-    let escrow = dassie_xrpl::AccountId::parse(&xrp.escrow).unwrap();
-    assert!(net.xrpl.ledger().balance(escrow).is_some());
+    assert!(net.xrpl.ledger().balance(xrp_escrow).is_some());
     assert!(net.xrpl.ledger().balance(mainnet_account).unwrap() < funded);
 
     let rlusd = serde_json::json!({ "asset": {
@@ -734,7 +735,29 @@ async fn a_live_realm_sponsor_founds_hubs_on_mainnet() {
     for node in &net.validators {
         assert_eq!(validating(node).await.len(), 2);
     }
+    // spec/areas/hubs.md#the-validator-in-the-node: the hub founded second
+    // joins the WebSocket each validator follows the first one's escrow
+    // on, and none opens another.
+    followed_on_one_websocket(&net, &[xrp_escrow, escrow], connections).await;
     net.stop().await;
+}
+
+/// Waits until each of `escrows` is followed on the same WebSockets, one
+/// per validator, with at most `connections` open to the fake ledger, and
+/// returns how many are open then.
+async fn followed_on_one_websocket(
+    net: &Net,
+    escrows: &[dassie_xrpl::AccountId],
+    connections: usize,
+) -> usize {
+    until(&net.clock, 250, async || {
+        let following = net.xrpl.subscribers(escrows[0]);
+        following.len() == net.validators.len()
+            && (escrows.iter()).all(|escrow| net.xrpl.subscribers(*escrow) == following)
+            && net.xrpl.connections() <= connections
+    })
+    .await;
+    net.xrpl.connections()
 }
 
 /// A QUIC endpoint that only dials: a node of `key`'s, as a stranger or a

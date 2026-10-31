@@ -69,6 +69,12 @@ pub async fn run(node: Arc<Node>, config: Arc<ValidatorConfig>, shutdown: Cancel
     let tasks = TaskTracker::new();
     let stop = shutdown.child_token();
     let shared = Shared::new(&node, &client, &stop);
+    let mut links = xrpl::Links::new(
+        node.store_handle(),
+        node.outbound().cloned(),
+        node.clock(),
+        config.unl.clone(),
+    );
     let mut founded = node.founding().map(|founding| founding.founded());
     let mut seen: BTreeSet<HubId> = BTreeSet::new();
     let mut running: Vec<HubId> = Vec::new();
@@ -90,6 +96,7 @@ pub async fn run(node: Arc<Node>, config: Arc<ValidatorConfig>, shutdown: Cancel
                 &key,
                 (&hub, &config),
                 (&client, &shared),
+                &mut links,
                 &tasks,
                 &stop,
             ) {
@@ -99,6 +106,9 @@ pub async fn run(node: Arc<Node>, config: Arc<ValidatorConfig>, shutdown: Cancel
                 Err(()) => stop.cancel(),
             }
         }
+        // Each server's link starts once every hub of the pass registered
+        // with it, so it takes back its verifier with all of them.
+        links.start(&tasks, &stop);
         let changed = async {
             match &mut founded {
                 Some(founded) => {
@@ -145,18 +155,24 @@ async fn identity(node: &Node, shutdown: &CancellationToken) -> Option<Arc<Ident
     }
 }
 
-/// Opens the validator of `hub` and starts its tasks, which cancel `stop`
-/// if its store fails: whether it started, or `Err` if the database failed.
+/// Opens the validator of `hub` and starts its task, which cancels `stop`
+/// if its store fails, and registers its escrow with the link to its XRPL
+/// server: whether it started, or `Err` if the database failed.
 fn start(
     node: &Arc<Node>,
     key: &IdentityKey,
     (hub, config): (&HubConfig, &ValidatorConfig),
     (client, shared): (&HubClient, &Shared),
+    links: &mut xrpl::Links,
     tasks: &TaskTracker,
     stop: &CancellationToken,
 ) -> Result<bool, ()> {
-    let unl = &config.unl;
     let id = hub.rules.id();
+    let network = hub.rules.terms.network;
+    if !links.takes(&hub.xrpl, network) {
+        tracing::error!(target: target::HUB, hub = %hex(id.0.as_bytes()), url = %hub.xrpl, network, "the hub's XRPL server follows escrows of another network: not validating the hub");
+        return Ok(false);
+    }
     let opened = Driver::open(
         node.store_handle(),
         &hub.rules,
@@ -176,23 +192,21 @@ fn start(
         }
     };
     tracing::info!(target: target::HUB, hub = %hex(id.0.as_bytes()), height = driver.validator().ledger().height(), "validating the hub");
-    let (task, links) = HubTask::new(
+    let (task, escrow) = HubTask::new(
         driver,
         client.clone(),
         Arc::clone(node.hubs()),
         node.clock(),
     );
     let task = task.voting_for(config.hub_version).sharing(shared);
-    let follow = xrpl::Follow {
-        store: node.store_handle(),
-        hub: id,
-        url: hub.xrpl.clone(),
-        client: node.outbound().cloned(),
-        clock: node.clock(),
-        links,
-        retry: std::collections::VecDeque::new(),
-        unl: unl.clone(),
-    };
+    links.register(
+        &hub.xrpl,
+        network,
+        xrpl::Registration {
+            hub: id,
+            links: escrow,
+        },
+    );
     let stop_ = stop.clone();
     tasks.spawn(async move {
         if let Err(error) = task.run(stop_.clone()).await {
@@ -200,8 +214,6 @@ fn start(
             stop_.cancel();
         }
     });
-    let stop_ = stop.clone();
-    tasks.spawn(async move { follow.run(stop_).await });
     Ok(true)
 }
 
@@ -245,7 +257,9 @@ impl Shared {
     }
 }
 
-/// What a hub's validator and its XRPL connection share.
+/// What a hub's validator and the link to its XRPL server share: when the
+/// validator stops, its ends close, and the link follows its escrow no
+/// more.
 #[derive(Debug)]
 pub struct EscrowLinks {
     /// What the connection saw, for the validator to attest.

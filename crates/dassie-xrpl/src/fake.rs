@@ -608,6 +608,15 @@ impl FakeLedger {
         }
     }
 
+    /// The connections subscribed to `account`'s transactions.
+    #[must_use]
+    pub fn subscribers(&self, account: AccountId) -> BTreeSet<ConnectionId> {
+        (self.accounts_of.iter())
+            .filter(|(_, accounts)| accounts.contains(&account))
+            .map(|(connection, _)| *connection)
+            .collect()
+    }
+
     /// A connection went away.
     pub fn disconnect(&mut self, connection: ConnectionId) {
         self.accounts_of.remove(&connection);

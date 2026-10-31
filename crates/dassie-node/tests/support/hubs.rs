@@ -297,6 +297,21 @@ impl HubNet {
         net
     }
 
+    /// Waits until the fake ledger streams every hub's escrow to the same
+    /// WebSockets, one per validator: each node follows the escrows of all
+    /// the hubs it validates on one WebSocket to the server.
+    pub async fn one_websocket_each(&self) {
+        let escrows: Vec<AccountId> = (self.hubs.iter())
+            .map(|hub| AccountId(hub.rules.terms.escrow))
+            .collect();
+        until("one WebSocket per validator for every escrow", async || {
+            let first = self.xrpl.subscribers(escrows[0]);
+            first.len() == self.validators.len()
+                && (escrows.iter()).all(|escrow| self.xrpl.subscribers(*escrow) == first)
+        })
+        .await;
+    }
+
     /// The hub of `asset`.
     pub fn hub(&self, asset: HubAsset) -> &Hub {
         self.hubs.iter().find(|hub| hub.asset == asset).unwrap()

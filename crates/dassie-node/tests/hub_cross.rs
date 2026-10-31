@@ -80,10 +80,12 @@ const CROSSING: u64 = 1_000_000_000;
 // is over, each node's books hold what its accounts hold; the payer's
 // owner paid in XRP at least what was sent, the payee's got dollars, at
 // most what arrived, and the owners of the members of both took XRP and
-// paid dollars.
+// paid dollars. Each validator follows both hubs' escrows on one WebSocket
+// to the XRPL server (spec/areas/hubs.md#the-validator-in-the-node).
 #[tokio::test(start_paused = true)]
 async fn a_payment_crosses_from_one_hub_to_another_through_a_member_of_both() {
     let net = HubNet::start(&TESTNET, BOTH).await;
+    net.one_websocket_each().await;
     let (xrp, dsusd) = (
         net.hub(HubAsset::Xrp).clone(),
         net.hub(HubAsset::Dollar).clone(),
