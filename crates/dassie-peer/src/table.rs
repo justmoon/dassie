@@ -644,6 +644,10 @@ pub struct Standing {
     /// update of one we held: one we see first may be up to a reissue old.
     /// Kept across its peerings: it is the node's clock, not theirs.
     pub skew_ms: Option<i64>,
+    /// When we next ask to read its funds in its hubs, while it is a
+    /// registered candidate for promotion: once per bucket, and at once
+    /// with each peering (spec/decisions/promotion-to-core.md).
+    pub funds_at_ms: u64,
 }
 
 const _: () = assert!(STANDING_BUCKETS == 6, "the buckets' array");
@@ -658,6 +662,7 @@ impl Standing {
         }; 6],
         bucket_ms: 0,
         skew_ms: None,
+        funds_at_ms: 0,
     };
 
     /// The newest bucket at `now_ms`, of buckets `bucket_ms` long: older

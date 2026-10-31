@@ -1063,17 +1063,17 @@ impl Core {
         position(&self.schemes, &self.ledger, node, scheme)
     }
 
-    /// The room `node` has in our books on `scheme`, in the largest
-    /// packets: what it may still owe us there, our own position for it
-    /// (spec/decisions/promotion-to-core.md). Zero without accounts there,
-    /// or on a scheme the node does not run.
-    pub(super) fn room_packets(&self, node: NodeId, scheme: SchemeId) -> u64 {
-        room_packets(
+    /// Whether `node`'s own account in the hub of `scheme` could spend what
+    /// promotion asks for `edges` (spec/decisions/promotion-to-core.md), as
+    /// [`funded`] says.
+    pub(super) fn funded(&self, node: NodeId, scheme: SchemeId, edges: u64) -> Option<bool> {
+        funded(
             &self.schemes,
-            &self.ledger,
             self.settle.max_packet,
+            self.peer_credit,
             node,
             scheme,
+            edges,
         )
     }
 
@@ -1641,19 +1641,25 @@ fn position(
     })
 }
 
-/// The room `node` has in our books on `scheme`, in the largest packets,
-/// `max_packet` each: what it may still owe us there, our own position for
-/// it (spec/decisions/promotion-to-core.md). Zero without accounts there,
-/// or on a scheme the node does not run.
-pub(super) fn room_packets(
+/// Whether `node`'s own account in the hub `scheme` settles over could
+/// spend, as the hub last said, one request to settle at the default
+/// `credit` for each of the `edges` joining the core asks
+/// ([`policy::promotion_funds`], spec/decisions/promotion-to-core.md).
+/// None until its funds were read, and on a scheme the node does not run,
+/// that does not settle over a hub, or whose hub failed or stalled: funds
+/// there forward nothing.
+pub(super) fn funded(
     schemes: &BTreeMap<Name, super::ledgers::ActiveScheme>,
-    ledger: &dassie_ledger::Ledger,
     max_packet: u64,
+    credit: u64,
     node: NodeId,
     scheme: SchemeId,
-) -> u64 {
-    position(schemes, ledger, node, scheme).map_or(0, |at| {
-        let packets = at.position / u128::from(max_packet.max(1));
-        u64::try_from(packets).unwrap_or(u64::MAX)
-    })
+    edges: u64,
+) -> Option<bool> {
+    let active = schemes.get(&Name::new(scheme.as_str()).ok()?)?;
+    if !active.over_hub || active.failed.is_some() || !active.scheme.can_receive() {
+        return None;
+    }
+    let funds = active.scheme.peer_funds(Name::new(node.as_str()).ok()?)?;
+    Some(funds >= policy::promotion_funds(max_packet, credit, edges))
 }

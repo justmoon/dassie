@@ -38,7 +38,7 @@ use crate::wire::{
 
 pub use lifecycle::BanError;
 pub use membership::{RegisterError, RegistrationStatus};
-pub use promotion::{PROMOTION_ROOM_PACKETS, Promotion, PromotionCheck};
+pub use promotion::{Promotion, PromotionCheck};
 pub use snapshots::{
     SUBSCRIPTION_CHECK_MS, SUBSCRIPTION_REFUSED_MS, SUBSCRIPTION_RETRY_MS, SUBSCRIPTION_SILENCE_MS,
 };
@@ -1017,7 +1017,8 @@ impl PeerNode {
         self.tend_names();
         self.send_names();
         self.seek_peers(hooks);
-        self.check_urls();
+        self.read_funds();
+        self.check_urls(hooks);
         self.seek_methods(hooks);
         self.tend_snapshots(hooks);
         self.update_routes();

@@ -80,7 +80,9 @@
         periphery node. A server with a hostname starts in the periphery too,
         and its uplinks promote it into the core once they have watched it
         for an hour: it stayed reachable, answered at its domain name with
-        a real certificate, settled with them and has room with them.
+        a real certificate, and keeps enough in its own account in a
+        settlement hub to pay its first two core peers (about 0.95 XRP on
+        the testnet), which they read from the hub.
         Then it forwards payments for others, and is paid at its own
         address a couple of minutes later. The hour is only for the first
         promotion: a core node that restarts, or whose uplinks restart, as

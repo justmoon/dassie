@@ -556,6 +556,7 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
         Event::RoutesChanged
         | Event::CoreChanged
         | Event::CheckHttps { .. }
+        | Event::CheckFunds { .. }
         | Event::NodeAdded(_)
         | Event::NodeRemoved(_)
         | Event::Registered(_)

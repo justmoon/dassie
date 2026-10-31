@@ -738,6 +738,22 @@ pub trait SettlementScheme: Send {
         let _ = (peer, hub, account);
     }
 
+    /// Over a settlement hub: read `peer`'s own account in the hub anew, by
+    /// the key it gave at peering, at the scheme's next turn, for its
+    /// promotion (spec/decisions/promotion-to-core.md). Nothing by default.
+    fn read_peer_funds(&mut self, peer: Name) {
+        let _ = peer;
+    }
+
+    /// Over a settlement hub: what `peer`'s own account in the hub could
+    /// spend as f + 1 validators last agreed, in the node's units: 0 if its
+    /// key has no account there, or another than the one the peer named.
+    /// None before any read, and by default.
+    fn peer_funds(&self, peer: Name) -> Option<u64> {
+        let _ = peer;
+        None
+    }
+
     /// Over a settlement hub: what deposits had credited the node's own
     /// account in the hub as of the last state its books took, in the hub
     /// asset's smallest unit, the hub's `deposited` counter as the books

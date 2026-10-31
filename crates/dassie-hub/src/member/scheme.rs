@@ -170,6 +170,13 @@ pub(super) struct Peer {
     /// While it has no account in our records: before when not to pay it
     /// in, since our last `pay` to it failed. Not kept across restarts.
     pub(super) pay_after_ms: u64,
+    /// Whether the node asked for its funds to be read anew
+    /// ([`SettlementScheme::read_peer_funds`]).
+    pub(super) read_funds: bool,
+    /// What its own account could spend, as of the block the hub last
+    /// answered for its key at: 0 for a key without an account, or with
+    /// another than the one in our records. Not kept across restarts.
+    pub(super) funds: Option<(u64, Amount)>,
 }
 
 impl Peer {
@@ -467,21 +474,31 @@ impl HubScheme {
             // The hub confirms the key a peer gave us, for a hold toward us
             // whose operations we never read; or names the account of a
             // peer that had none when it peered, which a deposit opened.
+            // Whatever asked, the answer says what the peer's own account
+            // can spend, for its promotion (spec/decisions/promotion-to-core.md).
             News::Member {
                 key,
                 account,
                 height,
             } => {
-                self.pay_resolved(key, *account, *height, effects);
-                let Some(number) = account else {
-                    return;
-                };
-                for peer in self.peers.values_mut() {
-                    if peer.key == *key && peer.account == NONE {
-                        peer.account = *number;
+                let number = account.map(|(number, _)| number);
+                self.pay_resolved(key, number, *height, effects);
+                for peer in self.peers.values_mut().filter(|peer| peer.key == *key) {
+                    if let Some(number) = number {
+                        if peer.account == NONE {
+                            peer.account = number;
+                        }
+                        if peer.account == number {
+                            peer.payee.key_confirmed = true;
+                        }
                     }
-                    if peer.key == *key && peer.account == *number {
-                        peer.payee.key_confirmed = true;
+                    // Only for the account in our records: a key that holds
+                    // another than the one it named is not funded by it.
+                    let funds = account
+                        .filter(|(number, _)| *number == peer.account)
+                        .map_or(0, |(_, balance)| balance);
+                    if peer.funds.is_none_or(|(at, _)| at <= *height) {
+                        peer.funds = Some((*height, funds));
                     }
                 }
             }
@@ -1370,15 +1387,20 @@ impl HubScheme {
     /// that one a deposit opened is learnt without paying the peer in, and
     /// as soon as the peer names one. A key the account cannot ask about yet,
     /// past [`MAX_LOOKUPS`](super::account::MAX_LOOKUPS) at once, is asked
-    /// about at the next turn.
+    /// about at the next turn. And each peer whose funds the node asked to
+    /// read, once.
     fn ask_accounts(&mut self, account: &mut HubAccount) {
         for unread in self.unread_pays.values() {
             account.look_up(unread.key);
         }
         let now = self.now_ms;
         for peer in self.peers.values_mut() {
-            if peer.account == NONE && peer.look_up_ms <= now && account.look_up(peer.key) {
-                peer.look_up_ms = now.saturating_add(LOOK_UP_EVERY_MS);
+            let wanted = peer.account == NONE && peer.look_up_ms <= now;
+            if (wanted || peer.read_funds) && account.look_up(peer.key) {
+                peer.read_funds = false;
+                if wanted {
+                    peer.look_up_ms = now.saturating_add(LOOK_UP_EVERY_MS);
+                }
             }
         }
     }
@@ -1666,6 +1688,8 @@ impl SettlementScheme for HubScheme {
                 payee: Payee::default(),
                 look_up_ms: 0,
                 pay_after_ms: 0,
+                read_funds: false,
+                funds: None,
             },
         );
     }
@@ -1912,6 +1936,17 @@ impl SettlementScheme for HubScheme {
         {
             known.look_up_ms = 0;
         }
+    }
+
+    fn read_peer_funds(&mut self, peer: Name) {
+        if let Some(known) = self.peers.get_mut(&peer) {
+            known.read_funds = true;
+        }
+    }
+
+    fn peer_funds(&self, peer: Name) -> Option<u64> {
+        let (_, funds) = self.peers.get(&peer)?.funds?;
+        Some(units(funds))
     }
 
     fn deposits_booked(&self) -> Option<u64> {

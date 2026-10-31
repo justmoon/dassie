@@ -58,7 +58,7 @@ fn drain(core: &mut Core) {
 
 /// The membership a peer over the hub of `hub` gives at peering: the hub,
 /// its account `number` and its key there, of `seed`.
-fn membership(hub: &Validators, number: u32, seed: u8) -> Vec<u8> {
+pub(super) fn membership(hub: &Validators, number: u32, seed: u8) -> Vec<u8> {
     let key = dassie_hub::member::member_key(
         &dassie_identity::TableKeygen::identity_key(&[seed; 32]),
         &hub.rules.id(),
@@ -72,7 +72,7 @@ fn membership(hub: &Validators, number: u32, seed: u8) -> Vec<u8> {
 
 /// `node` peers with `core` over the hub of `hub` as a downlink, at `at`,
 /// as account `number`, its key there of `seed`.
-fn peer_over_hub(
+pub(super) fn peer_over_hub(
     core: &mut Core,
     hub: &Validators,
     node: &Arc<dassie_identity::IdentityKey>,

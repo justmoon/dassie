@@ -2374,6 +2374,52 @@ fn a_payer_asks_at_once_for_an_account_its_peer_names() {
     assert!(world.now - started < LOOK_UP_EVERY_MS / 10);
 }
 
+/// A peer's own funds are read only when the node asks, for its promotion
+/// (spec/decisions/promotion-to-core.md), and only for the account in our
+/// records; a newcomer without an account has none.
+#[test]
+fn a_member_reads_its_peers_funds_when_asked() {
+    let mut world = World::new([Fault::Honest; 4]);
+    let a = world.join("alice", 31, 100);
+    let b = world.join("bob", 32, 100);
+    let c = world.newcomer("carol", 33);
+    world.run(3_000);
+    world.peer(a, b);
+    world.peer(a, c);
+    world.run(3_000);
+    let name_b = world.members[b].name;
+    let name_c = world.members[c].name;
+    assert_eq!(world.members[a].scheme.peer_funds(name_b), None, "unasked");
+    assert_eq!(
+        world.members[a].scheme.peer_funds(name_c),
+        Some(0),
+        "looked up for its account, it has none"
+    );
+
+    world.members[a].scheme.read_peer_funds(name_b);
+    world.run(3_000);
+    let before = world.balance(b);
+    assert_eq!(
+        world.members[a].scheme.peer_funds(name_b),
+        Some(units(before))
+    );
+
+    // A deposit shows only once the node asks again.
+    let number = world.number(b);
+    world.validators.top_up(number, 10 * XRP);
+    world.run(3_000);
+    assert_eq!(
+        world.members[a].scheme.peer_funds(name_b),
+        Some(units(before))
+    );
+    world.members[a].scheme.read_peer_funds(name_b);
+    world.run(3_000);
+    assert_eq!(
+        world.members[a].scheme.peer_funds(name_b),
+        Some(units(before + 10 * XRP))
+    );
+}
+
 /// A `pay` that failed is not tried again at once: each try costs the
 /// payer a fee.
 #[test]

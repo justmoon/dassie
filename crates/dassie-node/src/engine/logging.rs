@@ -69,6 +69,7 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         | Event::CoreChanged
         | Event::OwnAddress { .. }
         | Event::CheckHttps { .. }
+        | Event::CheckFunds { .. }
         | Event::KindChanged { .. } => peer_core(severity, event),
         Event::NodeAdded(node) => emit!(severity, target: target::PEER, %node, "node added"),
         Event::NodeRemoved(node) => emit!(severity, target: target::PEER, %node, "node removed"),
@@ -133,6 +134,9 @@ fn peer_core(severity: Severity, event: &dassie_peer::Event) {
             registration,
         } => {
             emit!(severity, target: target::PEER, %peer, %url, registration, "checking a node's URL over HTTPS");
+        }
+        Event::CheckFunds { peer } => {
+            emit!(severity, target: target::PEER, %peer, "reading a candidate's funds in its hubs");
         }
         Event::KindChanged { peer, downlink } => {
             emit!(severity, target: target::PEER, %peer, downlink, "a peer's kind changed in place");

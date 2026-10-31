@@ -312,8 +312,8 @@ pub enum News {
     Member {
         /// The key.
         key: PublicKey,
-        /// Its account, if it has one.
-        account: Option<AccountNumber>,
+        /// Its account, if it has one, and what the account can spend.
+        account: Option<(AccountNumber, Amount)>,
         /// The block the answer is as of: none as of an older block says
         /// nothing of what happened since.
         height: u64,
@@ -1410,7 +1410,7 @@ impl HubAccount {
                 account,
             } => {
                 if self.lookups.remove(key.as_bytes()).is_some() {
-                    let account = account.map(|(number, _)| number);
+                    let account = account.map(|(number, view)| (number, view.balance));
                     self.push_news(News::Member {
                         key,
                         account,

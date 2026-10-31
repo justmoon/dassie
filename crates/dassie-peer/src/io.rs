@@ -342,6 +342,14 @@ pub enum Event {
         /// Whether a registration waits on it.
         registration: bool,
     },
+    /// Read what `peer`'s own account in the hub of each method of its
+    /// peering can spend, for its promotion: the node's schemes read it
+    /// from the hubs, and [`PeeringHooks::funded`](crate::hooks::PeeringHooks::funded)
+    /// tells what they found (spec/decisions/promotion-to-core.md).
+    CheckFunds {
+        /// The node, a registered candidate.
+        peer: NodeId,
+    },
     /// A peer's kind changed in place, as its status did: it became our
     /// downlink, or a core peer. Its peering, methods and channel stay
     /// (spec/decisions/promotion-to-core.md).

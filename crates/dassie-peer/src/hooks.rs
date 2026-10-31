@@ -79,15 +79,16 @@ pub trait PeeringHooks {
         true
     }
 
-    /// The room `peer` has in our books on `scheme`, in the largest
-    /// packets: what it may still owe us there, our own position for it,
-    /// the only side a node knows (spec/decisions/own-fulfills.md). A
-    /// downlink needs [`PROMOTION_ROOM_PACKETS`](crate::PROMOTION_ROOM_PACKETS)
-    /// of it to be promoted (spec/decisions/promotion-to-core.md). None by
+    /// Whether `peer`'s own account in the hub `scheme` settles over could
+    /// spend, as the hub last said, what one request to settle at the
+    /// default credit funds, for each of the `edges` joining the core asks:
+    /// what a downlink needs to be promoted
+    /// (spec/decisions/promotion-to-core.md). None until its funds were
+    /// read ([`Event::CheckFunds`](crate::io::Event::CheckFunds)), and by
     /// default.
-    fn room_packets(&self, peer: NodeId, scheme: SchemeId) -> u64 {
-        let _ = (peer, scheme);
-        0
+    fn funded(&self, peer: NodeId, scheme: SchemeId, edges: u64) -> Option<bool> {
+        let _ = (peer, scheme, edges);
+        None
     }
 
     /// Completes our request to `peer`, which accepted: opens its

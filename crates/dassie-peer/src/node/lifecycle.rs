@@ -510,7 +510,7 @@ impl PeerNode {
                         // Listed once promoted: its standing is long enough
                         // at a time we know; the other checks change with an
                         // input, or are looked at with each heartbeat's
-                        // review.
+                        // review, as a read of its funds is.
                         entry
                             .standing
                             .since_ms
@@ -813,7 +813,7 @@ impl PeerNode {
             .iter()
             .filter(|(_, entry)| entry.is_downlink() && core)
             .filter(|(id, _)| {
-                self.promotion(id, |scheme| hooks.room_packets(**id, scheme))
+                self.promotion(id, |scheme, edges| hooks.funded(**id, scheme, edges))
                     .is_some_and(|promotion| promotion.pending(&config).is_empty())
             })
             .map(|(id, _)| *id)
