@@ -108,7 +108,9 @@ function IncomingRow(
         </p>
       </div>
       <p class="tx-amount tx-in">
-        +<Amount
+        {/* A word joiner keeps the sign with its amount when it wraps. */}
+        {"+\u2060"}
+        <Amount
           value={shownReceived(props.payment)}
           currency={ledgerCurrency(props.payment)}
         />
@@ -139,7 +141,8 @@ function OutgoingRow(
         </p>
       </div>
       <p class="tx-amount">
-        −<Amount
+        {"−\u2060"}
+        <Amount
           value={props.payment.sentAmount}
           currency={ledgerCurrency(props.payment)}
         />
