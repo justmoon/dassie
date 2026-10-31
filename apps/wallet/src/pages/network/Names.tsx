@@ -1,7 +1,8 @@
 /**
  * Names (spec/areas/wallet.md#pages): registering a name for this node at
- * every registrar, how each name stands with each of them, and renewing the
- * names the node holds (spec/areas/network.md#the-registrant).
+ * every registrar, how each name stands, and when one registering is
+ * decided, with each registrar on request, and renewing the names the node
+ * holds (spec/areas/network.md#the-registrant).
  */
 
 import type { JSX } from "@solidjs/web";
@@ -25,8 +26,10 @@ import {
   nameHint,
   nameState,
   registrable,
+  registrarsWorthSeeing,
   renewable,
 } from "./names.ts";
+import { useNow } from "./now.ts";
 
 export function Names(): JSX.Element {
   const status = createLiveValue(
@@ -88,10 +91,11 @@ function RegisterName(): JSX.Element {
     <Card title="Register a Name" testid="register-name">
       <p class="muted">
         A name is held for your node by the network's bootstrap nodes, its
-        registrars. Your node commits to it sealed at every registrar, and tells
-        them the name only once each has logged the commitment, so that nobody
-        can take it from you after seeing it. It is yours once their windows
-        close, and your node renews it before it expires.
+        registrars. Your node registers it with every one of them by itself,
+        sealed until each has logged it so that nobody can take it after seeing
+        it, and renews it before it expires. The registrars decide after a
+        waiting period, an hour on the network: your name shows below with when
+        it will be yours.
       </p>
       <form onSubmit={register}>
         <Field
@@ -145,8 +149,8 @@ function NameList(props: { names: NamesStatus }): JSX.Element {
         fallback={<p class="muted">No names yet.</p>}
       >
         <ul class="name-list">
-          <For each={props.names.names}>
-            {(name) => <NameEntry name={name} node={props.names.node} />}
+          <For each={props.names.names} keyed={(name) => name.name}>
+            {(name) => <NameEntry name={name()} node={props.names.node} />}
           </For>
         </ul>
       </Show>
@@ -171,7 +175,10 @@ function NameEntry(props: { name: OwnName; node: string }): JSX.Element {
     }
     setBusy(false);
   };
+  const now = useNow();
   const state = () => nameState(props.name.state);
+  const hint = () =>
+    nameHint(props.name.state, props.name.decidedAtUnixMs, now());
   const holder = () => props.name.holder;
   return (
     <li data-testid={`name-${props.name.name}`}>
@@ -181,8 +188,8 @@ function NameEntry(props: { name: OwnName; node: string }): JSX.Element {
           {state().text}
         </Badge>
       </div>
-      <Show when={nameHint(props.name.state)}>
-        {(hint) => <p class="muted">{hint()}</p>}
+      <Show when={hint()}>
+        {(text) => <p data-testid={`name-hint-${props.name.name}`}>{text()}</p>}
       </Show>
       <Show when={holder() !== "" && holder() !== props.node}>
         <p class="muted">
@@ -191,27 +198,27 @@ function NameEntry(props: { name: OwnName; node: string }): JSX.Element {
       </Show>
       <Show when={props.name.expiresAtUnixMs !== 0n}>
         <p class="muted">
-          Expires {relativeTime(props.name.expiresAtUnixMs, Date.now())}
+          Expires {relativeTime(props.name.expiresAtUnixMs, now())}
         </p>
       </Show>
-      <Show when={props.name.unsealByUnixMs !== 0n}>
-        <p class="muted">
-          Every registrar must log the commitment{" "}
-          {relativeTime(props.name.unsealByUnixMs, Date.now())}
-        </p>
-      </Show>
-      <ul class="registrar-list">
-        <For each={props.name.registrars}>
-          {(at) => (
-            <li data-testid={`registrar-${props.name.name}-${at.registrar}`}>
-              <code>{shortId(at.registrar, 20)}</code>{" "}
-              <span class="muted">
-                {atRegistrar(at, props.node, Date.now())}
-              </span>
-            </li>
-          )}
-        </For>
-      </ul>
+      <details
+        class="registrars"
+        open={registrarsWorthSeeing(props.name.registrars, props.node)}
+      >
+        <summary data-testid={`registrars-${props.name.name}`}>
+          At each registrar
+        </summary>
+        <ul class="registrar-list">
+          <For each={props.name.registrars}>
+            {(at) => (
+              <li data-testid={`registrar-${props.name.name}-${at.registrar}`}>
+                <code>{shortId(at.registrar, 20)}</code>{" "}
+                <span class="muted">{atRegistrar(at, props.node, now())}</span>
+              </li>
+            )}
+          </For>
+        </ul>
+      </details>
       <div class="actions">
         <Show when={renewable(props.name.state)}>
           <button

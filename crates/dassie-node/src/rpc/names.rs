@@ -70,6 +70,7 @@ fn own_name(status: &NameStatus) -> proto::OwnName {
         holder: status.holder.map(|id| id.to_string()).unwrap_or_default(),
         expires_at_unix_ms: status.expires_ms.map_or(0, convert::time),
         unseal_by_unix_ms: status.unseal_by_ms.map_or(0, convert::time),
+        decided_at_unix_ms: status.decided_ms.map_or(0, convert::time),
         registrars: status.registrars.iter().map(at_registrar).collect(),
     }
 }

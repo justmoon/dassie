@@ -14,11 +14,9 @@ export function nameState(state: NameState): {
 } {
   switch (state) {
     case NameState.COMMITTING:
-      return { text: "committing", tone: "plain" };
     case NameState.UNSEALING:
-      return { text: "unsealing", tone: "plain" };
     case NameState.WAITING:
-      return { text: "waiting for the registrars", tone: "plain" };
+      return { text: "registering", tone: "plain" };
     case NameState.HELD:
       return { text: "yours", tone: "good" };
     case NameState.LAPSING:
@@ -36,14 +34,33 @@ export function nameState(state: NameState): {
   }
 }
 
-/** What a name in this state means for the owner, if anything. */
-export function nameHint(state: NameState): string | undefined {
+/** That the owner has nothing to do while a name registers. */
+const NOTHING_TO_DO =
+  "Nothing for you to do: your node finishes by itself while it runs.";
+
+/**
+ * What a name in this state means for the owner, if anything; while it
+ * registers, when it is decided, from `decidedAtUnixMs` (0 if unknown).
+ */
+export function nameHint(
+  state: NameState,
+  decidedAtUnixMs: bigint,
+  nowMs: number,
+): string | undefined {
   switch (state) {
     case NameState.COMMITTING:
-      return "Your node is committing to the name, sealed, at every registrar. No registrar learns the name until every one of them has logged the commitment.";
+      return `Your node is reserving it, sealed, at every registrar. ${NOTHING_TO_DO}`;
     case NameState.UNSEALING:
     case NameState.WAITING:
-      return "Every registrar logged the commitment, and your node told each the name. It is yours once their windows close, unless someone committed to it before you.";
+      if (decidedAtUnixMs === 0n) {
+        return `It is yours once the registrars' waiting period ends, unless someone registered it before you. ${NOTHING_TO_DO}`;
+      }
+      if (Number(decidedAtUnixMs) > nowMs) {
+        return `Yours ${relativeTime(decidedAtUnixMs, nowMs)}, around ${
+          timeOfDay(decidedAtUnixMs)
+        }, unless someone registered it before you. ${NOTHING_TO_DO}`;
+      }
+      return "Any moment now: the registrars' waiting period is over, and your node is reading their lists.";
     case NameState.LAPSING:
       return "Too few registrars list it now. Your node renews it at the others while they keep it for you.";
     case NameState.LOST:
@@ -58,6 +75,14 @@ export function nameHint(state: NameState): string | undefined {
   }
 }
 
+/** A time of day, as the owner's locale writes it, without seconds. */
+function timeOfDay(unixMs: bigint): string {
+  return new Date(Number(unixMs)).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /** Whether the owner can renew a name in this state. */
 export function renewable(state: NameState): boolean {
   return state === NameState.HELD || state === NameState.LAPSING;
@@ -70,6 +95,20 @@ export function renewable(state: NameState): boolean {
  */
 export function registrable(state: NameState): boolean {
   return state === NameState.NOT_HELD || state === NameState.ABANDONED;
+}
+
+/**
+ * Whether the page shows how the name stands with each registrar without
+ * being asked: when one refused, or lists another node for it.
+ */
+export function registrarsWorthSeeing(
+  registrars: NameAtRegistrar[],
+  node: string,
+): boolean {
+  return registrars.some((at) =>
+    at.refusedStatus !== 0 ||
+    (at.listedHolder !== "" && at.listedHolder !== node)
+  );
 }
 
 /** A refusal's status, in words. */
