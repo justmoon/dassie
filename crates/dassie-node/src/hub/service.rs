@@ -233,7 +233,7 @@ impl Shared {
     #[must_use]
     pub fn of(store: Arc<crate::store::Store>, hubs: &Hubs) -> Self {
         Self {
-            writer: HubWriter::spawn(store, Arc::clone(hubs.write_counters())),
+            writer: HubWriter::new(store, Arc::clone(hubs.write_counters())),
         }
     }
 }
