@@ -263,6 +263,32 @@ impl NodeInfo<'_> {
         Some(u16::from_be_bytes(*<&[u8; 2]>::try_from(value).ok()?))
     }
 
+    /// The proofs its account keys in its hubs give that they are its own,
+    /// each a hub's ID and a signature: the first hub-keys extension's, when
+    /// that is a run of whole proofs. One that is not says nothing; it is
+    /// still kept and forwarded, as the signature covers it.
+    #[must_use]
+    pub fn hub_key_proofs(&self) -> Vec<([u8; 32], [u8; 64])> {
+        let value = self.entries.iter().find_map(|entry| match entry {
+            Entry::Extension { kind, value } if *kind == super::EXTENSION_HUB_KEYS => Some(*value),
+            _ => None,
+        });
+        let Some((proofs, [])) = value.map(<[u8]>::as_chunks::<{ super::HUB_KEY_PROOF_BYTES }>)
+        else {
+            return Vec::new();
+        };
+        proofs
+            .iter()
+            .filter_map(|proof| {
+                let (hub, signature) = proof.split_at(32);
+                Some((
+                    <[u8; 32]>::try_from(hub).ok()?,
+                    <[u8; 64]>::try_from(signature).ok()?,
+                ))
+            })
+            .collect()
+    }
+
     fn has_extension(&self, wanted: u16) -> bool {
         self.entries
             .iter()

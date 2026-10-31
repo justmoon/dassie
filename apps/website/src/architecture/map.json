@@ -1673,7 +1673,7 @@
           "ids": [
             "peer"
           ],
-          "text": "Each uplink watches it: an hour in good standing, its heartbeats answered, enough in its own account in the hub to fund holds toward its first core peers, which the uplink reads from the hub's validators once it is registered, a clock in bounds, and its URL answering over QUIC and over HTTPS with a publicly issued certificate. Once it passes every check, the uplink lists it as a neighbor."
+          "text": "Each uplink watches it: an hour in good standing, its heartbeats answered, enough in its own account in the hub to fund holds toward its first core peers, which the uplink reads from the hub's validators once it is registered, under a key its link state signs as its own, a clock in bounds, and its URL answering over QUIC and over HTTPS with a publicly issued certificate. Once it passes every check, the uplink lists it as a neighbor."
         },
         {
           "ids": [

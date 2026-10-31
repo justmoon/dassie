@@ -114,8 +114,10 @@ pub(super) fn paid_in_credit(minimum: u64, trigger: u64) -> u64 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Offering {
     /// Over a settlement hub: offered once it reports its membership, the
-    /// hub and our account there (`Commitments::membership`), not before.
-    Hub(Option<Membership>),
+    /// hub and our account there (`Commitments::membership`), not before;
+    /// with our account key's signature saying it is ours
+    /// (`Commitments::key_proof`), if the scheme gives one.
+    Hub(Option<Membership>, Option<[u8; 64]>),
     /// Not over a hub, as the stub with unlimited trust: offered with no
     /// details.
     Plain,
@@ -134,8 +136,8 @@ pub(super) fn offers(schemes: impl IntoIterator<Item = (Name, Offering)>) -> Vec
         };
         match offering {
             Offering::Plain => offers.push(Offer::plain(scheme)),
-            Offering::Hub(None) => {}
-            Offering::Hub(Some(membership)) => {
+            Offering::Hub(None, _) => {}
+            Offering::Hub(Some(membership), proof) => {
                 let hubs = offers.iter().filter_map(|offer| offer.hub);
                 let named = hubs.clone().any(|hub| hub.hub_id == membership.hub);
                 if named || hubs.count() == MAX_OWN_HUBS {
@@ -145,7 +147,8 @@ pub(super) fn offers(schemes: impl IntoIterator<Item = (Name, Offering)>) -> Vec
                     hub_id: membership.hub,
                     account: membership.account,
                 };
-                offers.push(Offer::over_hub(scheme, hub));
+                let offer = Offer::over_hub(scheme, hub);
+                offers.push(proof.map_or(offer, |proof| offer.with_key_proof(proof)));
             }
         }
     }
@@ -200,8 +203,13 @@ impl Core {
         if !self.schemes.get(&scheme)?.over_hub {
             return Some(Offering::Plain);
         }
-        let membership = self.with_commitments(scheme, |c| c.membership()).flatten();
-        Some(Offering::Hub(membership))
+        let own = Name::new(self.peer.own().as_str()).ok();
+        let (membership, proof) = self
+            .with_commitments(scheme, |c| {
+                (c.membership(), own.and_then(|own| c.key_proof(own)))
+            })
+            .unwrap_or((None, None));
+        Some(Offering::Hub(membership, proof))
     }
 
     /// Each peering over a hub, and each peer a scheme over a hub holds
@@ -789,10 +797,13 @@ mod tests {
     fn hub(scheme: &str, hub: u8, account: u32) -> (Name, Offering) {
         (
             Name::new(scheme).unwrap(),
-            Offering::Hub(Some(Membership {
-                hub: [hub; 32],
-                account,
-            })),
+            Offering::Hub(
+                Some(Membership {
+                    hub: [hub; 32],
+                    account,
+                }),
+                None,
+            ),
         )
     }
 
@@ -822,7 +833,7 @@ mod tests {
     fn every_scheme_is_offered_with_its_details() {
         let offered = offers([
             hub("hub-xrpl-testnet-dsusd", 2, 9),
-            (Name::new("hub-unknown").unwrap(), Offering::Hub(None)),
+            (Name::new("hub-unknown").unwrap(), Offering::Hub(None, None)),
             plain("stub"),
             hub("hub-xrpl-testnet-xrp", 1, 4),
         ]);

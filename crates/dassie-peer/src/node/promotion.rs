@@ -7,13 +7,14 @@
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
+use dassie_oer::Decode;
 
 use super::{PeerNode, Problem, Purpose};
 use crate::config::Config;
 use crate::hooks::PeeringHooks;
 use crate::io::Event;
 use crate::table::{Beats, Entry, Sources};
-use crate::wire::{Content, Endpoint, SchemeId};
+use crate::wire::{Content, Endpoint, HubDetails, SchemeId};
 
 /// A check a downlink must pass to be promoted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -104,15 +105,16 @@ impl PeerNode {
     /// Where `peer` stands toward its promotion, if it is a candidate: our
     /// downlink, its peering active, whose link state has a URL. Asking is
     /// having one: nothing else in its link state says it wants to be core
-    /// (spec/decisions/promotion-to-core.md). `funded` says, of a scheme and
-    /// the edges joining the core asks, whether the peer's own account in
-    /// that scheme's hub could spend what promotion asks, as
+    /// (spec/decisions/promotion-to-core.md). `funded` says, of a scheme,
+    /// the edges joining the core asks and the proof the peer's link state
+    /// gives that its key in the scheme's hub is its own, whether its own
+    /// account there could spend what promotion asks, as
     /// [`PeeringHooks::funded`] does.
     #[must_use]
     pub fn promotion(
         &self,
         peer: &NodeId,
-        funded: impl Fn(SchemeId, u64) -> Option<bool>,
+        funded: impl Fn(SchemeId, u64, Option<&[u8; 64]>) -> Option<bool>,
     ) -> Option<Promotion> {
         let entry = self.table.get(peer).filter(|entry| is_candidate(entry))?;
         let funded = self.funded(entry, funded);
@@ -133,19 +135,29 @@ impl PeerNode {
 
     /// Whether `entry`'s own account in the hub of a method of its active
     /// peering could spend what promotion asks: on any of them, if one was
-    /// read, by `funded` with the edges joining the core asks.
+    /// read, by `funded` with the edges joining the core asks and the proof
+    /// its link state gives that its key in that hub is its own.
     fn funded(
         &self,
         entry: &Entry,
-        funded: impl Fn(SchemeId, u64) -> Option<bool>,
+        funded: impl Fn(SchemeId, u64, Option<&[u8; 64]>) -> Option<bool>,
     ) -> Option<bool> {
         let edges = crate::core_nodes::edges_to_join(self.bootstrap.len());
         let edges = u64::try_from(edges).unwrap_or(u64::MAX);
+        let proof = |scheme: SchemeId| {
+            let link = entry.link.as_ref()?;
+            let offered = link.offers.iter().find(|offer| offer.scheme == scheme)?;
+            let hub = HubDetails::decode_exact(&offered.details).ok()?.hub_id;
+            link.hub_keys
+                .iter()
+                .find(|(proved, _)| *proved == hub)
+                .map(|(_, proof)| proof)
+        };
         // `false < true`: any method that passes passes.
         entry
             .active_peering()?
             .schemes()
-            .filter_map(|scheme| funded(scheme, edges))
+            .filter_map(|scheme| funded(scheme, edges, proof(scheme)))
             .max()
     }
 
@@ -197,8 +209,9 @@ impl PeerNode {
             .filter(|(id, entry)| {
                 let candidate = is_candidate(entry)
                     && entry.sources.contains(Sources::MAJORITY)
-                    && self.funded(entry, |scheme, edges| hooks.funded(**id, scheme, edges))
-                        == Some(true);
+                    && self.funded(entry, |scheme, edges, proof| {
+                        hooks.funded(**id, scheme, edges, proof)
+                    }) == Some(true);
                 entry.url.check_at_ms <= now && (candidate || entry.registration.is_some())
             })
             .filter_map(|(id, entry)| {

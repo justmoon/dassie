@@ -169,6 +169,10 @@ pub struct LinkState {
     /// How many more core peers the node takes, if it says
     /// (spec/decisions/promotion-to-core.md).
     pub free_core: Option<u16>,
+    /// What its account keys in its hubs signed to say they are its own,
+    /// each a hub's ID and the signature
+    /// ([`EXTENSION_HUB_KEYS`](crate::wire::EXTENSION_HUB_KEYS)).
+    pub hub_keys: Vec<([u8; 32], [u8; 64])>,
     /// Copies of this sequence received, for suppressing the flood.
     pub copies: u8,
     /// When to forward it, if it is to be.
@@ -193,6 +197,7 @@ impl LinkState {
             offers: first_of_each(&signed.info.settlement),
             periphery: signed.info.is_periphery(),
             free_core: signed.info.free_core(),
+            hub_keys: signed.info.hub_key_proofs(),
             copies: 1,
             retransmit_at_ms: None,
             from: None,

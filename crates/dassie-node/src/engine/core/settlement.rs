@@ -1066,14 +1066,19 @@ impl Core {
     /// Whether `node`'s own account in the hub of `scheme` could spend what
     /// promotion asks for `edges` (spec/decisions/promotion-to-core.md), as
     /// [`funded`] says.
-    pub(super) fn funded(&self, node: NodeId, scheme: SchemeId, edges: u64) -> Option<bool> {
+    pub(super) fn funded(
+        &self,
+        node: NodeId,
+        scheme: SchemeId,
+        edges: u64,
+        proof: Option<&[u8; 64]>,
+    ) -> Option<bool> {
         funded(
             &self.schemes,
-            self.settle.max_packet,
-            self.peer_credit,
+            (self.settle.max_packet, self.peer_credit),
             node,
-            scheme,
-            edges,
+            (scheme, edges),
+            proof,
         )
     }
 
@@ -1643,23 +1648,25 @@ fn position(
 
 /// Whether `node`'s own account in the hub `scheme` settles over could
 /// spend, as the hub last said, one request to settle at the default
-/// `credit` for each of the `edges` joining the core asks
-/// ([`policy::promotion_funds`], spec/decisions/promotion-to-core.md).
-/// None until its funds were read, and on a scheme the node does not run,
-/// that does not settle over a hub, or whose hub failed or stalled: funds
-/// there forward nothing.
+/// credit for each of the `edges` joining the core asks, in the largest
+/// packet and the credit given ([`policy::promotion_funds`],
+/// spec/decisions/promotion-to-core.md): only for a key `proof`, from its
+/// link state, shows is its own. None until its funds were read, and on a
+/// scheme the node does not run, that does not settle over a hub, or whose
+/// hub failed or stalled: funds there forward nothing.
 pub(super) fn funded(
     schemes: &BTreeMap<Name, super::ledgers::ActiveScheme>,
-    max_packet: u64,
-    credit: u64,
+    (max_packet, credit): (u64, u64),
     node: NodeId,
-    scheme: SchemeId,
-    edges: u64,
+    (scheme, edges): (SchemeId, u64),
+    proof: Option<&[u8; 64]>,
 ) -> Option<bool> {
     let active = schemes.get(&Name::new(scheme.as_str()).ok()?)?;
     if !active.over_hub || active.failed.is_some() || !active.scheme.can_receive() {
         return None;
     }
-    let funds = active.scheme.peer_funds(Name::new(node.as_str()).ok()?)?;
+    let funds = active
+        .scheme
+        .peer_funds(Name::new(node.as_str()).ok()?, proof)?;
     Some(funds >= policy::promotion_funds(max_packet, credit, edges))
 }

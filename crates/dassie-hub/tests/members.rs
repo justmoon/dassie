@@ -2375,8 +2375,9 @@ fn a_payer_asks_at_once_for_an_account_its_peer_names() {
 }
 
 /// A peer's own funds are read only when the node asks, for its promotion
-/// (spec/decisions/promotion-to-core.md), and only for the account in our
-/// records; a newcomer without an account has none.
+/// (spec/decisions/promotion-to-core.md), and count only for the account in
+/// our records, and for a key the peer proved its own; a newcomer without
+/// an account has none.
 #[test]
 fn a_member_reads_its_peers_funds_when_asked() {
     let mut world = World::new([Fault::Honest; 4]);
@@ -2389,9 +2390,16 @@ fn a_member_reads_its_peers_funds_when_asked() {
     world.run(3_000);
     let name_b = world.members[b].name;
     let name_c = world.members[c].name;
-    assert_eq!(world.members[a].scheme.peer_funds(name_b), None, "unasked");
+    let proof = |world: &mut World, i: usize, node: Name| {
+        let commitments = world.members[i].scheme.commitments().unwrap();
+        commitments.key_proof(node).unwrap()
+    };
+    let own = proof(&mut world, b, name_b);
+    let funds = |world: &World| world.members[a].scheme.peer_funds(name_b, Some(&own));
+    assert_eq!(funds(&world), None, "unasked");
+    let none = proof(&mut world, c, name_c);
     assert_eq!(
-        world.members[a].scheme.peer_funds(name_c),
+        world.members[a].scheme.peer_funds(name_c, Some(&none)),
         Some(0),
         "looked up for its account, it has none"
     );
@@ -2399,25 +2407,23 @@ fn a_member_reads_its_peers_funds_when_asked() {
     world.members[a].scheme.read_peer_funds(name_b);
     world.run(3_000);
     let before = world.balance(b);
-    assert_eq!(
-        world.members[a].scheme.peer_funds(name_b),
-        Some(units(before))
-    );
+    assert_eq!(funds(&world), Some(units(before)));
+    // Its key's funds are nobody's without its proof, or with one over
+    // another node's name, as a copy of its membership would carry.
+    let scheme = &world.members[a].scheme;
+    assert_eq!(scheme.peer_funds(name_b, None), Some(0));
+    let copied = proof(&mut world, b, name_c);
+    let scheme = &world.members[a].scheme;
+    assert_eq!(scheme.peer_funds(name_b, Some(&copied)), Some(0));
 
     // A deposit shows only once the node asks again.
     let number = world.number(b);
     world.validators.top_up(number, 10 * XRP);
     world.run(3_000);
-    assert_eq!(
-        world.members[a].scheme.peer_funds(name_b),
-        Some(units(before))
-    );
+    assert_eq!(funds(&world), Some(units(before)));
     world.members[a].scheme.read_peer_funds(name_b);
     world.run(3_000);
-    assert_eq!(
-        world.members[a].scheme.peer_funds(name_b),
-        Some(units(before + 10 * XRP))
-    );
+    assert_eq!(funds(&world), Some(units(before + 10 * XRP)));
 }
 
 /// A `pay` that failed is not tried again at once: each try costs the

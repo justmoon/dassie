@@ -124,7 +124,13 @@ impl StubHooks {
 }
 
 impl PeeringHooks for StubHooks {
-    fn funded(&self, peer: NodeId, _scheme: SchemeId, _edges: u64) -> Option<bool> {
+    fn funded(
+        &self,
+        peer: NodeId,
+        _scheme: SchemeId,
+        _edges: u64,
+        _proof: Option<&[u8; 64]>,
+    ) -> Option<bool> {
         self.funds_read
             .contains(&peer)
             .then(|| self.funds.get(&peer).copied().unwrap_or(false))

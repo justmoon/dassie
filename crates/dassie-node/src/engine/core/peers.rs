@@ -305,14 +305,19 @@ impl PeeringHooks for Hooks<'_> {
         Ok(Agreed { state, credit_out })
     }
 
-    fn funded(&self, peer: NodeId, scheme: SchemeId, edges: u64) -> Option<bool> {
+    fn funded(
+        &self,
+        peer: NodeId,
+        scheme: SchemeId,
+        edges: u64,
+        proof: Option<&[u8; 64]>,
+    ) -> Option<bool> {
         super::settlement::funded(
             self.schemes,
-            self.max_packet,
-            self.peer_credit,
+            (self.max_packet, self.peer_credit),
             peer,
-            scheme,
-            edges,
+            (scheme, edges),
+            proof,
         )
     }
 
@@ -753,8 +758,8 @@ impl Core {
                     let config = self.peer.config();
                     let promotion = self
                         .peer
-                        .promotion(&view.id, |scheme, edges| {
-                            self.funded(view.id, scheme, edges)
+                        .promotion(&view.id, |scheme, edges, proof| {
+                            self.funded(view.id, scheme, edges, proof)
                         })
                         .map(|promotion| (promotion, promotion.pending(config)));
                     Some(PeerView {

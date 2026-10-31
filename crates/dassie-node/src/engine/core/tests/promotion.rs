@@ -1,9 +1,9 @@
 //! What an uplink reads of a downlink that asks to be promoted: what its
 //! own account in the hub can spend (spec/decisions/promotion-to-core.md).
 //! Only a registered candidate's funds are read, the hub's answer counts
-//! only for the account the downlink named, and its URL is checked only
-//! once its funds are enough. On one engine core in the XRP hub, with a
-//! downlink peered over it.
+//! only for the account the downlink named and a key its link state proves
+//! its own, and its URL is checked only once its funds are enough. On one
+//! engine core in the XRP hub, with a downlink peered over it.
 
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use dassie_hub::client::{AccountView, Statement};
 use dassie_hub::member::SCHEME_ID;
 use dassie_hub::operation::AccountNumber;
 use dassie_identity::{IdentityKey, NodeId};
-use dassie_oer::Encode;
+use dassie_oer::{Decode, Encode};
 use dassie_peer::{Promotion, PromotionCheck};
 use dassie_settlement::policy;
 use dassie_xrpl::UNITS_PER_DROP;
@@ -21,7 +21,7 @@ use super::super::{Core, Output};
 use super::hold_allotment::peer_over_hub;
 use super::{
     Policies, SHARED_CONFIG, Validators, add_xrpl, core_with_bootstrap, deposits, follow_xrpl,
-    funded_ledger, hub_config, send_link_state, wait_and_close,
+    funded_ledger, hub_config, wait_and_close,
 };
 use crate::store::Store;
 
@@ -41,10 +41,85 @@ fn enough() -> u64 {
     units / UNITS_PER_DROP
 }
 
+/// How the downlink's link state shows its key in the hub is its own.
+#[derive(Clone, Copy)]
+enum Proof {
+    /// Signed by its key, over its own node ID.
+    Own,
+    /// None: it names a key another node holds.
+    Missing,
+    /// Copied from the node whose key it names: signed over that node's ID.
+    Copied,
+}
+
+/// The account key of the seed `seed` in `hub`'s signature saying it is the
+/// key of node `node`.
+fn key_proof(hub: &Validators, seed: u8, node: NodeId) -> [u8; 64] {
+    let key = dassie_hub::member::member_key(
+        &dassie_identity::TableKeygen::identity_key(&[seed; 32]),
+        &hub.rules.id(),
+    );
+    let digest = dassie_hub::member::key_proof_digest(&hub.rules.id(), node.as_str());
+    *key.sign(digest.as_bytes()).as_bytes()
+}
+
+/// `node` sends `core` its link state at `at`, with [`URL`], offering the
+/// hub with account [`DOWNLINK_ACCOUNT`], and `proof` of its key there.
+fn send_link_state(core: &mut Core, hub: &Validators, node: &Arc<IdentityKey>, proof: Proof) {
+    use dassie_peer::wire::{
+        Content, EXTENSION_HUB_KEYS, Entry, HubDetails, NodeInfo, SchemeId, SettlementOffer,
+        SignedNodeInfo, sign_node_info,
+    };
+
+    let hub_id = *hub.rules.id().0.as_bytes();
+    let details = HubDetails {
+        hub_id,
+        account: DOWNLINK_ACCOUNT,
+    }
+    .to_vec();
+    let signature = match proof {
+        Proof::Own => Some(key_proof(hub, DOWNLINK_SEED, node.node_id())),
+        Proof::Missing => None,
+        Proof::Copied => {
+            let holder = dassie_identity::TableKeygen::identity_key(&[DOWNLINK_SEED; 32]);
+            Some(key_proof(hub, DOWNLINK_SEED, holder.node_id()))
+        }
+    };
+    let value: Vec<u8> = signature
+        .map(|signature| hub_id.into_iter().chain(signature).collect())
+        .unwrap_or_default();
+    let entries = if value.is_empty() {
+        vec![]
+    } else {
+        vec![Entry::Extension {
+            kind: EXTENSION_HUB_KEYS,
+            value: &value,
+        }]
+    };
+    let at = core.now_ms() + 1;
+    let info = NodeInfo {
+        sequence: at,
+        url: URL,
+        alias: "",
+        public_key: *node.public_key().as_bytes(),
+        slh_dsa_public_key: *node.identity().slh_dsa().as_bytes(),
+        settlement: vec![SettlementOffer {
+            scheme: SchemeId::parse(SCHEME_ID).unwrap(),
+            details: &details,
+        }],
+        entries,
+    };
+    let state = sign_node_info(node, &info);
+    let update = Content::LinkStateUpdate(SignedNodeInfo::decode_exact(&state).unwrap()).to_vec();
+    core.begin_step(at);
+    core.peer_inbound(dassie_peer::InboundId(2), node.identity(), &update, None);
+    core.finish_step(&mut Vec::new());
+}
+
 /// A core node in the XRP hub, with a downlink peered over it as account
-/// [`DOWNLINK_ACCOUNT`] whose link state has [`URL`]: the core, the hub and
-/// the downlink.
-fn candidate(ledger: &mut FakeLedger) -> (Core, Validators, Arc<IdentityKey>) {
+/// [`DOWNLINK_ACCOUNT`] whose link state has [`URL`] and `proof` of its key
+/// in the hub: the core, the hub and the downlink.
+fn candidate(ledger: &mut FakeLedger, proof: Proof) -> (Core, Validators, Arc<IdentityKey>) {
     let mut core = core_with_bootstrap(Arc::new(Store::open_in_memory().unwrap()));
     add_xrpl(&mut core, "xrpl-testnet-xrp", SHARED_CONFIG).unwrap();
     follow_xrpl(&mut core, ledger);
@@ -60,7 +135,7 @@ fn candidate(ledger: &mut FakeLedger) -> (Core, Validators, Arc<IdentityKey>) {
     let at = core.now_ms() + 1_000;
     let numbered = (DOWNLINK_ACCOUNT, DOWNLINK_SEED);
     peer_over_hub(&mut core, &hub, &downlink, numbered, at);
-    send_link_state(&mut core, &downlink, at + 1, Some(URL));
+    send_link_state(&mut core, &hub, &downlink, proof);
     (core, hub, downlink)
 }
 
@@ -168,7 +243,7 @@ fn register(core: &mut Core, id: NodeId) {
 #[test]
 fn a_registered_candidates_funds_are_read_and_its_url_checked_once_funded() {
     let (mut ledger, _) = funded_ledger();
-    let (mut core, mut hub, downlink) = candidate(&mut ledger);
+    let (mut core, mut hub, downlink) = candidate(&mut ledger, Proof::Own);
     let id = downlink.node_id();
     register(&mut core, id);
     says(&mut core, &mut hub, Some((DOWNLINK_ACCOUNT, enough() - 1)));
@@ -205,12 +280,33 @@ fn a_registered_candidates_funds_are_read_and_its_url_checked_once_funded() {
     assert!(!pending(&core).contains(&PromotionCheck::Funded));
 }
 
+// A downlink may name another member's account and key as its own, as
+// that member gives them to anyone who asks: their funds count for it only
+// once its link state proves the key its own, a proof over its own node ID
+// that a copy from the member does not give (review of #756).
+#[test]
+fn funds_count_only_for_a_key_the_candidate_proves_its_own() {
+    for proof in [Proof::Missing, Proof::Copied] {
+        let (mut ledger, _) = funded_ledger();
+        let (mut core, mut hub, downlink) = candidate(&mut ledger, proof);
+        let id = downlink.node_id();
+        register(&mut core, id);
+        says(
+            &mut core,
+            &mut hub,
+            Some((DOWNLINK_ACCOUNT, 100 * enough())),
+        );
+        assert_eq!(funded(&core, id), Some(false), "read, and not its own");
+        assert!(!step(&mut core, &[id]), "its URL waits");
+    }
+}
+
 // The hub's answer counts only for the account the downlink named: a key
 // that holds another is not funded by it, and a key without one has none.
 #[test]
 fn a_key_with_another_account_is_not_funded() {
     let (mut ledger, _) = funded_ledger();
-    let (mut core, mut hub, downlink) = candidate(&mut ledger);
+    let (mut core, mut hub, downlink) = candidate(&mut ledger, Proof::Own);
     let id = downlink.node_id();
     register(&mut core, id);
     says(
@@ -225,7 +321,7 @@ fn a_key_with_another_account_is_not_funded() {
 #[test]
 fn an_unregistered_candidates_funds_are_not_read() {
     let (mut ledger, _) = funded_ledger();
-    let (mut core, mut hub, downlink) = candidate(&mut ledger);
+    let (mut core, mut hub, downlink) = candidate(&mut ledger, Proof::Own);
     let id = downlink.node_id();
     let start = core.now_ms();
     while core.now_ms() < start + 600_000 {

@@ -1944,9 +1944,15 @@ impl SettlementScheme for HubScheme {
         }
     }
 
-    fn peer_funds(&self, peer: Name) -> Option<u64> {
-        let (_, funds) = self.peers.get(&peer)?.funds?;
-        Some(units(funds))
+    fn peer_funds(&self, peer: Name, proof: Option<&[u8; 64]>) -> Option<u64> {
+        let known = self.peers.get(&peer)?;
+        let (_, funds) = known.funds?;
+        let digest = super::key_proof_digest(&self.hub, peer.as_str());
+        let proven = proof.is_some_and(|proof| {
+            let signature = dassie_identity::Signature::from_bytes(*proof);
+            known.key.verify(digest.as_bytes(), &signature).is_ok()
+        });
+        Some(if proven { units(funds) } else { 0 })
     }
 
     fn deposits_booked(&self) -> Option<u64> {
@@ -2200,6 +2206,12 @@ impl Commitments for HubScheme {
     /// account, so that a member with one peers with us and pays us in
     /// (spec/designs/settlement-hubs.md#5-joining), as our peering info
     /// presents us. None before either.
+    /// Signed by our account key, so that it is ours alone.
+    fn key_proof(&self, node: Name) -> Option<[u8; 64]> {
+        let digest = super::key_proof_digest(&self.hub, node.as_str());
+        Some(*self.key.sign(digest.as_bytes()).as_bytes())
+    }
+
     fn membership(&self) -> Option<dassie_settlement::Membership> {
         let account = match self.account {
             Some(account) => account.0,

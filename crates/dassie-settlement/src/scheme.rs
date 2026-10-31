@@ -747,10 +747,13 @@ pub trait SettlementScheme: Send {
 
     /// Over a settlement hub: what `peer`'s own account in the hub could
     /// spend as f + 1 validators last agreed, in the node's units: 0 if its
-    /// key has no account there, or another than the one the peer named.
-    /// None before any read, and by default.
-    fn peer_funds(&self, peer: Name) -> Option<u64> {
-        let _ = peer;
+    /// key has no account there, or another than the one the peer named,
+    /// or if `proof`, from the peer's link state, does not show the key is
+    /// the peer's ([`Commitments::key_proof`](crate::Commitments::key_proof)):
+    /// a peer may name any member's account and key as its own. None before
+    /// any read, and by default.
+    fn peer_funds(&self, peer: Name, proof: Option<&[u8; 64]>) -> Option<u64> {
+        let _ = (peer, proof);
         None
     }
 

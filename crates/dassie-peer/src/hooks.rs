@@ -83,11 +83,19 @@ pub trait PeeringHooks {
     /// spend, as the hub last said, what one request to settle at the
     /// default credit funds, for each of the `edges` joining the core asks:
     /// what a downlink needs to be promoted
-    /// (spec/decisions/promotion-to-core.md). None until its funds were
-    /// read ([`Event::CheckFunds`](crate::io::Event::CheckFunds)), and by
+    /// (spec/decisions/promotion-to-core.md). Only for a key `proof`, from
+    /// the peer's link state ([`EXTENSION_HUB_KEYS`](crate::wire::EXTENSION_HUB_KEYS)),
+    /// shows is the peer's own. None until its funds were read
+    /// ([`Event::CheckFunds`](crate::io::Event::CheckFunds)), and by
     /// default.
-    fn funded(&self, peer: NodeId, scheme: SchemeId, edges: u64) -> Option<bool> {
-        let _ = (peer, scheme, edges);
+    fn funded(
+        &self,
+        peer: NodeId,
+        scheme: SchemeId,
+        edges: u64,
+        proof: Option<&[u8; 64]>,
+    ) -> Option<bool> {
+        let _ = (peer, scheme, edges, proof);
         None
     }
 

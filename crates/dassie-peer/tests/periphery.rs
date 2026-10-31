@@ -1065,7 +1065,9 @@ fn an_uplink_watches_its_downlink_for_promotion() {
         let hooks = &network.nodes[uplink].hooks;
         network
             .node(uplink)
-            .promotion(&node, |scheme, edges| hooks.funded(node, scheme, edges))
+            .promotion(&node, |scheme, edges, proof| {
+                hooks.funded(node, scheme, edges, proof)
+            })
     };
     assert_eq!(promotion(&network), None, "no URL, no candidate");
     // Cut off from the bootstrap node, it does not register.

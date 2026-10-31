@@ -813,8 +813,10 @@ impl PeerNode {
             .iter()
             .filter(|(_, entry)| entry.is_downlink() && core)
             .filter(|(id, _)| {
-                self.promotion(id, |scheme, edges| hooks.funded(**id, scheme, edges))
-                    .is_some_and(|promotion| promotion.pending(&config).is_empty())
+                self.promotion(id, |scheme, edges, proof| {
+                    hooks.funded(**id, scheme, edges, proof)
+                })
+                .is_some_and(|promotion| promotion.pending(&config).is_empty())
             })
             .map(|(id, _)| *id)
             .collect();

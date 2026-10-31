@@ -13,22 +13,24 @@ use crate::config::Config;
 use crate::io::Event;
 use crate::table::{LinkState, Offered, Sources, backoff};
 use crate::wire::{
-    Content, EXTENSION_FEED, EXTENSION_FREE_CORE, EXTENSION_PERIPHERY, Entry, HubDetails,
-    InvalidNodeInfo, LinkStateResponse, MAX_ENTRIES, MAX_NODE_INFO_BYTES, MAX_OFFERS, NodeInfo,
-    SchemeId, SettlementOffer, SignedNodeInfo, max_node_info_bytes, sign_node_info,
+    Content, EXTENSION_FEED, EXTENSION_FREE_CORE, EXTENSION_HUB_KEYS, EXTENSION_PERIPHERY, Entry,
+    HUB_KEY_PROOF_BYTES, HubDetails, InvalidNodeInfo, LinkStateResponse, MAX_ENTRIES,
+    MAX_NODE_INFO_BYTES, MAX_OFFERS, NodeInfo, SchemeId, SettlementOffer, SignedNodeInfo,
+    max_node_info_bytes, sign_node_info,
 };
 
 /// The routes are recomputed at least this often, as link states go stale.
 const ROUTES_PERIOD_MS: u64 = 60_000;
 
 /// Most extensions our own link state carries: the periphery one, or a
-/// feed port and the free core relationships
+/// feed port, the free core relationships and the proofs of our hub keys
 /// ([`PeerNode::own_extensions`]).
-const MAX_OWN_EXTENSIONS: usize = 2;
+const MAX_OWN_EXTENSIONS: usize = 3;
 
-/// Most bytes their values take together: a feed port and a count of free
-/// core relationships; the periphery one is empty.
-const MAX_OWN_EXTENSION_BYTES: usize = 4;
+/// Most bytes their values take together: a feed port, a count of free
+/// core relationships and a proof for each of our hubs; the periphery one
+/// is empty.
+const MAX_OWN_EXTENSION_BYTES: usize = 4 + MAX_OWN_HUBS * HUB_KEY_PROOF_BYTES;
 
 /// Most bytes the details of our own offers take together: a hub's on each
 /// of [`MAX_OWN_HUBS`] schemes over a hub, and none on any other.
@@ -447,6 +449,17 @@ impl PeerNode {
         if self.is_core() {
             let free = u16::try_from(self.free_core()).unwrap_or(u16::MAX);
             extensions.push((EXTENSION_FREE_CORE, free.to_be_bytes().to_vec()));
+        }
+        // That our account keys in our hubs are ours, so that an uplink
+        // counts our funds there for our promotion; a node without a URL
+        // is never promoted (spec/decisions/promotion-to-core.md).
+        let proofs: Vec<u8> = (self.offers.iter())
+            .filter(|_| !periphery)
+            .filter_map(|offer| Some((offer.hub?.hub_id, offer.key_proof?)))
+            .flat_map(|(hub, proof)| hub.into_iter().chain(proof))
+            .collect();
+        if !proofs.is_empty() {
+            extensions.push((EXTENSION_HUB_KEYS, proofs));
         }
         let bytes: usize = extensions.iter().map(|(_, value)| value.len()).sum();
         assert!(

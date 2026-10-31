@@ -49,6 +49,9 @@ pub enum Domain {
     /// A validator's signature of a hub's genesis, a share of its genesis
     /// certificate.
     Genesis,
+    /// A member's account key saying it is the key of a node, by its node
+    /// ID, which the node's link state carries.
+    KeyProof,
 }
 
 impl Domain {
@@ -69,6 +72,7 @@ impl Domain {
             Self::Result => b"dassie-hub/result",
             Self::Statement => b"dassie-hub/statement",
             Self::Genesis => b"dassie-hub/genesis",
+            Self::KeyProof => b"dassie-hub/key-proof",
         }
     }
 }

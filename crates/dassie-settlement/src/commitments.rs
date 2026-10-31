@@ -246,6 +246,16 @@ pub trait Commitments {
         None
     }
 
+    /// Our account key in the hub's signature saying it is the key of the
+    /// node `node`, by its node ID: what our link state carries, so that an
+    /// uplink counts our funds in the hub as ours for our promotion, and
+    /// another node's copied membership as nobody's
+    /// (spec/decisions/promotion-to-core.md). None by default.
+    fn key_proof(&self, node: Name) -> Option<[u8; 64]> {
+        let _ = node;
+        None
+    }
+
     /// Whether packets with `peer` carry commitments and claims. Not while
     /// either of us has no account in the hub: the payer has no hold to
     /// promise from, so the payee takes its packets on what the payer owes
