@@ -11,7 +11,7 @@
 //! The rows hold bytes the hub's crate encodes and reads; the store knows
 //! only their bounds.
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::{Cached, Store, StoreError, from_sql_time, to_sql_time};
 
@@ -81,6 +81,123 @@ pub struct HubStep<'a> {
     pub boundaries: &'a [u64],
 }
 
+impl HubStep<'_> {
+    /// Whether the step changed nothing.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.consensus.is_none() && self.ledger.is_none() && self.boundaries.is_empty()
+    }
+}
+
+/// What one step of a hub's validator writes: what the step changed, and
+/// the payout bundles it signed, each with the height it pays out from.
+#[derive(Clone, Copy, Debug)]
+pub struct HubWrite<'a> {
+    /// The hub.
+    pub hub: &'a [u8; 32],
+    /// When the step ran.
+    pub now_ms: u64,
+    /// What it changed.
+    pub step: HubStep<'a>,
+    /// The payout bundles it signed.
+    pub bundles: &'a [(u64, &'a [u8])],
+}
+
+impl HubWrite<'_> {
+    /// Whether there is nothing to write.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.step.is_empty() && self.bundles.is_empty()
+    }
+
+    fn check(&self) -> Result<(), StoreError> {
+        let too_large = self
+            .step
+            .consensus
+            .is_some_and(|bytes| bytes.len() > MAX_HUB_CONSENSUS_BYTES)
+            || self
+                .step
+                .ledger
+                .is_some_and(|(_, bytes)| bytes.len() > MAX_HUB_LEDGER_BYTES);
+        if too_large {
+            return Err(StoreError::Corrupt("hub state over its bound"));
+        }
+        if self
+            .bundles
+            .iter()
+            .any(|(_, bundle)| bundle.len() > MAX_HUB_BUNDLE_BYTES)
+        {
+            return Err(StoreError::Corrupt("payout bundle over its bound"));
+        }
+        Ok(())
+    }
+}
+
+/// Writes what a step of `hub`'s validator changed: states beyond
+/// [`KEPT_TIPS`] and [`KEPT_BOUNDARIES`] go; the newest always stays.
+fn write_hub_step(
+    transaction: &Transaction<'_>,
+    hub: &[u8; 32],
+    now_ms: u64,
+    step: HubStep<'_>,
+) -> Result<(), StoreError> {
+    if step.is_empty() {
+        return Ok(());
+    }
+    if let Some(state) = step.consensus {
+        transaction.execute_cached(
+            "INSERT INTO hub_consensus (hub, updated_at_ms, state) VALUES (?1, ?2, ?3) \
+             ON CONFLICT (hub) DO UPDATE SET updated_at_ms = ?2, state = ?3",
+            params![&hub[..], to_sql_time(now_ms), state],
+        )?;
+    }
+    if let Some((height, state)) = step.ledger {
+        transaction.execute_cached(
+            "INSERT INTO hub_states (hub, height, boundary, state) VALUES (?1, ?2, 0, ?3) \
+             ON CONFLICT (hub, height) DO UPDATE SET state = ?3",
+            params![&hub[..], to_sql_time(height), state],
+        )?;
+    }
+    for height in step.boundaries {
+        transaction.execute_cached(
+            "UPDATE hub_states SET boundary = 1 WHERE hub = ?1 AND height = ?2",
+            params![&hub[..], to_sql_time(*height)],
+        )?;
+    }
+    transaction.execute_cached(
+        "DELETE FROM hub_states WHERE hub = ?1 \
+         AND height < (SELECT max(height) FROM hub_states WHERE hub = ?1) \
+         AND height NOT IN (SELECT height FROM hub_states WHERE hub = ?1 \
+           ORDER BY height DESC LIMIT ?2) \
+         AND height NOT IN (SELECT height FROM hub_states WHERE hub = ?1 AND boundary = 1 \
+           ORDER BY height DESC LIMIT ?3)",
+        params![&hub[..], KEPT_TIPS, KEPT_BOUNDARIES],
+    )?;
+    Ok(())
+}
+
+/// Keeps the payout bundle the validator of `hub` signed for the block at
+/// `height`, and only the [`KEPT_BUNDLES`] newest of the hub's.
+fn write_hub_bundle(
+    transaction: &Transaction<'_>,
+    hub: &[u8; 32],
+    height: u64,
+    now_ms: u64,
+    bundle: &[u8],
+) -> Result<(), StoreError> {
+    transaction.execute_cached(
+        "INSERT INTO hub_bundles (hub, height, signed_at_ms, bundle) VALUES (?1, ?2, ?3, ?4) \
+         ON CONFLICT (hub, height) DO UPDATE SET signed_at_ms = ?3, bundle = ?4",
+        params![&hub[..], to_sql_time(height), to_sql_time(now_ms), bundle],
+    )?;
+    transaction.execute_cached(
+        "DELETE FROM hub_bundles WHERE hub = ?1 AND height NOT IN \
+         (SELECT height FROM hub_bundles WHERE hub = ?1 ORDER BY height DESC LIMIT ?2)",
+        params![&hub[..], KEPT_BUNDLES],
+    )?;
+    Ok(())
+}
+
 impl Store {
     /// What the validator of `hub` resumes from, if it ran before: its
     /// consensus state and its newest state.
@@ -129,49 +246,35 @@ impl Store {
         now_ms: u64,
         step: HubStep<'_>,
     ) -> Result<(), StoreError> {
-        if step.consensus.is_none() && step.ledger.is_none() && step.boundaries.is_empty() {
-            return Ok(());
+        self.commit_hub_writes(&[HubWrite {
+            hub,
+            now_ms,
+            step,
+            bundles: &[],
+        }])
+    }
+
+    /// Writes the steps of several hubs' validators, each with the payout
+    /// bundles it signed, in one transaction: all of them or, on error, none
+    /// (spec/areas/hubs.md#the-validator-in-the-node). Every bound is checked
+    /// before anything is written.
+    pub fn commit_hub_writes(&self, writes: &[HubWrite<'_>]) -> Result<(), StoreError> {
+        for write in writes {
+            write.check()?;
         }
-        let too_large = step
-            .consensus
-            .is_some_and(|bytes| bytes.len() > MAX_HUB_CONSENSUS_BYTES)
-            || step
-                .ledger
-                .is_some_and(|(_, bytes)| bytes.len() > MAX_HUB_LEDGER_BYTES);
-        if too_large {
-            return Err(StoreError::Corrupt("hub state over its bound"));
+        if writes.iter().all(HubWrite::is_empty) {
+            return Ok(());
         }
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
-        if let Some(state) = step.consensus {
-            transaction.execute_cached(
-                "INSERT INTO hub_consensus (hub, updated_at_ms, state) VALUES (?1, ?2, ?3) \
-                 ON CONFLICT (hub) DO UPDATE SET updated_at_ms = ?2, state = ?3",
-                params![&hub[..], to_sql_time(now_ms), state],
-            )?;
+        for write in writes {
+            write_hub_step(&transaction, write.hub, write.now_ms, write.step)?;
+            for (height, bundle) in write.bundles {
+                write_hub_bundle(&transaction, write.hub, *height, write.now_ms, bundle)?;
+            }
         }
-        if let Some((height, state)) = step.ledger {
-            transaction.execute_cached(
-                "INSERT INTO hub_states (hub, height, boundary, state) VALUES (?1, ?2, 0, ?3) \
-                 ON CONFLICT (hub, height) DO UPDATE SET state = ?3",
-                params![&hub[..], to_sql_time(height), state],
-            )?;
-        }
-        for height in step.boundaries {
-            transaction.execute_cached(
-                "UPDATE hub_states SET boundary = 1 WHERE hub = ?1 AND height = ?2",
-                params![&hub[..], to_sql_time(*height)],
-            )?;
-        }
-        transaction.execute_cached(
-            "DELETE FROM hub_states WHERE hub = ?1 \
-             AND height < (SELECT max(height) FROM hub_states WHERE hub = ?1) \
-             AND height NOT IN (SELECT height FROM hub_states WHERE hub = ?1 \
-               ORDER BY height DESC LIMIT ?2) \
-             AND height NOT IN (SELECT height FROM hub_states WHERE hub = ?1 AND boundary = 1 \
-               ORDER BY height DESC LIMIT ?3)",
-            params![&hub[..], KEPT_TIPS, KEPT_BOUNDARIES],
-        )?;
+        #[cfg(feature = "testing")]
+        self.fail_if_aimed_at_hubs(&transaction);
         transaction.commit()?;
         Ok(())
     }
@@ -264,23 +367,12 @@ impl Store {
         now_ms: u64,
         bundle: &[u8],
     ) -> Result<(), StoreError> {
-        if bundle.len() > MAX_HUB_BUNDLE_BYTES {
-            return Err(StoreError::Corrupt("payout bundle over its bound"));
-        }
-        let mut connection = self.lock();
-        let transaction = connection.transaction()?;
-        transaction.execute_cached(
-            "INSERT INTO hub_bundles (hub, height, signed_at_ms, bundle) VALUES (?1, ?2, ?3, ?4) \
-             ON CONFLICT (hub, height) DO UPDATE SET signed_at_ms = ?3, bundle = ?4",
-            params![&hub[..], to_sql_time(height), to_sql_time(now_ms), bundle],
-        )?;
-        transaction.execute_cached(
-            "DELETE FROM hub_bundles WHERE hub = ?1 AND height NOT IN \
-             (SELECT height FROM hub_bundles WHERE hub = ?1 ORDER BY height DESC LIMIT ?2)",
-            params![&hub[..], KEPT_BUNDLES],
-        )?;
-        transaction.commit()?;
-        Ok(())
+        self.commit_hub_writes(&[HubWrite {
+            hub,
+            now_ms,
+            step: HubStep::default(),
+            bundles: &[(height, bundle)],
+        }])
     }
 
     /// The payout bundles the validator of `hub` signed, the newest first:
@@ -328,6 +420,63 @@ mod tests {
         assert_eq!(store.hub(&hub).unwrap().unwrap().height, 5);
         assert_eq!(store.hub_state(&hub, 0).unwrap(), Some(vec![3]));
         assert_eq!(store.hub(&[8; 32]).unwrap(), None);
+    }
+
+    // The steps of several hubs, each with its bundles, go in one commit,
+    // and a commit that fails writes none of them: a commit of the
+    // engine's is not one it aims at.
+    #[test]
+    fn steps_of_several_hubs_commit_together_or_not_at_all() {
+        let store = Store::open_in_memory().unwrap();
+        let (a, b) = ([1; 32], [2; 32]);
+        let write = |hub, consensus: &'static [u8], bundles| HubWrite {
+            hub,
+            now_ms: 10,
+            step: HubStep {
+                consensus: Some(consensus),
+                ledger: Some((3, &[9])),
+                boundaries: &[],
+            },
+            bundles,
+        };
+        let bundle: &[(u64, &[u8])] = &[(3, &[5, 5])];
+
+        let failed = store.fail_commit(crate::store::Aim::Hub, 0);
+        let refused = store.commit_hub_writes(&[write(&a, &[1], bundle), write(&b, &[2], &[])]);
+        assert!(refused.is_err());
+        assert!(failed.held().is_some_and(|held| held.hub));
+        assert_eq!(
+            (store.hub(&a).unwrap(), store.hub(&b).unwrap()),
+            (None, None)
+        );
+        assert!(store.hub_bundles(&a).unwrap().is_empty());
+
+        let engine = store.fail_commit(crate::store::Aim::Any, 0);
+        store
+            .commit_hub_writes(&[write(&a, &[1], bundle), write(&b, &[2], &[])])
+            .unwrap();
+        assert_eq!(
+            engine.held(),
+            None,
+            "a hub's commit is none of the engine's"
+        );
+        store.let_commits_through();
+        assert_eq!(store.hub(&a).unwrap().unwrap().consensus, vec![1]);
+        assert_eq!(store.hub(&b).unwrap().unwrap().consensus, vec![2]);
+        assert_eq!(store.hub_bundles(&a).unwrap(), vec![(3, vec![5, 5])]);
+
+        let too_large = vec![0; MAX_HUB_BUNDLE_BYTES + 1];
+        let over: &[(u64, &[u8])] = &[(4, &too_large)];
+        assert!(
+            store
+                .commit_hub_writes(&[write(&a, &[7], &[]), write(&b, &[8], over)])
+                .is_err()
+        );
+        assert_eq!(
+            store.hub(&a).unwrap().unwrap().consensus,
+            vec![1],
+            "nothing of it"
+        );
     }
 
     // Recent states and those of the last blocks of epochs are kept for

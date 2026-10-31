@@ -100,7 +100,7 @@ Faults stay within what the node relies on. The store commits with `synchronous 
 
 - **It fails in SQLite,** through its commit hook, behind the `testing` feature, so SQLite rolls the transaction back as it would, and the engine meets the error its real commit returns.
 - **The node stops as the daemon's engine does** ([Node](node.md#the-engine)): the core panics without handing over anything of the step, a peer request it was answering gets the daemon's 503, and the simulation treats the node as crashed until it restarts it from its last good commit.
-- **It is aimed at the commits that matter:** one that books a packet's Fulfill, at a node with a payment under way; one that holds a settlement, ours prepared or executed or a peer's booked; or any. A later such commit may be the one that fails, so that a settlement can fail once it was executed.
+- **It is aimed at the commits that matter:** one that books a packet's Fulfill, at a node with a payment under way; one that holds a settlement, ours prepared or executed or a peer's booked; or any of the engine's. A test may aim it at a commit of the steps of the hubs a node validates instead, which no simulation does yet. A later such commit may be the one that fails, so that a settlement can fail once it was executed.
 - **What it checks** is that nothing the node sent rested on the lost commit: each node's books still hold against what its clients, receivers and peers saw, and a request answered 503 that is sent again is taken once.
 
 ### Long partitions

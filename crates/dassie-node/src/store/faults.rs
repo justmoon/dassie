@@ -7,9 +7,10 @@
 //! commit before.
 //!
 //! The fault can be aimed at the commits that matter: one that books a
-//! packet's Fulfill, or one that holds a settlement. Only the engine's
-//! commits ([`Store::commit_ledger`]) are aimed at; nothing else writes
-//! what moves money.
+//! packet's Fulfill, or one that holds a settlement, both the engine's
+//! ([`Store::commit_ledger`]), which writes what moves money; or one of the
+//! steps of the hubs the node validates ([`Store::commit_hub_writes`]),
+//! which a validator must have on disk before it votes.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -18,16 +19,18 @@ use rusqlite::Connection;
 
 use super::{LedgerBatch, Store};
 
-/// Which of the engine's commits fails.
+/// Which commit fails.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Aim {
-    /// Any.
+    /// Any of the engine's.
     Any,
     /// One that books a packet's transfer: a Fulfill taken or sent.
     Packet,
     /// One that holds a settlement's transfer: ours prepared, executed or
     /// cancelled, or one a peer sent us booked.
     Settlement,
+    /// One of the steps of the hubs the node validates.
+    Hub,
 }
 
 /// What a batch held.
@@ -37,6 +40,8 @@ pub struct Holds {
     pub packet: bool,
     /// A settlement's transfer.
     pub settlement: bool,
+    /// Steps of the hubs the node validates.
+    pub hub: bool,
 }
 
 impl Holds {
@@ -56,9 +61,10 @@ impl Holds {
 
     const fn aimed(self, aim: Aim) -> bool {
         match aim {
-            Aim::Any => true,
+            Aim::Any => !self.hub,
             Aim::Packet => self.packet,
             Aim::Settlement => self.settlement,
+            Aim::Hub => self.hub,
         }
     }
 }
@@ -114,8 +120,20 @@ impl Store {
     /// Before the engine's commit of `batch`: if it is the one to fail,
     /// arms SQLite's commit hook to turn its COMMIT into a ROLLBACK.
     pub(super) fn fail_if_aimed(&self, connection: &Connection, batch: &LedgerBatch) {
+        self.fail_if_holding(connection, Holds::of(batch));
+    }
+
+    /// Before a commit of hubs' steps: as [`Self::fail_if_aimed`].
+    pub(super) fn fail_if_aimed_at_hubs(&self, connection: &Connection) {
+        let holds = Holds {
+            hub: true,
+            ..Holds::default()
+        };
+        self.fail_if_holding(connection, holds);
+    }
+
+    fn fail_if_holding(&self, connection: &Connection, holds: Holds) {
         let mut failing = self.failing();
-        let holds = Holds::of(batch);
         let Some(aimed) = failing.as_mut().filter(|f| holds.aimed(f.aim)) else {
             return;
         };

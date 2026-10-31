@@ -405,6 +405,7 @@ async fn status(node: &Node) -> proto::GetStatusResponse {
         .and_then(Result::ok),
         None => None,
     };
+    let validating = node.hubs().statuses();
     proto::GetStatusResponse {
         version: crate::VERSION.into(),
         runtime: convert::runtime(node.runtime()).into(),
@@ -442,10 +443,23 @@ async fn status(node: &Node) -> proto::GetStatusResponse {
             .map(|names| names.origins())
             .unwrap_or_default(),
         feed: feed_status(node),
-        validating: node.hubs().statuses().iter().map(hub_status).collect(),
+        validating: validating.iter().map(hub_status).collect(),
         founding: super::founding::foundings(node),
         packets: counters.map(|(packets, _)| packet_counters(&packets)),
         peer_protocol: counters.map(|(_, peer)| peer_counters(&peer)),
+        hub_writes: (!validating.is_empty())
+            .then(|| hub_write_counters(node.hubs().write_counters().counts())),
+    }
+}
+
+/// How the validators of the node's hubs wrote their steps
+/// (spec/areas/hubs.md#the-validator-in-the-node).
+const fn hub_write_counters(counts: crate::hub::writer::WriteCounts) -> proto::HubWriteCounters {
+    proto::HubWriteCounters {
+        steps: counts.steps,
+        commits: counts.commits,
+        commit_micros: counts.commit_micros,
+        longest_commit_micros: counts.longest_commit_micros,
     }
 }
 

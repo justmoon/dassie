@@ -435,6 +435,8 @@ pub struct Hubs {
     members_held: HeldBySender,
     /// Places for states being served ([`MAX_STATE_SERVES`]).
     state_serves: Arc<tokio::sync::Semaphore>,
+    /// How the validators wrote their steps, since the node started.
+    writes: Arc<super::writer::WriteCounters>,
 }
 
 impl Default for Hubs {
@@ -448,11 +450,19 @@ impl Default for Hubs {
             incoming_validators: Arc::new(tokio::sync::Semaphore::new(MAX_VALIDATOR_REQUESTS)),
             members_held: Arc::default(),
             state_serves: Arc::new(tokio::sync::Semaphore::new(MAX_STATE_SERVES)),
+            writes: Arc::default(),
         }
     }
 }
 
 impl Hubs {
+    /// How the validators of the node's hubs wrote their steps, since the
+    /// node started.
+    #[must_use]
+    pub const fn write_counters(&self) -> &Arc<super::writer::WriteCounters> {
+        &self.writes
+    }
+
     /// A place for one exchange of the account `asset` with its validator
     /// at `endpoint`, if it has fewer than [`MAX_EXCHANGES_PER_VALIDATOR`]
     /// in flight there.

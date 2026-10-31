@@ -5,9 +5,10 @@
 //! Every input is a step: a message, the time, or something seen on the
 //! escrow. A step folds its consensus batches into the stored state, and
 //! returns what to write, with the ledger after a block that became final,
-//! in one transaction ([`Write`]), and its actions ([`Effects`]). Its host
-//! writes first, off the async runtime, and only then carries the actions
-//! out: a validator never sends a vote it could forget in a crash, and
+//! in one transaction ([`Write`]), which may hold the steps of the node's
+//! other hubs too ([`super::writer`]), and its actions ([`Effects`]). Its
+//! host writes first, off the async runtime, and only then carries the
+//! actions out: a validator never sends a vote it could forget in a crash, and
 //! comes back from the state after its last final block
 //! (spec/areas/hubs.md#consensus). A write that fails ends the step with
 //! nothing carried out.
@@ -30,7 +31,7 @@ use dassie_xrpl::codec::Signer;
 
 use super::escrow::EscrowView;
 use super::transport::{HubStatus, encode_frames};
-use crate::store::{HubStep, Store, StoreError};
+use crate::store::{HubStep, HubWrite, Store, StoreError};
 
 /// A validator to send to: its node, and where it is reached.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,9 +62,10 @@ pub struct Effects {
     pub evidence: Vec<Evidence>,
 }
 
-/// What a step writes before any of its actions go out: one transaction
-/// of its consensus state, the state after a block that became final and
-/// the blocks that ended epochs, then the payout bundles it signed.
+/// What a step writes before any of its actions go out, in one
+/// transaction: its consensus state, the state after a block that became
+/// final and the blocks that ended epochs, and the payout bundles it
+/// signed.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Write {
     hub: [u8; 32],
@@ -84,25 +86,74 @@ impl Write {
             && self.bundles.is_empty()
     }
 
+    /// The hub it is of.
+    #[must_use]
+    pub const fn hub(&self) -> &[u8; 32] {
+        &self.hub
+    }
+
+    /// A write of `hub`'s consensus state and the state after its block at
+    /// a height, for tests of what writes it.
+    #[cfg(test)]
+    pub(super) fn of_state(
+        hub: [u8; 32],
+        now: Millis,
+        consensus: Vec<u8>,
+        ledger: (u64, Vec<u8>),
+    ) -> Self {
+        Self {
+            hub,
+            now,
+            consensus: Some(consensus),
+            ledger: Some(ledger),
+            ..Self::default()
+        }
+    }
+
     /// Writes it: a blocking call, for a task that may block.
     ///
     /// # Errors
     ///
     /// The store failed.
     pub fn apply(&self, store: &Store) -> Result<(), StoreError> {
-        let step = HubStep {
-            consensus: self.consensus.as_deref(),
-            ledger: self
-                .ledger
-                .as_ref()
-                .map(|(height, state)| (*height, state.as_slice())),
-            boundaries: &self.boundaries,
-        };
-        store.save_hub_step(&self.hub, self.now, step)?;
-        for (height, bundle) in &self.bundles {
-            store.add_hub_bundle(&self.hub, *height, self.now, bundle)?;
-        }
-        Ok(())
+        Self::apply_all(std::slice::from_ref(self), store)
+    }
+
+    /// Writes all of `writes`, of steps of several hubs, in one
+    /// transaction: a blocking call, for a task that may block.
+    ///
+    /// # Errors
+    ///
+    /// The store failed, and none of them is written.
+    pub fn apply_all(writes: &[Self], store: &Store) -> Result<(), StoreError> {
+        let bundles: Vec<Vec<(u64, &[u8])>> = writes
+            .iter()
+            .map(|write| {
+                write
+                    .bundles
+                    .iter()
+                    .map(|(height, bundle)| (*height, bundle.as_slice()))
+                    .collect()
+            })
+            .collect();
+        let writes: Vec<HubWrite<'_>> = writes
+            .iter()
+            .zip(&bundles)
+            .map(|(write, bundles)| HubWrite {
+                hub: &write.hub,
+                now_ms: write.now,
+                step: HubStep {
+                    consensus: write.consensus.as_deref(),
+                    ledger: write
+                        .ledger
+                        .as_ref()
+                        .map(|(height, state)| (*height, state.as_slice())),
+                    boundaries: &write.boundaries,
+                },
+                bundles,
+            })
+            .collect();
+        store.commit_hub_writes(&writes)
     }
 }
 

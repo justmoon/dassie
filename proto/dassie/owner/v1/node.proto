@@ -78,6 +78,24 @@ message GetStatusResponse {
   // What the peer protocol counted since the engine started; unset while
   // the engine is down.
   PeerCounters peer_protocol = 15;
+  // What the validators of the hubs the node validates wrote since the
+  // node started (spec/areas/hubs.md#the-validator-in-the-node); unset on
+  // a node that validates none.
+  HubWriteCounters hub_writes = 16;
+}
+
+// How the validators of the hubs the node validates write their steps: one
+// commit holds the steps of every hub waiting then, so more steps than
+// commits means hubs share commits. Each only grows while the node runs.
+message HubWriteCounters {
+  // Steps written.
+  uint64 steps = 1;
+  // Commits that wrote them.
+  uint64 commits = 2;
+  // Microseconds the commits took, all together.
+  uint64 commit_micros = 3;
+  // Microseconds the longest commit took.
+  uint64 longest_commit_micros = 4;
 }
 
 // The connector's counters: what came of the Prepares it took. Read in one
