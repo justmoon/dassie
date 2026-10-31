@@ -10,7 +10,7 @@
 //!   "xrpl": "wss://...",
 //!   "network": "testnet",
 //!   "publishers": [{ "key": "<hex>", "sites": ["https://..."] }],
-//!   "hubVersion": 2
+//!   "hubVersion": 3
 //! }
 //! ```
 //!

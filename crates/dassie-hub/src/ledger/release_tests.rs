@@ -99,7 +99,7 @@ fn after_notice(hub: &mut Hub) {
 #[test]
 fn a_claim_pays_once_the_holds_notice_passed() {
     let mut hub = Hub::new();
-    assert_eq!(hub.ledger.version(), 2);
+    assert!(hub.ledger.version() >= crate::rules::RELEASES_VERSION);
     let (_, alice_key, bob, bob_key, hold) = hold_for_bob(&mut hub);
     let before = hub.balance(bob);
     let op = claim(&hub, &alice_key, hold, 1, 100);
@@ -416,6 +416,25 @@ fn a_quorum_moves_a_hub_to_version_2_after_the_notice() {
     // Snapshots carry the version and what waits.
     let restored = Ledger::restore(&hub.ledger.snapshot(), &hub.ledger.state_root()).unwrap();
     assert_eq!(restored, hub.ledger);
+}
+
+// spec/decisions/batched-validator-messages.md: version 3 changes nothing a
+// ledger executes, and a hub of version 1 or 2 moves to it as to any
+// version, keeping its rules and its ID.
+#[test]
+fn hubs_of_versions_1_and_2_move_to_version_3() {
+    for from in [1, 2] {
+        let mut hub = Hub::with(|rules| rules.terms.version = from);
+        let id = *hub.ledger.hub();
+        vote(&mut hub, 0..3, crate::rules::BATCHES_VERSION);
+        let at = hub.ledger.pending_upgrade().unwrap().at;
+        hub.block_at(at, vec![], &[]);
+        assert_eq!(hub.ledger.version(), 3);
+        assert_eq!(hub.ledger.rules().terms.version, from);
+        assert_eq!(hub.ledger.hub(), &id);
+        let restored = Ledger::restore(&hub.ledger.snapshot(), &hub.ledger.state_root()).unwrap();
+        assert_eq!(restored, hub.ledger);
+    }
 }
 
 // New rules after the move name the version the hub runs.

@@ -519,23 +519,72 @@ async fn validators_move_a_hub_to_the_version_their_owners_name() {
         .iter()
         .map(|n| start_voting(n, &rules, genesis, &clock, Some(2)))
         .collect();
+    move_hub(&nodes, &rules, &clock, 2).await;
+
+    shutdown.cancel();
+    for validator in running {
+        validator.stop.cancel();
+        validator.task.await.unwrap();
+    }
+}
+
+// spec/decisions/batched-validator-messages.md: the validators of a hub of
+// version 2 send each other a message per exchange; once the hub runs
+// version 3, they send them in batches, and blocks go on being final.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn validators_of_a_hub_moved_to_version_3_batch_their_messages() {
+    let shutdown = CancellationToken::new();
+    let nodes: Vec<Node> = (1..=4).map(|seed| node(seed, &shutdown)).collect();
+    let rules = rules_of(&nodes, 2);
+    let clock = ManualClock::new(support::START_MS);
+    let genesis = clock.now_ms();
+    let running: Vec<Running> = nodes
+        .iter()
+        .map(|n| start_voting(n, &rules, genesis, &clock, Some(3)))
+        .collect();
+    let batches = || {
+        nodes
+            .iter()
+            .map(|n| n.hubs.batch_counters().counts().0)
+            .collect::<Vec<_>>()
+    };
+    until_moved(&clock, "blocks become final", async || {
+        nodes.iter().all(|n| height(n) >= 5)
+    })
+    .await;
+    assert!(batches().iter().all(|b| *b == 0), "none on version 2");
+    move_hub(&nodes, &rules, &clock, 3).await;
+    assert!(batches().iter().all(|b| *b > 0), "{:?}", batches());
+
+    shutdown.cancel();
+    for validator in running {
+        validator.stop.cancel();
+        validator.task.await.unwrap();
+    }
+}
+
+/// Waits while the validators of the hub of `rules` on `nodes`, voting for
+/// `version`, move it there once the notice for new rules passed, and then
+/// until blocks go on being final under it.
+async fn move_hub(nodes: &[Node], rules: &Rules, clock: &ManualClock, version: u16) {
+    let from = nodes[0].hubs.statuses()[0].version;
     let statuses = || {
         nodes
             .iter()
             .map(|n| n.hubs.statuses()[0].clone())
             .collect::<Vec<_>>()
     };
-    until_moved(&clock, "a quorum votes", async || {
+    until_moved(clock, "a quorum votes", async || {
         nodes.iter().all(|n| {
             n.hubs
                 .statuses()
                 .first()
-                .is_some_and(|s| s.upgrade.is_some_and(|(version, _)| version == 2))
+                .is_some_and(|s| s.upgrade.is_some_and(|(v, _)| v == version))
         })
     })
     .await;
     assert!(
-        statuses().iter().all(|s| s.version == 1),
+        statuses().iter().all(|s| s.version == from),
         "not before the notice"
     );
     // The notice for new rules, two minutes, is more than one wait moves
@@ -551,31 +600,25 @@ async fn validators_move_a_hub_to_the_version_their_owners_name() {
             break;
         }
         let before = height(&nodes[0]);
-        until_moved(&clock, "blocks go on during the notice", async || {
+        until_moved(clock, "blocks go on during the notice", async || {
             near() || height(&nodes[0]) > before + 300
         })
         .await;
     }
     assert!(near(), "the notice nearly passed");
-    until_moved(&clock, "the hub runs version 2", async || {
+    until_moved(clock, "the hub runs the version", async || {
         nodes.iter().all(|n| {
             n.hubs
                 .statuses()
                 .first()
-                .is_some_and(|s| s.version == 2 && s.upgrade.is_none())
+                .is_some_and(|s| s.version == version && s.upgrade.is_none())
         })
     })
     .await;
     assert!(statuses().iter().all(|s| s.hub == rules.id()));
     // Blocks go on being final under it.
     let at = height(&nodes[0]);
-    until_moved(&clock, "blocks go on", async || height(&nodes[0]) > at + 5).await;
-
-    shutdown.cancel();
-    for validator in running {
-        validator.stop.cancel();
-        validator.task.await.unwrap();
-    }
+    until_moved(clock, "blocks go on", async || height(&nodes[0]) > at + 5).await;
 }
 
 // spec/areas/peer-protocol.md#the-batch-stream: a validator takes a batch

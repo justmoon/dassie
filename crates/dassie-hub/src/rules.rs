@@ -76,8 +76,8 @@ pub type Millis = u64;
 
 /// The newest version of the hub's protocol this code runs, the one it
 /// founds hubs under: the hub's encodings and digests, what its ledger does
-/// with a block, and its consensus rules
-/// (spec/decisions/hub-protocol-version.md). It is not the release's
+/// with a block, its consensus rules, and how its validators exchange its
+/// messages (spec/decisions/hub-protocol-version.md). It is not the release's
 /// version: it changes only when something every validator of a hub must
 /// agree on changes, and the golden vectors pin what each version means
 /// (`testdata/hub/`). Terms of a version this code does not run neither
@@ -87,7 +87,10 @@ pub type Millis = u64;
 /// Version 2 adds the payee's release of a commitment, the payer's
 /// `dispute` with it, and claims that pay their payee only after the
 /// hold's notice (spec/decisions/signed-rejects.md).
-pub const HUB_VERSION: u16 = 2;
+///
+/// Version 3 changes nothing a ledger executes: its validators send each
+/// other their messages in batches ([`BATCHES_VERSION`]).
+pub const HUB_VERSION: u16 = 3;
 
 /// The oldest version of the hub's protocol this code runs: it runs every
 /// version from this one to [`HUB_VERSION`], each as that version says, so
@@ -113,6 +116,8 @@ pub const RELEASES_VERSION: u16 = 2;
 /// from any validator of a hub it validates, whatever the hub's version, so
 /// a hub moves to it only once its validators run such a release.
 pub const BATCHES_VERSION: u16 = 3;
+
+const _: () = assert!(RELEASES_VERSION <= BATCHES_VERSION && BATCHES_VERSION <= HUB_VERSION);
 
 /// A hub, named by the digest of its rules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

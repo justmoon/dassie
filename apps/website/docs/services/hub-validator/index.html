@@ -132,7 +132,9 @@
           <p>
             The version of the hub protocol your node votes to move every
             hub it validates to, while a hub runs an older one, such as
-            <code>2</code>. Once enough of a hub's validators vote for it,
+            <code>3</code>. Version 3 changes nothing in the hub's ledger:
+            its validators send each other their messages in batches, of
+            every hub they validate together. Once enough of a hub's validators vote for it,
             the hub runs it once its notice for new rules has passed, a day on Dassie's hubs, and
             <code>dassie status</code> shows when. Leave it out unless the
             project asks validators to move: every validator and every node
