@@ -1,8 +1,8 @@
 /**
  * What the network page says of the node's swaps with its peers
  * (spec/areas/connector.md#the-swap-service): whether it swaps by itself,
- * with how many peers, and what moved, from the counters `GetSwapStatus`
- * reports.
+ * with how many peers, what moved, and when it waited for room of its own,
+ * from the counters `GetSwapStatus` reports.
  */
 
 import type { GetSwapStatusResponse } from "@dassie/rpc/proto";
@@ -51,6 +51,20 @@ export function swapsView(
       count(status.refused, "time")
     }; ${status.belowMinimum} came back short, ${status.tooLarge} too large.`,
   ];
+  if (status.shortOfRoom > 0n) {
+    details.push(
+      `Waited ${
+        count(status.shortOfRoom, "time")
+      } for room of its own: a funding of its hold toward a peer, or its packets in flight to finish.`,
+    );
+  }
+  if (status.waitingForRoom > 0n) {
+    details.push(
+      `Waiting for room of its own with ${
+        count(status.waitingForRoom, "peer")
+      } now: it swaps again as soon as there is.`,
+    );
+  }
   if (status.paidThoughRejected > 0n) {
     details.push(
       `${

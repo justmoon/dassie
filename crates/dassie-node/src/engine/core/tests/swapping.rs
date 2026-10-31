@@ -14,11 +14,15 @@ use dassie_feed::{FEED_VALIDITY_MS, MethodTag, Ratio, method_tag};
 use dassie_ilp::ErrorCode;
 use dassie_ledger::{LedgerId, Name};
 
-use super::super::{EngineError, OwnerSwap, Quoting, SnapshotSource, SwapEnd, SwapStats};
-use super::STUB_TWO;
-use super::swaps::{holds, pair};
+use super::super::{
+    EngineError, MAX_ROOM_BACKOFF_MS, NewSwap, OwnerSwap, PACKETS_PER_PEER, Quoting,
+    SnapshotSource, SwapEnd, SwapStats,
+};
+use super::swaps::{holds, pair, pair_with};
+use super::{STUB_TWO, stub_two_room_toward};
 use crate::sim::{Sim, key};
 use crate::store::PeerSettings;
+use dassie_settlement::MAX_STUB_COMMITMENTS;
 
 const USD: LedgerId = LedgerId::StubUsd;
 /// [`StubTwo`](super::StubTwo)'s ledger.
@@ -60,6 +64,13 @@ fn skewed(seed: u64) -> Sim {
     sim
 }
 
+/// [`skewed`], each stub taking up to `commitments` of a peer's packets.
+fn skewed_with(seed: u64, commitments: usize) -> Sim {
+    let mut sim = pair_with(seed, commitments);
+    deposit(&mut sim, 1, STUB_TWO, 200 * UNIT);
+    sim
+}
+
 /// How far node `index` is from its targets, an even split of its value
 /// between dollars and XRP: the gap between the two, and their sum, in
 /// dollars at spot (a dollar buys two XRP).
@@ -77,6 +88,33 @@ fn closer((gap, total): (u128, u128), (gap_before, total_before): (u128, u128)) 
 
 fn stats(sim: &Sim, index: usize) -> SwapStats {
     sim.core(index).swap_stats()
+}
+
+/// Whether each node has a snapshot of the other.
+fn both_read_snapshots(sim: &Sim) -> bool {
+    (0..2).all(|index| {
+        let other = key(1 - index).node_id();
+        sim.core(index).peer_snapshot(&other).is_some()
+    })
+}
+
+/// Node `index`'s name in the books, as its peers' schemes know it.
+fn name(index: usize) -> Name {
+    Name::new(key(index).node_id().as_str()).unwrap()
+}
+
+/// The swaps node `index` sent from its swap endpoints since `since`, in
+/// the order they went.
+fn swaps_sent(sim: &Sim, index: usize, since: u64) -> Vec<dassie_connector::PacketRecord> {
+    let core = sim.core(index);
+    let swaps: BTreeSet<_> = [USD, HUB]
+        .into_iter()
+        .filter_map(|ledger| core.connector.swap_endpoint(ledger))
+        .collect();
+    core.packets(None, 100_000)
+        .into_iter()
+        .filter(|record| swaps.contains(&record.source) && record.received_at_ms > since)
+        .collect()
 }
 
 // Two core nodes skewed opposite ways swap until neither's quotes clear
@@ -228,46 +266,36 @@ fn a_periphery_node_without_targets_never_swaps_by_itself() {
 fn a_rate_limited_swap_backs_off() {
     for seed in SEEDS {
         let mut sim = skewed(seed);
-        let snapshots = |sim: &Sim| {
-            (0..2).all(|index| {
-                let other = key(1 - index).node_id();
-                sim.core(index).peer_snapshot(&other).is_some()
-            })
-        };
-        assert!(sim.run_until_or(sim.now + 60_000, snapshots), "seed {seed}");
+        assert!(
+            sim.run_until_or(sim.now + 60_000, both_read_snapshots),
+            "seed {seed}"
+        );
         sim.transport_refusals.insert((0, 1), 429);
         sim.transport_refusals.insert((1, 0), 429);
         let start = sim.now;
-        sim.run_until(start + 10_000);
-        // When each node sent a swap that was refused for the rate, from
-        // its swap endpoints.
-        let refused = |index: usize| {
-            let core = sim.core(index);
-            let swaps: BTreeSet<_> = [USD, HUB]
-                .into_iter()
-                .filter_map(|ledger| core.connector.swap_endpoint(ledger))
-                .collect();
+        // When each node sent a swap that was refused for the rate.
+        let refused = |sim: &Sim, index: usize| {
             let rate_limited = dassie_connector::PacketState::Rejected(ErrorCode::T05_RATE_LIMITED);
-            core.packets(None, 100_000)
+            swaps_sent(sim, index, start)
                 .into_iter()
-                .filter(|record| swaps.contains(&record.source))
-                .filter(|record| record.received_at_ms > start && record.state == rate_limited)
+                .filter(|record| record.state == rate_limited)
                 .map(|record| record.received_at_ms)
                 .collect::<BTreeSet<u64>>()
         };
-        let (refused_0, refused_1) = (refused(0), refused(1));
-        assert!(
-            refused_0.len() + refused_1.len() >= 3,
-            "seed {seed}: {refused_0:?} {refused_1:?}"
-        );
+        // A swap that was in flight as the refusals began is lost with its
+        // answer, and waits for its expiry.
+        let rounds = |sim: &Sim| refused(sim, 0).len() + refused(sim, 1).len() >= 3;
+        assert!(sim.run_until_or(start + 60_000, rounds), "seed {seed}");
+        sim.run_until(sim.now + 5_000);
+        let (refused_0, refused_1) = (refused(&sim, 0), refused(&sim, 1));
         for rounds in [refused_0, refused_1] {
             // Each round waits at least the backoff, the first wait, then
-            // twice the last.
+            // twice the last, up to a hub funding's landing.
             let rounds: Vec<u64> = rounds.into_iter().collect();
             let mut least = 100;
             for window in rounds.windows(2) {
                 assert!(window[1] - window[0] >= least, "seed {seed}: {rounds:?}");
-                least *= 2;
+                least = (least * 2).min(MAX_ROOM_BACKOFF_MS);
             }
         }
         let backed = stats(&sim, 0).backoffs + stats(&sim, 1).backoffs;
@@ -280,6 +308,201 @@ fn a_rate_limited_swap_backs_off() {
         let fulfilled = stats(&sim, 0).fulfilled + stats(&sim, 1).fulfilled;
         sim.run_until(sim.now + 60_000);
         assert!(stats(&sim, 0).fulfilled + stats(&sim, 1).fulfilled > fulfilled);
+    }
+}
+
+// A swap the node refused itself for want of room in its own hold toward
+// the peer backs off from nothing: the method waits, sending nothing, until
+// the hold grows, and the swap goes in the step its funding lands in.
+#[test]
+fn a_swap_short_of_its_own_hold_goes_as_its_funding_lands() {
+    for seed in SEEDS {
+        let mut sim = skewed(seed);
+        assert!(
+            sim.run_until_or(sim.now + 60_000, both_read_snapshots),
+            "seed {seed}"
+        );
+        // Node 1, heavy in XRP, pays in the hub: its hold toward node 0
+        // there has no room.
+        stub_two_room_toward(name(0), Some(0));
+        let short = |sim: &Sim| stats(sim, 1).short_of_room > 0;
+        assert!(sim.run_until_or(sim.now + 120_000, short), "seed {seed}");
+        let waiting =
+            |sim: &Sim| stats(sim, 1).waiting_for_room == 1 && stats(sim, 1).in_flight == 0;
+        assert!(sim.run_until_or(sim.now + 10_000, waiting), "seed {seed}");
+        let (sent, backoffs) = (stats(&sim, 1).sent, stats(&sim, 1).backoffs);
+        // While the hold stays as it is, it sends nothing, for far longer
+        // than the backoffs it took before.
+        sim.run_until(sim.now + 20_000);
+        assert_eq!(stats(&sim, 1).sent, sent, "seed {seed}");
+        assert_eq!(stats(&sim, 1).waiting_for_room, 1, "seed {seed}");
+        // Its funding lands: the swap goes in that step, backing off from
+        // nothing.
+        let now = sim.now;
+        sim.step(1, |_| stub_two_room_toward(name(0), Some(u64::MAX)));
+        assert_eq!(sim.now, now);
+        assert!(stats(&sim, 1).sent > sent, "seed {seed}");
+        assert_eq!(stats(&sim, 1).waiting_for_room, 0, "seed {seed}");
+        assert_eq!(stats(&sim, 1).backoffs, backoffs, "seed {seed}");
+        stub_two_room_toward(name(0), None);
+        let fulfilled = stats(&sim, 1).fulfilled;
+        let swapped = |sim: &Sim| stats(sim, 1).fulfilled > fulfilled;
+        assert!(sim.run_until_or(sim.now + 30_000, swapped), "seed {seed}");
+        crate::sim::checks::check_hub_packets(&sim).unwrap();
+    }
+}
+
+// A swap the peer, or its way back, refused for want of room backs off,
+// but never longer than a hub funding's landing: once its peer's hold
+// toward it has no room, node 0 tries again at most that long after each
+// refusal, and at least the first wait.
+#[test]
+fn a_swap_the_peer_is_short_for_backs_off_at_most_a_landing() {
+    for seed in SEEDS {
+        let mut sim = skewed(seed);
+        assert!(
+            sim.run_until_or(sim.now + 60_000, both_read_snapshots),
+            "seed {seed}"
+        );
+        // Node 0's swaps come back in the hub, from node 1's hold toward
+        // it, which has no room.
+        stub_two_room_toward(name(0), Some(0));
+        let start = sim.now;
+        sim.run_until(start + 60_000);
+        let sent = swaps_sent(&sim, 0, start);
+        let short = dassie_connector::PacketState::Rejected(ErrorCode::T04_INSUFFICIENT_LIQUIDITY);
+        assert!(
+            sent.iter().filter(|record| record.state == short).count() >= 10,
+            "seed {seed}: {sent:?}"
+        );
+        // From the last outcomes it heard, refusals for room, to the next
+        // swap it sent. An F08 has it go again at once, smaller, and so
+        // does a swap fulfilled; outcomes heard in the moment a swap went
+        // may have come after it.
+        for (index, record) in sent.iter().enumerate() {
+            let went = record.received_at_ms;
+            let earlier = &sent[..index];
+            let heard = earlier
+                .iter()
+                .filter_map(|earlier| earlier.resolved_at_ms)
+                .filter(|&heard| heard < went)
+                .max();
+            let next = earlier
+                .last()
+                .is_some_and(|before| before.received_at_ms < went);
+            let only_short = |heard| {
+                earlier
+                    .iter()
+                    .filter(|earlier| earlier.resolved_at_ms == Some(heard))
+                    .all(|earlier| earlier.state == short)
+            };
+            if let Some(heard) = heard
+                && only_short(heard)
+                && next
+            {
+                let waited = went - heard;
+                assert!(
+                    (100..=MAX_ROOM_BACKOFF_MS).contains(&waited),
+                    "seed {seed}: waited {waited} ms"
+                );
+            }
+        }
+        assert_eq!(stats(&sim, 0).short_of_room, 0, "seed {seed}");
+        stub_two_room_toward(name(0), None);
+    }
+}
+
+// A peer that stays short is tried at most a round of swaps per hub
+// funding's landing, however long it stays so.
+#[test]
+fn a_peer_that_stays_short_is_tried_once_a_landing() {
+    for seed in SEEDS {
+        let mut sim = skewed(seed);
+        assert!(
+            sim.run_until_or(sim.now + 60_000, both_read_snapshots),
+            "seed {seed}"
+        );
+        stub_two_room_toward(name(0), Some(0));
+        // Past the first waits, which double up to a landing.
+        sim.run_until(sim.now + 10_000);
+        let (sent, backoffs) = (stats(&sim, 0).sent, stats(&sim, 0).backoffs);
+        let window = 300_000;
+        sim.run_until(sim.now + window);
+        let rounds = window / MAX_ROOM_BACKOFF_MS + 1;
+        let most = PACKETS_PER_PEER as u64 * rounds;
+        let tried = stats(&sim, 0).sent - sent;
+        assert!(tried <= most, "seed {seed}: {tried} swaps in {window} ms");
+        assert!(stats(&sim, 0).backoffs - backoffs <= most, "seed {seed}");
+        // And it still tries: it backs off from it now.
+        assert!(tried > 0, "seed {seed}");
+        stub_two_room_toward(name(0), None);
+    }
+}
+
+// A swap that finds its swap endpoint's share of the packets in flight full
+// waits for a swap on that ledger to end, not for a long wait: the service
+// sends again as soon as one does. The connector's T05 at that share is no
+// want of room the node follows, so a swap it refuses there backs off for
+// at most a landing, as the peer's does.
+#[test]
+fn a_swap_at_its_endpoints_share_goes_once_another_ends() {
+    for seed in SEEDS {
+        let mut sim = skewed_with(seed, MAX_STUB_COMMITMENTS);
+        assert!(
+            sim.run_until_or(sim.now + 60_000, both_read_snapshots),
+            "seed {seed}"
+        );
+        // Swaps take seconds to answer meanwhile.
+        sim.latency_ms = (2_000, 2_000);
+        let most = sim.core(0).connector.config().max_pending_per_endpoint;
+        let endpoint = sim.core(0).connector.swap_endpoint(USD).unwrap();
+        let pending = |sim: &Sim| sim.core(0).connector.pending_from(endpoint);
+        let swap = NewSwap {
+            peer: key(1).node_id(),
+            pay_on: USD,
+            back_on: HUB,
+            amount: 100_000,
+            minimum: 1,
+            timeout_ms: 30_000,
+        };
+        let mut refused = None;
+        sim.step(0, |core| {
+            for _ in 0..2 * most {
+                if core.connector.pending_from(endpoint) >= most {
+                    break;
+                }
+                core.send_swap(swap).unwrap();
+            }
+            let sent = core.send_swap(swap).unwrap();
+            while let Some(outcome) = core.poll_swap_outcome() {
+                if outcome.request_id == sent.request_id {
+                    refused = Some(outcome);
+                }
+            }
+        });
+        assert_eq!(pending(&sim), most, "seed {seed}");
+        let refused = refused.expect("refused at once");
+        assert_eq!(refused.result, Err(ErrorCode::T05_RATE_LIMITED));
+        assert!(!refused.short_of_own_room, "seed {seed}");
+        // While the share is full, the service sends nothing; once a swap
+        // on the ledger ends, it sends at once.
+        let (filled_at, sent) = (sim.now, stats(&sim, 0).sent);
+        let swapped = |sim: &Sim| stats(sim, 0).sent > sent;
+        assert!(sim.run_until_or(filled_at + 60_000, swapped), "seed {seed}");
+        let went = sim.now;
+        let ended = sim
+            .core(0)
+            .packets(None, 100_000)
+            .into_iter()
+            .filter(|record| record.source == endpoint)
+            .filter_map(|record| record.resolved_at_ms)
+            .filter(|&resolved| resolved > filled_at)
+            .min();
+        let ended = ended.expect("a swap on the ledger ended");
+        assert!(
+            ended <= went && went - ended <= MAX_ROOM_BACKOFF_MS,
+            "seed {seed}: one ended at {ended}, the next went at {went}"
+        );
     }
 }
 

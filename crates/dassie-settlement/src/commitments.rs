@@ -222,6 +222,20 @@ pub trait Commitments {
         None
     }
 
+    /// As the payer: what our hold toward `peer` has room for, in internal
+    /// units: what is in it less what we owe on it and what our packets in
+    /// flight promise, all of it nothing without a hold. That is the most
+    /// we can send the peer over a hub: a packet above it gets no
+    /// commitment ([`commit`](Self::commit)). It grows as a funding of the
+    /// hold lands, or a packet of ours is rejected, which is when the swap
+    /// service tries a swap it refused for want of it again
+    /// (spec/areas/connector.md#the-swap-service). None, by default:
+    /// nothing the scheme keeps bounds it.
+    fn room_toward(&self, peer: Name) -> Option<u64> {
+        let _ = peer;
+        None
+    }
+
     /// The hub we are a member of: what our link state names, so that
     /// peers in the same hub peer with us over it. A member the hub has no
     /// account for yet says so with [`Membership::NO_ACCOUNT`], once the
