@@ -179,6 +179,25 @@ impl crate::quic::Handler for QuicHandler {
             .request_permit(access, &crate::hub::Sender(*from))
     }
 
+    /// Batches of validators' messages, from validators of the hubs the
+    /// node validates only, in their places.
+    fn hub_batch_access(
+        &self,
+        from: &dassie_identity::NodeIdentity,
+    ) -> crate::hub::batch::BatchAccess {
+        self.0.hubs().batch_access(from)
+    }
+
+    fn hub_batch(
+        &self,
+        from: dassie_identity::NodeIdentity,
+        request: &[u8],
+    ) -> Option<Vec<crate::hub::batch::FrameReply>> {
+        self.0
+            .hubs()
+            .answer_batch(crate::hub::Sender(from), request)
+    }
+
     /// The states the node keeps of the hubs it validates, for their other
     /// validators only.
     fn hub_state<'a>(

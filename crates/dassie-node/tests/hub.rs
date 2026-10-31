@@ -36,6 +36,7 @@ use dassie_hub::{HubId, Millis};
 use dassie_identity::{IdentityKey, NodeIdentity};
 use dassie_kit::ClientKey;
 use dassie_node::clock::{Clock, ManualClock};
+use dassie_node::hub::batch::{BatchAccess, FrameReply, encode_batch};
 use dassie_node::hub::driver::Driver;
 use dassie_node::hub::service::{BACKOFF_MAX, EscrowLinks, HubTask, SEND_TIMEOUT, Shared};
 use dassie_node::hub::transport::{HubPermit, MAX_MEMBER_MESSAGE_BYTES, Route, StateReply};
@@ -98,6 +99,14 @@ impl Handler for HubHandler {
         request: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Option<HubAnswer>> + Send + 'a>> {
         Box::pin(async move { Some(self.0.answer(Sender(from), &request).await) })
+    }
+
+    fn hub_batch_access(&self, from: &NodeIdentity) -> BatchAccess {
+        self.0.batch_access(from)
+    }
+
+    fn hub_batch(&self, from: NodeIdentity, request: &[u8]) -> Option<Vec<FrameReply>> {
+        self.0.answer_batch(Sender(from), request)
     }
 
     fn hub_state<'a>(
@@ -263,7 +272,13 @@ fn start_sharing(
     genesis: Millis,
     clock: &ManualClock,
 ) -> Vec<Running> {
-    let shared = Shared::of(Arc::clone(&node.store), &node.hubs);
+    let sending = HubClient::new(Some(Arc::clone(&node.quic)), client());
+    let shared = Shared::of(
+        Arc::clone(&node.store),
+        &node.hubs,
+        &sending,
+        &CancellationToken::new(),
+    );
     rules
         .iter()
         .map(|rules| {
@@ -555,6 +570,90 @@ async fn validators_move_a_hub_to_the_version_their_owners_name() {
     // Blocks go on being final under it.
     let at = height(&nodes[0]);
     until_moved(&clock, "blocks go on", async || height(&nodes[0]) > at + 5).await;
+
+    shutdown.cancel();
+    for validator in running {
+        validator.stop.cancel();
+        validator.task.await.unwrap();
+    }
+}
+
+// spec/areas/peer-protocol.md#the-batch-stream: a validator takes a batch
+// from a validator of a hub it validates, hands each frame to its own hub
+// and answers each: a frame of its hub is taken, one of a hub it does not
+// validate is answered as on the hub's stream, and one of a hub whose
+// validators the sender is not one of is not taken. A node it validates no
+// hub with is reset unread.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_batch_is_answered_frame_by_frame() {
+    let shutdown = CancellationToken::new();
+    let nodes: Vec<Node> = (1..=6).map(|seed| node(seed, &shutdown)).collect();
+    let ours = rules(&nodes[..4]);
+    let theirs = rules_with(&nodes[1..5], dassie_hub::rules::HUB_VERSION, [8; 32]);
+    let clock = ManualClock::new(support::START_MS);
+    let genesis = clock.now_ms();
+    let mut running: Vec<Running> = nodes[..4]
+        .iter()
+        .map(|n| start(n, &ours, genesis, &clock))
+        .collect();
+    running.extend(
+        nodes[1..5]
+            .iter()
+            .map(|n| start(n, &theirs, genesis, &clock)),
+    );
+
+    let key = dassie_identity::TableKeygen::identity_key(&[1; 32]).public_key();
+    let request = Message::Request(Request::Account(key)).to_vec();
+    let unknown = HubId(dassie_hub::Digest([9; 32]));
+    let frames: Vec<(HubId, &[u8])> = vec![
+        (ours.id(), &request),
+        (unknown, &request),
+        (theirs.id(), &request),
+    ];
+    let batch = encode_batch(&frames);
+    let to = &nodes[1];
+    let sender = HubClient::new(Some(Arc::clone(&nodes[0].quic)), client());
+    let (records, mut answers) = tokio::sync::mpsc::channel(32);
+    sender
+        .exchange_batch(
+            to.key.node_id(),
+            &to.endpoint,
+            &batch,
+            3,
+            &records,
+            support::HANG,
+        )
+        .await
+        .unwrap();
+    drop(records);
+    let mut answered = std::collections::BTreeMap::new();
+    while let Some((index, answer)) = answers.recv().await {
+        assert!(answered.insert(index, answer).is_none(), "each frame once");
+    }
+    assert!(
+        matches!(answered.get(&0), Some(HubAnswer::Taken(messages)) if !messages.is_empty()),
+        "{answered:?}"
+    );
+    assert_eq!(answered.get(&1), Some(&HubAnswer::UnknownHub));
+    assert_eq!(answered.get(&2), Some(&HubAnswer::Malformed));
+
+    // The sixth node validates no hub with the second: reset, unread.
+    let stranger = HubClient::new(Some(Arc::clone(&nodes[5].quic)), client());
+    let (records, _answers) = tokio::sync::mpsc::channel(32);
+    let refused = stranger
+        .exchange_batch(
+            to.key.node_id(),
+            &to.endpoint,
+            &batch,
+            3,
+            &records,
+            support::HANG,
+        )
+        .await;
+    assert!(
+        matches!(refused, Err(HubExchangeError::Failed(_))),
+        "{refused:?}"
+    );
 
     shutdown.cancel();
     for validator in running {

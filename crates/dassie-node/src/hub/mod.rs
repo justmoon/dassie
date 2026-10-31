@@ -3,6 +3,12 @@
 //! - [`transport`]: the hub's stream, on which validators and members
 //!   exchange the hub's messages over QUIC: its bytes, the client that sends on it ([`HubClient`]), and how the
 //!   node hands what arrives to the hubs it validates ([`Hubs`]).
+//! - [`batch`]: validators' messages to each other, of every hub they
+//!   share, in batches on a stream of their own.
+//! - [`backoffs`]: when a validator sends again to another it could not
+//!   reach, one wait per node for every hub.
+//! - [`outbox`]: what a node's validators send other validators, queued
+//!   per node and sent in batches.
 //! - [`config`]: which hubs the owner has the node validate, and for which
 //!   sponsors.
 //! - [`driver`]: one hub's validator, persisted before it acts.
@@ -19,10 +25,13 @@
 //! - [`payouts`]: a member's copies of its hub's validators' payout
 //!   bundles.
 
+pub mod backoffs;
+pub mod batch;
 pub mod config;
 pub mod driver;
 pub mod escrow;
 pub mod founding;
+pub mod outbox;
 pub mod payouts;
 pub mod service;
 pub mod sponsor;

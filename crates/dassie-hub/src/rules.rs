@@ -106,6 +106,14 @@ pub const fn runs(version: u16) -> bool {
 /// the hold's notice (spec/decisions/signed-rejects.md).
 pub const RELEASES_VERSION: u16 = 2;
 
+/// The first version whose validators send each other their messages in
+/// batches, of every hub two validators share, on a stream of their own
+/// (spec/decisions/batched-validator-messages.md). It changes nothing a
+/// ledger executes. A validator of a release that reads batches takes them
+/// from any validator of a hub it validates, whatever the hub's version, so
+/// a hub moves to it only once its validators run such a release.
+pub const BATCHES_VERSION: u16 = 3;
+
 /// A hub, named by the digest of its rules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct HubId(pub Digest);

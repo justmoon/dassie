@@ -449,6 +449,10 @@ async fn status(node: &Node) -> proto::GetStatusResponse {
         peer_protocol: counters.map(|(_, peer)| peer_counters(&peer)),
         hub_writes: (!validating.is_empty())
             .then(|| hub_write_counters(node.hubs().write_counters().counts())),
+        hub_batches: (!validating.is_empty()).then(|| {
+            let (batches, messages) = node.hubs().batch_counters().counts();
+            proto::HubBatchCounters { batches, messages }
+        }),
     }
 }
 

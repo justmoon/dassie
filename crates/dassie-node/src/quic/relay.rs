@@ -1225,7 +1225,8 @@ mod tests {
         assert_eq!(StreamKind::from_byte(3), Some(StreamKind::Hub));
         assert_eq!(StreamKind::from_byte(4), Some(StreamKind::HubState));
         assert_eq!(StreamKind::from_byte(5), Some(StreamKind::HubFounding));
-        assert_eq!(StreamKind::from_byte(6), None);
+        assert_eq!(StreamKind::from_byte(6), Some(StreamKind::HubBatch));
+        assert_eq!(StreamKind::from_byte(7), None);
     }
 
     // The waits a relay that refuses every dial gets, in turn: it reads as

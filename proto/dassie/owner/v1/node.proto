@@ -82,6 +82,22 @@ message GetStatusResponse {
   // node started (spec/areas/hubs.md#the-validator-in-the-node); unset on
   // a node that validates none.
   HubWriteCounters hub_writes = 16;
+  // The batches the validators of the hubs the node validates sent other
+  // validators since the node started
+  // (spec/areas/peer-protocol.md#the-batch-stream); unset on a node that
+  // validates none.
+  HubBatchCounters hub_batches = 17;
+}
+
+// The batches a node's validators send other validators: the messages of
+// every hub two validators share go to the other in one batch while it is
+// on its way, so more messages than batches means they shared batches.
+// Each only grows while the node runs.
+message HubBatchCounters {
+  // Batches sent.
+  uint64 batches = 1;
+  // Messages they held.
+  uint64 messages = 2;
 }
 
 // How the validators of the hubs the node validates write their steps: one

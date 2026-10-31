@@ -13,8 +13,8 @@
 //! write that fails stops the service, which the supervisor starts again
 //! from what is on disk.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::time::Duration;
 
 use dassie_hub::HubId;
@@ -25,12 +25,15 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+pub use super::backoffs::BACKOFF_MAX;
+use super::backoffs::Backoffs;
 use super::config::{HubConfig, ValidatorConfig};
 use super::driver::{Driver, DriverError, Effects, Peer, Step, hex};
 use super::escrow::EscrowView;
+use super::outbox::Outbox;
 use super::transport::{Hubs, INBOX, Inbound, Route, Sender, bounded};
 use super::writer::HubWriter;
-use super::{HubAnswer, HubClient, HubExchangeError, xrpl};
+use super::{HubClient, xrpl};
 use crate::clock::{Clock, clock_moved};
 use crate::log::target;
 use crate::node::Node;
@@ -52,19 +55,6 @@ const IDLE_TICK_MS: u64 = 1_000;
 /// validator and its XRPL connection, each way.
 const ESCROW_QUEUE: usize = 64;
 
-/// The first wait before sending to a validator that could not be reached.
-const BACKOFF_MIN: Duration = Duration::from_millis(250);
-
-/// The longest wait before sending to a validator that could not be
-/// reached: one that comes back is sent to again within it.
-pub const BACKOFF_MAX: Duration = Duration::from_secs(30);
-
-/// How long a validator that answered busy is left alone: it is up, and
-/// its places for validators' requests were taken for a moment, as in a
-/// burst of a node that validates several hubs. Consensus sends again what
-/// matters.
-const BUSY_RETRY: Duration = Duration::from_millis(50);
-
 /// Runs the validators of the hubs in `config`, and of those founded with
 /// the node (spec/areas/hubs.md#founding-a-hub), as each is founded, until
 /// `shutdown`, once the node has its key: at most
@@ -76,9 +66,9 @@ pub async fn run(node: Arc<Node>, config: Arc<ValidatorConfig>, shutdown: Cancel
         return;
     };
     let client = HubClient::of(&node);
-    let shared = Shared::new(&node);
     let tasks = TaskTracker::new();
     let stop = shutdown.child_token();
+    let shared = Shared::new(&node, &client, &stop);
     let mut founded = node.founding().map(|founding| founding.founded());
     let mut seen: BTreeSet<HubId> = BTreeSet::new();
     let mut running: Vec<HubId> = Vec::new();
@@ -216,24 +206,44 @@ fn start(
 }
 
 /// What the validators of the node's hubs share, for as long as the
-/// service runs: the writer of their steps.
+/// service runs: the writer of their steps, when they send again to a
+/// validator they could not reach, and the batches they send other
+/// validators.
 #[derive(Clone, Debug)]
 pub struct Shared {
     writer: HubWriter,
+    backoffs: Backoffs,
+    outbox: Outbox,
 }
 
 impl Shared {
-    /// What the validators of `node`'s hubs share.
+    /// What the validators of `node`'s hubs share, sending with `client`,
+    /// until `stop`.
     #[must_use]
-    pub fn new(node: &Node) -> Self {
-        Self::of(node.store_handle(), node.hubs())
+    pub fn new(node: &Node, client: &HubClient, stop: &CancellationToken) -> Self {
+        Self::of(node.store_handle(), node.hubs(), client, stop)
     }
 
-    /// What validators writing to `store` share, counted in `hubs`.
+    /// What validators writing to `store` share, sending with `client`,
+    /// counted in `hubs`, until `stop`.
     #[must_use]
-    pub fn of(store: Arc<crate::store::Store>, hubs: &Hubs) -> Self {
+    pub fn of(
+        store: Arc<crate::store::Store>,
+        hubs: &Hubs,
+        client: &HubClient,
+        stop: &CancellationToken,
+    ) -> Self {
+        let backoffs = Backoffs::default();
+        let outbox = Outbox::new(
+            client.clone(),
+            backoffs.clone(),
+            Arc::clone(hubs.batch_counters()),
+            stop.clone(),
+        );
         Self {
             writer: HubWriter::new(store, Arc::clone(hubs.write_counters())),
+            backoffs,
+            outbox,
         }
     }
 }
@@ -279,9 +289,6 @@ enum Input {
     Attest(ValidatorOperation),
 }
 
-/// When each validator that could not be reached is sent to again.
-type Backoffs = Arc<Mutex<BTreeMap<NodeId, (tokio::time::Instant, Duration)>>>;
-
 /// One hub's validator at work.
 pub struct HubTask {
     driver: Driver,
@@ -299,12 +306,15 @@ pub struct HubTask {
     clock: Arc<dyn Clock>,
     /// What writes its steps.
     writer: HubWriter,
+    /// When it sends again to a validator it could not reach.
+    backoffs: Backoffs,
+    /// Where it puts what it sends other validators in batches.
+    outbox: Outbox,
     attestations: mpsc::Receiver<ValidatorOperation>,
     submits: mpsc::Sender<Vec<u8>>,
     view: watch::Sender<EscrowView>,
     xrpl_connected: watch::Receiver<bool>,
     permits: Arc<Semaphore>,
-    backoffs: Backoffs,
     sends: TaskTracker,
     /// States fetched for catching up, and where fetches send them.
     fetched: mpsc::Receiver<Fetched>,
@@ -357,7 +367,12 @@ impl HubTask {
         let (connected, xrpl_connected) = watch::channel(false);
         let (fetches, fetched) = mpsc::channel(1);
         hubs.set_status(driver.status(false));
-        let writer = Shared::of(Arc::clone(driver.store()), &hubs).writer;
+        let shared = Shared::of(
+            Arc::clone(driver.store()),
+            &hubs,
+            &client,
+            &CancellationToken::new(),
+        );
         let task = Self {
             driver,
             from_validators,
@@ -367,13 +382,14 @@ impl HubTask {
             client,
             hubs,
             clock,
-            writer,
+            writer: shared.writer,
+            backoffs: shared.backoffs,
+            outbox: shared.outbox,
             attestations,
             submits,
             view,
             xrpl_connected,
             permits: Arc::new(Semaphore::new(MAX_SENDS_IN_FLIGHT)),
-            backoffs: Arc::default(),
             sends: TaskTracker::new(),
             fetched,
             fetches,
@@ -408,6 +424,8 @@ impl HubTask {
     #[must_use]
     pub fn sharing(mut self, shared: &Shared) -> Self {
         self.writer = shared.writer.clone();
+        self.backoffs = shared.backoffs.clone();
+        self.outbox = shared.outbox.clone();
         self
     }
 
@@ -468,7 +486,7 @@ impl HubTask {
                     self.catch_up(*finalized, &state, shutdown).await?;
                 }
                 Input::Message(inbound) => {
-                    heard_from(&self.backoffs, &inbound);
+                    self.backoffs.heard_from(&inbound);
                     let now = self.clock.now_ms();
                     let node = inbound.node.as_ref();
                     let step = self
@@ -592,9 +610,16 @@ impl HubTask {
 
     /// Sends `message` to `peer`, unless it could not be reached lately or
     /// too many exchanges are in flight; its reply comes back as messages
-    /// from it.
+    /// from it. A hub whose version has validators batch their messages
+    /// sends it in the next batch to `peer`, with those of the node's
+    /// other hubs ([`Outbox`]).
     fn send(&self, peer: Peer, message: Vec<u8>, shutdown: &CancellationToken) {
-        if backing_off(&self.backoffs, &peer.node) {
+        if self.driver.validator().ledger().version() >= dassie_hub::rules::BATCHES_VERSION {
+            let hub = *self.driver.hub();
+            self.outbox.send(&peer, hub, message, self.loopback.clone());
+            return;
+        }
+        if self.backoffs.backing_off(&peer.node) {
             return;
         }
         let Ok(permit) = Arc::clone(&self.permits).try_acquire_owned() else {
@@ -604,7 +629,7 @@ impl HubTask {
             client: self.client.clone(),
             hub: *self.driver.hub(),
             loopback: self.loopback.clone(),
-            backoffs: Arc::clone(&self.backoffs),
+            backoffs: self.backoffs.clone(),
             _permit: permit,
         };
         let shutdown = shutdown.clone();
@@ -671,11 +696,9 @@ impl Exchange {
             .client
             .exchange(peer.node, &peer.endpoint, &self.hub, &message, SEND_TIMEOUT)
             .await;
-        let mut backoffs = self.backoffs.lock().unwrap_or_else(PoisonError::into_inner);
         match sent {
             Ok(messages) => {
-                backoffs.remove(&peer.node);
-                drop(backoffs);
+                self.backoffs.reached(&peer.node);
                 let from = Sender(peer.key).peer();
                 for message in messages {
                     let inbound = Inbound {
@@ -688,162 +711,9 @@ impl Exchange {
                 }
             }
             Err(error) => {
-                failed(&mut backoffs, peer.node, &error);
+                self.backoffs.failed(peer.node, &error);
                 tracing::debug!(target: target::HUB, node = %peer.node, %error, "a validator could not be reached");
             }
         }
-    }
-}
-
-/// How long to leave a validator alone after an exchange failed with
-/// `error`, and the wait the next failure doubles from, after `previous`:
-/// one that answered busy is tried again shortly, and its wait does not
-/// grow; one that could not be reached waits twice as long as last time,
-/// from [`BACKOFF_MIN`] up to [`BACKOFF_MAX`].
-fn after_failure(error: &HubExchangeError, previous: Option<Duration>) -> (Duration, Duration) {
-    if matches!(error, HubExchangeError::Refused(HubAnswer::Busy)) {
-        return (BUSY_RETRY, previous.unwrap_or(Duration::ZERO));
-    }
-    let wait = previous
-        .filter(|wait| !wait.is_zero())
-        .map_or(BACKOFF_MIN, |wait| (wait * 2).min(BACKOFF_MAX));
-    (wait, wait)
-}
-
-/// Leaves `node` alone for a while after an exchange with it failed with
-/// `error`.
-fn failed(
-    backoffs: &mut BTreeMap<NodeId, (tokio::time::Instant, Duration)>,
-    node: NodeId,
-    error: &HubExchangeError,
-) {
-    let previous = backoffs.get(&node).map(|(_, wait)| *wait);
-    let (pause, wait) = after_failure(error, previous);
-    backoffs.insert(node, (tokio::time::Instant::now() + pause, wait));
-}
-
-/// Ends the wait before sending again to the node that sent `inbound`, if
-/// the transport proved its key: a validator that comes back is sent to as
-/// soon as anything of it arrives (spec/areas/hubs.md#the-validator-in-the-node).
-/// Only the proved key counts, never the handle a message names, so nobody
-/// ends the wait for a node but that node itself, and all it can make us
-/// do is send to it, each exchange bounded by [`SEND_TIMEOUT`], which it
-/// can anyway by answering slowly. The wait the next failure doubles from
-/// stays: one that reaches us but that we cannot reach still waits longer
-/// after each failure, until an exchange with it succeeds. It adds no
-/// entry.
-fn heard_from(backoffs: &Backoffs, inbound: &Inbound) {
-    let Some(key) = inbound.node else {
-        return;
-    };
-    let mut held = backoffs.lock().unwrap_or_else(PoisonError::into_inner);
-    if held.is_empty() {
-        return;
-    }
-    if let Some((until, _)) = held.get_mut(&key.node_id()) {
-        *until = (*until).min(tokio::time::Instant::now());
-    }
-}
-
-/// Whether `node` could not be reached lately, so nothing is sent to it
-/// until its wait is over.
-fn backing_off(backoffs: &Backoffs, node: &NodeId) -> bool {
-    backoffs
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .get(node)
-        .is_some_and(|(until, _)| *until > tokio::time::Instant::now())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use dassie_identity::NodeIdentity;
-
-    // A validator that answered busy is up: it is tried again shortly, and
-    // a burst of busy answers never backs off from it for longer.
-    #[test]
-    fn busy_is_no_failure_to_back_off_from() {
-        let busy = HubExchangeError::Refused(HubAnswer::Busy);
-        let unreachable = HubExchangeError::Unreachable;
-        let mut wait = None;
-        for _ in 0..10 {
-            let (pause, next) = after_failure(&busy, wait);
-            assert_eq!(pause, BUSY_RETRY);
-            wait = Some(next);
-        }
-        assert_eq!(
-            after_failure(&unreachable, wait),
-            (BACKOFF_MIN, BACKOFF_MIN)
-        );
-        let mut wait = None;
-        for _ in 0..10 {
-            wait = Some(after_failure(&unreachable, wait).1);
-        }
-        assert_eq!(
-            wait,
-            Some(BACKOFF_MAX),
-            "an unreachable one is left alone longer"
-        );
-        assert_eq!(after_failure(&busy, wait), (BUSY_RETRY, BACKOFF_MAX));
-    }
-
-    fn from(sender: NodeIdentity, proved: Option<NodeIdentity>) -> Inbound {
-        Inbound {
-            from: Sender(sender).peer(),
-            node: proved,
-            message: Vec::new(),
-            reply: None,
-        }
-    }
-
-    // A validator backed off from a peer it could not reach sends to it again
-    // as soon as the peer is heard from, by the key the transport proved;
-    // nothing else ends the wait, and the wait still grows with the next
-    // failure.
-    #[test]
-    fn hearing_from_a_validator_ends_the_wait_for_it_alone() {
-        let peer = dassie_identity::TableKeygen::identity_key(&[1; 32]).identity();
-        let other = dassie_identity::TableKeygen::identity_key(&[2; 32]).identity();
-        let backoffs = Backoffs::default();
-        {
-            let mut held = backoffs.lock().unwrap();
-            for _ in 0..10 {
-                failed(&mut held, peer.node_id(), &HubExchangeError::Unreachable);
-            }
-            failed(&mut held, other.node_id(), &HubExchangeError::Unreachable);
-        }
-        assert!(backing_off(&backoffs, &peer.node_id()));
-
-        // Another node, one that names the peer's handle, and one whose key
-        // nothing proved, end nothing.
-        heard_from(&backoffs, &from(other, Some(other)));
-        heard_from(&backoffs, &from(peer, Some(other)));
-        heard_from(&backoffs, &from(peer, None));
-        assert!(
-            backing_off(&backoffs, &peer.node_id()),
-            "only the peer itself ends its wait"
-        );
-        assert!(!backing_off(&backoffs, &other.node_id()));
-
-        // The peer itself does, and the other's wait is untouched by it.
-        failed(
-            &mut backoffs.lock().unwrap(),
-            other.node_id(),
-            &HubExchangeError::Unreachable,
-        );
-        heard_from(&backoffs, &from(peer, Some(peer)));
-        assert!(!backing_off(&backoffs, &peer.node_id()), "sent to at once");
-        assert!(backing_off(&backoffs, &other.node_id()));
-
-        // Its wait still grows from where it was.
-        let mut held = backoffs.lock().unwrap();
-        failed(&mut held, peer.node_id(), &HubExchangeError::Unreachable);
-        assert_eq!(
-            held.get(&peer.node_id()).map(|(_, wait)| *wait),
-            Some(BACKOFF_MAX)
-        );
-        drop(held);
-        assert!(backing_off(&backoffs, &peer.node_id()));
     }
 }
