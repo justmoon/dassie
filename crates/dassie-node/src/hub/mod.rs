@@ -6,6 +6,8 @@
 //! - [`config`]: which hubs the owner has the node validate, and for which
 //!   sponsors.
 //! - [`driver`]: one hub's validator, persisted before it acts.
+//! - [`writer`]: what writes the steps of every hub the node validates,
+//!   those waiting together in one commit.
 //! - [`service`]: the validator role, a supervised service with a task per
 //!   hub.
 //! - [`escrow`]: following a hub's escrow on the XRP Ledger, without IO,
@@ -25,6 +27,7 @@ pub mod payouts;
 pub mod service;
 pub mod sponsor;
 pub mod transport;
+pub mod writer;
 mod xrpl;
 
 pub use transport::{HubAccess, HubAnswer, HubClient, HubExchangeError, HubStatus, Hubs, Sender};

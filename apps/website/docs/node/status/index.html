@@ -414,6 +414,13 @@
         reach it over QUIC), <samp>stalled</samp>,
         <samp>its escrow is not checked yet</samp> and
         <samp>its XRPL server cannot be reached</samp>.
+        Below them, a <samp>Hub writes</samp> line says how the validators
+        wrote what they decided to disk: the steps, the commits that held
+        them, and how long a commit took on average and at most. Your node
+        writes the steps of all the hubs it validates that wait at the same
+        time in one commit, so on a node that validates several hubs there
+        are more steps than commits. Commits that take tens of milliseconds
+        mean a slow disk, which slows the hubs' blocks.
         A node that founds a hub gets a <samp>Founding</samp> line, which
         says how far the founding is. Both are covered in
         <a href="/docs/services/hub-validator/">Validate a settlement hub</a>

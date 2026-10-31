@@ -14,7 +14,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/node.proto.
  */
 export const file_dassie_owner_v1_node: GenFile = /*@__PURE__*/
-  fileDesc("ChpkYXNzaWUvb3duZXIvdjEvbm9kZS5wcm90bxIPZGFzc2llLm93bmVyLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrgBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USKQoFc3RhdGUYASABKA4yGi5kYXNzaWUub3duZXIudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IsMEChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEikKB3J1bnRpbWUYAiABKA4yGC5kYXNzaWUub3duZXIudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSMQoLY2VydGlmaWNhdGUYBCABKAsyHC5kYXNzaWUub3duZXIudjEuQ2VydGlmaWNhdGUSKQoEYWNtZRgFIAEoCzIbLmRhc3NpZS5vd25lci52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIrCgVyZWxheRgJIAEoCzIcLmRhc3NpZS5vd25lci52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkSJwoEZmVlZBgLIAEoCzIZLmRhc3NpZS5vd25lci52MS5SYXRlRmVlZBIxCgp2YWxpZGF0aW5nGAwgAygLMh0uZGFzc2llLm93bmVyLnYxLkh1YlZhbGlkYXRvchIuCghmb3VuZGluZxgNIAMoCzIcLmRhc3NpZS5vd25lci52MS5IdWJGb3VuZGluZxIwCgdwYWNrZXRzGA4gASgLMh8uZGFzc2llLm93bmVyLnYxLlBhY2tldENvdW50ZXJzEjQKDXBlZXJfcHJvdG9jb2wYDyABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlckNvdW50ZXJzIssBCg5QYWNrZXRDb3VudGVycxIQCghwcmVwYXJlcxgBIAEoBBIRCglmb3J3YXJkZWQYAiABKAQSEAoIYW5zd2VyZWQYAyABKAQSEQoJZnVsZmlsbGVkGAQgASgEEhAKCHJlamVjdGVkGAUgASgEEg8KB2V4cGlyZWQYBiABKAQSGgoSd3JvbmdfZnVsZmlsbG1lbnRzGAcgASgEEhwKFHVuZXhwZWN0ZWRfcmVzcG9uc2VzGAggASgEEhIKCmR1cGxpY2F0ZXMYCSABKAQi6gQKDFBlZXJDb3VudGVycxIVCg1yZXF1ZXN0c19zZW50GAEgASgEEhcKD3JlcXVlc3RzX2ZhaWxlZBgCIAEoBBIYChByZXF1ZXN0c19kcm9wcGVkGAMgASgEEhcKD2luYm91bmRfcmVmdXNlZBgEIAEoBBIcChRsaW5rX3N0YXRlc19hY2NlcHRlZBgFIAEoBBIbChNsaW5rX3N0YXRlc19kcm9wcGVkGAYgASgEEhAKCHBlZXJpbmdzGAcgASgEEhQKDHRlcm1pbmF0aW9ucxgIIAEoBBIXCg9hbnN3ZXJzX2Ryb3BwZWQYCSABKAQSHQoVc2V0dGxlbWVudHNfZGVsaXZlcmVkGAogASgEEhsKE3NldHRsZW1lbnRzX2FwcGxpZWQYCyABKAQSHQoVc2V0dGxlbWVudHNfZHVwbGljYXRlGAwgASgEEh0KFXNldHRsZW1lbnRzX3JlcXVlc3RlZBgNIAEoBBIXCg9jaGFubmVsc19jbG9zZWQYDiABKAQSGgoSY29tbWl0bWVudHNfbG9nZ2VkGA8gASgEEhoKEmNvbW1pdG1lbnRzX2xhcHNlZBgQIAEoBBIVCg1uYW1lc19ncmFudGVkGBEgASgEEhUKDW5hbWVzX3JlbmV3ZWQYEiABKAQSEwoLbmFtZXNfZnJlZWQYEyABKAQSFgoObmFtZXNfcmVsZWFzZWQYFCABKAQSHQoVcmVnaXN0cmF0aW9uc19zdGFydGVkGBUgASgEEh8KF3JlZ2lzdHJhdGlvbnNfYWJhbmRvbmVkGBYgASgEEhUKDXJlbmV3YWxzX3NlbnQYFyABKAQiqgIKDEh1YlZhbGlkYXRvchILCgNodWIYASABKAkSDQoFaW5kZXgYAiABKA0SEgoKdmFsaWRhdG9ycxgDIAEoDRIOCgZoZWlnaHQYBCABKAQSFQoNZmluYWxfdW5peF9tcxgFIAEoAxIMCgR2aWV3GAYgASgEEigKBXBoYXNlGAcgASgOMhkuZGFzc2llLm93bmVyLnYxLkh1YlBoYXNlEg8KB3N0YWxsZWQYCCABKAgSFgoOZXNjcm93X2NoZWNrZWQYCSABKAgSFgoOeHJwbF9jb25uZWN0ZWQYCiABKAgSGAoQcHJvdG9jb2xfdmVyc2lvbhgLIAEoDRIXCg91cGdyYWRlX3ZlcnNpb24YDCABKA0SFwoPdXBncmFkZV91bml4X21zGA0gASgDIosBCghSYXRlRmVlZBIPCgdzZXJ2aW5nGAEgASgIEg8KB2FkZHJlc3MYAiABKAkSEwoLc2VuZF9mYWlsZWQYBiABKAQSEAoIcmVjZWl2ZWQYCCABKAQSDwoHaWdub3JlZBgOIAEoBBIQCghhbnN3ZXJlZBgQIAEoBBITCgtvdmVyX2J1ZGdldBgRIAEoBCJeCgtDaG9zZW5SZWxheRIMCgRub2RlGAEgASgJEgsKA3VybBgCIAEoCRI0Cgpjb25uZWN0aW9uGAQgASgOMiAuZGFzc2llLm93bmVyLnYxLlJlbGF5Q29ubmVjdGlvbiJRCgpBY21lU3RhdHVzEhMKC2hhc19hY2NvdW50GAEgASgIEhoKEm5leHRfY2hlY2tfdW5peF9tcxgCIAEoAxISCgpsYXN0X2Vycm9yGAMgASgJKn0KCU5vZGVTdGF0ZRIaChZOT0RFX1NUQVRFX1VOU1BFQ0lGSUVEEAASHAoYTk9ERV9TVEFURV9VTklOSVRJQUxJWkVEEAESGAoUTk9ERV9TVEFURV9BTk9OWU1PVVMQAhIcChhOT0RFX1NUQVRFX0FVVEhFTlRJQ0FURUQQAypuCghIdWJQaGFzZRIZChVIVUJfUEhBU0VfVU5TUEVDSUZJRUQQABIVChFIVUJfUEhBU0VfUlVOTklORxABEhsKF0hVQl9QSEFTRV9TSFVUVElOR19ET1dOEAISEwoPSFVCX1BIQVNFX0VOREVEEAMqlgEKD1JlbGF5Q29ubmVjdGlvbhIgChxSRUxBWV9DT05ORUNUSU9OX1VOU1BFQ0lGSUVEEAASHgoaUkVMQVlfQ09OTkVDVElPTl9DT05ORUNURUQQARIfChtSRUxBWV9DT05ORUNUSU9OX0NPTk5FQ1RJTkcQAhIgChxSRUxBWV9DT05ORUNUSU9OX1VOUkVBQ0hBQkxFEAMqTwoHUnVudGltZRIXChNSVU5USU1FX1VOU1BFQ0lGSUVEEAASFgoSUlVOVElNRV9TVEFOREFMT05FEAESEwoPUlVOVElNRV9TWVNURU1EEAJiBnByb3RvMw", [file_dassie_owner_v1_hub_founding, file_dassie_owner_v1_tls]);
+  fileDesc("ChpkYXNzaWUvb3duZXIvdjEvbm9kZS5wcm90bxIPZGFzc2llLm93bmVyLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrgBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USKQoFc3RhdGUYASABKA4yGi5kYXNzaWUub3duZXIudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IvoEChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEikKB3J1bnRpbWUYAiABKA4yGC5kYXNzaWUub3duZXIudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSMQoLY2VydGlmaWNhdGUYBCABKAsyHC5kYXNzaWUub3duZXIudjEuQ2VydGlmaWNhdGUSKQoEYWNtZRgFIAEoCzIbLmRhc3NpZS5vd25lci52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIrCgVyZWxheRgJIAEoCzIcLmRhc3NpZS5vd25lci52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkSJwoEZmVlZBgLIAEoCzIZLmRhc3NpZS5vd25lci52MS5SYXRlRmVlZBIxCgp2YWxpZGF0aW5nGAwgAygLMh0uZGFzc2llLm93bmVyLnYxLkh1YlZhbGlkYXRvchIuCghmb3VuZGluZxgNIAMoCzIcLmRhc3NpZS5vd25lci52MS5IdWJGb3VuZGluZxIwCgdwYWNrZXRzGA4gASgLMh8uZGFzc2llLm93bmVyLnYxLlBhY2tldENvdW50ZXJzEjQKDXBlZXJfcHJvdG9jb2wYDyABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlckNvdW50ZXJzEjUKCmh1Yl93cml0ZXMYECABKAsyIS5kYXNzaWUub3duZXIudjEuSHViV3JpdGVDb3VudGVycyJoChBIdWJXcml0ZUNvdW50ZXJzEg0KBXN0ZXBzGAEgASgEEg8KB2NvbW1pdHMYAiABKAQSFQoNY29tbWl0X21pY3JvcxgDIAEoBBIdChVsb25nZXN0X2NvbW1pdF9taWNyb3MYBCABKAQiywEKDlBhY2tldENvdW50ZXJzEhAKCHByZXBhcmVzGAEgASgEEhEKCWZvcndhcmRlZBgCIAEoBBIQCghhbnN3ZXJlZBgDIAEoBBIRCglmdWxmaWxsZWQYBCABKAQSEAoIcmVqZWN0ZWQYBSABKAQSDwoHZXhwaXJlZBgGIAEoBBIaChJ3cm9uZ19mdWxmaWxsbWVudHMYByABKAQSHAoUdW5leHBlY3RlZF9yZXNwb25zZXMYCCABKAQSEgoKZHVwbGljYXRlcxgJIAEoBCLqBAoMUGVlckNvdW50ZXJzEhUKDXJlcXVlc3RzX3NlbnQYASABKAQSFwoPcmVxdWVzdHNfZmFpbGVkGAIgASgEEhgKEHJlcXVlc3RzX2Ryb3BwZWQYAyABKAQSFwoPaW5ib3VuZF9yZWZ1c2VkGAQgASgEEhwKFGxpbmtfc3RhdGVzX2FjY2VwdGVkGAUgASgEEhsKE2xpbmtfc3RhdGVzX2Ryb3BwZWQYBiABKAQSEAoIcGVlcmluZ3MYByABKAQSFAoMdGVybWluYXRpb25zGAggASgEEhcKD2Fuc3dlcnNfZHJvcHBlZBgJIAEoBBIdChVzZXR0bGVtZW50c19kZWxpdmVyZWQYCiABKAQSGwoTc2V0dGxlbWVudHNfYXBwbGllZBgLIAEoBBIdChVzZXR0bGVtZW50c19kdXBsaWNhdGUYDCABKAQSHQoVc2V0dGxlbWVudHNfcmVxdWVzdGVkGA0gASgEEhcKD2NoYW5uZWxzX2Nsb3NlZBgOIAEoBBIaChJjb21taXRtZW50c19sb2dnZWQYDyABKAQSGgoSY29tbWl0bWVudHNfbGFwc2VkGBAgASgEEhUKDW5hbWVzX2dyYW50ZWQYESABKAQSFQoNbmFtZXNfcmVuZXdlZBgSIAEoBBITCgtuYW1lc19mcmVlZBgTIAEoBBIWCg5uYW1lc19yZWxlYXNlZBgUIAEoBBIdChVyZWdpc3RyYXRpb25zX3N0YXJ0ZWQYFSABKAQSHwoXcmVnaXN0cmF0aW9uc19hYmFuZG9uZWQYFiABKAQSFQoNcmVuZXdhbHNfc2VudBgXIAEoBCKqAgoMSHViVmFsaWRhdG9yEgsKA2h1YhgBIAEoCRINCgVpbmRleBgCIAEoDRISCgp2YWxpZGF0b3JzGAMgASgNEg4KBmhlaWdodBgEIAEoBBIVCg1maW5hbF91bml4X21zGAUgASgDEgwKBHZpZXcYBiABKAQSKAoFcGhhc2UYByABKA4yGS5kYXNzaWUub3duZXIudjEuSHViUGhhc2USDwoHc3RhbGxlZBgIIAEoCBIWCg5lc2Nyb3dfY2hlY2tlZBgJIAEoCBIWCg54cnBsX2Nvbm5lY3RlZBgKIAEoCBIYChBwcm90b2NvbF92ZXJzaW9uGAsgASgNEhcKD3VwZ3JhZGVfdmVyc2lvbhgMIAEoDRIXCg91cGdyYWRlX3VuaXhfbXMYDSABKAMiiwEKCFJhdGVGZWVkEg8KB3NlcnZpbmcYASABKAgSDwoHYWRkcmVzcxgCIAEoCRITCgtzZW5kX2ZhaWxlZBgGIAEoBBIQCghyZWNlaXZlZBgIIAEoBBIPCgdpZ25vcmVkGA4gASgEEhAKCGFuc3dlcmVkGBAgASgEEhMKC292ZXJfYnVkZ2V0GBEgASgEIl4KC0Nob3NlblJlbGF5EgwKBG5vZGUYASABKAkSCwoDdXJsGAIgASgJEjQKCmNvbm5lY3Rpb24YBCABKA4yIC5kYXNzaWUub3duZXIudjEuUmVsYXlDb25uZWN0aW9uIlEKCkFjbWVTdGF0dXMSEwoLaGFzX2FjY291bnQYASABKAgSGgoSbmV4dF9jaGVja191bml4X21zGAIgASgDEhIKCmxhc3RfZXJyb3IYAyABKAkqfQoJTm9kZVN0YXRlEhoKFk5PREVfU1RBVEVfVU5TUEVDSUZJRUQQABIcChhOT0RFX1NUQVRFX1VOSU5JVElBTElaRUQQARIYChROT0RFX1NUQVRFX0FOT05ZTU9VUxACEhwKGE5PREVfU1RBVEVfQVVUSEVOVElDQVRFRBADKm4KCEh1YlBoYXNlEhkKFUhVQl9QSEFTRV9VTlNQRUNJRklFRBAAEhUKEUhVQl9QSEFTRV9SVU5OSU5HEAESGwoXSFVCX1BIQVNFX1NIVVRUSU5HX0RPV04QAhITCg9IVUJfUEhBU0VfRU5ERUQQAyqWAQoPUmVsYXlDb25uZWN0aW9uEiAKHFJFTEFZX0NPTk5FQ1RJT05fVU5TUEVDSUZJRUQQABIeChpSRUxBWV9DT05ORUNUSU9OX0NPTk5FQ1RFRBABEh8KG1JFTEFZX0NPTk5FQ1RJT05fQ09OTkVDVElORxACEiAKHFJFTEFZX0NPTk5FQ1RJT05fVU5SRUFDSEFCTEUQAypPCgdSdW50aW1lEhcKE1JVTlRJTUVfVU5TUEVDSUZJRUQQABIWChJSVU5USU1FX1NUQU5EQUxPTkUQARITCg9SVU5USU1FX1NZU1RFTUQQAmIGcHJvdG8z", [file_dassie_owner_v1_hub_founding, file_dassie_owner_v1_tls]);
 
 /**
  * @generated from message dassie.owner.v1.GetBasicStateRequest
@@ -211,6 +211,15 @@ export type GetStatusResponse = Message<"dassie.owner.v1.GetStatusResponse"> & {
    * @generated from field: dassie.owner.v1.PeerCounters peer_protocol = 15;
    */
   peerProtocol?: PeerCounters | undefined;
+
+  /**
+   * What the validators of the hubs the node validates wrote since the
+   * node started (spec/areas/hubs.md#the-validator-in-the-node); unset on
+   * a node that validates none.
+   *
+   * @generated from field: dassie.owner.v1.HubWriteCounters hub_writes = 16;
+   */
+  hubWrites?: HubWriteCounters | undefined;
 };
 
 /**
@@ -219,6 +228,50 @@ export type GetStatusResponse = Message<"dassie.owner.v1.GetStatusResponse"> & {
  */
 export const GetStatusResponseSchema: GenMessage<GetStatusResponse> = /*@__PURE__*/
   messageDesc(file_dassie_owner_v1_node, 3);
+
+/**
+ * How the validators of the hubs the node validates write their steps: one
+ * commit holds the steps of every hub waiting then, so more steps than
+ * commits means hubs share commits. Each only grows while the node runs.
+ *
+ * @generated from message dassie.owner.v1.HubWriteCounters
+ */
+export type HubWriteCounters = Message<"dassie.owner.v1.HubWriteCounters"> & {
+  /**
+   * Steps written.
+   *
+   * @generated from field: uint64 steps = 1;
+   */
+  steps: bigint;
+
+  /**
+   * Commits that wrote them.
+   *
+   * @generated from field: uint64 commits = 2;
+   */
+  commits: bigint;
+
+  /**
+   * Microseconds the commits took, all together.
+   *
+   * @generated from field: uint64 commit_micros = 3;
+   */
+  commitMicros: bigint;
+
+  /**
+   * Microseconds the longest commit took.
+   *
+   * @generated from field: uint64 longest_commit_micros = 4;
+   */
+  longestCommitMicros: bigint;
+};
+
+/**
+ * Describes the message dassie.owner.v1.HubWriteCounters.
+ * Use `create(HubWriteCountersSchema)` to create a new message.
+ */
+export const HubWriteCountersSchema: GenMessage<HubWriteCounters> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_node, 4);
 
 /**
  * The connector's counters: what came of the Prepares it took. Read in one
@@ -297,7 +350,7 @@ export type PacketCounters = Message<"dassie.owner.v1.PacketCounters"> & {
  * Use `create(PacketCountersSchema)` to create a new message.
  */
 export const PacketCountersSchema: GenMessage<PacketCounters> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 4);
+  messageDesc(file_dassie_owner_v1_node, 5);
 
 /**
  * The peer protocol's counters, read as the connector's are.
@@ -465,7 +518,7 @@ export type PeerCounters = Message<"dassie.owner.v1.PeerCounters"> & {
  * Use `create(PeerCountersSchema)` to create a new message.
  */
 export const PeerCountersSchema: GenMessage<PeerCounters> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 5);
+  messageDesc(file_dassie_owner_v1_node, 6);
 
 /**
  * How the node's validator of one settlement hub stands.
@@ -571,7 +624,7 @@ export type HubValidator = Message<"dassie.owner.v1.HubValidator"> & {
  * Use `create(HubValidatorSchema)` to create a new message.
  */
 export const HubValidatorSchema: GenMessage<HubValidator> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 6);
+  messageDesc(file_dassie_owner_v1_node, 7);
 
 /**
  * What the node's UDP endpoint for its snapshot does
@@ -645,7 +698,7 @@ export type RateFeed = Message<"dassie.owner.v1.RateFeed"> & {
  * Use `create(RateFeedSchema)` to create a new message.
  */
 export const RateFeedSchema: GenMessage<RateFeed> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 7);
+  messageDesc(file_dassie_owner_v1_node, 8);
 
 /**
  * @generated from message dassie.owner.v1.ChosenRelay
@@ -674,7 +727,7 @@ export type ChosenRelay = Message<"dassie.owner.v1.ChosenRelay"> & {
  * Use `create(ChosenRelaySchema)` to create a new message.
  */
 export const ChosenRelaySchema: GenMessage<ChosenRelay> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 8);
+  messageDesc(file_dassie_owner_v1_node, 9);
 
 /**
  * @generated from message dassie.owner.v1.AcmeStatus
@@ -707,7 +760,7 @@ export type AcmeStatus = Message<"dassie.owner.v1.AcmeStatus"> & {
  * Use `create(AcmeStatusSchema)` to create a new message.
  */
 export const AcmeStatusSchema: GenMessage<AcmeStatus> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 9);
+  messageDesc(file_dassie_owner_v1_node, 10);
 
 /**
  * @generated from enum dassie.owner.v1.NodeState

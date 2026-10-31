@@ -77,9 +77,7 @@ pub async fn status(env: &Env) -> Result<(), String> {
         if let Some(feed) = feed(&node) {
             line("Rate feed", &feed);
         }
-        for hub in &node.validating {
-            line("Validating", &validating(hub, now_ms));
-        }
+        validating_lines(&node, now_ms);
         for founding in &node.founding {
             line("Founding", &founding_brief(founding));
         }
@@ -497,6 +495,38 @@ fn packets_line(packets: &proto::PacketCounters) -> String {
             packets.wrong_fulfillments, packets.unexpected_responses, packets.duplicates
         ),
     ])
+}
+
+/// The hubs the node validates, one line each, and how their validators
+/// wrote their steps.
+fn validating_lines(node: &proto::GetStatusResponse, now_ms: i64) {
+    for hub in &node.validating {
+        line("Validating", &validating(hub, now_ms));
+    }
+    if let Some(writes) = &node.hub_writes {
+        line("Hub writes", &hub_writes_line(writes));
+    }
+}
+
+/// How the validators of the node's hubs wrote their steps: more steps
+/// than commits means hubs shared commits.
+fn hub_writes_line(writes: &proto::HubWriteCounters) -> String {
+    let average = writes
+        .commit_micros
+        .checked_div(writes.commits)
+        .unwrap_or_default();
+    format!(
+        "{} in {}, {} ms each on average, {} ms the longest",
+        plural(writes.steps, "step"),
+        plural(writes.commits, "commit"),
+        millis(average),
+        millis(writes.longest_commit_micros),
+    )
+}
+
+/// Microseconds as milliseconds to a tenth, rounded down, for showing.
+fn millis(micros: u64) -> String {
+    format!("{}.{}", micros / 1_000, micros % 1_000 / 100)
 }
 
 /// What the peer protocol counted since the engine started.
@@ -1237,6 +1267,24 @@ mod tests {
         let text = validating(&stalled, now);
         assert!(text.contains("stalled"), "{text}");
         assert!(!text.contains("no block final"), "{text}");
+    }
+
+    #[test]
+    fn hub_writes_say_how_many_steps_each_commit_held() {
+        let writes = proto::HubWriteCounters {
+            steps: 30,
+            commits: 20,
+            commit_micros: 40_000,
+            longest_commit_micros: 12_500,
+        };
+        assert_eq!(
+            hub_writes_line(&writes),
+            "30 steps in 20 commits, 2.0 ms each on average, 12.5 ms the longest"
+        );
+        assert_eq!(
+            hub_writes_line(&proto::HubWriteCounters::default()),
+            "0 steps in 0 commits, 0.0 ms each on average, 0.0 ms the longest"
+        );
     }
 
     #[test]

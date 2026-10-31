@@ -37,7 +37,7 @@ use dassie_identity::{IdentityKey, NodeIdentity};
 use dassie_kit::ClientKey;
 use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::hub::driver::Driver;
-use dassie_node::hub::service::{BACKOFF_MAX, EscrowLinks, HubTask, SEND_TIMEOUT};
+use dassie_node::hub::service::{BACKOFF_MAX, EscrowLinks, HubTask, SEND_TIMEOUT, Shared};
 use dassie_node::hub::transport::{HubPermit, MAX_MEMBER_MESSAGE_BYTES, Route, StateReply};
 use dassie_node::hub::{HubAccess, HubAnswer, HubClient, HubExchangeError, Hubs, Sender};
 use dassie_node::outbound::Resolver;
@@ -152,13 +152,13 @@ fn node(seed: u8, shutdown: &CancellationToken) -> Node {
     }
 }
 
-fn terms(sponsor: &IdentityKey, version: u16) -> Terms {
+fn terms(sponsor: &IdentityKey, version: u16, nonce: [u8; 32]) -> Terms {
     Terms {
         version,
-        nonce: NONCE,
+        nonce,
         sponsor: sponsor.identity(),
         network: 1,
-        escrow: escrow_master(sponsor, TESTNET_NETWORK, &NONCE).account().0,
+        escrow: escrow_master(sponsor, TESTNET_NETWORK, &nonce).account().0,
         asset: dassie_hub::rules::Asset::Xrp,
         fees: Fees {
             operation: 10,
@@ -201,12 +201,17 @@ fn rules(nodes: &[Node]) -> Rules {
 
 /// The rules of a hub of `nodes`, of `version` of the hub protocol.
 fn rules_of(nodes: &[Node], version: u16) -> Rules {
+    rules_with(nodes, version, NONCE)
+}
+
+/// The rules of the hub of `nodes` the sponsor founds with `nonce`.
+fn rules_with(nodes: &[Node], version: u16, nonce: [u8; 32]) -> Rules {
     let sponsor = dassie_identity::TableKeygen::identity_key(&[100; 32]);
-    let terms = terms(&sponsor, version);
+    let terms = terms(&sponsor, version, nonce);
     let validators: Vec<Acceptance> = nodes
         .iter()
         .map(|node| {
-            ValidatorKeys::derive(&node.key, TESTNET_NETWORK, &NONCE)
+            ValidatorKeys::derive(&node.key, TESTNET_NETWORK, &nonce)
                 .unwrap()
                 .accept(&node.key, &terms, node.endpoint.clone())
                 .unwrap()
@@ -248,6 +253,42 @@ fn start_voting(
     let stop_ = stop.clone();
     let task = tokio::spawn(async move { task.run(stop_).await.unwrap() });
     Running { task, stop, links }
+}
+
+/// Starts `node`'s validators of the hubs of `rules`, sharing what the
+/// service shares, as a node that validates several hubs runs them.
+fn start_sharing(
+    node: &Node,
+    rules: &[&Rules],
+    genesis: Millis,
+    clock: &ManualClock,
+) -> Vec<Running> {
+    let shared = Shared::of(Arc::clone(&node.store), &node.hubs);
+    rules
+        .iter()
+        .map(|rules| {
+            let now = clock.now_ms();
+            let clock = Arc::new(clock.clone());
+            let driver =
+                Driver::open(Arc::clone(&node.store), rules, genesis, &node.key, now).unwrap();
+            let client = HubClient::new(Some(Arc::clone(&node.quic)), client());
+            let (task, links) = HubTask::new(driver, client, Arc::clone(&node.hubs), clock);
+            let task = task.sharing(&shared);
+            let stop = CancellationToken::new();
+            let stop_ = stop.clone();
+            let task = tokio::spawn(async move { task.run(stop_).await.unwrap() });
+            Running { task, stop, links }
+        })
+        .collect()
+}
+
+/// The height of `node`'s validator of `hub`.
+fn height_of(node: &Node, hub: &HubId) -> u64 {
+    node.hubs
+        .statuses()
+        .iter()
+        .find(|status| status.hub == *hub)
+        .map_or(0, |status| status.height)
 }
 
 fn height(node: &Node) -> u64 {
@@ -403,6 +444,44 @@ async fn four_validators_finalize_blocks_over_quic_and_a_member_hears_them() {
     })
     .await;
     assert!(nodes[2].hubs.statuses()[0].escrow_checked);
+
+    shutdown.cancel();
+    for validator in running {
+        validator.stop.cancel();
+        validator.task.await.unwrap();
+    }
+}
+
+// spec/areas/hubs.md#the-validator-in-the-node: the validators of two hubs
+// on the same four nodes share each node's writer, which commits the steps
+// of both, and both hubs go on, each from what it wrote.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_hubs_whose_validators_share_a_writer_both_finalize() {
+    let shutdown = CancellationToken::new();
+    let nodes: Vec<Node> = (1..=4).map(|seed| node(seed, &shutdown)).collect();
+    let first = rules(&nodes);
+    let second = rules_with(&nodes, dassie_hub::rules::HUB_VERSION, [8; 32]);
+    let hubs = [first.id(), second.id()];
+    let clock = ManualClock::new(support::START_MS);
+    let genesis = clock.now_ms();
+    let running: Vec<Running> = nodes
+        .iter()
+        .flat_map(|n| start_sharing(n, &[&first, &second], genesis, &clock))
+        .collect();
+    until_moved(&clock, "blocks of both hubs become final", async || {
+        nodes
+            .iter()
+            .all(|n| hubs.iter().all(|hub| height_of(n, hub) >= 10))
+    })
+    .await;
+    for node in &nodes {
+        let counts = node.hubs.write_counters().counts();
+        assert!(counts.commits > 0 && counts.steps >= counts.commits);
+        for hub in &hubs {
+            let stored = node.store.hub(hub.0.as_bytes()).unwrap().unwrap();
+            assert!(stored.height >= 10, "each hub's steps are on disk");
+        }
+    }
 
     shutdown.cancel();
     for validator in running {

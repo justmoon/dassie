@@ -4,7 +4,9 @@
 //!
 //! Each hub has one task that owns its [`Driver`] and takes, one at a time,
 //! the messages the hub's stream brings, the time, and what the node sees
-//! of the escrow. After each step is on disk it answers the message's
+//! of the escrow. It hands each step to the writer the hubs share
+//! ([`HubWriter`]), which commits the steps of every hub waiting then
+//! together. After each step is on disk it answers the message's
 //! sender, sends to the other validators over QUIC, each an exchange of its
 //! own whose reply comes back as a message from that validator, and hands
 //! the escrow's transactions to its XRPL connection ([`super::xrpl`]). A
@@ -27,6 +29,7 @@ use super::config::{HubConfig, ValidatorConfig};
 use super::driver::{Driver, DriverError, Effects, Peer, Step, hex};
 use super::escrow::EscrowView;
 use super::transport::{Hubs, INBOX, Inbound, Route, Sender, bounded};
+use super::writer::HubWriter;
 use super::{HubAnswer, HubClient, HubExchangeError, xrpl};
 use crate::clock::{Clock, clock_moved};
 use crate::log::target;
@@ -73,6 +76,7 @@ pub async fn run(node: Arc<Node>, config: Arc<ValidatorConfig>, shutdown: Cancel
         return;
     };
     let client = HubClient::of(&node);
+    let shared = Shared::new(&node);
     let tasks = TaskTracker::new();
     let stop = shutdown.child_token();
     let mut founded = node.founding().map(|founding| founding.founded());
@@ -91,7 +95,14 @@ pub async fn run(node: Arc<Node>, config: Arc<ValidatorConfig>, shutdown: Cancel
                 tracing::warn!(target: target::HUB, hub = %hex(id.0.as_bytes()), "validating as many hubs as the node does: not this one");
                 continue;
             }
-            match start(&node, &key, (&hub, &config), &client, &tasks, &stop) {
+            match start(
+                &node,
+                &key,
+                (&hub, &config),
+                (&client, &shared),
+                &tasks,
+                &stop,
+            ) {
                 Ok(true) => running.push(id),
                 Ok(false) => {}
                 // The database failed: the service starts again.
@@ -150,7 +161,7 @@ fn start(
     node: &Arc<Node>,
     key: &IdentityKey,
     (hub, config): (&HubConfig, &ValidatorConfig),
-    client: &HubClient,
+    (client, shared): (&HubClient, &Shared),
     tasks: &TaskTracker,
     stop: &CancellationToken,
 ) -> Result<bool, ()> {
@@ -181,7 +192,7 @@ fn start(
         Arc::clone(node.hubs()),
         node.clock(),
     );
-    let task = task.voting_for(config.hub_version);
+    let task = task.voting_for(config.hub_version).sharing(shared);
     let follow = xrpl::Follow {
         store: node.store_handle(),
         hub: id,
@@ -202,6 +213,29 @@ fn start(
     let stop_ = stop.clone();
     tasks.spawn(async move { follow.run(stop_).await });
     Ok(true)
+}
+
+/// What the validators of the node's hubs share, for as long as the
+/// service runs: the writer of their steps.
+#[derive(Clone, Debug)]
+pub struct Shared {
+    writer: HubWriter,
+}
+
+impl Shared {
+    /// What the validators of `node`'s hubs share.
+    #[must_use]
+    pub fn new(node: &Node) -> Self {
+        Self::of(node.store_handle(), node.hubs())
+    }
+
+    /// What validators writing to `store` share, counted in `hubs`.
+    #[must_use]
+    pub fn of(store: Arc<crate::store::Store>, hubs: &Hubs) -> Self {
+        Self {
+            writer: HubWriter::spawn(store, Arc::clone(hubs.write_counters())),
+        }
+    }
 }
 
 /// What a hub's validator and its XRPL connection share.
@@ -263,6 +297,8 @@ pub struct HubTask {
     client: HubClient,
     hubs: Arc<Hubs>,
     clock: Arc<dyn Clock>,
+    /// What writes its steps.
+    writer: HubWriter,
     attestations: mpsc::Receiver<ValidatorOperation>,
     submits: mpsc::Sender<Vec<u8>>,
     view: watch::Sender<EscrowView>,
@@ -321,6 +357,7 @@ impl HubTask {
         let (connected, xrpl_connected) = watch::channel(false);
         let (fetches, fetched) = mpsc::channel(1);
         hubs.set_status(driver.status(false));
+        let writer = Shared::of(Arc::clone(driver.store()), &hubs).writer;
         let task = Self {
             driver,
             from_validators,
@@ -330,6 +367,7 @@ impl HubTask {
             client,
             hubs,
             clock,
+            writer,
             attestations,
             submits,
             view,
@@ -361,6 +399,15 @@ impl HubTask {
     #[must_use]
     pub const fn voting_for(mut self, version: Option<u16>) -> Self {
         self.hub_version = version;
+        self
+    }
+
+    /// The task sharing what the validators of the node's other hubs
+    /// share: its steps are written with theirs. Without it, a task writes
+    /// alone.
+    #[must_use]
+    pub fn sharing(mut self, shared: &Shared) -> Self {
+        self.writer = shared.writer.clone();
         self
     }
 
@@ -449,8 +496,9 @@ impl HubTask {
         }
     }
 
-    /// Writes a step off the runtime, and only then answers whoever sent
-    /// its message and carries out its actions.
+    /// Writes a step, with the steps of the node's other hubs waiting then,
+    /// and only then answers whoever sent its message and carries out its
+    /// actions.
     async fn carry(
         &mut self,
         step: Step,
@@ -458,11 +506,7 @@ impl HubTask {
         shutdown: &CancellationToken,
     ) -> Result<(), StoreError> {
         if !step.write.is_empty() {
-            let store = Arc::clone(self.driver.store());
-            let write = step.write;
-            tokio::task::spawn_blocking(move || write.apply(&store))
-                .await
-                .map_err(|_| StoreError::Corrupt("a hub step's write did not finish"))??;
+            self.writer.write(step.write).await?;
         }
         if let Some(reply) = reply {
             let _ = reply.send(bounded(step.effects.reply.clone()));
