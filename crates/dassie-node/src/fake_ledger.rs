@@ -206,6 +206,23 @@ impl Server {
         Some(self.ledger().publishers(site))
     }
 
+    /// How many WebSockets are open to it now.
+    #[must_use]
+    pub fn connections(&self) -> usize {
+        self.shared
+            .connections
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
+    }
+
+    /// The WebSockets subscribed to `account`'s transactions now, by the
+    /// server's numbers for them.
+    #[must_use]
+    pub fn subscribers(&self, account: dassie_xrpl::AccountId) -> std::collections::BTreeSet<u64> {
+        self.ledger().subscribers(account)
+    }
+
     /// Stops serving, and drops every connection.
     pub fn stop(&self) {
         self.cancel.cancel();

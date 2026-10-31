@@ -750,6 +750,102 @@ fn an_escrow_registered_on_a_live_link_catches_up_without_reconnecting() {
     assert!(scene.watcher.following(scene.hubs[0].id));
 }
 
+/// The testnet resets, and the link follows the new chain, `ledgers` of it.
+fn reset_and_follow(scene: &mut Scene, ledgers: u32) {
+    scene.xrpl.reset();
+    scene.close();
+    scene.watcher.disconnected();
+    scene.connect();
+    scene.closes(ledgers);
+}
+
+// spec/areas/hubs.md#the-validator-in-the-node: an escrow that joins a link
+// with a cursor kept on a chain the link's verifier has left attests the
+// reset it missed, though the new chain's ledgers passed the cursor's, so
+// that its cursor alone would take the new chain's anchors as current;
+// one whose cursor is of the chain followed takes them, attests no reset,
+// and attests what came while it was away.
+#[test]
+fn a_cursor_of_a_chain_the_link_left_has_its_reset_attested() {
+    let mut scene = Scene::new(&[None, None]);
+    scene.connect();
+    scene.closes(2);
+    reset_and_follow(&mut scene, 20);
+    let (stays, left) = (scene.hubs[0].id, scene.hubs[1].id);
+    assert!(scene.hubs.iter().all(|hub| hub.resets() == 1));
+    let stale = scene.watcher.cursor(left).unwrap();
+    scene.watcher.unregister(left);
+
+    reset_and_follow(&mut scene, 40);
+    assert_eq!(scene.hubs[0].resets(), 2, "the link followed the reset");
+    let anchor = scene.watcher.anchor(stays).unwrap();
+    assert!(
+        anchor.index > stale.newest_ledger,
+        "the new chain passed the cursor: {anchor:?} {stale:?}"
+    );
+    scene.hubs[1].attested.clear();
+    scene.hubs[1].cursor = Some(stale);
+    scene.register(1);
+    scene.closes(3);
+    assert_eq!(scene.hubs[1].resets(), 1, "the reset it missed");
+    let cursor = scene.watcher.cursor(left).unwrap();
+    assert!(cursor.newest_close_time > stale.newest_close_time);
+    assert!(scene.watcher.following(left));
+    assert_eq!(scene.hubs[0].resets(), 2, "the others' is attested once");
+
+    // Away and back on the chain followed, it attests no reset, and what
+    // came while it was away.
+    let current = scene.watcher.cursor(stays).unwrap();
+    scene.watcher.unregister(stays);
+    let escrow = scene.hubs[0].escrow();
+    scene.xrpl.fund(escrow);
+    scene.xrpl.deposit_tagged(escrow, 5_000_000, Some(7));
+    scene.closes(2);
+    scene.hubs[0].attested.clear();
+    scene.hubs[0].cursor = Some(current);
+    scene.register(0);
+    scene.closes(3);
+    assert_eq!(scene.hubs[0].resets(), 0, "{:?}", scene.hubs[0].attested);
+    assert_eq!(scene.hubs[0].deposits(), [(7, 5_000_000)]);
+    assert!(scene.watcher.anchor(stays).is_some(), "takes the anchors");
+}
+
+// spec/areas/hubs.md#the-validator-in-the-node: a link cannot unsubscribe from
+// an escrow it follows no more, and the server streams its transactions
+// on; they are dropped, rather than handed as hints to the escrows left,
+// which would prove each: nothing is attested, nothing proven.
+#[test]
+fn a_gone_escrows_stream_is_dropped() {
+    let mut scene = Scene::new(&[None, None]);
+    scene.connect();
+    scene.closes(2);
+    let gone = scene.hubs[1].escrow();
+    scene.watcher.unregister(scene.hubs[1].id);
+    let proofs = scene.asked("tx_proof");
+    for tag in 0..4 {
+        scene.xrpl.deposit_tagged(gone, 5_000_000, Some(tag));
+    }
+    let (streamed, rest) = close_streamed(&mut scene);
+    assert_eq!(streamed.len(), 4, "the server streams it still");
+    let views = scene.views();
+    for bytes in (streamed.iter().map(|(_, bytes)| bytes)).chain(&rest) {
+        scene.watcher.message(scene.now, bytes, &views);
+    }
+    scene.run();
+    let hinted_at = |hash: &[u8; 32]| (scene.watcher.escrows.values()).any(|e| e.hinted_at(hash));
+    assert!(streamed.iter().all(|(hash, _)| !hinted_at(hash)), "no hint");
+    scene.closes(2);
+    assert_eq!(scene.asked("tx_proof"), proofs, "nothing proven");
+    assert!(scene.hubs.iter().all(|hub| hub.attested.is_empty()));
+
+    // On a new connection it is not subscribed to at all.
+    scene.reconnect();
+    scene.run();
+    scene.xrpl.deposit_tagged(gone, 5_000_000, Some(9));
+    let (streamed, _) = close_streamed(&mut scene);
+    assert!(streamed.is_empty(), "streamed no more");
+}
+
 // A server that refuses one escrow's history leaves that escrow alone to
 // subscribe again later: the link stays checked, and the other escrow
 // follows on, on the same connection, attesting meanwhile.

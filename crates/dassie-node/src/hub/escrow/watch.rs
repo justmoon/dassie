@@ -85,6 +85,9 @@ enum Purpose {
     /// The issuer's hold as of the ledger before the one it is proven the
     /// same since.
     HoldBefore,
+    /// The ledger of a doubted cursor's newest, on the anchor's chain: the
+    /// cursor's chain, if it closed when the cursor says.
+    Chain,
 }
 
 /// One object's chain in a walk of the escrow's history: the transactions
@@ -290,6 +293,13 @@ pub(super) struct EscrowWatcher {
     /// When to subscribe again, on a shared link whose server failed to
     /// answer what it asked of this escrow alone.
     resubscribe_at_ms: Option<u64>,
+    /// Whether its cursor, kept before it joined a shared link, may be of
+    /// a chain the link's verifier left, on a network that resets: until
+    /// its newest ledger is proven on the verifier's chain, no anchor that
+    /// passes it is taken as current ([`Self::doubt_cursor`]).
+    doubted: bool,
+    /// The newest anchor held back while the cursor is doubted.
+    held_anchor: Option<Anchor>,
 }
 
 /// Building and reading it.
@@ -333,7 +343,26 @@ impl EscrowWatcher {
             ceiling: None,
             persisted: cursor,
             resubscribe_at_ms: None,
+            doubted: false,
+            held_anchor: None,
         }
+    }
+
+    /// Doubts its cursor, kept before it joined a shared link on a network
+    /// that resets: the link's verifier may follow a chain that reset since
+    /// the cursor was kept, and once that chain's ledgers pass the cursor's
+    /// newest, judging an anchor against the cursor alone takes it as
+    /// current and misses the reset. So the first anchor that passes the
+    /// cursor is held back until the cursor's newest ledger is proven on
+    /// its chain: closed when the cursor says, the chain is the cursor's;
+    /// closed at another time, or not on it, the chain reset.
+    pub(super) fn doubt_cursor(&mut self) {
+        self.doubted = self.cursor.is_some();
+    }
+
+    /// The escrow it follows.
+    pub(super) const fn escrow(&self) -> AccountId {
+        self.escrow
     }
 
     /// Whether any of the verifier's queries is open for it.
@@ -497,6 +526,13 @@ impl EscrowWatcher {
                 self.resubscribe_at_ms.is_none(),
                 "one escrow waits with its link"
             );
+            assert!(!self.doubted, "a cursor is doubted on a shared link");
+        }
+        if self.doubted {
+            assert!(self.cursor.is_some(), "a cursor is doubted");
+            assert!(self.anchored.is_none(), "no anchor taken while doubted");
+        } else {
+            assert!(self.held_anchor.is_none(), "held while doubted");
         }
         assert!(
             self.walk_keys
@@ -526,6 +562,7 @@ impl EscrowWatcher {
                     Some(*id),
                     "the search's query is its own"
                 ),
+                Purpose::Chain => assert!(self.doubted, "a cursor's check is a doubted one's"),
                 Purpose::Escrow | Purpose::Issuer | Purpose::Walk => {}
             }
         }
@@ -936,6 +973,7 @@ impl EscrowWatcher {
             judged => judged,
         };
         match judged {
+            Chain::Current if self.doubted => self.hold_anchor(link, anchor),
             Chain::Current => {
                 self.anchored = Some((anchor, link.now_ms()));
                 let cursor = self.cursor.map_or(
@@ -962,8 +1000,91 @@ impl EscrowWatcher {
         }
     }
 
+    /// An anchor that passes a doubted cursor: held back until the
+    /// cursor's newest ledger is proven on its chain, which the anchor
+    /// itself proves when it is that ledger.
+    fn hold_anchor(&mut self, link: &mut Link, anchor: Anchor) {
+        let Some(cursor) = self.cursor else {
+            self.doubted = false;
+            return self.anchored(link, anchor, false);
+        };
+        if anchor.index == cursor.newest_ledger {
+            let same = u64::from(anchor.close_time) == cursor.newest_close_time;
+            return self.chain_proven(link, anchor, same);
+        }
+        self.held_anchor = Some(anchor);
+    }
+
+    /// Asks for the ledger of a doubted cursor's newest, on the chain of
+    /// the anchor held back, unless it asked already.
+    fn check_chain(&mut self, link: &mut Link) {
+        let (Some(cursor), Some(_)) = (self.cursor, self.held_anchor) else {
+            return;
+        };
+        if self.open(Purpose::Chain) {
+            return;
+        }
+        let query = Query::State {
+            keys: vec![records::account_key(self.escrow)],
+            at: Some(cursor.newest_ledger),
+        };
+        self.query(link, Purpose::Chain, query);
+    }
+
+    /// What the anchor's chain holds at a doubted cursor's newest ledger:
+    /// that ledger closed when the cursor says, or another, or none.
+    fn chain_checked(&mut self, link: &mut Link, verdict: Verdict) {
+        let Some(anchor) = self.held_anchor.or_else(|| link.verifier().anchor()) else {
+            return;
+        };
+        match (verdict, self.cursor) {
+            (Verdict::State(state), Some(cursor)) => {
+                let same = state.header.sequence == cursor.newest_ledger
+                    && u64::from(state.header.close_time) == cursor.newest_close_time;
+                self.chain_proven(link, anchor, same);
+            }
+            (Verdict::NoLedger, _) => self.chain_proven(link, anchor, false),
+            // The server keeps no state that old: what is not proven is
+            // judged as it was before the cursor was doubted, against the
+            // cursor alone.
+            _ => {
+                link.push(Out::Problem(
+                    "the XRPL server keeps no ledger as old as the escrow's cursor: whether the testnet reset since is judged by the cursor alone",
+                ));
+                self.chain_proven(link, anchor, true);
+            }
+        }
+    }
+
+    /// The doubted cursor is of `anchor`'s chain, if `same`, and the anchor
+    /// is taken as current; else the chain reset since it was kept.
+    fn chain_proven(&mut self, link: &mut Link, anchor: Anchor, same: bool) {
+        self.doubted = false;
+        self.held_anchor = None;
+        if same {
+            self.anchored(link, anchor, false);
+        } else {
+            self.restarted(link, anchor);
+        }
+    }
+
+    /// Gives up a doubted cursor's check: the chain reset anyway.
+    fn cancel_chain_check(&mut self, link: &mut Link) {
+        self.doubted = false;
+        self.held_anchor = None;
+        let asked: Vec<QueryId> = (self.queries.iter())
+            .filter(|(_, purpose)| **purpose == Purpose::Chain)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in asked {
+            self.queries.remove(&id);
+            link.verifier_mut().cancel(id);
+        }
+    }
+
     /// A reset of the test network, proven at `anchor`.
     fn restarted(&mut self, link: &mut Link, anchor: Anchor) {
+        self.cancel_chain_check(link);
         let close_time = u64::from(anchor.close_time);
         let closed_ms = close_time
             .saturating_add(XRPL_EPOCH_S)
@@ -1063,6 +1184,8 @@ impl EscrowWatcher {
                 }
             }
             (Purpose::HoldBefore, verdict) => self.hold_before(link, id, verdict),
+            (Purpose::Chain, verdict) if self.doubted => self.chain_checked(link, verdict),
+            (Purpose::Chain, _) => {}
             // Not proven: checked again at a newer anchor.
             (Purpose::Escrow, _) => self.escrow_check_wanted = true,
             (Purpose::Issuer | Purpose::Walk, _) => {}
@@ -1164,6 +1287,11 @@ impl EscrowWatcher {
         }
         self.reread_overflow(link);
         self.read_history(link);
+        // Nothing is proven or attested from a chain its cursor may not be
+        // of: its hints wait for the check.
+        if self.doubted {
+            return self.check_chain(link);
+        }
         self.prove_hints(link);
         self.start_walk(link);
         self.step_walk(link);

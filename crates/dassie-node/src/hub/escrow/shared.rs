@@ -29,6 +29,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use dassie_hub::HubId;
 use dassie_hub::operation::{Issuer, ValidatorOperation};
 use dassie_xrpl::AccountId;
+use dassie_xrpl::account::resets;
 use dassie_xrpl::api::{self, ApiError, MAX_PROOF_KEYS, Message, TxRecord};
 use dassie_xrpl::unl::{Anchor, ValidationSignatures};
 use dassie_xrpl::validator_list::UnlConfig;
@@ -84,6 +85,12 @@ pub enum LinkOut {
 pub struct LinkWatcher {
     link: Link,
     escrows: BTreeMap<HubId, EscrowWatcher>,
+    /// The escrows it followed on this connection and follows no more: the
+    /// server streams their transactions still, as there is no
+    /// unsubscribing, and they are dropped. At most
+    /// [`MAX_VALIDATED_HUBS`]; one past it is handed on as a transaction
+    /// that names no escrow, which proves nothing to attest.
+    gone: BTreeSet<AccountId>,
 }
 
 /// Building and reading it.
@@ -99,6 +106,7 @@ impl LinkWatcher {
         Self {
             link: Link::shared(network, unl, signatures),
             escrows: BTreeMap::new(),
+            gone: BTreeSet::new(),
         }
     }
 
@@ -239,6 +247,17 @@ impl LinkWatcher {
             "requests are of escrows it serves"
         );
         assert_eq!(self.link.threads(), self.union().as_slice());
+        assert!(
+            self.gone.len() <= MAX_VALIDATED_HUBS,
+            "gone escrows are bounded"
+        );
+        assert!(
+            (self.escrows.values()).all(|escrow| !self.gone.contains(&escrow.escrow())),
+            "an escrow followed is not gone"
+        );
+        if !self.link.is_connected() {
+            assert!(self.gone.is_empty(), "gone escrows are a connection's");
+        }
     }
 }
 
@@ -247,7 +266,10 @@ impl LinkWatcher {
     /// Follows `hub`'s escrow on the link from now on, at `now_ms`, from
     /// where it left off, as `view` describes it, on the link's network.
     /// On a link whose server was checked, it subscribes and reads its
-    /// history at once: the others follow on, on the same connection.
+    /// history at once: the others follow on, on the same connection. On
+    /// a network that resets, where it left off is doubted until proven on
+    /// the chain the verifier follows, which may have reset since
+    /// ([`EscrowWatcher::doubt_cursor`]).
     pub fn register(
         &mut self,
         now_ms: u64,
@@ -266,7 +288,12 @@ impl LinkWatcher {
             "on its network"
         );
         self.link.now(now_ms);
-        let escrow = EscrowWatcher::new(AccountId(view.rules.terms.escrow), cursor);
+        let account = AccountId(view.rules.terms.escrow);
+        let mut escrow = EscrowWatcher::new(account, cursor);
+        if resets(self.link.network()) {
+            escrow.doubt_cursor();
+        }
+        self.gone.remove(&account);
         self.escrows.insert(hub, escrow);
         self.link.set_escrows(self.escrows.len());
         self.with(hub, |escrow, link| {
@@ -288,6 +315,9 @@ impl LinkWatcher {
             return;
         };
         escrow.release(&mut self.link);
+        if self.link.is_connected() && self.gone.len() < MAX_VALIDATED_HUBS {
+            self.gone.insert(escrow.escrow());
+        }
         self.link.forget_hub(hub);
         self.link.set_escrows(self.escrows.len());
         self.rethread();
@@ -374,6 +404,7 @@ impl LinkWatcher {
     /// have the verifier anchor on it.
     pub fn connected(&mut self, now_ms: u64) {
         self.link.now(now_ms);
+        self.gone.clear();
         self.each(EscrowWatcher::forget_connection);
         self.link.connected();
         self.drain();
@@ -382,6 +413,7 @@ impl LinkWatcher {
 
     /// The connection is gone: as [`Watcher::disconnected`](super::Watcher::disconnected).
     pub fn disconnected(&mut self) {
+        self.gone.clear();
         self.each(EscrowWatcher::forget_connection);
         self.link.disconnected();
     }
@@ -533,9 +565,14 @@ impl LinkWatcher {
 
     /// The server streamed `record`: a hint to each escrow it names that
     /// is subscribed, or to every one that is if it names none, as a
-    /// rippling payment through an escrow's line names neither.
+    /// rippling payment through an escrow's line names neither. One that
+    /// names only an escrow gone from the link is dropped.
     fn hinted(&mut self, record: &TxRecord) {
         let named = (self.escrows.values()).any(|escrow| escrow.concerns(record));
+        let gone = |account: &AccountId| self.gone.contains(account);
+        if !named && (gone(&record.account) || record.destination.as_ref().is_some_and(gone)) {
+            return;
+        }
         for escrow in self.escrows.values_mut() {
             if escrow.subscribed() && (!named || escrow.concerns(record)) {
                 escrow.hinted(record);

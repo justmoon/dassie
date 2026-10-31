@@ -1,6 +1,6 @@
 //! Following a hub's escrow on the XRP Ledger, as a validator does
 //! (spec/designs/settlement-hubs.md#6-deposits-and-withdrawals), without
-//! IO: the requests to send on its own WebSocket to its XRPL server, the
+//! IO: the requests to send on the WebSocket to its XRPL server, the
 //! validator lists to fetch, and what it attests from what it proved.
 //!
 //! It takes nothing on the server's word. A [`Verifier`] of its own,
