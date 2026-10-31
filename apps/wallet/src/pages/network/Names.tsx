@@ -149,8 +149,8 @@ function NameList(props: { names: NamesStatus }): JSX.Element {
         fallback={<p class="muted">No names yet.</p>}
       >
         <ul class="name-list">
-          <For each={props.names.names}>
-            {(name) => <NameEntry name={name} node={props.names.node} />}
+          <For each={props.names.names} keyed={(name) => name.name}>
+            {(name) => <NameEntry name={name()} node={props.names.node} />}
           </For>
         </ul>
       </Show>

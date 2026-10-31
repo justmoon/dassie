@@ -6,7 +6,6 @@ import {
   atRegistrar,
   nameHint,
   nameState,
-  registering,
   registrable,
   registrarsWorthSeeing,
   renewable,
@@ -37,10 +36,7 @@ test("a name under way reads as registering, whatever its step", () => {
     ]
   ) {
     assertEquals(nameState(state), { text: "registering", tone: "plain" });
-    assertEquals(registering(state), true);
   }
-  assertEquals(registering(NameState.HELD), false);
-  assertEquals(registering(NameState.ABANDONED), false);
 });
 
 test("a name registering says when it is yours, and that nothing is to do", () => {

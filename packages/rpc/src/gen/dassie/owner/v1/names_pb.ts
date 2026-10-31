@@ -206,7 +206,7 @@ export type OwnName = Message<"dassie.owner.v1.OwnName"> & {
   registrars: NameAtRegistrar[];
 
   /**
-   * While it is registered: when the registrars' windows close, by this
+   * While it registers: when the registrars' windows close, by this
    * node's clock, a window after the registration started, which is no
    * later than any registrar logged the commitment. Whoever committed first
    * is granted the name then, and the node sees it within a list poll. 0

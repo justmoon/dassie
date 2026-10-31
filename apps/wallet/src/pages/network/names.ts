@@ -34,12 +34,6 @@ export function nameState(state: NameState): {
   }
 }
 
-/** Whether a registration of the name is under way. */
-export function registering(state: NameState): boolean {
-  return state === NameState.COMMITTING || state === NameState.UNSEALING ||
-    state === NameState.WAITING;
-}
-
 /** That the owner has nothing to do while a name registers. */
 const NOTHING_TO_DO =
   "Nothing for you to do: your node finishes by itself while it runs.";
