@@ -37,6 +37,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     MIGRATION_12,
     MIGRATION_13,
     MIGRATION_14,
+    MIGRATION_15,
 ];
 
 /// The schema version this code writes.
@@ -739,6 +740,34 @@ ALTER TABLE settlement_schemes ADD COLUMN leaving INTEGER NOT NULL DEFAULT 0
   CHECK (leaving IN (0, 1));
 ";
 
+/// Migration 15: one verifier's state per network rather than per hub, as
+/// one link to a network's XRPL server serves the escrows of every hub on
+/// it (spec/areas/hubs.md#the-validator-in-the-node). Each network keeps
+/// the state its hubs kept beside the newest cursor, by the newest ledger
+/// it saw: a state starts with the network it was kept on. Its time of
+/// writing is unknown, 0. The hubs' escrow rows keep their cursors.
+const MIGRATION_15: &str = "
+CREATE TABLE hub_verifiers (
+  network BLOB PRIMARY KEY CHECK (length(network) = 4),
+  updated_at_ms INTEGER NOT NULL,
+  verifier BLOB NOT NULL CHECK (length(verifier) <= 262144)
+) STRICT, WITHOUT ROWID;
+
+INSERT INTO hub_verifiers (network, updated_at_ms, verifier)
+SELECT network, 0, verifier FROM (
+  SELECT substr(verifier, 1, 4) AS network, verifier,
+    row_number() OVER (
+      PARTITION BY substr(verifier, 1, 4)
+      ORDER BY newest_close_time DESC, newest_ledger DESC, hub
+    ) AS newest
+  FROM hub_escrow
+  WHERE length(verifier) >= 4
+)
+WHERE newest = 1;
+
+ALTER TABLE hub_escrow DROP COLUMN verifier;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1291,7 +1320,15 @@ pub const TABLES: &[Table] = &[
             ("newest_ledger", "INTEGER", true, false),
             ("newest_close_time", "INTEGER", true, false),
             ("scanned_to", "INTEGER", true, false),
-            ("verifier", "BLOB", false, false),
+        ],
+    },
+    Table {
+        name: "hub_verifiers",
+        without_rowid: true,
+        columns: &[
+            ("network", "BLOB", true, true),
+            ("updated_at_ms", "INTEGER", true, false),
+            ("verifier", "BLOB", true, false),
         ],
     },
     Table {

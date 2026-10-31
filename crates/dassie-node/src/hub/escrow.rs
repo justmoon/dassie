@@ -366,6 +366,13 @@ impl Watcher {
         self.escrow.following()
     }
 
+    /// The network it follows the escrow on, which its host keeps the
+    /// verifier's state by.
+    #[must_use]
+    pub const fn network(&self) -> u32 {
+        self.link.network()
+    }
+
     /// How far it followed the escrow.
     #[must_use]
     pub const fn cursor(&self) -> Option<EscrowCursor> {

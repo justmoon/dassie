@@ -58,7 +58,8 @@ type Fetched = (String, Option<Vec<u8>>);
 
 /// Follows one hub's escrow until shutdown.
 pub struct Follow {
-    /// Where the cursor is kept, with the watcher's verifier's state.
+    /// Where the cursor is kept, and the watcher's verifier's state by its
+    /// network.
     pub store: Arc<Store>,
     /// The hub.
     pub hub: HubId,
@@ -132,7 +133,8 @@ impl Follow {
     /// the verifier starts afresh.
     fn restore(&self, watcher: &mut Watcher) {
         let hub = hex(self.hub.0.as_bytes());
-        let kept = match self.store.hub_verifier(self.hub.0.as_bytes()) {
+        let network = self.links.view.borrow().rules.terms.network;
+        let kept = match self.store.hub_link_verifier(network) {
             Ok(Some(kept)) => kept,
             Ok(None) => return,
             Err(error) => {
@@ -297,12 +299,17 @@ impl Follow {
                 }
                 Out::Cursor(cursor) => {
                     let hub = self.hub.0.as_bytes();
+                    let network = watcher.network();
+                    let now_ms = self.clock.now_ms();
+                    let cursors = [(hub, cursor)];
                     let written = match watcher.take_kept() {
                         None => self.store.set_hub_escrow(hub, &cursor),
                         Some(Kept::State(state)) => {
-                            self.store.keep_hub_escrow(hub, &cursor, Some(&state))
+                            (self.store).keep_hub_link(network, now_ms, Some(&state), &cursors)
                         }
-                        Some(Kept::Dropped) => self.store.keep_hub_escrow(hub, &cursor, None),
+                        Some(Kept::Dropped) => {
+                            (self.store).keep_hub_link(network, now_ms, None, &cursors)
+                        }
                     };
                     if let Err(error) = written {
                         tracing::warn!(target: target::HUB, %error, "cannot record how far the escrow was followed");

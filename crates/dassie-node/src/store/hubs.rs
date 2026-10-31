@@ -4,14 +4,15 @@
 //! a step's messages go out, so a restart never signs a vote that conflicts
 //! with one sent before; the states after a few recent final blocks and
 //! after the last blocks of recent epochs, which validators far behind
-//! catch up from; how far it followed the escrow on the XRP Ledger, with
-//! what its verifier keeps across a restart; and the payout bundles it
-//! signed.
+//! catch up from; how far it followed the escrow on the XRP Ledger; and the
+//! payout bundles it signed. Beside them, for each network, what the
+//! verifier of the link to its XRPL server keeps across a restart, written
+//! with the cursors of the escrows the link serves.
 //!
 //! The rows hold bytes the hub's crate encodes and reads; the store knows
 //! only their bounds.
 
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::{Cached, Store, StoreError, from_sql_time, to_sql_time};
 
@@ -176,6 +177,26 @@ fn write_hub_step(
     Ok(())
 }
 
+/// Records how far the validator of `hub` followed its escrow.
+fn write_hub_escrow(
+    connection: &Connection,
+    hub: &[u8; 32],
+    cursor: &EscrowCursor,
+) -> Result<(), StoreError> {
+    connection.execute_cached(
+        "INSERT INTO hub_escrow (hub, newest_ledger, newest_close_time, scanned_to) \
+         VALUES (?1, ?2, ?3, ?4) ON CONFLICT (hub) DO UPDATE SET \
+         newest_ledger = ?2, newest_close_time = ?3, scanned_to = ?4",
+        params![
+            &hub[..],
+            cursor.newest_ledger,
+            to_sql_time(cursor.newest_close_time),
+            cursor.scanned_to,
+        ],
+    )?;
+    Ok(())
+}
+
 /// Keeps the payout bundle the validator of `hub` signed for the block at
 /// `height`, and only the [`KEPT_BUNDLES`] newest of the hub's.
 fn write_hub_bundle(
@@ -298,63 +319,65 @@ impl Store {
         )
     }
 
-    /// What the validator of `hub` kept of its verifier with its cursor, if
-    /// it kept anything: bytes its watcher writes and reads.
-    pub fn hub_verifier(&self, hub: &[u8; 32]) -> Result<Option<Vec<u8>>, StoreError> {
+    /// Records how far the validator of `hub` followed its escrow; what its
+    /// link kept of its verifier stays.
+    pub fn set_hub_escrow(&self, hub: &[u8; 32], cursor: &EscrowCursor) -> Result<(), StoreError> {
+        write_hub_escrow(&self.lock(), hub, cursor)
+    }
+
+    /// What the link to an XRPL server of `network` kept of its verifier,
+    /// if it kept anything: bytes its watcher writes and reads.
+    pub fn hub_link_verifier(&self, network: u32) -> Result<Option<Vec<u8>>, StoreError> {
         let row = self
             .lock()
             .query_row_cached(
-                "SELECT verifier FROM hub_escrow WHERE hub = ?1",
-                [&hub[..]],
-                |row| row.get::<_, Option<Vec<u8>>>(0),
+                "SELECT verifier FROM hub_verifiers WHERE network = ?1",
+                [&network.to_be_bytes()[..]],
+                |row| row.get::<_, Vec<u8>>(0),
             )
             .optional()?;
-        Ok(row.flatten())
+        Ok(row)
     }
 
-    /// Records how far the validator of `hub` followed its escrow; what it
-    /// kept of its verifier stays.
-    pub fn set_hub_escrow(&self, hub: &[u8; 32], cursor: &EscrowCursor) -> Result<(), StoreError> {
-        self.lock().execute_cached(
-            "INSERT INTO hub_escrow (hub, newest_ledger, newest_close_time, scanned_to) \
-             VALUES (?1, ?2, ?3, ?4) ON CONFLICT (hub) DO UPDATE SET \
-             newest_ledger = ?2, newest_close_time = ?3, scanned_to = ?4",
-            params![
-                &hub[..],
-                cursor.newest_ledger,
-                to_sql_time(cursor.newest_close_time),
-                cursor.scanned_to,
-            ],
-        )?;
-        Ok(())
-    }
-
-    /// Records how far the validator of `hub` followed its escrow, and with
-    /// it its verifier's state, in one write, so a restart reads the two as
-    /// they were together. Without a state, what was kept of the verifier
-    /// is dropped, and a restart starts it afresh.
-    pub fn keep_hub_escrow(
+    /// Records the state of the verifier of the link to an XRPL server of
+    /// `network` at `now_ms`, and with it how far each hub of `cursors`
+    /// followed its escrow on that link, in one transaction, so a restart
+    /// reads them as they were together. Without a state, what the link
+    /// kept is dropped, and a restart starts its verifier afresh. A state
+    /// over its bound, or more cursors than a link serves escrows, writes
+    /// nothing.
+    pub fn keep_hub_link(
         &self,
-        hub: &[u8; 32],
-        cursor: &EscrowCursor,
+        network: u32,
+        now_ms: u64,
         verifier: Option<&[u8]>,
+        cursors: &[(&[u8; 32], EscrowCursor)],
     ) -> Result<(), StoreError> {
         if verifier.is_some_and(|bytes| bytes.len() > MAX_HUB_VERIFIER_BYTES) {
             return Err(StoreError::Corrupt("verifier state over its bound"));
         }
-        self.lock().execute_cached(
-            "INSERT INTO hub_escrow (hub, newest_ledger, newest_close_time, scanned_to, verifier) \
-             VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (hub) DO UPDATE SET \
-             newest_ledger = ?2, newest_close_time = ?3, scanned_to = ?4, \
-             verifier = ?5",
-            params![
-                &hub[..],
-                cursor.newest_ledger,
-                to_sql_time(cursor.newest_close_time),
-                cursor.scanned_to,
-                verifier,
-            ],
-        )?;
+        if cursors.len() > crate::hub::config::MAX_VALIDATED_HUBS {
+            return Err(StoreError::Corrupt("set of escrows over its bound"));
+        }
+        let network = network.to_be_bytes();
+        let mut connection = self.lock();
+        let transaction = connection.transaction()?;
+        match verifier {
+            Some(verifier) => transaction.execute_cached(
+                "INSERT INTO hub_verifiers (network, updated_at_ms, verifier) \
+                 VALUES (?1, ?2, ?3) ON CONFLICT (network) DO UPDATE SET \
+                 updated_at_ms = ?2, verifier = ?3",
+                params![&network[..], to_sql_time(now_ms), verifier],
+            )?,
+            None => transaction.execute_cached(
+                "DELETE FROM hub_verifiers WHERE network = ?1",
+                [&network[..]],
+            )?,
+        };
+        for (hub, cursor) in cursors {
+            write_hub_escrow(&transaction, hub, cursor)?;
+        }
+        transaction.commit()?;
         Ok(())
     }
 
@@ -522,7 +545,7 @@ mod tests {
         };
         store.set_hub_escrow(&hub, &cursor).unwrap();
         assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor));
-        assert_eq!(store.hub_verifier(&hub).unwrap(), None);
+        assert_eq!(store.hub_link_verifier(TESTNET).unwrap(), None);
         for height in 0..u64::from(KEPT_BUNDLES) + 3 {
             store.add_hub_bundle(&hub, height, 1, &[1]).unwrap();
         }
@@ -535,8 +558,11 @@ mod tests {
         );
     }
 
+    /// The XRPL testnet's network ID.
+    const TESTNET: u32 = 1;
+
     // spec/areas/hubs.md#the-validator-in-the-node: the verifier's state is
-    // written with the cursor, stays while only the cursor moves, is
+    // written with the cursors, stays while only a cursor moves, is
     // dropped when written without one, and is bounded.
     #[test]
     fn the_verifier_is_kept_with_the_cursor() {
@@ -547,38 +573,89 @@ mod tests {
             newest_close_time: 700,
             scanned_to: 8,
         };
-        store
-            .keep_hub_escrow(&hub, &cursor(9), Some(&[1, 2, 3]))
-            .unwrap();
+        let keep = |newest_ledger, verifier: Option<&[u8]>| {
+            store.keep_hub_link(TESTNET, 5, verifier, &[(&hub, cursor(newest_ledger))])
+        };
+        keep(9, Some(&[1, 2, 3])).unwrap();
         assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor(9)));
-        assert_eq!(store.hub_verifier(&hub).unwrap(), Some(vec![1, 2, 3]));
+        assert_eq!(
+            store.hub_link_verifier(TESTNET).unwrap(),
+            Some(vec![1, 2, 3])
+        );
         store.set_hub_escrow(&hub, &cursor(10)).unwrap();
         assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor(10)));
-        assert_eq!(store.hub_verifier(&hub).unwrap(), Some(vec![1, 2, 3]));
-        store
-            .keep_hub_escrow(&hub, &cursor(11), Some(&[4]))
-            .unwrap();
-        assert_eq!(store.hub_verifier(&hub).unwrap(), Some(vec![4]));
-        let over = vec![0; MAX_HUB_VERIFIER_BYTES + 1];
-        assert!(
-            store
-                .keep_hub_escrow(&hub, &cursor(12), Some(&over))
-                .is_err()
+        assert_eq!(
+            store.hub_link_verifier(TESTNET).unwrap(),
+            Some(vec![1, 2, 3])
         );
+        keep(11, Some(&[4])).unwrap();
+        assert_eq!(store.hub_link_verifier(TESTNET).unwrap(), Some(vec![4]));
+        let over = vec![0; MAX_HUB_VERIFIER_BYTES + 1];
+        assert!(keep(12, Some(&over)).is_err());
         assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor(11)));
         let largest = vec![5; MAX_HUB_VERIFIER_BYTES];
-        store
-            .keep_hub_escrow(&hub, &cursor(12), Some(&largest))
-            .unwrap();
-        assert_eq!(store.hub_verifier(&hub).unwrap(), Some(largest));
-        store.keep_hub_escrow(&hub, &cursor(13), None).unwrap();
+        keep(12, Some(&largest)).unwrap();
+        assert_eq!(store.hub_link_verifier(TESTNET).unwrap(), Some(largest));
+        keep(13, None).unwrap();
         assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor(13)));
-        assert_eq!(store.hub_verifier(&hub).unwrap(), None);
+        assert_eq!(store.hub_link_verifier(TESTNET).unwrap(), None);
         // The column's own bound is the same.
         let refused = store.lock().execute(
-            "UPDATE hub_escrow SET verifier = ?1 WHERE hub = ?2",
-            params![over, &hub[..]],
+            "INSERT INTO hub_verifiers (network, updated_at_ms, verifier) VALUES (?1, 0, ?2)",
+            params![&TESTNET.to_be_bytes()[..], over],
         );
         assert!(refused.is_err());
+    }
+
+    // spec/areas/hubs.md#the-validator-in-the-node: one network's verifier
+    // is written with every cursor of the escrows its link serves, in one
+    // transaction, apart from another network's; more cursors than a link
+    // serves escrows write nothing.
+    #[test]
+    fn a_links_verifier_is_kept_with_every_cursor_it_serves() {
+        let store = Store::open_in_memory().unwrap();
+        let cursor = |newest_ledger| EscrowCursor {
+            newest_ledger,
+            newest_close_time: 700,
+            scanned_to: 8,
+        };
+        let hubs: Vec<[u8; 32]> = (1..=5).map(|i| [i; 32]).collect();
+        let all: Vec<(&[u8; 32], EscrowCursor)> =
+            hubs.iter().map(|hub| (hub, cursor(20))).collect();
+        let served = crate::hub::config::MAX_VALIDATED_HUBS;
+        store
+            .keep_hub_link(TESTNET, 5, Some(&[1]), &all[..served])
+            .unwrap();
+        store.keep_hub_link(0, 5, Some(&[2]), &[]).unwrap();
+        for hub in &hubs[..served] {
+            assert_eq!(store.hub_escrow(hub).unwrap(), Some(cursor(20)));
+        }
+        assert_eq!(store.hub_link_verifier(TESTNET).unwrap(), Some(vec![1]));
+        assert_eq!(store.hub_link_verifier(0).unwrap(), Some(vec![2]));
+
+        let more: Vec<(&[u8; 32], EscrowCursor)> =
+            hubs.iter().map(|hub| (hub, cursor(30))).collect();
+        assert!(store.keep_hub_link(TESTNET, 6, Some(&[3]), &more).is_err());
+        assert_eq!(store.hub_link_verifier(TESTNET).unwrap(), Some(vec![1]));
+        assert_eq!(store.hub_escrow(&hubs[0]).unwrap(), Some(cursor(20)));
+        assert_eq!(store.hub_escrow(&hubs[served]).unwrap(), None);
+
+        // A cursor the table refuses undoes the verifier written before it.
+        store
+            .lock()
+            .execute_batch(
+                "CREATE TRIGGER refuse BEFORE INSERT ON hub_escrow \
+                 WHEN NEW.hub = x'0505050505050505050505050505050505050505050505050505050505050505' \
+                 BEGIN SELECT RAISE(ABORT, 'refused'); END",
+            )
+            .unwrap();
+        let refused = [(&hubs[0], cursor(40)), (&hubs[served], cursor(40))];
+        assert!(
+            store
+                .keep_hub_link(TESTNET, 7, Some(&[4]), &refused)
+                .is_err()
+        );
+        assert_eq!(store.hub_link_verifier(TESTNET).unwrap(), Some(vec![1]));
+        assert_eq!(store.hub_escrow(&hubs[0]).unwrap(), Some(cursor(20)));
     }
 }

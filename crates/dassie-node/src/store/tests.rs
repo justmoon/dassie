@@ -923,25 +923,32 @@ fn the_default_address_starts_unchosen_and_is_kept() {
 
 // spec/areas/hubs.md#the-validator-in-the-node: a hub's escrow cursor is
 // kept with nothing of the verifier until the watcher first writes it;
-// once kept, the verifier's state round-trips beside the cursor.
+// once kept, the verifier's state of the hub's network round-trips beside
+// the cursor.
 #[test]
 fn an_escrow_cursor_keeps_its_verifier_beside_it() {
     let temp = tempfile::tempdir().unwrap();
     let hub = [7; 32];
+    let network = 1;
     let cursor = EscrowCursor {
         newest_ledger: 90,
         newest_close_time: 700,
         scanned_to: 80,
     };
     let store = Store::open(temp.path()).unwrap();
-    store.keep_hub_escrow(&hub, &cursor, None).unwrap();
-    assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor));
-    assert_eq!(store.hub_verifier(&hub).unwrap(), None);
     store
-        .keep_hub_escrow(&hub, &cursor, Some(&[1, 2, 3]))
+        .keep_hub_link(network, 5, None, &[(&hub, cursor)])
+        .unwrap();
+    assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor));
+    assert_eq!(store.hub_link_verifier(network).unwrap(), None);
+    store
+        .keep_hub_link(network, 5, Some(&[1, 2, 3]), &[(&hub, cursor)])
         .unwrap();
     drop(store);
     let store = Store::open(temp.path()).unwrap();
     assert_eq!(store.hub_escrow(&hub).unwrap(), Some(cursor));
-    assert_eq!(store.hub_verifier(&hub).unwrap(), Some(vec![1, 2, 3]));
+    assert_eq!(
+        store.hub_link_verifier(network).unwrap(),
+        Some(vec![1, 2, 3])
+    );
 }

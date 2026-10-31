@@ -261,3 +261,65 @@ fn every_releases_database_opens() {
         assert_alike(&fresh, &after);
     }
 }
+
+// spec/areas/hubs.md#the-validator-in-the-node: migration 15 keeps one
+// verifier's state per network, the one kept beside the newest cursor of
+// that network's hubs, which its first four bytes name; a hub that kept
+// none, or none that reads as a network's, is left out, and every hub
+// keeps its cursor in a row without the verifier's column.
+#[test]
+fn migration_15_keeps_each_networks_newest_verifier() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("v14");
+    build(&path, &MIGRATIONS[..MIGRATIONS.len() - 1]);
+    let connection = Connection::open(&path).unwrap();
+    let state = |network: u32, tail: u8| {
+        let mut state = network.to_be_bytes().to_vec();
+        state.push(tail);
+        state
+    };
+    let escrows: [(u8, u32, i64, Option<Vec<u8>>); 6] = [
+        (1, 50, 900, Some(state(1, 1))),
+        (2, 60, 1_000, Some(state(1, 2))),
+        (3, 70, 800, Some(state(1, 3))),
+        (4, 10, 500, Some(state(0, 4))),
+        (5, 99, 9_000, None),
+        (6, 99, 9_000, Some(vec![1, 2])),
+    ];
+    for (hub, ledger, close_time, verifier) in &escrows {
+        connection
+            .execute(
+                "INSERT INTO hub_escrow \
+                 (hub, newest_ledger, newest_close_time, scanned_to, verifier) \
+                 VALUES (?1, ?2, ?3, 0, ?4)",
+                rusqlite::params![vec![*hub; 32], ledger, close_time, verifier],
+            )
+            .unwrap();
+    }
+    drop(connection);
+    build(&path, MIGRATIONS);
+    let mut connection = Connection::open(&path).unwrap();
+    let blob = |bytes: &[u8]| Value::Blob(bytes.to_vec());
+    assert_eq!(
+        rows(
+            &connection,
+            "SELECT network, updated_at_ms, verifier FROM hub_verifiers ORDER BY network"
+        ),
+        [
+            vec![
+                blob(&0_u32.to_be_bytes()),
+                Value::Integer(0),
+                blob(&state(0, 4))
+            ],
+            vec![
+                blob(&1_u32.to_be_bytes()),
+                Value::Integer(0),
+                blob(&state(1, 2))
+            ],
+        ]
+    );
+    let cursors = rows(&connection, "SELECT * FROM hub_escrow ORDER BY hub");
+    assert_eq!(cursors.len(), escrows.len(), "every cursor stays");
+    assert!(cursors.iter().all(|row| row.len() == 4), "{cursors:?}");
+    schema::check(&mut connection).unwrap();
+}
