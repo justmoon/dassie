@@ -108,6 +108,14 @@ impl RegistrantConfig {
             .saturating_sub(self.clock_margin_ms())
     }
 
+    /// When a registration started at `started_ms` is decided, at the
+    /// earliest: each registrar's window closes a window after it logged
+    /// the commitment, seconds after the start unless committing retried.
+    #[must_use]
+    pub const fn decided_ms(&self, started_ms: u64) -> u64 {
+        started_ms.saturating_add(self.window_ms)
+    }
+
     /// When a registration started at `started_ms` that the view does not
     /// show held has failed: every registrar decided it a window after it
     /// started at the latest, and a split would have been released.
@@ -365,6 +373,8 @@ pub struct NameStatus {
     pub expires_ms: Option<u64>,
     /// Until when its registration may begin to unseal, while it commits.
     pub unseal_by_ms: Option<u64>,
+    /// When its registration is decided, while it is under way.
+    pub decided_ms: Option<u64>,
     /// How it stands with each registrar.
     pub registrars: Vec<AtRegistrar>,
 }
@@ -1025,6 +1035,7 @@ impl Registrant {
                 holder,
                 expires_ms: Some(*expires_ms),
                 unseal_by_ms: None,
+                decided_ms: None,
                 registrars,
             });
         }
@@ -1048,13 +1059,16 @@ impl Registrant {
                 fresh: holders.is_fresh_list(registrar, now_ms),
             })
             .collect();
+        let state = self.state(registration, holders, now_ms);
         NameStatus {
             name,
-            state: self.state(registration, holders, now_ms),
+            state,
             holder: held.map(|held| held.holder),
             expires_ms: held.map(|held| held.expires_ms),
             unseal_by_ms: (registration.stage == Stage::Committing)
                 .then(|| self.config.unseal_by_ms(registration.started_ms)),
+            decided_ms: matches!(state, State::Committing | State::Unsealing | State::Waiting)
+                .then(|| self.config.decided_ms(registration.started_ms)),
             registrars,
         }
     }
@@ -1606,6 +1620,56 @@ mod tests {
         requests(&mut registrant, &view, after);
         assert_eq!(registrant.registrations().count(), 0);
         assert_eq!(state(&registrant, &view, &alice, after), State::Held);
+    }
+
+    // A registration under way says when the registrars decide it, a
+    // window after it started, for the owner to know when to look; one
+    // decided, or abandoned, says nothing.
+    #[test]
+    fn a_registration_under_way_says_when_it_is_decided() {
+        let alice = name("alice");
+        let decided = |registrant: &Registrant, view: &Holders, now: u64| {
+            let statuses = registrant.statuses(view, now);
+            let status = statuses.iter().find(|status| status.name == alice);
+            let status = status.unwrap();
+            (status.state, status.decided_ms)
+        };
+        let at = Some(START + CONFIG.window_ms);
+        let after = CONFIG.unseal_until_ms(START);
+
+        let (mut committing, unanswered) = (registrant(3), view(3));
+        committing
+            .register(alice, Salt([7; 32]), &unanswered, START)
+            .unwrap();
+        assert_eq!(
+            decided(&committing, &unanswered, START),
+            (State::Committing, at)
+        );
+
+        let (mut unsealed, mut lists) = (registrant(3), view(3));
+        committed(&mut unsealed, &lists);
+        requests(&mut unsealed, &lists, START + 1);
+        assert_eq!(
+            decided(&unsealed, &lists, START + 1),
+            (State::Unsealing, at)
+        );
+        assert_eq!(decided(&unsealed, &lists, after), (State::Waiting, at));
+        show(
+            &mut lists,
+            &alice,
+            &[Some(5), Some(5), Some(5)],
+            after * 2,
+            after,
+        );
+        assert_eq!(decided(&unsealed, &lists, after), (State::Lost, None));
+
+        // Abandoned: not every receipt came in time.
+        let by = CONFIG.unseal_by_ms(START);
+        requests(&mut committing, &unanswered, by);
+        assert_eq!(
+            decided(&committing, &unanswered, by),
+            (State::Abandoned, None)
+        );
     }
 
     // A name this node holds is renewed at every registrar once its expiry

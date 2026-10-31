@@ -81,9 +81,10 @@
           <strong>Register</strong>.
         </li>
         <li>
-          Wait about an hour. The name shows under
-          <strong>Your names</strong> while the registrars handle it, and says
-          <strong>yours</strong> once they grant it.
+          Wait about an hour, with your node running. There is nothing else to
+          do: the name shows under <strong>Your names</strong> as
+          <strong>registering</strong>, with when it will be yours, and says
+          <strong>yours</strong> once the registrars grant it.
         </li>
       </ol>
       <p>A name has:</p>
@@ -119,15 +120,11 @@
           </thead>
           <tbody>
             <tr>
-              <td>committing</td>
-              <td>Your node is committing to the name, sealed, at every registrar.</td>
-            </tr>
-            <tr>
-              <td>unsealing, or waiting for the registrars</td>
+              <td>registering</td>
               <td>
-                Every registrar logged the commitment, and knows the name now.
-                It is yours once their windows close, unless someone committed
-                to it before you.
+                Your node is registering the name at every registrar, by
+                itself. The page says when it will be yours: once their windows
+                close, unless someone committed to it before you.
               </td>
             </tr>
             <tr>
@@ -171,8 +168,9 @@
 
       <h2 id="each-registrar">Each registrar's view</h2>
       <p>
-        Under each name, the page lists every registrar by its node ID, with
-        what it did:
+        Under each name, <strong>At each registrar</strong> lists every
+        registrar by its node ID, with what it did. The list opens by itself
+        when a registrar refused, or lists another node for the name:
       </p>
       <ul>
         <li><strong>logged the commitment</strong>, then <strong>took the unsealing</strong>: it has your registration;</li>

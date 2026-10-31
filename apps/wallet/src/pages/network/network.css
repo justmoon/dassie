@@ -137,6 +137,14 @@ a.node-name[aria-current="page"] {
   font-size: 14px;
 }
 
+.registrars summary {
+  margin-top: 6px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .registrar-list {
   margin-top: 8px;
   font-size: 14px;

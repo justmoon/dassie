@@ -1,12 +1,14 @@
 import { test } from "node:test";
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { create } from "@bufbuild/protobuf";
 import { NameAtRegistrarSchema, NameState } from "@dassie/rpc/proto";
 import {
   atRegistrar,
   nameHint,
   nameState,
+  registering,
   registrable,
+  registrarsWorthSeeing,
   renewable,
 } from "./names.ts";
 
@@ -19,8 +21,48 @@ test("a name's state reads as the node reports it", () => {
   assertEquals(nameState(NameState.LOST).tone, "bad");
   // A state this wallet does not know says only that.
   assertEquals(nameState(99 as NameState).text, "unknown");
-  assertEquals(nameHint(NameState.HELD), undefined);
-  assertEquals(nameHint(NameState.ABANDONED), "You can register it again.");
+  assertEquals(nameHint(NameState.HELD, 0n, NOW_MS), undefined);
+  assertEquals(
+    nameHint(NameState.ABANDONED, 0n, NOW_MS),
+    "You can register it again.",
+  );
+});
+
+test("a name under way reads as registering, whatever its step", () => {
+  for (
+    const state of [
+      NameState.COMMITTING,
+      NameState.UNSEALING,
+      NameState.WAITING,
+    ]
+  ) {
+    assertEquals(nameState(state), { text: "registering", tone: "plain" });
+    assertEquals(registering(state), true);
+  }
+  assertEquals(registering(NameState.HELD), false);
+  assertEquals(registering(NameState.ABANDONED), false);
+});
+
+test("a name registering says when it is yours, and that nothing is to do", () => {
+  const decided = BigInt(NOW_MS + 52 * 60_000);
+  const before = nameHint(NameState.UNSEALING, decided, NOW_MS) ?? "";
+  assert(before.startsWith("Yours in 52 min, around "), before);
+  assertStringIncludes(before, "unless someone registered it before you");
+  assertStringIncludes(before, "Nothing for you to do");
+  // Its time passed, the node waits for the registrars' lists.
+  assertStringIncludes(
+    nameHint(NameState.WAITING, decided, Number(decided)) ?? "",
+    "Any moment now",
+  );
+  // While it commits, it says what the node does, and that nothing is to do.
+  assertStringIncludes(
+    nameHint(NameState.COMMITTING, decided, NOW_MS) ?? "",
+    "Nothing for you to do",
+  );
+  // A node that does not say when still says nothing is to do.
+  const unknown = nameHint(NameState.UNSEALING, 0n, NOW_MS) ?? "";
+  assertStringIncludes(unknown, "waiting period ends");
+  assertStringIncludes(unknown, "Nothing for you to do");
 });
 
 test("only names the node holds are renewed, and only finished ones registered again", () => {
@@ -80,5 +122,23 @@ test("a registrar's standing says what it logged, took and lists", () => {
       NOW_MS,
     ),
     "lists another node, its list is not current",
+  );
+});
+
+test("the registrars show unasked only when one refused or lists another node", () => {
+  const at = (fields: { refusedStatus?: number; listedHolder?: string }) =>
+    create(NameAtRegistrarSchema, { registrar: "dR", ...fields });
+  assertEquals(registrarsWorthSeeing([at({}), at({})], NODE), false);
+  assertEquals(
+    registrarsWorthSeeing([at({ listedHolder: NODE })], NODE),
+    false,
+  );
+  assertEquals(
+    registrarsWorthSeeing([at({}), at({ refusedStatus: 409 })], NODE),
+    true,
+  );
+  assertEquals(
+    registrarsWorthSeeing([at({ listedHolder: "dOther" })], NODE),
+    true,
   );
 });

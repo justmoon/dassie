@@ -11,14 +11,7 @@ import {
   type NetworkNode,
   PeerState,
 } from "@dassie/rpc/proto";
-import {
-  type Accessor,
-  createMemo,
-  createSignal,
-  For,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { currencyOf } from "@dassie/ui/currency";
 import { dateTime, shortId } from "@dassie/ui/format";
@@ -45,6 +38,7 @@ import {
   uplinkState,
 } from "./periphery.ts";
 import { methodState, peerMethods } from "./methods.ts";
+import { useNow } from "./now.ts";
 import { schemeName } from "../schemes.ts";
 
 export function Network(props: RouteProps): JSX.Element {
@@ -313,17 +307,6 @@ function Swaps(props: { periphery: boolean }): JSX.Element {
       </Show>
     </>
   );
-}
-
-/** How often "last heard from …" is brought up to date. */
-const CLOCK_MS = 10_000;
-
-/** The time, ticking every [`CLOCK_MS`]. */
-function useNow(): Accessor<number> {
-  const [now, setNow] = createSignal(Date.now());
-  const timer = setInterval(() => setNow(Date.now()), CLOCK_MS);
-  onCleanup(() => clearInterval(timer));
-  return now;
 }
 
 /** Another node: what the table knows, and the peering with it. */
