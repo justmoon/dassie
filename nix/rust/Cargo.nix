@@ -704,9 +704,9 @@ rec {
       };
       "async-executor" = rec {
         crateName = "async-executor";
-        version = "1.14.0";
+        version = "1.14.1";
         edition = "2021";
-        sha256 = "0al1rmxjy7p7r6h50z698q5lwssqs5a2vzmqbazm1z2sv1rgjsy9";
+        sha256 = "0dsg3ijjbrky4qas8g7nyjpryg1646jsfpmwjxi14df74q8s69pl";
         libName = "async_executor";
         authors = [
           "Stjepan Glavina <stjepang@gmail.com>"
