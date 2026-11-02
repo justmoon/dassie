@@ -2,14 +2,18 @@ import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import {
   accessText,
+  backToApp,
   clientName,
+  consentPath,
   dateText,
   intervalText,
   limitAssetText,
   type LimitFields,
   limitText,
   paymentsTitle,
+  pendingNotice,
   receiveText,
+  returnsToApp,
   sendText,
   spanText,
   spentText,
@@ -113,6 +117,60 @@ test("a client goes by its public name, else its address", () => {
     "Budget App",
   );
   assertEquals(clientName("https://app.example/me", ""), "app.example/me");
+});
+
+// spec/designs/periphery.md#6-owner-apps: the app shows a grant that waits
+// for the owner wherever the client sent them, and leads to its consent
+// page, as the client's link does. The band names no app: anyone can ask,
+// and the name is the app's own text (Edna's review).
+test("a grant that waits leads to its consent page", () => {
+  const grant = {
+    id: "9b2c0e4e-6a3f-4d27-9d7a-3f1c2b5e8a10",
+    key: "a-b_c/d+e",
+  };
+  assertEquals(
+    consentPath(grant),
+    "/consent/9b2c0e4e-6a3f-4d27-9d7a-3f1c2b5e8a10?key=a-b_c%2Fd%2Be&from=wallet",
+  );
+  assertEquals(pendingNotice([]), undefined);
+  assertEquals(pendingNotice([grant]), {
+    text: "An app asks for access.",
+    href: consentPath(grant),
+  });
+  assertEquals(pendingNotice([grant, { ...grant, id: "other" }]), {
+    text: "2 apps ask for access.",
+    href: "/grants",
+  });
+});
+
+// spec/areas/payments.md#the-owners-consent: the app chose its finish URI,
+// so the consent page goes there only after an approval the owner reached
+// through the app's own link; never after a refusal, nor from the wallet's
+// own list (Edna's review).
+test("the consent page returns to the app only after an approval from its link", () => {
+  const finish = "https://app.example/finish?hash=h&interact_ref=r";
+  assertEquals(returnsToApp(finish, true, false), true);
+  assertEquals(returnsToApp(finish, false, false), false);
+  assertEquals(returnsToApp(finish, true, true), false);
+  assertEquals(returnsToApp(finish, false, true), false);
+  assertEquals(returnsToApp("", true, false), false);
+});
+
+// Approved from the wallet's own list, the page offers the app's finish URI
+// as a link naming its host, which the owner follows or not: a client that
+// named one gets its token only with the reference it carries (Edna's
+// review). Never after a refusal, nor without a finish URI.
+test("an approval from the wallet's list offers the way back to the app", () => {
+  const finish = "https://app.example:8443/finish?hash=h&interact_ref=r";
+  assertEquals(backToApp(finish, true, true), {
+    href: finish,
+    host: "app.example:8443",
+  });
+  assertEquals(backToApp(finish, false, true), undefined);
+  assertEquals(backToApp(finish, true, false), undefined);
+  assertEquals(backToApp("", true, true), undefined);
+  assertEquals(backToApp("javascript:alert(1)", true, true), undefined);
+  assertEquals(backToApp("not a url", true, true), undefined);
 });
 
 // The consent page's facts, for each kind of grant (Sabine Schaller's

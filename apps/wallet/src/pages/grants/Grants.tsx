@@ -1,7 +1,7 @@
 /**
- * Connected apps (spec/decisions/open-payments.md): the grants the owner
- * approved, what each may do and what it spent this period, and a way to
- * revoke each.
+ * Connected apps (spec/decisions/open-payments.md): the requests that wait
+ * for the owner, the grants the owner approved, what each may do and what it
+ * spent this period, and a way to revoke each.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -18,6 +18,7 @@ import {
   PageTitle,
 } from "@dassie/ui/ui";
 import { accessText, clientName, spentText } from "./grants.ts";
+import { PendingList } from "./Pending.tsx";
 
 export function Grants(): JSX.Element {
   const live = createLiveValue(
@@ -28,6 +29,7 @@ export function Grants(): JSX.Element {
   return (
     <div class="page-wide stack">
       <PageTitle>Connected apps</PageTitle>
+      <PendingList />
       <Card testid="page-grants">
         <LiveNote status={live.status()} />
         <Show

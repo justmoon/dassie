@@ -324,7 +324,10 @@ console.log("Send the owner to", pending.interact.redirect);</code></pre>
           <p>
             Send the owner to <code>pending.interact.redirect</code>. The
             node takes them to the consent page in their wallet, which names
-            your app and says what it may spend. To try it, be the owner
+            your app and says what it may spend. A node without a hostname
+            has no wallet there: the front door shows a page that asks the
+            owner to approve in their Dassie app, and goes on once they
+            did. To try it, be the owner
             yourself: open the link in a browser where you are signed in to
             your node's wallet. <a href="/docs/wallet/grants/">Connect apps</a>
             shows the owner's side.
@@ -332,7 +335,8 @@ console.log("Send the owner to", pending.interact.redirect);</code></pre>
         </li>
         <li>
           <p>
-            The wallet sends the owner back to your finish URI with
+            Once the owner approved, the wallet or the front door's page
+            sends the browser back to your finish URI with
             <code>hash</code> and <code>interact_ref</code> in the query.
             Check the hash before you go on, so that nobody else's
             interaction is passed off as yours:

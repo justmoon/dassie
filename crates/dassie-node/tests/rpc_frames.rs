@@ -599,6 +599,7 @@ fn bare() -> BoxedStrategy<Method> {
         Method::ListDatabaseTables(proto::ListDatabaseTablesRequest {}),
         Method::ListServices(proto::ListServicesRequest {}),
         Method::SubscribeGrants(proto::SubscribeGrantsRequest {}),
+        Method::SubscribePendingGrants(proto::SubscribePendingGrantsRequest {}),
         Method::SubscribeNames(proto::SubscribeNamesRequest {}),
         Method::GetPeerSettings(proto::GetPeerSettingsRequest {}),
         Method::GetSwapStatus(proto::GetSwapStatusRequest {}),

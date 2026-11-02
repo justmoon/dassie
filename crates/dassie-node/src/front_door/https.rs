@@ -43,6 +43,7 @@ use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use super::consent;
 use super::names::Names;
 use super::nodes::{Answer, Missed, Nodes};
 use super::page::{self, Reached};
@@ -65,11 +66,6 @@ const CONNECTIONS_PER_CLIENT: u32 = Policies::DEFAULT.http_connections_per_clien
 
 /// Time to send a request's body, as a node allows.
 const BODY_TIMEOUT: Duration = Duration::from_millis(Policies::DEFAULT.body_timeout_ms);
-
-/// Where interactive grants send the owner, which needs an owner app
-/// (spec/designs/periphery.md#6-owner-apps): the front door answers it
-/// itself.
-const INTERACT_PREFIX: &str = "/gnap/interact/";
 
 /// The Content Security Policy on every answer the front door gives or
 /// passes on, replacing a node's: nothing runs, nothing loads, so even a
@@ -125,11 +121,12 @@ pub struct Door {
 enum Target {
     /// To the node with this ID.
     Node(NodeId),
-    /// The consent route, which the front door answers.
-    Interact,
     /// The page at the root of the node's name, which the front door
     /// writes itself ([`page`]).
     Page(Addressed),
+    /// The page an app sends the owner to for a grant, which the front
+    /// door writes itself ([`consent`]).
+    Consent(Addressed),
 }
 
 /// The node a name under the domain stands for, and how.
@@ -191,11 +188,13 @@ impl Door {
                 let connected = self.nodes.is_connected(node).await;
                 page::response(&self.domain, reached, &node, connected)
             }
-            Ok(Target::Interact) => error(
-                StatusCode::NOT_IMPLEMENTED,
-                "interaction_unavailable",
-                "interactive grants need the owner's Dassie app, which is not available yet",
-            ),
+            Ok(Target::Consent(Addressed { node, name })) => {
+                let reached = match &name {
+                    Some(name) => Reached::Name(name),
+                    None => Reached::Id(&node),
+                };
+                consent::response(&self.domain, reached)
+            }
             Ok(Target::Node(node)) => {
                 let key = per_node(client, &node);
                 if lock(&self.requests_per_node).check(key, now_ms).is_err() {
@@ -273,7 +272,10 @@ impl Door {
     /// Where `request` goes, or why it goes nowhere: a name outside the
     /// domain is refused, and a name that is neither a node's ID nor a
     /// name with a holder, a path outside Open Payments or an upgrade find
-    /// nothing.
+    /// nothing. Of an interaction (spec/designs/periphery.md#6-owner-apps),
+    /// the front door answers the page itself, whether or not the node is
+    /// connected, and passes on only the grant's state, which the node
+    /// answers and signs; any other path under it finds nothing.
     fn target(&self, request: &Request<Incoming>) -> Result<Target, Refused> {
         let host = header_str(request.headers(), &header::HOST);
         let addressed = self.node_of(host)?;
@@ -288,8 +290,13 @@ impl Door {
         if !is_open_payments_path(path) {
             return Err(Refused::NoRoute);
         }
-        if path.starts_with(INTERACT_PREFIX) {
-            return Ok(Target::Interact);
+        if path.starts_with(consent::PREFIX) && !is_grant_state(path) {
+            let page = matches!(*request.method(), Method::GET | Method::HEAD);
+            return if page && consent::is_interaction(path) {
+                Ok(Target::Consent(addressed))
+            } else {
+                Err(Refused::NoRoute)
+            };
         }
         Ok(Target::Node(node))
     }
@@ -371,6 +378,17 @@ impl Door {
             }
         }
     }
+}
+
+/// Whether `path` is a grant's state, `/gnap/interact/{id}/{key}/state`,
+/// JSON the node answers and signs, which the front door passes on as any
+/// Open Payments route; the rest of the interaction is its own.
+fn is_grant_state(path: &str) -> bool {
+    let parts: Vec<&str> = path
+        .strip_prefix(consent::PREFIX)
+        .map(|rest| rest.split('/').collect())
+        .unwrap_or_default();
+    matches!(parts.as_slice(), [id, key, "state"] if !id.is_empty() && !key.is_empty())
 }
 
 /// Where nodes dial a front door whose relay URL is `url`,
@@ -882,6 +900,23 @@ mod tests {
         let own = error(StatusCode::NOT_FOUND, "not_found", "Not Found");
         let csp = own.headers().get(header::CONTENT_SECURITY_POLICY).unwrap();
         assert_eq!(csp, CONTENT_SECURITY_POLICY);
+    }
+
+    #[test]
+    fn only_a_grants_state_passes_from_the_interaction() {
+        assert!(is_grant_state("/gnap/interact/id/key/state"));
+        for path in [
+            "/gnap/interact/id/key",
+            "/gnap/interact/id/key/",
+            "/gnap/interact/id/key/state/",
+            "/gnap/interact/id/key/other",
+            "/gnap/interact/id//state",
+            "/gnap/interact//key/state",
+            "/gnap/interact/id/key/x/state",
+            "/gnap/state/id/key/state",
+        ] {
+            assert!(!is_grant_state(path), "{path}");
+        }
     }
 
     #[test]

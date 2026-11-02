@@ -168,6 +168,20 @@ h2 {
   border-bottom: 2px solid var(--warning-line);
 }
 
+/* An app waits for the owner: a Daylight band with its way in. */
+.banner-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.banner-ask span {
+  overflow-wrap: anywhere;
+}
+
 /* Phones: the navigation behind a button. */
 @media (max-width: 720px) {
   .nav {

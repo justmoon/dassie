@@ -265,17 +265,23 @@ async fn client_wallet() -> (TestNode, Client) {
     (wallet, client)
 }
 
-/// The grant ID and key the consent page reads, under `name`.
+/// The grant ID and key of the interaction URL the client was handed under
+/// `name`, a front door's, as the owner's app reads them from the grants
+/// that wait. The node serves no wallet under a name: its interaction is
+/// the front door's, and the node refuses it in the specs' form.
 async fn consent_page(node: &TestNode, name: &str, grant: &Value) -> (String, String) {
     let redirect = grant["interact"]["redirect"].as_str().unwrap();
     let path = redirect.strip_prefix(&format!("https://{name}")).unwrap();
-    let reply = send(node.https, true, get_under(name, path)).await;
-    assert_eq!(reply.status, StatusCode::FOUND, "{}", reply.text());
-    let location = reply.header("location").unwrap().to_string();
-    let rest = location
-        .strip_prefix(&format!("https://{name}/consent/"))
-        .unwrap();
-    let (id, key) = rest.split_once("?key=").unwrap();
+    // Every interaction, of a grant that waits or of none, gets the same.
+    let unknown = "/gnap/interact/00000000-0000-0000-0000-000000000000/nope";
+    for path in [path, "/gnap/interact/not-an-id/nope", unknown] {
+        let reply = send(node.https, true, get_under(name, path)).await;
+        assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.text());
+        assert_eq!(body(&reply)["error"]["code"], "not_found", "{path}");
+        assert!(reply.header("location").is_none());
+    }
+    let rest = path.strip_prefix("/gnap/interact/").unwrap();
+    let (id, key) = rest.split_once('/').unwrap();
     (id.to_string(), key.to_string())
 }
 
@@ -317,6 +323,7 @@ async fn a_pending_grant_keeps_its_name() {
     let grant = body(&reply);
     assert!(grant["access_token"].is_null());
     let (id, interaction) = consent_page(&node, OWNERS, &grant).await;
+    let state_path = format!("/gnap/interact/{id}/{interaction}/state");
     let mut owner = node.ipc().await;
     let Ok(response::Method::DecideGrant(decided)) = owner
         .call(Method::DecideGrant(proto::DecideGrantRequest {
@@ -328,6 +335,13 @@ async fn a_pending_grant_keeps_its_name() {
     else {
         panic!("no decision")
     };
+    // The page that waits under the name reads the same way back.
+    let reply = send(node.https, true, get_under(OWNERS, &state_path)).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    assert_eq!(
+        body(&reply),
+        json!({ "state": "approved", "finish": decided.finish_url })
+    );
     let (hash, reference) = decided
         .finish_url
         .strip_prefix("https://client.example/finish?hash=")

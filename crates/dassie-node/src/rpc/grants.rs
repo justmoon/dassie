@@ -1,6 +1,6 @@
-//! Grants for the owner (spec/decisions/open-payments.md): the one waiting at
-//! the consent page, the decision on it, and the grants approved, with what
-//! each spent.
+//! Grants for the owner (spec/decisions/open-payments.md): those waiting for
+//! the owner, the one at the consent page, the decision on it, and the
+//! grants approved, with what each spent.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -56,6 +56,7 @@ pub async fn dispatch(
             })
         }
         Method::SubscribeGrants(_) => return subscribe(node, engine, urls, items).await,
+        Method::SubscribePendingGrants(_) => return subscribe_pending(node, engine, items).await,
         Method::RevokeGrant(request) => {
             let id = grant_id(&request.id)?;
             let row = node
@@ -83,6 +84,7 @@ pub const fn is_grants(method: &Method) -> bool {
         Method::GetGrantRequest(_)
             | Method::DecideGrant(_)
             | Method::SubscribeGrants(_)
+            | Method::SubscribePendingGrants(_)
             | Method::RevokeGrant(_)
     )
 }
@@ -373,9 +375,85 @@ async fn subscribe(
     .await
 }
 
+/// The grants waiting for the owner, as the owner's app lists them.
+fn pending(node: &Node) -> Result<proto::PendingGrants, RpcError> {
+    let waiting = consent::waiting(node).map_err(op_error)?;
+    Ok(proto::PendingGrants {
+        grants: waiting.into_iter().map(pending_grant).collect(),
+    })
+}
+
+fn pending_grant(waiting: consent::Waiting) -> proto::PendingGrant {
+    proto::PendingGrant {
+        id: waiting.grant.id.to_string(),
+        key: waiting.key,
+        client: waiting.grant.client,
+        client_name: waiting.public_name.unwrap_or_default(),
+        created_at_unix_ms: convert::time(waiting.grant.created_at_ms),
+        expires_at_unix_ms: convert::time(waiting.grant.expires_at_ms),
+    }
+}
+
+/// The grants waiting for the owner, whole, each time they change: a new
+/// one at once, and one that lapsed at the stream's next refetch.
+async fn subscribe_pending(
+    node: &Arc<Node>,
+    engine: &Engine,
+    items: &Items,
+) -> Result<Reply, RpcError> {
+    let _permit = node
+        .live_stream_permit()
+        .ok_or_else(|| RpcError::exhausted("too many live streams"))?;
+    let source = Source {
+        versions: engine.versions(),
+        ended: engine.generation().clone(),
+    };
+    let node = Arc::clone(node);
+    live::values(
+        source,
+        items,
+        Follow::Payments,
+        || {
+            let node = Arc::clone(&node);
+            async move { pending(&node) }
+        },
+        stream_item::Method::SubscribePendingGrants,
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Strangers can ask for grants, so the list of those waiting fits one
+    /// message even when every grant that may wait does, each as long as
+    /// it can be: the owner's app never loses the list to them.
+    #[test]
+    fn every_grant_that_may_wait_fits_one_message() {
+        use prost::Message as _;
+        let longest = proto::PendingGrant {
+            id: "00000000-0000-0000-0000-000000000000".into(),
+            key: "k".repeat(32),
+            client: "c".repeat(dassie_payments::uri::MAX_URI_BYTES),
+            // The longest name kept, of characters of four bytes.
+            client_name: "\u{1F600}".repeat(consent::MAX_PUBLIC_NAME_CHARS),
+            created_at_unix_ms: i64::MAX,
+            expires_at_unix_ms: i64::MAX,
+        };
+        let count = usize::try_from(consent::MAX_PENDING_GRANTS).unwrap_or(usize::MAX);
+        let message = proto::ServerMessage {
+            call_id: u32::MAX,
+            kind: Some(proto::server_message::Kind::Item(proto::StreamItem {
+                method: Some(stream_item::Method::SubscribePendingGrants(
+                    proto::PendingGrants {
+                        grants: vec![longest; count],
+                    },
+                )),
+            })),
+        };
+        assert!(message.encoded_len() <= super::super::MAX_MESSAGE_BYTES);
+    }
 
     // Found in review: a failure of this node's own, such as its store's,
     // does not read as the receiver's fault.

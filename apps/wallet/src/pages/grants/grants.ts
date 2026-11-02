@@ -64,6 +64,87 @@ export function clientName(client: string, publicName: string): string {
   }
 }
 
+/** The fields of a grant waiting for the owner these helpers read. */
+export interface PendingFields {
+  id: string;
+  key: string;
+}
+
+/**
+ * The query parameter that marks the consent page as opened from the
+ * wallet's own list, not from the link the app sent the owner to.
+ */
+export const FROM_WALLET = "from";
+
+/**
+ * Where the owner reads and decides a grant that waits, from the wallet: the
+ * consent page, as the link the client sends the owner to leads there, but
+ * marked as reached from the wallet ({@linkcode FROM_WALLET}), so it sends
+ * the owner nowhere once they decided.
+ */
+export function consentPath(grant: PendingFields): string {
+  return `/consent/${encodeURIComponent(grant.id)}?key=${
+    encodeURIComponent(grant.key)
+  }&${FROM_WALLET}=wallet`;
+}
+
+/**
+ * Whether the consent page, once the owner decided, sends them back to the
+ * app at `finishUrl`: only after they approved a request they reached
+ * through the app's own link. The app chose that URL, and anyone can ask, so
+ * a page the wallet led the owner to, or a refusal, sends them nowhere: the
+ * app learns the answer from the node.
+ */
+export function returnsToApp(
+  finishUrl: string,
+  approved: boolean,
+  fromWallet: boolean,
+): boolean {
+  return finishUrl !== "" && approved && !fromWallet;
+}
+
+/**
+ * The way back to the app the consent page offers, as a link the owner
+ * follows or not, once they approved a request they opened from the
+ * wallet's own list: the app's finish URI, an `http(s)` one, named by its
+ * host. A client that named one gets its token only with the reference it
+ * carries, and an app's page that waits for the answer, as a front door's
+ * does, moves on by itself. None after a refusal, nor when the page sends
+ * the owner back itself ({@linkcode returnsToApp}), nor without one.
+ */
+export function backToApp(
+  finishUrl: string,
+  approved: boolean,
+  fromWallet: boolean,
+): { href: string; host: string } | undefined {
+  if (finishUrl === "" || !approved || !fromWallet) return undefined;
+  let url: URL;
+  try {
+    url = new URL(finishUrl);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
+  return { href: url.href, host: url.host };
+}
+
+/**
+ * The notice of the grants that wait for the owner: how many, and where to
+ * read them: one's consent page, or all of them under Connected apps. It
+ * names no app: the name an app gives is its own text, which only the pages
+ * that show its wallet address beside it show. None while none waits.
+ */
+export function pendingNotice(
+  grants: readonly PendingFields[],
+): { text: string; href: string } | undefined {
+  const [first] = grants;
+  if (first === undefined) return undefined;
+  if (grants.length === 1) {
+    return { text: "An app asks for access.", href: consentPath(first) };
+  }
+  return { text: `${grants.length} apps ask for access.`, href: "/grants" };
+}
+
 const UNITS: Record<string, [string, string]> = {
   Y: ["year", "years"],
   M: ["month", "months"],

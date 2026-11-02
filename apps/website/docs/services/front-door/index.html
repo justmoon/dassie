@@ -58,6 +58,12 @@
           is connected.
         </li>
         <li>
+          A browser an app sends to a node's interaction URL gets another
+          page of its own, which asks the node's owner to approve the request
+          in their Dassie app, and takes the browser back to the app once
+          they did. It asks for nothing.
+        </li>
+        <li>
           It also answers at <code>&lt;name&gt;.&lt;domain&gt;</code> for
           the names nodes hold, which it reads from the registrars' lists on
           the bootstrap nodes.
@@ -319,8 +325,7 @@ Environment=DASSIE_PUBLIC_NAMES=&lt;node ID&gt;.example.com</code></pre>
       <p class="not-yet">
         A node owner's own domain pointed at a front door, with a certificate
         for that name and a DNS record that names the node, is not there
-        yet. Neither is the consent page for owner apps (a front door answers
-        that route with an error that says so), a node telling clients apart
+        yet. Neither is a node telling clients apart
         behind its front door, or a front door finding nodes that chose
         another relay.
         <a href="/docs/project/roadmap/">What's next</a>

@@ -2,8 +2,12 @@
  * The consent page (spec/decisions/open-payments.md): an app asks to act for
  * the owner, for example to send payments up to a limit. The owner reads who
  * asks and what for: for payments, what they send, what the receiver gets, to
- * whom and for how long. They approve or deny; the wallet then sends them
- * back to the app, which learns the answer from the node.
+ * whom and for how long. They approve or deny; the app learns the answer from
+ * the node. Only an approval the owner reached through the app's own link
+ * sends them back to the app by itself: the app chose where, and anyone can
+ * ask. An approval from the wallet's own list offers the way back as a link
+ * the owner follows or not; a refusal offers none
+ * (spec/areas/payments.md#the-owners-consent).
  */
 
 import type { JSX } from "@solidjs/web";
@@ -14,10 +18,13 @@ import { Link, type RouteProps, useSearchParam } from "@dassie/ui/router";
 import { Alert, Card, ErrorText, PageTitle, Spinner } from "@dassie/ui/ui";
 import {
   accessText,
+  backToApp,
   clientName,
+  FROM_WALLET,
   limitAssetText,
   paymentsTitle,
   receiveText,
+  returnsToApp,
   sendText,
   spanText,
   toText,
@@ -27,11 +34,18 @@ type Page =
   | { kind: "loading" }
   | { kind: "asking"; grant: Grant }
   | { kind: "gone"; message: string }
-  | { kind: "decided"; approved: boolean };
+  | {
+    kind: "decided";
+    approved: boolean;
+    /** The way back to the app, offered as a link. */
+    back?: { href: string; host: string };
+  };
 
 export function Consent(props: RouteProps): JSX.Element {
   const client = useClient();
   const key = useSearchParam("key");
+  // Opened from the wallet's own list, not from the app's link.
+  const fromWallet = useSearchParam(FROM_WALLET);
   const [page, setPage] = createSignal<Page>({ kind: "loading" });
   const [pending, setPending] = createSignal(false);
   const [error, setError] = createSignal<string>();
@@ -57,9 +71,17 @@ export function Consent(props: RouteProps): JSX.Element {
         key: key() ?? "",
         approve,
       });
-      setPage({ kind: "decided", approved: approve });
-      // Back to the app, which learns the answer from the node.
-      if (response.finishUrl !== "") location.assign(response.finishUrl);
+      const fromList = fromWallet() !== null;
+      setPage({
+        kind: "decided",
+        approved: approve,
+        back: backToApp(response.finishUrl, approve, fromList),
+      });
+      // Back to the app, which learns the answer from the node, only after
+      // an approval the owner reached through the app's own link.
+      if (returnsToApp(response.finishUrl, approve, fromList)) {
+        location.assign(response.finishUrl);
+      }
     } catch (failure) {
       setError(describe(failure));
     }
@@ -91,17 +113,36 @@ export function Consent(props: RouteProps): JSX.Element {
         )}
       </Show>
       <Show when={pageDecided(page())}>
-        {(approved) => (
-          <Alert title={approved() ? "Approved" : "Denied"}>
+        {(decided) => (
+          <Alert title={decided().approved ? "Approved" : "Denied"}>
             <p data-testid="consent-decided">
-              <Show when={approved()} fallback="The app gets nothing.">
+              <Show when={decided().approved} fallback="The app gets nothing.">
                 The app may now do what it asked. To revoke it, go to{" "}
                 <Link href="/grants" testid="consent-revoke">
                   Connected apps
                 </Link>.
               </Show>{" "}
-              You can close this page.
+              <Show
+                when={decided().back}
+                fallback="It learns your answer from your node. You can close this page."
+              >
+                If the app left a page waiting for your answer, that page moves
+                on by itself. Otherwise, go back to the app:
+              </Show>
             </p>
+            <Show when={decided().back}>
+              {(back) => (
+                <p>
+                  <a
+                    href={back().href}
+                    rel="noreferrer noopener"
+                    data-testid="consent-back"
+                  >
+                    Back to {back().host}
+                  </a>
+                </p>
+              )}
+            </Show>
           </Alert>
         )}
       </Show>
@@ -114,8 +155,7 @@ const pageGone = (page: Page) =>
   page.kind === "gone" ? page.message : undefined;
 const pageGrant = (page: Page) =>
   page.kind === "asking" ? page.grant : undefined;
-const pageDecided = (page: Page) =>
-  page.kind === "decided" ? page.approved : undefined;
+const pageDecided = (page: Page) => page.kind === "decided" ? page : undefined;
 
 /** Whether an item lets the app send the owner's money. */
 const sends = (access: GrantAccess) =>

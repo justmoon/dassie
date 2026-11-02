@@ -250,7 +250,7 @@ test("the DSUSD owner book: minted, beside its pool, on the fake ledger only", (
 // spec/areas/dev.md#scenarios: dev's scenarios that are not about
 // settlement run the stub with unlimited trust, which never settles.
 test("the stub's scenarios run it with unlimited trust", () => {
-  for (const id of ["two-nodes", "six-nodes", "one-node"]) {
+  for (const id of ["two-nodes", "six-nodes", "one-node", "periphery"]) {
     const def = findScenario(id)!;
     assertEquals(def.configs, { stub: UNLIMITED_STUB }, id);
     assertEquals(

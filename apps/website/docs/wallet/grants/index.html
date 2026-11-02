@@ -60,22 +60,33 @@
         by default, while it runs. See
         <a href="/docs/desktop/reach/">How others reach you</a>.
       </p>
-      <p class="not-yet">
-        Through the front door, apps get only the grants that don't need you.
-        The consent screen below is on your node, and the front door can't
-        send you there yet: it answers that interactive grants need the
-        owner's Dassie app, which is not available yet. To approve apps, run
-        your node on a server with a domain name.
-        <a href="/docs/project/roadmap/#periphery">What's next</a>
+      <p>
+        Through the front door, the app sends your browser to a page of the
+        front door's, <em>Approve this in your Dassie app</em>. Open your
+        wallet: the request waits for you there, as below. Once you
+        approved, that page takes your browser back to the app. It asks for
+        nothing: never enter your recovery phrase or a password on a page an
+        app sent you to.
       </p>
 
       <h2 id="the-consent-screen">The consent screen</h2>
+      <p>
+        Your wallet tells you as soon as an app asks, and when you next open
+        it: a band under the menu on every page says
+        <em>An app asks for access</em>, or how many ask, with
+        <strong>Review</strong>. It names no app, since anyone can ask, and
+        the name an app gives is only what it calls itself.
+        <strong>Connected apps</strong> lists each request under
+        <em>Waiting for you</em>, with the app's name and wallet address and
+        when the request lapses. Either way leads to the consent screen.
+      </p>
       <ol class="steps">
         <li>
-          <strong>The app sends you to your wallet.</strong> Your browser
-          opens a page on your node, titled <em>An app asks for access</em>.
-          If you are not logged in, the wallet asks for your recovery phrase
-          first, then shows the request.
+          <strong>The app sends you to your wallet, or you open the
+          request there.</strong> Your browser opens a page on your node,
+          titled <em>An app asks for access</em>. If you are not logged in,
+          the wallet asks for your recovery phrase first, then shows the
+          request.
         </li>
         <li>
           <strong>Read who asks.</strong> The app's name, if it gives one,
@@ -88,11 +99,17 @@
           payments shows four facts, described below.
         </li>
         <li>
-          <strong>Approve or deny.</strong> If the app asked for it, the
-          wallet then sends you back to the app; otherwise it says you can
-          close the page. Either way, the app learns your answer from your
-          node. If you
-          approved, the page names Connected apps, where you can revoke it.
+          <strong>Approve or deny.</strong> If you approved a request the
+          app's own link brought you to, and the app asked for it, the wallet
+          then sends you back to the app. If you approved a request you
+          opened from your wallet, it offers a link back to the app, named by
+          the app's address, such as <em>Back to app.example</em>: follow it
+          unless the app left a page waiting for your answer, which moves on
+          by itself. After a denial it sends you nowhere and offers no link.
+          The app chose where to send you, so the wallet takes you there by
+          itself only when you came from it. Either way, the app learns your
+          answer from your node. If you approved, the page names Connected
+          apps, where you can revoke it.
         </li>
       </ol>
       <p>
@@ -163,7 +180,8 @@
 
       <h2 id="connected-apps">See what apps may do</h2>
       <p>
-        Open <strong>Connected apps</strong> in the top menu. Each app you
+        Open <strong>Connected apps</strong> in the top menu. Requests that
+        wait for you come first, under <em>Waiting for you</em>. Each app you
         approved is listed by name, with the date you approved it, and each
         thing it may do on a line, such as
         <em>Send payments of up to $ 10.00 a day from your USD wallet</em>.

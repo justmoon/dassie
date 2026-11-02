@@ -168,11 +168,13 @@
         says what each side of a payment comes to, as far as it is known.
         <a href="/docs/wallet/grants/">Connect apps</a> shows that side.
       </p>
-      <p class="not-yet">
-        Consent through a front door is not there yet: a node reached at
-        <code>&lt;node ID&gt;.dassiepay.net</code> cannot yet approve a grant
-        that waits for its owner.
-        <a href="/docs/project/roadmap/#periphery">What's next</a>
+      <p>
+        A node reached at <code>&lt;node ID&gt;.dassiepay.net</code> serves
+        no wallet: the interaction URL is a page of the front door's, which
+        asks the owner to approve in their Dassie app, follows the grant, and
+        takes the browser back to your finish URI once they approved. After
+        a refusal it goes nowhere, as the wallet does; your app learns the
+        answer when it continues the grant.
       </p>
 
       <h2 id="limits">Limits on outgoing payments</h2>

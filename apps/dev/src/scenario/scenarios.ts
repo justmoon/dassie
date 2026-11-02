@@ -455,6 +455,17 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     bootstrap: [],
     configs: { stub: UNLIMITED_STUB },
   },
+  {
+    id: "periphery",
+    name: "A Periphery Node",
+    description:
+      "A core node, and a periphery node without a hostname pinned to it as its uplink, both with the stub with unlimited trust, which never settles",
+    schemes: [["stub"], ["stub"]],
+    addedSchemes: ["stub"],
+    bootstrap: [0],
+    periphery: [{ node: 1, uplinks: [0] }],
+    configs: { stub: UNLIMITED_STUB },
+  },
 ];
 
 /** The scenario the dev environment starts with. */

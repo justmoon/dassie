@@ -119,10 +119,11 @@
         connection the node keeps to it as its relay, which it does by
         default.
       </p>
-      <p class="not-yet">
-        A node reached through a front door can't ask its owner for consent
-        yet, so it grants nothing its owner must approve, such as outgoing
-        payments. Build those against a node with a hostname. <a href="/docs/project/roadmap/#periphery">What's next</a>
+      <p>
+        A node reached through a front door asks its owner in their Dassie
+        app: the interaction URL your app gets is a page of the front door's,
+        which waits while the owner decides and takes the browser back to
+        your finish URI once they approved.
       </p>
       <p>
         A node does not speak SPSP: Open Payments replaced it, so a wallet

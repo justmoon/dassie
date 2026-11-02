@@ -179,6 +179,8 @@ message Request {
     // Streaming.
     SubscribeGrantsRequest subscribe_grants = 117;
     RevokeGrantRequest revoke_grant = 118;
+    // Streaming.
+    SubscribePendingGrantsRequest subscribe_pending_grants = 148;
 
     ResolveRecipientRequest resolve_recipient = 119;
     QuoteSendRequest quote_send = 120;
@@ -351,6 +353,8 @@ message StreamItem {
     LogEvent subscribe_logs = 110;
     // The approved grants, whole, each time they change.
     ApprovedGrants subscribe_grants = 117;
+    // The grants waiting for the owner, whole, each time they change.
+    PendingGrants subscribe_pending_grants = 148;
     // The payment, whole, each time it changes.
     OutgoingPayment subscribe_outgoing_payment = 122;
     // The owner's names, whole, each time they change.

@@ -22,6 +22,11 @@ import {
 } from "../fake_ledger.ts";
 import { dataDir, type Layout, layout as defaultLayout } from "../paths.ts";
 import { DEV_RATES, type RateServer, startRates } from "../rates.ts";
+import {
+  type FrontDoor,
+  type FrontDoorOptions,
+  startFrontDoor,
+} from "../front_door.ts";
 import type { Stream } from "../process.ts";
 import {
   identity,
@@ -114,6 +119,11 @@ export {
   type XrplNetwork,
 } from "../fake_ledger.ts";
 export { DEV_RATES, RATES_PORT, type RateTable } from "../rates.ts";
+export {
+  type FrontDoor,
+  type FrontDoorOptions,
+  startFrontDoor,
+} from "../front_door.ts";
 export { until, waitForPort, waitForSocket } from "../wait.ts";
 export type { Exit } from "../process.ts";
 
@@ -174,6 +184,12 @@ export interface ScenarioOptions {
   /** Each node's process, as soon as it is spawned. */
   readonly onSpawn?: (node: ScenarioNode) => void;
   /**
+   * A front door for the scenario's periphery nodes: it starts before them,
+   * and each keeps it as its relay and answers to its name there,
+   * `<node ID>.<domain>` (spec/areas/http.md#front-doors).
+   */
+  readonly frontDoor?: FrontDoorOptions;
+  /**
    * Each node's progress: started, then set up; or failed, with why and
    * the end of its output.
    */
@@ -197,6 +213,8 @@ export class Scenario {
   ledger?: FakeLedger;
   /** The exchange rates every node fetches. */
   rates?: RateServer;
+  /** The front door, if the scenario runs one. */
+  frontDoor?: FrontDoor;
   /** What each scheme is set up with, by ID. */
   #configs: Record<string, string> = {};
   /** What each external asset is set up with, by ID. */
@@ -268,6 +286,16 @@ export class Scenario {
         "127.0.0.1",
       ], options.layout.caRoot);
       scenario.rates = await startRates(rates, options.portOffset ?? 0);
+      if (options.frontDoor) {
+        scenario.frontDoor = await startFrontDoor(
+          options.dassie,
+          join(options.layout.state, "front-door"),
+          options.layout.caRoot,
+          options.frontDoor,
+          options.onLine &&
+            ((stream, line) => options.onLine?.("front-door", stream, line)),
+        );
+      }
       if (settlesOnXrpl(def) && options.fakeLedger) {
         // Its faucet is at `localhost`, under the scenario's CA, which the
         // nodes trust.
@@ -613,6 +641,13 @@ export class Scenario {
       env.DASSIE_UPLINKS = periphery.uplinks
         .map((uplink) => identity(this.#table, uplink, this.#realm).id)
         .join(",");
+      const door = this.frontDoor;
+      if (door !== undefined) {
+        env.DASSIE_RELAY = door.entry;
+        env.DASSIE_PUBLIC_NAMES = door.name(
+          identity(this.#table, index, this.#realm).id,
+        );
+      }
     }
     if (validatesAny(this.def, index)) {
       env.DASSIE_VALIDATOR_CONFIG = this.#validatorFile(index);
@@ -737,6 +772,7 @@ export class Scenario {
     const exits = await Promise.all(this.nodes.map((node) => node.stop()));
     await this.ledger?.stop();
     await this.rates?.stop();
+    await this.frontDoor?.stop();
     const failures: string[] = [];
     this.nodes.forEach((node, index) => {
       const exit = exits[index];
