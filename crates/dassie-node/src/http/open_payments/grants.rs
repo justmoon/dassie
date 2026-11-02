@@ -73,9 +73,13 @@ pub fn interact(node: &Node, urls: &Urls, path: &str) -> Response<Body> {
 /// consent page for the grant, on a node with a hostname. A person reads
 /// what this answers, so an error is plain text. Under a front door's
 /// name the front door answers this itself, and the owner decides in their
-/// app: the node refuses it in the specs' form, which is all a front door
-/// would pass back.
+/// app: the node refuses every such request in the specs' form, which is
+/// all a front door would pass back, whatever the grant.
 fn start(node: &Node, urls: &Urls, id: &str, key: &str) -> Response<Body> {
+    if !consent::serves_consent(node) {
+        let refused = OpError::not_found("the owner approves this in their Dassie app");
+        return error(&refused, None);
+    }
     let gone = || {
         crate::http::response::with_body(
             StatusCode::NOT_FOUND,
@@ -86,13 +90,8 @@ fn start(node: &Node, urls: &Urls, id: &str, key: &str) -> Response<Body> {
     let Some(id) = PaymentId::parse(id) else {
         return gone();
     };
-    let location = match consent::start(node, urls, id, key) {
-        Ok(Some(location)) => location,
-        Ok(None) => {
-            let refused = OpError::not_found("the owner approves this in their Dassie app");
-            return error(&refused, None);
-        }
-        Err(_) => return gone(),
+    let Ok(location) = consent::start(node, urls, id, key) else {
+        return gone();
     };
     match http::HeaderValue::from_str(&location) {
         Ok(location) => {

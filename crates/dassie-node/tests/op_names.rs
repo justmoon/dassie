@@ -272,10 +272,14 @@ async fn client_wallet() -> (TestNode, Client) {
 async fn consent_page(node: &TestNode, name: &str, grant: &Value) -> (String, String) {
     let redirect = grant["interact"]["redirect"].as_str().unwrap();
     let path = redirect.strip_prefix(&format!("https://{name}")).unwrap();
-    let reply = send(node.https, true, get_under(name, path)).await;
-    assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.text());
-    assert_eq!(body(&reply)["error"]["code"], "not_found");
-    assert!(reply.header("location").is_none());
+    // Every interaction, of a grant that waits or of none, gets the same.
+    let unknown = "/gnap/interact/00000000-0000-0000-0000-000000000000/nope";
+    for path in [path, "/gnap/interact/not-an-id/nope", unknown] {
+        let reply = send(node.https, true, get_under(name, path)).await;
+        assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.text());
+        assert_eq!(body(&reply)["error"]["code"], "not_found", "{path}");
+        assert!(reply.header("location").is_none());
+    }
     let rest = path.strip_prefix("/gnap/interact/").unwrap();
     let (id, key) = rest.split_once('/').unwrap();
     (id.to_string(), key.to_string())

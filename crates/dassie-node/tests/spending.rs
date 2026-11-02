@@ -377,14 +377,15 @@ async fn a_denied_grant_gives_nothing() {
     let reply = continue_grant(&node, &client, &grant, None).await;
     assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
     assert_eq!(body(&reply)["error"]["code"], "request_denied");
-    // Its interaction is gone too; its state says it was denied, and where
-    // the denial sends the client's browser, as the wallet sent it.
+    // Its interaction is gone too; its state says it was denied, and names
+    // nowhere to go: no page sends anyone to the client's URL after a
+    // refusal.
     let redirect = path_of(&node, &grant["interact"]["redirect"]);
     let reply = send(node.https, true, get(&node, &redirect)).await;
     assert_eq!(reply.status, StatusCode::NOT_FOUND);
     let reply = send(node.https, true, get(&node, &format!("{redirect}/state"))).await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
-    assert_eq!(body(&reply), json!({ "state": "denied", "finish": finish }));
+    assert_eq!(body(&reply), json!({ "state": "denied" }));
     node.stop().await;
 }
 

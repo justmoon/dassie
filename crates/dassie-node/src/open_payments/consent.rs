@@ -282,37 +282,42 @@ pub fn waiting(node: &Node) -> Result<Vec<Waiting>, OpError> {
         .collect()
 }
 
+/// Whether the node serves its wallet's consent page: only a node with a
+/// hostname serves its wallet, and only under it. Under a name, a front
+/// door's, the front door answers the interaction itself, and the owner
+/// decides in their app.
+#[must_use]
+pub fn serves_consent(node: &Node) -> bool {
+    matches!(Names::of(node), Some(Names::Hostname(_)))
+}
+
 /// `GET /gnap/interact/{id}/{key}`: where to send the owner, the wallet's
-/// consent page for the grant. Only a node with a hostname serves its
-/// wallet there. Under a name, a front door's, the front door answers this
-/// itself, and the owner decides in their app: none then.
+/// consent page for the grant ([`serves_consent`]).
 ///
 /// # Errors
 ///
-/// 404 for a grant that does not wait, or a wrong key.
-pub fn start(
-    node: &Node,
-    urls: &Urls,
-    id: PaymentId,
-    key: &str,
-) -> Result<Option<String>, OpError> {
-    pending(node, id, key)?;
-    if !matches!(Names::of(node), Some(Names::Hostname(_))) {
-        return Ok(None);
+/// 404 for a grant that does not wait, a wrong key, or a node that serves
+/// no consent page.
+pub fn start(node: &Node, urls: &Urls, id: PaymentId, key: &str) -> Result<String, OpError> {
+    if !serves_consent(node) {
+        return Err(OpError::not_found(
+            "the owner approves this in their Dassie app",
+        ));
     }
-    Ok(Some(format!(
-        "{}{CONSENT_PATH}{id}?key={key}",
-        urls.origin()
-    )))
+    pending(node, id, key)?;
+    Ok(format!("{}{CONSENT_PATH}{id}?key={key}", urls.origin()))
 }
 
 /// Where a grant stands, as `GET /gnap/interact/{id}/{key}/state` tells
 /// whoever holds its interaction URL: the client, and the browser it sent
 /// the owner to, which waits at a front door's page while the owner
-/// decides in their app. Once decided, it names where that browser goes
-/// next: the finish URI with what the owner's decision added, exactly as
-/// the wallet's consent page sends the owner there, so that a page that
-/// follows the grant needs nothing else. Nothing more about the grant.
+/// decides in their app. Once approved, it names where that browser goes
+/// next: the finish URI with the interaction hash and reference, exactly as
+/// the wallet's consent page sends the owner there after an approval, so
+/// that a page that follows the grant needs nothing else. A refusal names
+/// nowhere, as the consent page goes nowhere after one: the client chose
+/// that URL (spec/areas/payments.md#the-owners-consent). Nothing more about
+/// the grant.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum Consent {
@@ -326,12 +331,7 @@ pub enum Consent {
         finish: Option<String>,
     },
     /// The owner denied it, or it was revoked since.
-    Denied {
-        /// The finish URI, with `result=grant_rejected`; none if the
-        /// client named none.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        finish: Option<String>,
-    },
+    Denied,
     /// The owner did not decide in time.
     Lapsed,
 }
@@ -339,7 +339,8 @@ pub enum Consent {
 /// The state of the grant `id` whose interaction key is `key`
 /// ([`Consent`]). The hash in an approved grant's finish URI covers the
 /// grant endpoint under the name the client asked at, which `urls`, the
-/// node's main name, stands in for only in a grant that kept none.
+/// name the request for the state came under, stands in for only in a
+/// grant that kept none.
 ///
 /// # Errors
 ///
@@ -361,9 +362,7 @@ pub fn state(node: &Node, urls: &Urls, id: PaymentId, key: &str) -> Result<Conse
         GrantState::Approved => Consent::Approved {
             finish: finish_url(urls, &interaction, true)?,
         },
-        GrantState::Denied | GrantState::Revoked => Consent::Denied {
-            finish: finish_url(urls, &interaction, false)?,
-        },
+        GrantState::Denied | GrantState::Revoked => Consent::Denied,
     })
 }
 
