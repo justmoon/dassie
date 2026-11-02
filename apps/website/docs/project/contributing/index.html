@@ -71,6 +71,13 @@
         the npm and JSR packages exactly as <code>pnpm-lock.yaml</code> pins
         them.
       </p>
+      <p>
+        Build and test in the shell every time, or run single commands in it
+        with <code>nix develop --command cargo test</code>. A cargo outside it
+        sees another C compiler and other library paths, so the next build in
+        the shell compiles most of the workspace again, and so does the one
+        after that outside it.
+      </p>
       <h3>Without Nix</h3>
       <p>You need, on Linux:</p>
       <ul>
