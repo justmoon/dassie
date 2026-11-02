@@ -2,6 +2,7 @@ import { test } from "node:test";
 import { assertEquals } from "@std/assert";
 import {
   accessText,
+  backToApp,
   clientName,
   consentPath,
   dateText,
@@ -153,6 +154,23 @@ test("the consent page returns to the app only after an approval from its link",
   assertEquals(returnsToApp(finish, true, true), false);
   assertEquals(returnsToApp(finish, false, true), false);
   assertEquals(returnsToApp("", true, false), false);
+});
+
+// Approved from the wallet's own list, the page offers the app's finish URI
+// as a link naming its host, which the owner follows or not: a client that
+// named one gets its token only with the reference it carries (Edna's
+// review). Never after a refusal, nor without a finish URI.
+test("an approval from the wallet's list offers the way back to the app", () => {
+  const finish = "https://app.example:8443/finish?hash=h&interact_ref=r";
+  assertEquals(backToApp(finish, true, true), {
+    href: finish,
+    host: "app.example:8443",
+  });
+  assertEquals(backToApp(finish, false, true), undefined);
+  assertEquals(backToApp(finish, true, false), undefined);
+  assertEquals(backToApp("", true, true), undefined);
+  assertEquals(backToApp("javascript:alert(1)", true, true), undefined);
+  assertEquals(backToApp("not a url", true, true), undefined);
 });
 
 // The consent page's facts, for each kind of grant (Sabine Schaller's

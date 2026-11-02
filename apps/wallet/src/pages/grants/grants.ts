@@ -104,6 +104,31 @@ export function returnsToApp(
 }
 
 /**
+ * The way back to the app the consent page offers, as a link the owner
+ * follows or not, once they approved a request they opened from the
+ * wallet's own list: the app's finish URI, an `http(s)` one, named by its
+ * host. A client that named one gets its token only with the reference it
+ * carries, and an app's page that waits for the answer, as a front door's
+ * does, moves on by itself. None after a refusal, nor when the page sends
+ * the owner back itself ({@linkcode returnsToApp}), nor without one.
+ */
+export function backToApp(
+  finishUrl: string,
+  approved: boolean,
+  fromWallet: boolean,
+): { href: string; host: string } | undefined {
+  if (finishUrl === "" || !approved || !fromWallet) return undefined;
+  let url: URL;
+  try {
+    url = new URL(finishUrl);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
+  return { href: url.href, host: url.host };
+}
+
+/**
  * The notice of the grants that wait for the owner: how many, and where to
  * read them: one's consent page, or all of them under Connected apps. It
  * names no app: the name an app gives is its own text, which only the pages

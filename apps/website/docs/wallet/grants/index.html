@@ -101,12 +101,15 @@
         <li>
           <strong>Approve or deny.</strong> If you approved a request the
           app's own link brought you to, and the app asked for it, the wallet
-          then sends you back to the app. After a denial, or a request you
-          opened from your wallet, it says you can close the page: the app
-          chose where to send you, so the wallet takes you there only when
-          you came from it. Either way, the app learns your answer from your
-          node. If you approved, the page names Connected apps, where you can
-          revoke it.
+          then sends you back to the app. If you approved a request you
+          opened from your wallet, it offers a link back to the app, named by
+          the app's address, such as <em>Back to app.example</em>: follow it
+          unless the app left a page waiting for your answer, which moves on
+          by itself. After a denial it sends you nowhere and offers no link.
+          The app chose where to send you, so the wallet takes you there by
+          itself only when you came from it. Either way, the app learns your
+          answer from your node. If you approved, the page names Connected
+          apps, where you can revoke it.
         </li>
       </ol>
       <p>
