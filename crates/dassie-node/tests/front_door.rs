@@ -1345,3 +1345,162 @@ async fn the_front_door_passes_back_only_json_without_cookies() {
     assert_eq!(relayed.err(), Some(RelayError::Refused));
     shutdown.cancel();
 }
+
+/// A node with a hostname, as the client's wallet, and the client:
+/// grants that need the owner want a client known by its wallet address.
+async fn client_wallet() -> (TestNode, Client) {
+    let (wallet, key) = support::op::start_keyed(Policies::DEV, 43).await;
+    let own = dassie_node::open_payments::keys::ClientKey::derive(&key).unwrap();
+    let client = Client {
+        key: own.signing_key().clone(),
+        kid: own.kid().to_string(),
+        identity: json!({ "walletAddress": format!("{}/.well-known/pay", wallet.origin()) }),
+    };
+    (wallet, client)
+}
+
+/// The grants that wait for the owner, as the owner's app first lists them.
+async fn waiting(node: &TestNode) -> Vec<proto::PendingGrant> {
+    use dassie_node::rpc::proto::{client_message, server_message, stream_item};
+    let mut owner = node.ipc().await;
+    owner
+        .send_raw(proto::ClientMessage {
+            call_id: 1,
+            kind: Some(client_message::Kind::Request(proto::Request {
+                method: Some(Method::SubscribePendingGrants(
+                    proto::SubscribePendingGrantsRequest {},
+                )),
+            })),
+        })
+        .await;
+    let message = tokio::time::timeout(HANG, owner.receive())
+        .await
+        .expect("no item")
+        .expect("closed");
+    let Some(server_message::Kind::Item(item)) = message.kind else {
+        panic!("{message:?}")
+    };
+    let Some(stream_item::Method::SubscribePendingGrants(listed)) = item.method else {
+        panic!("{item:?}")
+    };
+    listed.grants
+}
+
+// spec/designs/periphery.md#7-open-payments-without-a-public-address: a
+// grant asked for through a front door waits for the owner, who decides in
+// their app. The grant's state, which the node answers and signs and the
+// front door passes on, says it waits, and once the owner decided, where
+// the client's browser goes next: exactly where the owner's decision sends
+// it, so a page that follows the state needs nothing else.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_grant_asked_through_the_front_door_follows_the_owners_decision() {
+    let shutdown = CancellationToken::new();
+    let door = Door::start(&shutdown).await;
+    let (wallet, client) = client_wallet().await;
+    let (node, key) = node_behind(&door, 68).await;
+    let name = name_of(&key.node_id());
+    door.until_reached(&name).await;
+    let request = json!({
+        "access_token": { "access": [{
+            "type": "outgoing-payment",
+            "actions": ["create", "read"],
+            "identifier": format!("https://{name}/.well-known/pay"),
+        }] },
+        "client": client.identity,
+        "interact": {
+            "start": ["redirect"],
+            "finish": { "method": "redirect", "uri": "https://client.example/finish", "nonce": "client-nonce" },
+        },
+    });
+    let asked = signed_under(&node, &name, &client, "POST", "/gnap", None, Some(&request));
+    let reply = door.send(&name, asked).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    let grant = json_of(&reply);
+    // The client sends the owner to the front door, under the name it asked
+    // at, with the grant's ID and key.
+    let redirect = grant["interact"]["redirect"].as_str().unwrap();
+    let path = redirect.strip_prefix(&format!("https://{name}")).unwrap();
+    let (id, interaction) = path
+        .strip_prefix("/gnap/interact/")
+        .unwrap()
+        .split_once('/')
+        .unwrap();
+    let state = format!("{path}/state");
+
+    // It waits, and says so, signed by the node, never stored.
+    let reply = door.get(&name, &state).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    assert_eq!(json_of(&reply), json!({ "state": "pending" }));
+    assert_eq!(reply.header("cache-control"), Some("no-store"));
+    let now_s = node.clock.now_ms() / 1_000;
+    let target = format!("https://{name}{state}");
+    assert_eq!(signer(&target, &reply, now_s), Ok(key.node_id()));
+    // A wrong key learns nothing.
+    let wrong = format!("/gnap/interact/{id}/{interaction}x/state");
+    let reply = door.get(&name, &wrong).await;
+    assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.text());
+    assert_eq!(json_of(&reply)["error"]["code"], "not_found");
+
+    // The owner's app finds it, with what the client's URL carries, and
+    // the owner approves.
+    let listed = waiting(&node).await;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(
+        (listed[0].id.as_str(), listed[0].key.as_str()),
+        (id, interaction)
+    );
+    let decided = node
+        .ipc()
+        .await
+        .call(Method::DecideGrant(proto::DecideGrantRequest {
+            id: listed[0].id.clone(),
+            key: listed[0].key.clone(),
+            approve: true,
+        }))
+        .await;
+    let Ok(response::Method::DecideGrant(decided)) = decided else {
+        panic!("{decided:?}")
+    };
+
+    // The state names where the owner's decision sends the client: its
+    // finish URI with the hash and reference, which the client continues
+    // with to get its token.
+    let reply = door.get(&name, &state).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    let approved = json_of(&reply);
+    assert_eq!(approved["state"], "approved");
+    let finish = approved["finish"].as_str().unwrap();
+    assert_eq!(finish, decided.finish_url);
+    let (hash, reference) = finish
+        .strip_prefix("https://client.example/finish?hash=")
+        .unwrap()
+        .split_once("&interact_ref=")
+        .unwrap();
+    assert!(dassie_payments::gnap::check_interaction_hash(
+        hash,
+        "client-nonce",
+        grant["interact"]["finish"].as_str().unwrap(),
+        reference,
+        &format!("https://{name}/gnap"),
+    ));
+    node.clock.advance(5_000);
+    let uri = grant["continue"]["uri"].as_str().unwrap();
+    let continuation = uri.strip_prefix(&format!("https://{name}")).unwrap();
+    let token = grant["continue"]["access_token"]["value"].as_str().unwrap();
+    let continued = json!({ "interact_ref": reference });
+    let request = signed_under(
+        &node,
+        &name,
+        &client,
+        "POST",
+        continuation,
+        Some(token),
+        Some(&continued),
+    );
+    let reply = door.send(&name, request).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    assert!(json_of(&reply)["access_token"]["value"].is_string());
+    node.stop().await;
+    wallet.stop().await;
+    shutdown.cancel();
+}

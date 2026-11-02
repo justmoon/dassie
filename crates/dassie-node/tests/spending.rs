@@ -377,10 +377,33 @@ async fn a_denied_grant_gives_nothing() {
     let reply = continue_grant(&node, &client, &grant, None).await;
     assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
     assert_eq!(body(&reply)["error"]["code"], "request_denied");
-    // Its interaction is gone too.
+    // Its interaction is gone too; its state says it was denied, and where
+    // the denial sends the client's browser, as the wallet sent it.
     let redirect = path_of(&node, &grant["interact"]["redirect"]);
     let reply = send(node.https, true, get(&node, &redirect)).await;
     assert_eq!(reply.status, StatusCode::NOT_FOUND);
+    let reply = send(node.https, true, get(&node, &format!("{redirect}/state"))).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    assert_eq!(body(&reply), json!({ "state": "denied", "finish": finish }));
+    node.stop().await;
+}
+
+// A grant the owner did not decide in time lapses: its state says so,
+// rather than that it still waits, until it is pruned.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_grant_that_lapsed_says_so() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let start = dassie_payments::time::format_rfc3339(node.clock.now_ms());
+    let grant = ask(&node, &client, 500, &start).await;
+    let state = format!("{}/state", path_of(&node, &grant["interact"]["redirect"]));
+    let reply = send(node.https, true, get(&node, &state)).await;
+    assert_eq!(body(&reply), json!({ "state": "pending" }));
+    node.clock
+        .advance(dassie_node::open_payments::auth::PENDING_GRANT_LIFETIME_MS);
+    let reply = send(node.https, true, get(&node, &state)).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    assert_eq!(body(&reply), json!({ "state": "lapsed" }));
     node.stop().await;
 }
 

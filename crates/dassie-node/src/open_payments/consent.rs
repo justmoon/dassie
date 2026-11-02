@@ -3,12 +3,15 @@
 //! created.
 //!
 //! Such a grant waits, pending, for the owner. The client sends the owner
-//! to `GET /gnap/interact/{id}/{key}`, which leads to the wallet's consent
-//! page; the key is random per grant, so only the client and the owner
-//! know the way there. Once the owner has decided in the wallet, the page
-//! sends them back to the client's finish URI with the interaction hash
-//! and a reference, and the client continues the grant with that
-//! reference to get its token. A grant waits at most
+//! to `GET /gnap/interact/{id}/{key}`, which on a node with a hostname
+//! leads to the wallet's consent page; the key is random per grant, so
+//! only the client and the owner know the way there. Under a front door's
+//! name the front door answers it, and the owner decides in their app,
+//! which lists the grants that wait ([`waiting`]). Once the owner has
+//! decided, the client's browser goes back to its finish URI with the
+//! interaction hash and a reference, from the wallet's page or the front
+//! door's, which reads them from the grant's state ([`state`]); the client
+//! continues the grant with that reference to get its token. A grant waits at most
 //! [`PENDING_GRANT_LIFETIME_MS`]; at most [`MAX_PENDING_GRANTS`] wait at
 //! once, of which strangers leave a share to clients the owner approved
 //! before, and no one client or network takes more than a small share
@@ -29,7 +32,7 @@ use super::auth::{
     ACCESS_TOKEN_LIFETIME_MS, OpError, PENDING_GRANT_LIFETIME_MS, grant_fits, new_token,
     random_bytes,
 };
-use super::{GRANT_PATH, Urls, WalletAddresses};
+use super::{GRANT_PATH, Names, Urls, WalletAddresses};
 use crate::log::target;
 use crate::node::Node;
 use crate::store::{GrantRow, GrantState, PaymentId, TokenRow};
@@ -280,14 +283,120 @@ pub fn waiting(node: &Node) -> Result<Vec<Waiting>, OpError> {
 }
 
 /// `GET /gnap/interact/{id}/{key}`: where to send the owner, the wallet's
-/// consent page for the grant.
+/// consent page for the grant. Only a node with a hostname serves its
+/// wallet there. Under a name, a front door's, the front door answers this
+/// itself, and the owner decides in their app: none then.
 ///
 /// # Errors
 ///
 /// 404 for a grant that does not wait, or a wrong key.
-pub fn start(node: &Node, urls: &Urls, id: PaymentId, key: &str) -> Result<String, OpError> {
+pub fn start(
+    node: &Node,
+    urls: &Urls,
+    id: PaymentId,
+    key: &str,
+) -> Result<Option<String>, OpError> {
     pending(node, id, key)?;
-    Ok(format!("{}{CONSENT_PATH}{id}?key={key}", urls.origin()))
+    if !matches!(Names::of(node), Some(Names::Hostname(_))) {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "{}{CONSENT_PATH}{id}?key={key}",
+        urls.origin()
+    )))
+}
+
+/// Where a grant stands, as `GET /gnap/interact/{id}/{key}/state` tells
+/// whoever holds its interaction URL: the client, and the browser it sent
+/// the owner to, which waits at a front door's page while the owner
+/// decides in their app. Once decided, it names where that browser goes
+/// next: the finish URI with what the owner's decision added, exactly as
+/// the wallet's consent page sends the owner there, so that a page that
+/// follows the grant needs nothing else. Nothing more about the grant.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum Consent {
+    /// Waiting for the owner.
+    Pending,
+    /// The owner approved it.
+    Approved {
+        /// The finish URI, with the interaction hash and reference; none
+        /// if the client named none.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        finish: Option<String>,
+    },
+    /// The owner denied it, or it was revoked since.
+    Denied {
+        /// The finish URI, with `result=grant_rejected`; none if the
+        /// client named none.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        finish: Option<String>,
+    },
+    /// The owner did not decide in time.
+    Lapsed,
+}
+
+/// The state of the grant `id` whose interaction key is `key`
+/// ([`Consent`]). The hash in an approved grant's finish URI covers the
+/// grant endpoint under the name the client asked at, which `urls`, the
+/// node's main name, stands in for only in a grant that kept none.
+///
+/// # Errors
+///
+/// 404 for an unknown grant, one the owner never decided, a wrong key, or
+/// a grant no longer kept: pruned once lapsed or denied, like any other.
+pub fn state(node: &Node, urls: &Urls, id: PaymentId, key: &str) -> Result<Consent, OpError> {
+    let gone = || OpError::not_found("no such grant asked the owner");
+    let grant = node.store().grant(id)?.ok_or_else(gone)?;
+    if grant.interaction.is_none() {
+        return Err(gone());
+    }
+    let interaction = Interaction::of(&grant)?;
+    if !same(&interaction.key, key) {
+        return Err(gone());
+    }
+    Ok(match grant.state {
+        GrantState::Pending if grant.expires_at_ms <= node.now_ms() => Consent::Lapsed,
+        GrantState::Pending => Consent::Pending,
+        GrantState::Approved => Consent::Approved {
+            finish: finish_url(urls, &interaction, true)?,
+        },
+        GrantState::Denied | GrantState::Revoked => Consent::Denied {
+            finish: finish_url(urls, &interaction, false)?,
+        },
+    })
+}
+
+/// Where the owner's decision sends the client's browser: the client's
+/// finish URI with the interaction hash and reference, or with
+/// `result=grant_rejected`; none if the client named none. Of a grant the
+/// owner decided, whose interaction holds the reference.
+fn finish_url(
+    urls: &Urls,
+    interaction: &Interaction,
+    approve: bool,
+) -> Result<Option<String>, OpError> {
+    let Some(finish) = &interaction.finish else {
+        return Ok(None);
+    };
+    let separator = if finish.uri.contains('?') { '&' } else { '?' };
+    let query = if approve {
+        let interact_ref = interaction
+            .interact_ref
+            .as_deref()
+            .ok_or_else(|| OpError::internal("a decided grant has no reference"))?;
+        let origin = interaction.origin.as_deref().unwrap_or(urls.origin());
+        let hash = gnap::interaction_hash(
+            &finish.nonce,
+            &interaction.server_nonce,
+            interact_ref,
+            &format!("{origin}{GRANT_PATH}"),
+        );
+        format!("hash={hash}&interact_ref={interact_ref}")
+    } else {
+        "result=grant_rejected".to_string()
+    };
+    Ok(Some(format!("{}{separator}{query}", finish.uri)))
 }
 
 /// The grant as the consent page shows it.
@@ -328,8 +437,7 @@ pub async fn decide(
     approve: bool,
 ) -> Result<Option<String>, OpError> {
     let (_, mut interaction) = pending(node, id, key)?;
-    let interact_ref = random_text::<INTERACTION_TEXT_BYTES>(node);
-    interaction.interact_ref = Some(interact_ref.clone());
+    interaction.interact_ref = Some(random_text::<INTERACTION_TEXT_BYTES>(node));
     let state = if approve {
         GrantState::Approved
     } else {
@@ -343,23 +451,7 @@ pub async fn decide(
     }
     changed(node).await;
     tracing::info!(target: target::PAYMENT, grant = %id, approve, "the owner decided a grant");
-    let Some(finish) = interaction.finish else {
-        return Ok(None);
-    };
-    let separator = if finish.uri.contains('?') { '&' } else { '?' };
-    let query = if approve {
-        let origin = interaction.origin.as_deref().unwrap_or(urls.origin());
-        let hash = gnap::interaction_hash(
-            &finish.nonce,
-            &interaction.server_nonce,
-            &interact_ref,
-            &format!("{origin}{GRANT_PATH}"),
-        );
-        format!("hash={hash}&interact_ref={interact_ref}")
-    } else {
-        "result=grant_rejected".to_string()
-    };
-    Ok(Some(format!("{}{separator}{query}", finish.uri)))
+    finish_url(urls, &interaction, approve)
 }
 
 /// `POST /gnap/continue/{id}` for a grant the owner decides: still

@@ -56,17 +56,46 @@ pub async fn manage(
     result.unwrap_or_else(|failure| error(&failure, None))
 }
 
-/// `GET /gnap/interact/{id}/{key}`: sends the owner to the wallet's
-/// consent page for the grant. A person reads what this answers, so an
-/// error is plain text.
+/// `GET /gnap/interact/{id}/{key}`, and `GET /gnap/interact/{id}/{key}/state`.
 pub fn interact(node: &Node, urls: &Urls, path: &str) -> Response<Body> {
-    let target = path
+    let parts: Vec<&str> = path
         .strip_prefix("/gnap/interact/")
-        .and_then(|rest| rest.split_once('/'))
-        .and_then(|(id, key)| Some((PaymentId::parse(id)?, key)));
-    let location = target.and_then(|(id, key)| consent::start(node, urls, id, key).ok());
-    match location.and_then(|location| http::HeaderValue::from_str(&location).ok()) {
-        Some(location) => {
+        .map(|rest| rest.split('/').collect())
+        .unwrap_or_default();
+    match parts.as_slice() {
+        [id, key] => start(node, urls, id, key),
+        [id, key, "state"] => state(node, urls, id, key),
+        _ => error(&OpError::not_found("Not Found"), None),
+    }
+}
+
+/// `GET /gnap/interact/{id}/{key}`: sends the owner to the wallet's
+/// consent page for the grant, on a node with a hostname. A person reads
+/// what this answers, so an error is plain text. Under a front door's
+/// name the front door answers this itself, and the owner decides in their
+/// app: the node refuses it in the specs' form, which is all a front door
+/// would pass back.
+fn start(node: &Node, urls: &Urls, id: &str, key: &str) -> Response<Body> {
+    let gone = || {
+        crate::http::response::with_body(
+            StatusCode::NOT_FOUND,
+            "text/plain; charset=utf-8",
+            "This request for your consent is no longer waiting: it was decided, or it lapsed after 10 minutes. Ask the app to start again.",
+        )
+    };
+    let Some(id) = PaymentId::parse(id) else {
+        return gone();
+    };
+    let location = match consent::start(node, urls, id, key) {
+        Ok(Some(location)) => location,
+        Ok(None) => {
+            let refused = OpError::not_found("the owner approves this in their Dassie app");
+            return error(&refused, None);
+        }
+        Err(_) => return gone(),
+    };
+    match http::HeaderValue::from_str(&location) {
+        Ok(location) => {
             let mut response =
                 crate::http::response::with_body(StatusCode::FOUND, "text/plain", "");
             response
@@ -74,12 +103,27 @@ pub fn interact(node: &Node, urls: &Urls, path: &str) -> Response<Body> {
                 .insert(http::header::LOCATION, location);
             response
         }
-        None => crate::http::response::with_body(
-            StatusCode::NOT_FOUND,
-            "text/plain; charset=utf-8",
-            "This request for your consent is no longer waiting: it was decided, or it lapsed after 10 minutes. Ask the app to start again.",
-        ),
+        Err(_) => gone(),
     }
+}
+
+/// `GET /gnap/interact/{id}/{key}/state`: where the grant stands, as JSON
+/// ([`consent::state`]), for the page that waits while the owner decides
+/// in their app, and for the client. Never stored: it changes when the
+/// owner decides.
+fn state(node: &Node, urls: &Urls, id: &str, key: &str) -> Response<Body> {
+    let result = PaymentId::parse(id)
+        .ok_or_else(|| OpError::not_found("no such grant asked the owner"))
+        .and_then(|id| consent::state(node, urls, id, key));
+    let mut response = match result {
+        Ok(state) => json(StatusCode::OK, &state),
+        Err(failure) => error(&failure, None),
+    };
+    response.headers_mut().insert(
+        http::header::CACHE_CONTROL,
+        http::HeaderValue::from_static("no-store"),
+    );
+    response
 }
 
 fn no_content() -> Response<Body> {

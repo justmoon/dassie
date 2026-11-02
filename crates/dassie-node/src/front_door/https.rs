@@ -66,9 +66,10 @@ const CONNECTIONS_PER_CLIENT: u32 = Policies::DEFAULT.http_connections_per_clien
 /// Time to send a request's body, as a node allows.
 const BODY_TIMEOUT: Duration = Duration::from_millis(Policies::DEFAULT.body_timeout_ms);
 
-/// Where interactive grants send the owner, which needs an owner app
+/// Where interactive grants send the owner, who decides in their app
 /// (spec/designs/periphery.md#6-owner-apps): the front door answers it
-/// itself.
+/// itself, but for the grant's state, which the node answers
+/// ([`is_grant_state`]).
 const INTERACT_PREFIX: &str = "/gnap/interact/";
 
 /// The Content Security Policy on every answer the front door gives or
@@ -288,7 +289,7 @@ impl Door {
         if !is_open_payments_path(path) {
             return Err(Refused::NoRoute);
         }
-        if path.starts_with(INTERACT_PREFIX) {
+        if path.starts_with(INTERACT_PREFIX) && !is_grant_state(path) {
             return Ok(Target::Interact);
         }
         Ok(Target::Node(node))
@@ -371,6 +372,17 @@ impl Door {
             }
         }
     }
+}
+
+/// Whether `path` is a grant's state, `/gnap/interact/{id}/{key}/state`,
+/// JSON the node answers and signs, which the front door passes on as any
+/// Open Payments route; the rest of the interaction is its own.
+fn is_grant_state(path: &str) -> bool {
+    let parts: Vec<&str> = path
+        .strip_prefix(INTERACT_PREFIX)
+        .map(|rest| rest.split('/').collect())
+        .unwrap_or_default();
+    matches!(parts.as_slice(), [id, key, "state"] if !id.is_empty() && !key.is_empty())
 }
 
 /// Where nodes dial a front door whose relay URL is `url`,
@@ -882,6 +894,23 @@ mod tests {
         let own = error(StatusCode::NOT_FOUND, "not_found", "Not Found");
         let csp = own.headers().get(header::CONTENT_SECURITY_POLICY).unwrap();
         assert_eq!(csp, CONTENT_SECURITY_POLICY);
+    }
+
+    #[test]
+    fn only_a_grants_state_passes_from_the_interaction() {
+        assert!(is_grant_state("/gnap/interact/id/key/state"));
+        for path in [
+            "/gnap/interact/id/key",
+            "/gnap/interact/id/key/",
+            "/gnap/interact/id/key/state/",
+            "/gnap/interact/id/key/other",
+            "/gnap/interact/id//state",
+            "/gnap/interact//key/state",
+            "/gnap/interact/id/key/x/state",
+            "/gnap/state/id/key/state",
+        ] {
+            assert!(!is_grant_state(path), "{path}");
+        }
     }
 
     #[test]
