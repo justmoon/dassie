@@ -146,7 +146,22 @@
               <td>
                 Sends the owner on to the wallet's consent page
                 (<code>302</code>). A request that is no longer waiting
-                answers <code>404</code> in plain text.
+                answers <code>404</code> in plain text. A node without a
+                hostname serves no wallet: it answers <code>404</code> in
+                the specs' form.
+              </td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/gnap/interact/&lt;id&gt;/&lt;key&gt;/state</code></td>
+              <td>
+                Where the grant stands, as JSON, for a page that waits while
+                the owner decides elsewhere: <code>pending</code>,
+                <code>lapsed</code>, <code>denied</code>, or
+                <code>approved</code> with <code>finish</code>, your finish
+                URI with <code>hash</code> and <code>interact_ref</code>.
+                Signed, and never stored. A wrong key, or a grant no longer
+                kept, answers <code>404</code>.
               </td>
             </tr>
             <tr>
