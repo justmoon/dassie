@@ -30,7 +30,7 @@ pub const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; \
      form-action 'none'; frame-ancestors 'none'; sandbox";
 
 /// The page's style: a system font, readable on a phone, light and dark.
-const STYLE: &str = ":root{color-scheme:light dark;--fg:#1d1d1b;--bg:#fbfaf7;--muted:#5f5e5a;\
+pub(super) const STYLE: &str = ":root{color-scheme:light dark;--fg:#1d1d1b;--bg:#fbfaf7;--muted:#5f5e5a;\
 --link:#1a5fb4;--on:#26734d;--off:#a1460f}\
 @media (prefers-color-scheme:dark){:root{--fg:#ecebe7;--bg:#181816;--muted:#a3a29c;\
 --link:#8bb8f2;--on:#7ccf9f;--off:#f0a874}}\
@@ -52,7 +52,7 @@ pub const MAX_PAGE_BYTES: usize = 16 * 1024;
 
 /// A piece of the page: markup the front door wrote, or text, which is
 /// escaped. Markup is `'static`, so nothing a request names can be one.
-enum Part<'a> {
+pub(super) enum Part<'a> {
     Html(&'static str),
     Text(&'a str),
 }
@@ -169,7 +169,7 @@ pub fn response(
 
 /// Appends `text` with every character that means something in HTML,
 /// in text or in a quoted attribute, escaped.
-fn push_escaped(page: &mut String, text: &str) {
+pub(super) fn push_escaped(page: &mut String, text: &str) {
     for character in text.chars() {
         match character {
             '&' => page.push_str("&amp;"),

@@ -14,7 +14,9 @@
 //!   to the holder of the name it is, over relayed streams it opens on that
 //!   node's connection ([`nodes`]), with TLS inside pinned to the node's
 //!   key, and answers the root of a name with a static page of its own
-//!   about the node ([`page`]); and on the relay's host, takes tunnels for
+//!   about the node ([`page`]), and an app's interaction with a page that
+//!   sends the owner to their app and follows the grant ([`consent`]); and
+//!   on the relay's host, takes tunnels for
 //!   QUIC at `/quic` into the QUIC endpoint, for the nodes whose UDP does
 //!   not reach it;
 //! - a poller ([`names`]) that reads the registrars' name lists over the
@@ -24,6 +26,7 @@
 //! `dassie front-door` runs it.
 
 pub mod certificate;
+pub mod consent;
 pub mod https;
 pub mod key;
 pub mod names;

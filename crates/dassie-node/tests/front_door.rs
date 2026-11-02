@@ -709,11 +709,44 @@ async fn the_front_door_serves_only_its_names_and_open_payments() {
     let reply = door.get(&name_of(&other), "/.well-known/pay").await;
     assert_eq!(reply.status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(json_of(&reply)["error"]["code"], "unavailable");
-    // The consent page is the owner app's: the front door answers itself.
-    let reply = door.get(&name, "/gnap/interact/grant/key").await;
-    assert_eq!(reply.status, StatusCode::NOT_IMPLEMENTED);
-    assert_eq!(json_of(&reply)["error"]["code"], "interaction_unavailable");
-    assert!(reply.header("signature").is_none());
+    // An app's interaction is the front door's own page, which sends the
+    // owner to their app, whatever the node says of the grant, and even
+    // for a node that is not connected; only the grant's state reaches
+    // the node.
+    for host in [name.clone(), name_of(&other)] {
+        let reply = door.get(&host, "/gnap/interact/grant/key").await;
+        assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+        assert_eq!(
+            reply.header("content-type"),
+            Some("text/html; charset=utf-8")
+        );
+        assert_eq!(
+            reply.header("content-security-policy"),
+            Some(front_door::consent::CONTENT_SECURITY_POLICY)
+        );
+        assert!(reply.text().contains("Approve this in your Dassie app"));
+        assert!(reply.header("signature").is_none());
+        assert!(reply.header("set-cookie").is_none());
+    }
+    for path in [
+        "/gnap/interact/grant",
+        "/gnap/interact/grant/key/other",
+        "/gnap/interact/grant/k.y",
+    ] {
+        let reply = door.get(&name, path).await;
+        assert_eq!(reply.status, StatusCode::NOT_FOUND, "{path}");
+        assert!(reply.header("signature").is_none(), "{path}");
+    }
+    let posted = Request::post("/gnap/interact/grant/key")
+        .header("host", &name)
+        .body(Full::new(Bytes::new()))
+        .unwrap();
+    assert_eq!(door.send(&name, posted).await.status, StatusCode::NOT_FOUND);
+    let reply = door.get(&name, "/gnap/interact/grant/key/state").await;
+    assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.text());
+    let target = format!("https://{name}/gnap/interact/grant/key/state");
+    let now_s = node.clock.now_ms() / 1_000;
+    assert_eq!(signer(&target, &reply, now_s), Ok(key.node_id()));
     // Once the node stops, it cannot be reached either.
     node.stop().await;
     door.until_gone(&name, "/.well-known/pay", |reply| {
@@ -1426,6 +1459,10 @@ async fn a_grant_asked_through_the_front_door_follows_the_owners_decision() {
         .split_once('/')
         .unwrap();
     let state = format!("{path}/state");
+    // There the front door shows its page, which follows the grant.
+    let page = door.get(&name, path).await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text());
+    assert!(page.text().contains(&format!("<code>{name}</code>")));
 
     // It waits, and says so, signed by the node, never stored.
     let reply = door.get(&name, &state).await;
@@ -1464,7 +1501,8 @@ async fn a_grant_asked_through_the_front_door_follows_the_owners_decision() {
 
     // The state names where the owner's decision sends the client: its
     // finish URI with the hash and reference, which the client continues
-    // with to get its token.
+    // with to get its token. The front door's page takes the client's
+    // browser there.
     let reply = door.get(&name, &state).await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
     let approved = json_of(&reply);

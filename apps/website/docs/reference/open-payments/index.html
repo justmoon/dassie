@@ -146,9 +146,10 @@
               <td>
                 Sends the owner on to the wallet's consent page
                 (<code>302</code>). A request that is no longer waiting
-                answers <code>404</code> in plain text. A node without a
-                hostname serves no wallet: it answers <code>404</code> in
-                the specs' form.
+                answers <code>404</code> in plain text. Under a front door's
+                name, the front door's own page: it asks the owner to
+                approve in their Dassie app, and goes on to the finish URI
+                once they did.
               </td>
             </tr>
             <tr>
@@ -198,15 +199,6 @@
         request lapses after 10 minutes.
         <a href="/docs/build/grants/">Grants and limits</a> covers the
         rules, such as which limits a grant may set.
-      </p>
-      <p class="not-yet">
-        Under a front door's name, grants that wait for the owner can't be
-        approved yet: the front door answers
-        <code>/gnap/interact/</code> itself, with <code>501</code> and the
-        code <code>interaction_unavailable</code>, since the owner's app it
-        would send the owner to isn't there yet. They work at a node with a
-        hostname of its own.
-        <a href="/docs/project/roadmap/">What's next</a>
       </p>
 
       <h2 id="resource-server">Resource server</h2>
@@ -466,11 +458,6 @@
               <td><code>429</code></td>
               <td><code>too_many_requests</code></td>
               <td>The front door's own rate limit</td>
-            </tr>
-            <tr>
-              <td><code>501</code></td>
-              <td><code>interaction_unavailable</code></td>
-              <td>A request for <code>/gnap/interact/</code></td>
             </tr>
             <tr>
               <td><code>502</code></td>

@@ -168,6 +168,7 @@ export const PORT_OFFSETS = {
   "open_payments_test.ts": SCENARIO_PORT_OFFSET + 300,
   "third_party_test.ts": SCENARIO_PORT_OFFSET + 400,
   "cross_currency_test.ts": SCENARIO_PORT_OFFSET + 500,
+  "front_door_test.ts": SCENARIO_PORT_OFFSET + 600,
   "wallet_test.ts": SCENARIO_PORT_OFFSET + 700,
   "xrpl_deposit_test.ts": SCENARIO_PORT_OFFSET + 800,
   "mainnet_test.ts": SCENARIO_PORT_OFFSET + 900,
@@ -177,6 +178,12 @@ export const PORT_OFFSETS = {
   "dev_test.ts": 16_000,
   "peer_swaps_test.ts": 22_000,
 } as const;
+
+/**
+ * The port of the front door `front_door_test.ts` gives its scenario: HTTPS
+ * on TCP, QUIC on UDP.
+ */
+export const FRONT_DOOR_PORT = 18870;
 
 /** The ports the BTP payment test's node listens on. */
 export const BTP_HTTP_PORT = 18882;
@@ -205,8 +212,8 @@ export const DEV_DASHBOARD_PORT = 10_100 + PORT_OFFSETS["dev_test.ts"];
  * The ports test files take beside their offsets' (TCP, or UDP for QUIC
  * and DNS): Pebble's directory, management, http-01 and tls-alpn-01 ports
  * and its DNS stand-in's, the fresh install's node, the standalone
- * runtime's, the BTP test's node, and the dev environment's proxy and
- * dashboard under `dev_test.ts`. Every port a test file names comes from
+ * runtime's, the BTP test's node, the front door of `front_door_test.ts`,
+ * and the dev environment's proxy and dashboard under `dev_test.ts`. Every port a test file names comes from
  * here or from {@linkcode PORT_OFFSETS}, which `ports_test.ts` checks; a
  * server that nothing needs to know the port of in advance listens on
  * port 0 instead, and gets one from the system's ephemeral range, which no
@@ -229,6 +236,8 @@ export const FIXED_PORTS:
     ["btp_payment_test.ts", "tcp", BTP_HTTP_PORT],
     ["btp_payment_test.ts", "tcp", BTP_HTTPS_PORT],
     ["btp_payment_test.ts", "udp", BTP_HTTPS_PORT],
+    ["front_door_test.ts", "tcp", FRONT_DOOR_PORT],
+    ["front_door_test.ts", "udp", FRONT_DOOR_PORT],
     ["dev_test.ts", "tcp", DEV_PROXY_PORT],
     ["dev_test.ts", "tcp", DEV_DASHBOARD_PORT],
   ];
@@ -371,8 +380,12 @@ export async function dassie(dir: string, args: string[]): Promise<string> {
   return result.stdout;
 }
 
-/** A headless Chrome that sends `dassie.test` to this machine. */
-export async function startBrowser(dir: string): Promise<Browser> {
+/** A headless Chrome that sends `dassie.test` to this machine, with `args`
+ * besides. */
+export async function startBrowser(
+  dir: string,
+  args: readonly string[] = [],
+): Promise<Browser> {
   return await puppeteer.launch({
     executablePath: await findChrome(),
     headless: true,
@@ -383,6 +396,7 @@ export async function startBrowser(dir: string): Promise<Browser> {
       // The chain is checked against Pebble's root separately, with
       // node:tls; Chrome would need the root in its NSS database for that.
       "--ignore-certificate-errors",
+      ...args,
     ],
   });
 }
