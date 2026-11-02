@@ -13,7 +13,8 @@
  *    reads back.
  * 5. The owner revokes the grant on the Connected apps page, and its token
  *    stops working.
- * 6. A second request is denied: the app learns it, and cannot continue.
+ * 6. A second request is denied: the wallet sends the owner nowhere, and
+ *    the app learns it from the node, and cannot continue.
  */
 
 import { test } from "node:test";
@@ -413,10 +414,17 @@ test("a third-party client pays from one node to another with consent", {
       ),
     );
     await click(page, "consent-deny");
-    for (let tries = 0; app.finished.length < 2 && tries < 100; tries++) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    assertEquals(app.finished[1]?.get("result"), "grant_rejected");
+    // A refusal sends the owner nowhere: the app chose that URL
+    // (spec/areas/payments.md#the-owners-consent). It learns the answer
+    // from the node.
+    await until(
+      page,
+      "the consent page says it is denied",
+      () => text(page, "consent-decided"),
+      (decided) => decided.startsWith("The app gets nothing."),
+    );
+    assertEquals(app.finished.length, 1);
+    assert(page.url().startsWith(payer), page.url());
     assertEquals(
       await status(op.grant.continue({
         url: again.continue.uri,

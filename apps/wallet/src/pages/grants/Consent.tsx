@@ -2,8 +2,10 @@
  * The consent page (spec/decisions/open-payments.md): an app asks to act for
  * the owner, for example to send payments up to a limit. The owner reads who
  * asks and what for: for payments, what they send, what the receiver gets, to
- * whom and for how long. They approve or deny; the wallet then sends them
- * back to the app, which learns the answer from the node.
+ * whom and for how long. They approve or deny; the app learns the answer from
+ * the node. Only an approval the owner reached through the app's own link
+ * sends them back to the app: the app chose where, and anyone can ask
+ * (spec/areas/payments.md#the-owners-consent).
  */
 
 import type { JSX } from "@solidjs/web";
@@ -15,9 +17,11 @@ import { Alert, Card, ErrorText, PageTitle, Spinner } from "@dassie/ui/ui";
 import {
   accessText,
   clientName,
+  FROM_WALLET,
   limitAssetText,
   paymentsTitle,
   receiveText,
+  returnsToApp,
   sendText,
   spanText,
   toText,
@@ -32,6 +36,8 @@ type Page =
 export function Consent(props: RouteProps): JSX.Element {
   const client = useClient();
   const key = useSearchParam("key");
+  // Opened from the wallet's own list, not from the app's link.
+  const fromWallet = useSearchParam(FROM_WALLET);
   const [page, setPage] = createSignal<Page>({ kind: "loading" });
   const [pending, setPending] = createSignal(false);
   const [error, setError] = createSignal<string>();
@@ -58,8 +64,11 @@ export function Consent(props: RouteProps): JSX.Element {
         approve,
       });
       setPage({ kind: "decided", approved: approve });
-      // Back to the app, which learns the answer from the node.
-      if (response.finishUrl !== "") location.assign(response.finishUrl);
+      // Back to the app, which learns the answer from the node, only after
+      // an approval the owner reached through the app's own link.
+      if (returnsToApp(response.finishUrl, approve, fromWallet() !== null)) {
+        location.assign(response.finishUrl);
+      }
     } catch (failure) {
       setError(describe(failure));
     }
@@ -95,7 +104,8 @@ export function Consent(props: RouteProps): JSX.Element {
           <Alert title={approved() ? "Approved" : "Denied"}>
             <p data-testid="consent-decided">
               <Show when={approved()} fallback="The app gets nothing.">
-                The app may now do what it asked. To revoke it, go to{" "}
+                The app may now do what it asked, and continues on its own. To
+                revoke it, go to{" "}
                 <Link href="/grants" testid="consent-revoke">
                   Connected apps
                 </Link>.

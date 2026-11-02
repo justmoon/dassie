@@ -4,24 +4,38 @@
  * or as the wallet connects, wherever the client sent the owner: a client of
  * a node without a hostname sends them to a front door, which serves no
  * wallet. Each leads to its consent page.
+ *
+ * Anyone can ask, so the band every page shows names no one: the name an app
+ * gives is its own text, and only Connected apps and the consent page show
+ * it, beside the app's wallet address.
  */
 
 import type { JSX } from "@solidjs/web";
 import type { PendingGrant } from "@dassie/rpc/proto";
-import { For, Show } from "solid-js";
+import { type Accessor, createContext, For, Show, useContext } from "solid-js";
 import { dateTime } from "@dassie/ui/format";
 import { createLiveValue } from "@dassie/ui/live";
 import { Link, useRouter } from "@dassie/ui/router";
 import { Card } from "@dassie/ui/ui";
 import { clientName, consentPath, pendingNotice } from "./grants.ts";
 
-/** The grants that wait for the owner, live. */
-function usePending() {
-  return createLiveValue(
+/** The grants that wait for the owner, live, from one stream for the shell. */
+const PendingContext = createContext<Accessor<readonly PendingGrant[]>>();
+
+/** Follows the grants that wait, once, for the band and Connected apps. */
+export function PendingGrants(props: { children: JSX.Element }): JSX.Element {
+  const live = createLiveValue(
     "subscribePendingGrants",
     () => ({}),
     (item) => item.grants,
   );
+  const grants = () => live.value() ?? [];
+  return <PendingContext value={grants}>{props.children}</PendingContext>;
+}
+
+/** The grants that wait, as the shell follows them. */
+function usePending(): Accessor<readonly PendingGrant[]> {
+  return useContext(PendingContext);
 }
 
 /**
@@ -30,11 +44,10 @@ function usePending() {
  */
 export function PendingNotice(): JSX.Element {
   const router = useRouter();
-  const live = usePending();
+  const pending = usePending();
   const shown = () =>
     !router.path().startsWith("/consent/") && router.path() !== "/grants";
-  const notice =
-    () => (shown() ? pendingNotice(live.value() ?? []) : undefined);
+  const notice = () => (shown() ? pendingNotice(pending()) : undefined);
   return (
     <Show when={notice()}>
       {(notice) => (
@@ -49,12 +62,12 @@ export function PendingNotice(): JSX.Element {
 
 /** Connected apps' list of the requests that wait, each with its way in. */
 export function PendingList(): JSX.Element {
-  const live = usePending();
+  const pending = usePending();
   return (
-    <Show when={(live.value()?.length ?? 0) > 0}>
+    <Show when={pending().length > 0}>
       <Card title="Waiting for you" testid="grants-pending">
         <ul class="grants">
-          <For each={live.value() ?? []} keyed={(grant) => grant.id}>
+          <For each={pending()} keyed={(grant) => grant.id}>
             {(grant) => <Row grant={grant()} />}
           </For>
         </ul>
