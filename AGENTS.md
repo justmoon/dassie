@@ -51,6 +51,8 @@ Open a PR as a draft (`gh pr create --draft`) while you are still working on it,
 
 Each worktree builds into its own `target/`: don't set `CARGO_TARGET_DIR` to a directory that worktrees share. Cargo names a workspace crate's build after its path from the workspace root, which is the same in every worktree, so one worktree takes another's build as fresh and runs the wrong code. The e2e harness and `apps/dev` read the binaries from `target/` anyway, whatever `CARGO_TARGET_DIR` says.
 
+Build and test in the dev shell only: `nix develop --command cargo …`, and the same for `node` and `pnpm`, whose scripts and tests run cargo (`node --run dev`, the e2e and interop tests); the `node --test` commands above mean the same. Never run them bare in a checkout the dev shell builds in, which Work's warm checkouts are. The dev shell sets `CC`, `PKG_CONFIG_PATH` and more that a bare shell doesn't, and the build scripts of ring, libsqlite3-sys, glib-sys and others run again when those change, so each switch between the two rebuilds most of the workspace, and `target/` grows with every switch. The desktop crate's libraries and Node 26 are in the dev shell only anyway.
+
 ### Review
 
 Edna reviews PRs. She is a Claude Code session on hecate named `edna-<project>`, that reviews as `vorstand-edna-bot`. Work tells her when a PR of an agent on hecate is ready, and tells you when her review is on GitHub; don't message her about a review:
