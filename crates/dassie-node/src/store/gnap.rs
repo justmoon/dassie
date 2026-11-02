@@ -400,6 +400,21 @@ impl Store {
             .collect()
     }
 
+    /// The grants waiting for the owner at `now_ms`, not lapsed, newest
+    /// first, at most `limit`.
+    pub fn pending_grants(&self, now_ms: u64, limit: u32) -> Result<Vec<GrantRow>, StoreError> {
+        let connection = self.lock();
+        let mut statement = connection.prepare_cached(&format!(
+            "SELECT {GRANT_COLUMNS} FROM gnap_grants \
+             WHERE state = 'pending' AND needs_owner = 1 AND expires_at_ms > ?1 \
+             ORDER BY created_at_ms DESC, id LIMIT ?2"
+        ))?;
+        statement
+            .query_map(params![to_sql_time(now_ms), limit], read_grant)?
+            .map(|row| row?)
+            .collect()
+    }
+
     /// Forgets what no request can use any more: grants the owner did not
     /// decide in time, denied and revoked ones, and expired tokens, except
     /// those of grants the owner approved, which may be rotated for

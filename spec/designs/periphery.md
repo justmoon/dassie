@@ -113,7 +113,7 @@ The wallet is never served through a relay or a front door. The owner enters the
 
 - **The node serves the wallet, `/api/*` and `/rpc` only on its own listeners.** On a relayed stream it speaks only the owner protocol below, or Open Payments ([HTTP](../areas/http.md#relayed-streams)).
 - **Pairing and calls are built** ([RPC](../areas/rpc.md#paired-devices)): the owner on the node's machine starts a pairing, the app makes a device key (Ed25519) and claims it on a stream with purpose `owner`, directly or through a relay (§5), with TLS pinned to the node's key and proving the device key, and then calls the wallet's RPC until the owner revokes it. What is left is the apps themselves, and finding the node from the local network without its URL or a relay in the code.
-- **Consent.** An Open Payments grant that needs the owner ([Payments](../areas/payments.md#the-owners-consent)) is shown in the app, at once if it is connected, otherwise when it next connects. A pending grant still lapses as it does today.
+- **Consent.** An Open Payments grant that needs the owner ([Payments](../areas/payments.md#the-owners-consent)) is shown in the app, at once if it is connected, otherwise when it next connects. A pending grant still lapses as it does at the consent page. The node streams the grants that wait to the owner's clients over the owner's RPC, and the wallet shows them on every page and leads to their consent page ([Wallet](../areas/wallet.md#pages)): that is built, and a paired app is to show them as the wallet does.
 
 ## 7. Open Payments without a public address
 

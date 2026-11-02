@@ -3,12 +3,14 @@ import { assertEquals } from "@std/assert";
 import {
   accessText,
   clientName,
+  consentPath,
   dateText,
   intervalText,
   limitAssetText,
   type LimitFields,
   limitText,
   paymentsTitle,
+  pendingNotice,
   receiveText,
   sendText,
   spanText,
@@ -113,6 +115,35 @@ test("a client goes by its public name, else its address", () => {
     "Budget App",
   );
   assertEquals(clientName("https://app.example/me", ""), "app.example/me");
+});
+
+// spec/designs/periphery.md#6-owner-apps: the app shows a grant that waits
+// for the owner wherever the client sent them, and leads to its consent
+// page, as the client's link does.
+test("a grant that waits leads to its consent page", () => {
+  const grant = {
+    id: "9b2c0e4e-6a3f-4d27-9d7a-3f1c2b5e8a10",
+    key: "a-b_c/d+e",
+    client: "https://app.example/me",
+    clientName: "",
+  };
+  assertEquals(
+    consentPath(grant),
+    "/consent/9b2c0e4e-6a3f-4d27-9d7a-3f1c2b5e8a10?key=a-b_c%2Fd%2Be",
+  );
+  assertEquals(pendingNotice([]), undefined);
+  assertEquals(pendingNotice([grant]), {
+    text: "app.example/me asks for access.",
+    href: consentPath(grant),
+  });
+  assertEquals(
+    pendingNotice([{ ...grant, clientName: "Budget App" }])?.text,
+    "Budget App asks for access.",
+  );
+  assertEquals(pendingNotice([grant, { ...grant, id: "other" }]), {
+    text: "2 apps ask for access.",
+    href: "/grants",
+  });
 });
 
 // The consent page's facts, for each kind of grant (Sabine Schaller's

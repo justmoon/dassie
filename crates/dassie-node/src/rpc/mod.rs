@@ -69,6 +69,7 @@ pub const fn is_live(method: &proto::request::Method) -> bool {
             | Method::SubscribeIncomingPayments(_)
             | Method::SubscribeOutgoingPayments(_)
             | Method::SubscribeGrants(_)
+            | Method::SubscribePendingGrants(_)
             | Method::SubscribeOutgoingPayment(_)
             | Method::SubscribeNames(_)
     )

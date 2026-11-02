@@ -1,6 +1,6 @@
 /**
  * The wallet's frame: the navigation, a notice while the connection is down,
- * and the page (spec/areas/wallet.md#pages, and the Send, payment status,
+ * a notice while an app waits for the owner's consent, and the page (spec/areas/wallet.md#pages, and the Send, payment status,
  * consent and connected apps pages of spec/decisions/open-payments.md).
  */
 
@@ -18,6 +18,7 @@ import { Asset } from "../pages/assets/Asset.tsx";
 import { Assets } from "../pages/assets/Assets.tsx";
 import { AddAssets } from "../pages/assets/ChooseAssets.tsx";
 import { DeleteLedger } from "../pages/ledgers/DeleteLedger.tsx";
+import { PendingNotice } from "../pages/grants/Pending.tsx";
 import { Receive } from "../pages/Receive.tsx";
 import { useClient } from "@dassie/ui/rpc";
 import { Navigate, Routes } from "@dassie/ui/router";
@@ -94,6 +95,7 @@ export function Shell(): JSX.Element {
       <a class="skip" href="#content">Skip to content</a>
       <MainNav />
       <ConnectionNotice />
+      <PendingNotice />
       <main id="content">
         <Errored
           fallback={(error, reset) => (

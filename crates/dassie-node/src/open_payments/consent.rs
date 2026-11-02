@@ -41,7 +41,7 @@ pub const CONTINUE_WAIT_S: u64 = 5;
 /// The wallet's consent page.
 pub const CONSENT_PATH: &str = "/consent/";
 /// The longest public name of a client that is kept.
-const MAX_PUBLIC_NAME_CHARS: usize = 128;
+pub const MAX_PUBLIC_NAME_CHARS: usize = 128;
 /// The longest interaction a grant's row keeps, in characters: the bound
 /// on `gnap_grants.interaction` in `store/schema.rs`.
 pub const MAX_INTERACTION_CHARS: usize = 4_096;
@@ -242,6 +242,41 @@ fn pending(node: &Node, id: PaymentId, key: &str) -> Result<(GrantRow, Interacti
         return Err(gone());
     }
     Ok((grant, interaction))
+}
+
+/// A grant waiting for the owner, as the owner's app lists it: enough to
+/// find it, and its key, to read and decide it as the consent page does.
+#[derive(Clone, Debug)]
+pub struct Waiting {
+    /// The grant.
+    pub grant: GrantRow,
+    /// Its interaction key.
+    pub key: String,
+    /// The client's public name, if its wallet address has one.
+    pub public_name: Option<String>,
+}
+
+/// The grants waiting for the owner now, newest first: at most
+/// [`MAX_PENDING_GRANTS`], since no more can wait. A lapsed grant is not
+/// among them, though not yet pruned.
+///
+/// # Errors
+///
+/// The store's.
+pub fn waiting(node: &Node) -> Result<Vec<Waiting>, OpError> {
+    let rows = node
+        .store()
+        .pending_grants(node.now_ms(), MAX_PENDING_GRANTS)?;
+    rows.into_iter()
+        .map(|grant| {
+            let interaction = Interaction::of(&grant)?;
+            Ok(Waiting {
+                grant,
+                key: interaction.key,
+                public_name: interaction.public_name,
+            })
+        })
+        .collect()
 }
 
 /// `GET /gnap/interact/{id}/{key}`: where to send the owner, the wallet's

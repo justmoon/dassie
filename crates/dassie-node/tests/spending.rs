@@ -474,6 +474,103 @@ async fn a_client_revoking_its_grant_updates_the_owners_view() {
     node.stop().await;
 }
 
+/// The owner, over the IPC socket.
+type Owner = support::RpcClient<
+    tokio_util::codec::Framed<tokio::net::UnixStream, tokio_util::codec::LengthDelimitedCodec>,
+>;
+
+/// Subscribes `owner` to the grants waiting for the owner, under `call_id`.
+async fn follow_pending(owner: &mut Owner, call_id: u32) {
+    owner
+        .send_raw(proto::ClientMessage {
+            call_id,
+            kind: Some(client_message::Kind::Request(proto::Request {
+                method: Some(Method::SubscribePendingGrants(
+                    proto::SubscribePendingGrantsRequest {},
+                )),
+            })),
+        })
+        .await;
+}
+
+/// The next list of the grants waiting for the owner on `owner`'s stream.
+async fn next_pending(owner: &mut Owner) -> Vec<proto::PendingGrant> {
+    // The node sends each change as it makes it, on no clock: only a hang
+    // ends the wait for one.
+    let message = tokio::time::timeout(support::HANG, owner.receive())
+        .await
+        .expect("no item")
+        .expect("closed");
+    let Some(server_message::Kind::Item(item)) = message.kind else {
+        panic!("{message:?}")
+    };
+    let Some(stream_item::Method::SubscribePendingGrants(listed)) = item.method else {
+        panic!("{item:?}")
+    };
+    listed.grants
+}
+
+// spec/designs/periphery.md#6-owner-apps: the owner's app learns of a grant
+// that waits for the owner as it is asked for, with what the consent page
+// reads from the URL the client sent the owner to, so the app reads and
+// decides it wherever the client sent the owner. A grant leaves the list
+// once decided, and once it lapsed.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owners_app_follows_the_grants_that_wait() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let mut owner = node.ipc().await;
+    follow_pending(&mut owner, 1).await;
+    assert!(next_pending(&mut owner).await.is_empty());
+
+    let start = dassie_payments::time::format_rfc3339(node.clock.now_ms() - 1_000);
+    let first = ask(&node, &client, 500, &start).await;
+    let listed = next_pending(&mut owner).await;
+    assert_eq!(listed.len(), 1);
+    let (id, interaction) = consent_page(&node, &first).await;
+    assert_eq!((&listed[0].id, &listed[0].key), (&id, &interaction));
+    assert_eq!(listed[0].client, host(&node));
+    assert_eq!(
+        listed[0].expires_at_unix_ms - listed[0].created_at_unix_ms,
+        unix(dassie_node::open_payments::auth::PENDING_GRANT_LIFETIME_MS)
+    );
+    // What the list gives is what the consent page takes.
+    let mut asking = node.ipc().await;
+    let Ok(response::Method::GetGrantRequest(asked)) = asking
+        .call(Method::GetGrantRequest(proto::GetGrantRequestRequest {
+            id: listed[0].id.clone(),
+            key: listed[0].key.clone(),
+        }))
+        .await
+    else {
+        panic!("no request")
+    };
+    assert_eq!(asked.grant.unwrap().id, id);
+
+    // Newest first.
+    node.clock.advance(1_000);
+    let second = ask(&node, &client, 700, &start).await;
+    let listed = next_pending(&mut owner).await;
+    let (second_id, _) = consent_page(&node, &second).await;
+    let ids: Vec<&str> = listed.iter().map(|grant| grant.id.as_str()).collect();
+    assert_eq!(ids, [second_id.as_str(), id.as_str()]);
+
+    // Decided from the list, it leaves it.
+    let finish = decide(&node, &id, &interaction, true).await;
+    assert!(finish.contains("interact_ref="), "{finish}");
+    let listed = next_pending(&mut owner).await;
+    let ids: Vec<&str> = listed.iter().map(|grant| grant.id.as_str()).collect();
+    assert_eq!(ids, [second_id.as_str()]);
+
+    // Lapsed, it is not listed, though not yet pruned.
+    node.clock
+        .advance(dassie_node::open_payments::auth::PENDING_GRANT_LIFETIME_MS);
+    let mut later = node.ipc().await;
+    follow_pending(&mut later, 1).await;
+    assert!(next_pending(&mut later).await.is_empty());
+    node.stop().await;
+}
+
 // A receiver on another node is read with a grant from that node's
 // authorization server, as this node's own wallet address. The quote then
 // measures the rate of the route to it: these nodes do not peer, so

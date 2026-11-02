@@ -64,6 +64,43 @@ export function clientName(client: string, publicName: string): string {
   }
 }
 
+/** The fields of a grant waiting for the owner these helpers read. */
+export interface PendingFields {
+  id: string;
+  key: string;
+  client: string;
+  clientName: string;
+}
+
+/**
+ * Where the owner reads and decides a grant that waits: the consent page,
+ * as the link the client sends the owner to leads there.
+ */
+export function consentPath(grant: { id: string; key: string }): string {
+  return `/consent/${encodeURIComponent(grant.id)}?key=${
+    encodeURIComponent(grant.key)
+  }`;
+}
+
+/**
+ * The notice of the grants that wait for the owner: who asks, or how many
+ * ask, and where to read them: one's consent page, or all of them under
+ * Connected apps. None while none waits.
+ */
+export function pendingNotice(
+  grants: readonly PendingFields[],
+): { text: string; href: string } | undefined {
+  const [first] = grants;
+  if (first === undefined) return undefined;
+  if (grants.length === 1) {
+    return {
+      text: `${clientName(first.client, first.clientName)} asks for access.`,
+      href: consentPath(first),
+    };
+  }
+  return { text: `${grants.length} apps ask for access.`, href: "/grants" };
+}
+
 const UNITS: Record<string, [string, string]> = {
   Y: ["year", "years"],
   M: ["month", "months"],

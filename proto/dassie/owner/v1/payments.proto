@@ -467,6 +467,37 @@ message ApprovedGrants {
   repeated Grant grants = 1;
 }
 
+// Streaming: the grants waiting for the owner, whole, each time they change
+// (spec/areas/payments.md#the-owners-consent), so that the owner's app shows
+// a request as it comes, or as the app connects, wherever the client sent
+// the owner. A grant leaves the list once decided or lapsed.
+message SubscribePendingGrantsRequest {}
+
+// The grants waiting for the owner, and no more of each than the owner's app
+// needs to find it: GetGrantRequest gives the rest. Strangers can ask for
+// grants, so an item is small enough that every grant that may wait fits
+// one message.
+message PendingGrants {
+  // Newest first.
+  repeated PendingGrant grants = 1;
+}
+
+// A grant waiting for the owner.
+message PendingGrant {
+  // A UUID, as GetGrantRequest and DecideGrant take it.
+  string id = 1;
+  // Its interaction key, as GetGrantRequest and DecideGrant take it: the key
+  // in the URL the client sent the owner to.
+  string key = 2;
+  // The client's wallet address.
+  string client = 3;
+  // Its public name, if its wallet address has one; else empty.
+  string client_name = 4;
+  int64 created_at_unix_ms = 5;
+  // When it lapses.
+  int64 expires_at_unix_ms = 6;
+}
+
 // Revokes a grant and its tokens. NOT_FOUND for an unknown one.
 message RevokeGrantRequest {
   string id = 1;

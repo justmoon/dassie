@@ -35,6 +35,12 @@
   overflow-wrap: anywhere;
 }
 
+/* A waiting request's wallet address, under the name it gives. */
+.grant-client {
+  margin: 4px 0 8px;
+  overflow-wrap: anywhere;
+}
+
 .grant-access,
 .consent-access {
   overflow-wrap: anywhere;

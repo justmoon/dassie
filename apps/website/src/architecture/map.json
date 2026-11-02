@@ -110,7 +110,7 @@
         "A page of each settlement hub the node is in: its balance, the holds toward each peer and from it, each of its own with how far a request tops it up, the move on its way, depositing and withdrawing, a token hub's withdrawal sent again by itself while the node checks the escrow's fees, since when a token's issuer froze the hub, and the hub's payout once it ended or stalled, and leaving a hub that ended",
         "Wallet addresses for Open Payments, one per asset, and payment requests",
         "In Settings, the peer settings: fees, whether the node offers swaps and swaps with its peers, and a periphery node's targets per asset; on the network page, what the node's swaps did",
-        "The consent page for apps, the apps it has let in, and their grants",
+        "The consent page for apps, a notice on every page while an app waits for the owner wherever it sent them, the apps it has let in, and their grants",
         "The network as the node routes over it, its peers online and offline, bans, and the node's settings; a peer's details list each settlement method with what is owed on it, and a ledger being removed says the node is settling up with its peers first",
         "Names for the node: registering one, how it stands with each registrar, and renewing it",
         "The owner's sessions and paired devices, and on the node's own machine a QR code that pairs a new app",
@@ -327,7 +327,7 @@
         "Nodes, peers, routes, settlements and bans; every settlement method of a peering, each with its credit, what is owed, and whether it is withdrawn or being wound down, and for a ledger being removed how many methods are left to wind down",
         "The peer settings, with swapping and a periphery node's swap targets, what the node's swaps did, and a swap with a peer the owner asks for, which answers with what moved",
         "The owner's names: registering and renewing them, and how each stands with each registrar",
-        "Wallet addresses, payments, grants and Send, to a wallet, a payment request or STREAM credentials",
+        "Wallet addresses, payments, grants and Send, to a wallet, a payment request or STREAM credentials; a live stream of the grants that wait for the owner",
         "`Subscribe*` streams: a snapshot, then changes, at most 4 a second",
         "Carried over a WebSocket (browsers) or the IPC socket (the CLI and Node), at most 1 MiB a message"
       ]
