@@ -313,6 +313,13 @@ impl PeerNode {
         self.table.get(node).and_then(Entry::peering)
     }
 
+    /// The peering with `node`, if peered and not terminating: one we are
+    /// ending privately is still active (`Peering::depeering`).
+    #[must_use]
+    pub fn active_peering_of(&self, node: &NodeId) -> Option<&Peering> {
+        self.table.get(node).and_then(Entry::active_peering)
+    }
+
     /// The nodes we are peered with and not ending it.
     pub fn active_peers(&self) -> impl Iterator<Item = (&NodeId, &Peering)> {
         self.table

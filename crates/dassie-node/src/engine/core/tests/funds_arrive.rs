@@ -335,3 +335,39 @@ fn a_late_answer_cut_short_by_a_crash_settles_once() {
     }
     assert_eq!(hub_books(&mut core, peer), (expected, expected, 0));
 }
+
+// A ban ends the peering at once, collecting nothing and paying nothing
+// (spec/decisions/ending-a-peering.md): a request kept from the banned peer,
+// unfunded, is forgotten, and funds that arrive after the ban do not answer
+// it (spec/decisions/settle-when-funds-arrive.md). A terminating peering
+// keeps no private end, so it must not read as one still answered; the same
+// holds for the node being ended, once `peeringTermination` arrives while
+// packets are still in flight.
+#[test]
+fn a_kept_request_is_forgotten_once_the_peer_is_banned() {
+    let (mut core, peer) = hub_core_with_downlink(88);
+    let stub = scheme_id("stub");
+    drain(&mut core, 0);
+    core.begin_step(NOW + 2_000);
+    assert_eq!(core.settlement_requested(peer, stub), 0);
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    assert_eq!(core.settle.unanswered.len(), 1);
+    core.begin_step(NOW + 3_000);
+    core.ban_node(peer).unwrap();
+    assert!(
+        core.peer.peering_of(&peer).is_some(),
+        "over, not terminating"
+    );
+    core.stub_deposit(one_request(&core) * 10).unwrap();
+    core.finish_step(&mut outputs);
+    for at in 4..20 {
+        step(&mut core, NOW + at * 1_000);
+    }
+    assert_eq!(
+        hub_books(&mut core, peer),
+        (0, 0, 0),
+        "settled after the ban"
+    );
+    assert!(core.settle.unanswered.is_empty());
+}
