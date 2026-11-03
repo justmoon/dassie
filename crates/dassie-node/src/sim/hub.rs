@@ -37,7 +37,7 @@ use dassie_hub::consensus::{Config, Evidence, Finalized, MIN_STALL_MS, PeerId, V
 use dassie_hub::escrow::{
     PayoutSet, PayoutTransaction, ValidatorKeys, escrow_master, payout_set, setup,
 };
-use dassie_hub::ledger::{Ledger, TESTNET_NETWORK};
+use dassie_hub::ledger::{Hold, Ledger, TESTNET_NETWORK};
 use dassie_hub::operation::{
     MemberOperation, Operation, SignedMemberOperation, ValidatorOperation,
 };
@@ -1894,18 +1894,44 @@ fn submit(ledger: &mut dassie_xrpl::fake::FakeLedger, connection: u64, blob: &[u
 
 /// What account `number` is paid out at the hub's end, as the design says
 /// it is owed, worked out apart from the payout set: its balance and
-/// reserves, and the holds it pays into, which go back to their payer.
+/// reserves, and the holds it pays into ([`paid_back`]).
 #[must_use]
 pub fn owed(ledger: &Ledger, number: dassie_hub::operation::AccountNumber) -> u64 {
     let Some(account) = ledger.account(number) else {
         return 0;
     };
-    let holds: u64 = ledger
-        .holds()
-        .filter(|(_, hold)| hold.payer == number)
-        .map(|(_, hold)| hold.amount + hold.reserve)
-        .sum();
+    let holds = paid_back(ledger.holds().map(|(_, hold)| hold), number);
     account.balance + account.reserve + holds
+}
+
+/// What `holds` pay back to `payer` at the hub's end: each it pays into
+/// goes back with its reserve and what claims took from it that still
+/// waits to be paid, which the payee loses
+/// (spec/decisions/signed-rejects.md).
+pub fn paid_back<'a>(
+    holds: impl IntoIterator<Item = &'a Hold>,
+    payer: dassie_hub::operation::AccountNumber,
+) -> u64 {
+    holds
+        .into_iter()
+        .filter(|hold| hold.payer == payer)
+        .map(|hold| hold.amount + hold.reserve + hold.pending_amount())
+        .sum()
+}
+
+/// What `holds` hold for `payee` while the hub runs: what is left in each
+/// toward it, and what claims took from it that waits to be paid to it,
+/// which its books count as its own until a dispute puts it back
+/// (spec/decisions/signed-rejects.md).
+pub fn held_toward<'a>(
+    holds: impl IntoIterator<Item = &'a Hold>,
+    payee: dassie_hub::operation::AccountNumber,
+) -> u64 {
+    holds
+        .into_iter()
+        .filter(|hold| hold.payee == payee)
+        .map(|hold| hold.amount + hold.pending_amount())
+        .sum()
 }
 
 /// A lie a member tells its peers over the hub
@@ -2246,5 +2272,69 @@ impl Sim {
         if self.validator(index).watcher.is_some() {
             self.reconnect_validator(index);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use dassie_hub::ledger::{Hold, PendingClaim};
+    use dassie_hub::operation::AccountNumber;
+
+    use super::{held_toward, paid_back};
+
+    const PAYER: AccountNumber = AccountNumber(5);
+    const PAYEE: AccountNumber = AccountNumber(6);
+
+    /// A hold from `PAYER` toward `PAYEE` of `amount`, its reserve
+    /// `reserve`, with claims that took `waiting` still waiting to be paid.
+    fn hold(amount: u64, reserve: u64, waiting: &[u64]) -> Hold {
+        let pending: BTreeMap<u64, PendingClaim> = waiting
+            .iter()
+            .zip(1..)
+            .map(|(&amount, sequence)| {
+                (
+                    sequence,
+                    PendingClaim {
+                        amount,
+                        expiry: 1_000,
+                    },
+                )
+            })
+            .collect();
+        Hold {
+            payer: PAYER,
+            payee: PAYEE,
+            amount,
+            reserve,
+            reduction: None,
+            total: 0,
+            through: 0,
+            claimed: pending
+                .iter()
+                .map(|(&sequence, claim)| (sequence, claim.amount))
+                .collect(),
+            pending_due: if pending.is_empty() { 0 } else { 61_000 },
+            pending,
+        }
+    }
+
+    // spec/decisions/signed-rejects.md: what a claim took waits in the
+    // hold, out of its amount. While the hub runs it is the payee's, as its
+    // books count it (`HubScheme::toward_us`), so the books check counts it
+    // toward the payee; at a stall or the end it goes back to the payer
+    // with the hold (`escrow::payout::owed`), so the payout check expects
+    // it in the payer's payout and not the payee's.
+    #[test]
+    fn a_claim_waiting_in_a_hold_is_the_payees_until_the_end_and_then_the_payers() {
+        let holds = [hold(700_000, 2_000_000, &[100_000, 200_000])];
+        assert_eq!(held_toward(&holds, PAYEE), 1_000_000);
+        assert_eq!(held_toward(&holds, PAYER), 0);
+        assert_eq!(paid_back(&holds, PAYER), 3_000_000);
+        assert_eq!(paid_back(&holds, PAYEE), 0);
+        let settled = [hold(700_000, 2_000_000, &[])];
+        assert_eq!(held_toward(&settled, PAYEE), 700_000);
+        assert_eq!(paid_back(&settled, PAYER), 2_700_000);
     }
 }
