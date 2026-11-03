@@ -48,6 +48,12 @@ pub const KEPT_BOUNDARIES: u32 = 8;
 
 const _: () = assert!(KEPT_BOUNDARIES as usize == dassie_hub::consensus::MAX_BOUNDARIES);
 
+// The pruning statements below write these bounds as literals: a `LIMIT`
+// bound to a parameter makes SQLite prepare the statement anew at each
+// execution, as its plan may depend on the value, and a validator prunes
+// at every step.
+const _: () = assert!(KEPT_BUNDLES == 8 && KEPT_TIPS == 8 && KEPT_BOUNDARIES == 8);
+
 /// What a validator resumes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredHub {
@@ -165,14 +171,18 @@ fn write_hub_step(
             params![&hub[..], to_sql_time(*height)],
         )?;
     }
+    // Only a state written or marked can leave one past the bounds.
+    if step.ledger.is_none() && step.boundaries.is_empty() {
+        return Ok(());
+    }
     transaction.execute_cached(
         "DELETE FROM hub_states WHERE hub = ?1 \
          AND height < (SELECT max(height) FROM hub_states WHERE hub = ?1) \
          AND height NOT IN (SELECT height FROM hub_states WHERE hub = ?1 \
-           ORDER BY height DESC LIMIT ?2) \
+           ORDER BY height DESC LIMIT 8) \
          AND height NOT IN (SELECT height FROM hub_states WHERE hub = ?1 AND boundary = 1 \
-           ORDER BY height DESC LIMIT ?3)",
-        params![&hub[..], KEPT_TIPS, KEPT_BOUNDARIES],
+           ORDER BY height DESC LIMIT 8)",
+        params![&hub[..]],
     )?;
     Ok(())
 }
@@ -213,8 +223,8 @@ fn write_hub_bundle(
     )?;
     transaction.execute_cached(
         "DELETE FROM hub_bundles WHERE hub = ?1 AND height NOT IN \
-         (SELECT height FROM hub_bundles WHERE hub = ?1 ORDER BY height DESC LIMIT ?2)",
-        params![&hub[..], KEPT_BUNDLES],
+         (SELECT height FROM hub_bundles WHERE hub = ?1 ORDER BY height DESC LIMIT 8)",
+        params![&hub[..]],
     )?;
     Ok(())
 }
