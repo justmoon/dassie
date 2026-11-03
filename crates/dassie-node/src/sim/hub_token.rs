@@ -62,7 +62,8 @@ use dassie_settlement::PegPause;
 use dassie_xrpl::DROPS_PER_XRP;
 use dassie_xrpl::api;
 use dassie_xrpl::codec::{Amount, TokenValue};
-use dassie_xrpl::peg::TRIP_HOLD_MS;
+use dassie_xrpl::account::REQUEST_TIMEOUT_MS;
+use dassie_xrpl::peg::{READ_EVERY_MS, TRIP_HOLD_MS};
 
 use super::checks::{check_events, check_funded, check_held, check_incoming, first_failure};
 use super::hub::owed;
@@ -303,10 +304,24 @@ fn over_hub(sim: &Sim) -> Result<(), Outcome> {
 }
 
 /// How long the members' peg guards take to halt the conversions of the
-/// hub's ledger once the token's pool is off its peg: the guard's trip hold,
-/// and the minute in which every node learns the rates again and reads the
-/// pool once more.
-const OFF_PEG_WITHIN_MS: u64 = TRIP_HOLD_MS + 2 * crate::node::Policies::DEFAULT.rates_every_ms;
+/// hub's ledger once the token's pool is off its peg, by the guard's rule
+/// at production timings (spec/areas/xrpl.md#the-peg-guard): the ledger
+/// that moves the pool, then the trip hold, timed between two readings as
+/// they come. Each of the two may come up to a read interval after it is
+/// due: the first reading off the peg up to one after the move, and the
+/// one that ends the hold up to one after the hold, since readings a
+/// minute apart rarely span it exactly. Each is asked at a settlement
+/// check, and may wait for one request the run loses: its timeout, the
+/// connection made anew, and the ledger it syncs on, where the pool is
+/// asked for again. The rates, learned every minute, stay fresh for the
+/// guard for ten (`MAX_RATE_AGE_MS`), so they add nothing.
+pub(super) const OFF_PEG_WITHIN_MS: u64 = super::LEDGER_CLOSE_MS
+    + TRIP_HOLD_MS
+    + 2 * (READ_EVERY_MS
+        + crate::node::Policies::DEFAULT.settlement_interval_ms
+        + REQUEST_TIMEOUT_MS
+        + super::LEDGER_RECONNECT_MS
+        + super::LEDGER_CLOSE_MS);
 
 /// The token's pool moves off its peg, 5% under a dollar: once each
 /// member's peg guard has held it off for its trip hold, the hub's ledger

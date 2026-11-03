@@ -52,7 +52,6 @@ use dassie_xrpl::DROPS_PER_XRP;
 use dassie_xrpl::account::STALL_MS;
 use dassie_xrpl::codec::TokenValue;
 use dassie_xrpl::fake::{FAUCET_DROPS, Lie};
-use dassie_xrpl::peg::TRIP_HOLD_MS;
 
 use super::checks::{
     check_anchored, check_events, check_finished, check_funded, check_hub_credit,
@@ -63,6 +62,7 @@ use super::hub_checks::{
     check_each, check_escrow_in, check_losses, check_settled_with_honest, hub_standing, idle_in,
     joined,
 };
+use super::hub_token::OFF_PEG_WITHIN_MS;
 use super::hubbed::{over_hub, paid, pay, routed};
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{
@@ -95,12 +95,6 @@ const SETTLED_WITHIN_MS: u64 = Policies::DEFAULT.settlement_request_every_ms + C
 /// How long a server lies to a member, and its validators' servers to
 /// them: the longest a drawn lie lasts.
 const LIE_MS: u64 = LONGEST_LIE_MS;
-
-/// How long the members' peg guards take to halt the conversions of the
-/// hub's ledger once the token's pool is off its peg: the guard's trip hold,
-/// and the minute in which every node learns the rates again and reads the
-/// pool once more.
-const OFF_PEG_WITHIN_MS: u64 = TRIP_HOLD_MS + 2 * Policies::DEFAULT.rates_every_ms;
 
 /// The hub a run founds on mainnet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
