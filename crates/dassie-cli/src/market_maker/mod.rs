@@ -46,7 +46,9 @@ use tokio_util::sync::CancellationToken;
 
 use self::config::Config;
 use self::node::{LedgerState, Node, PeerSnapshot};
-use self::strategy::{Decision, Holdings, Inputs, Quotes, Side, TargetQuote, Trade};
+use self::strategy::{
+    Decision, Holdings, Inputs, OfferAction, Quotes, Side, Standing, TargetQuote, Trade,
+};
 use self::xrpl::Xrpl;
 
 /// What its log lines are under.
@@ -58,6 +60,10 @@ const TICK: Duration = Duration::from_secs(10);
 /// How long it waits, at most, for the node to book a rebalance that paid
 /// from its account, or may have, before it decides again.
 const UNBOOKED_WAIT_MS: u64 = 2 * 60 * 1_000;
+
+/// How long it waits, at most, when it stops, to take its standing offer
+/// away.
+const STOP_WAIT: Duration = Duration::from_secs(30);
 
 /// How long a target whose trade failed or paid nothing, or a rebalance
 /// that failed, is left out at first, and at most: the wait doubles each
@@ -154,6 +160,17 @@ pub struct MarketMaker {
     waiting: Vec<(dassie_identity::NodeId, Wait)>,
     /// The wait after a rebalance that failed, if one did last.
     rebalance_wait: Option<Wait>,
+    /// The wait after a change of its standing offer that failed, if one
+    /// did last.
+    offer_wait: Option<Wait>,
+}
+
+/// What a decision reads.
+struct Market {
+    snapshots: Vec<PeerSnapshot>,
+    pool: strategy::Pool,
+    book: strategy::Book,
+    holdings: Holdings,
 }
 
 /// A wait after a failure, which doubles each time it is begun again.
@@ -272,6 +289,7 @@ impl MarketMaker {
             unbooked: None,
             waiting: Vec::new(),
             rebalance_wait: None,
+            offer_wait: None,
         })
     }
 
@@ -282,34 +300,170 @@ impl MarketMaker {
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tokio::select! {
-                () = shutdown.cancelled() => return,
+                () = shutdown.cancelled() => break,
                 _ = ticks.tick() => {}
             }
             tokio::select! {
-                () = shutdown.cancelled() => return,
+                () = shutdown.cancelled() => break,
                 () = self.tick() => {}
             }
             // A full tick after a decision, however long it took: the node
             // books what it did meanwhile.
             ticks.reset();
         }
+        // Stopped, it leaves no offer standing, within a bound; one it
+        // could not take away expires by itself.
+        let cancelled = tokio::time::timeout(STOP_WAIT, self.cancel_standing_offers()).await;
+        if cancelled.is_err() {
+            tracing::warn!(target: TARGET, "stopped with an offer that may stand until it expires");
+        }
+    }
+
+    /// Takes every standing offer of its account away.
+    async fn cancel_standing_offers(&mut self) {
+        let account = self.wallet.account();
+        let offers = match self.xrpl.own_offers(account, self.config.token).await {
+            Ok(offers) => offers,
+            Err(problem) => {
+                tracing::warn!(target: TARGET, %problem, "cannot read its offers to take them away");
+                return;
+            }
+        };
+        for offer in offers {
+            self.cancel_offer(offer.sequence).await;
+        }
+    }
+
+    /// Its standing offer, as the last validated ledger holds it, or why it
+    /// does not decide this tick: its offers cannot be read, or more than
+    /// one stands, as after a stop between two of its transactions, and the
+    /// one after the first is taken away now.
+    async fn standing(&mut self) -> Result<Option<Standing>, ()> {
+        let offers = match self
+            .xrpl
+            .own_offers(self.wallet.account(), self.config.token)
+            .await
+        {
+            Ok(offers) => offers,
+            Err(problem) => {
+                tracing::warn!(target: TARGET, %problem, "hold: cannot read its offers");
+                return Err(());
+            }
+        };
+        if let Some(extra) = offers.get(1) {
+            self.cancel_offer(extra.sequence).await;
+            return Err(());
+        }
+        Ok(offers.first().copied())
+    }
+
+    /// Does what `action` says with its standing offer, unless a change
+    /// that failed waits to be tried again.
+    async fn offer(&mut self, action: OfferAction, now_ms: u64) {
+        if self.offer_wait.is_some_and(|wait| now_ms < wait.until_ms) {
+            return;
+        }
+        let outcome = match action {
+            OfferAction::Keep => return,
+            OfferAction::Place(offer) => {
+                let outcome = self.xrpl.place_offer(&self.wallet, &offer).await;
+                tracing::info!(
+                    target: TARGET, gives = ?offer.gives, asks = ?offer.asks,
+                    replaces = ?offer.replaces, expiration = offer.expiration,
+                    ?outcome, "offer"
+                );
+                outcome
+            }
+            OfferAction::Cancel(sequence) => return self.cancel_offer(sequence).await,
+        };
+        self.offer_wait = if outcome.as_ref().is_ok_and(xrpl::Outcome::may_have_paid) {
+            None
+        } else {
+            Some(Wait::after(self.offer_wait, self.clock.now_ms()))
+        };
+    }
+
+    /// Takes the offer `sequence` away, and logs how it went.
+    async fn cancel_offer(&mut self, sequence: u32) {
+        let outcome = self.xrpl.cancel_offer(&self.wallet, sequence).await;
+        tracing::info!(target: TARGET, sequence, ?outcome, "offer cancelled");
     }
 
     /// Decides once, among the targets with a current snapshot, and does
     /// what it decided.
     async fn tick(&mut self) {
+        let Some(Market {
+            snapshots,
+            pool,
+            book,
+            holdings,
+        }) = self.market().await
+        else {
+            return;
+        };
+        let now_ms = self.clock.now_ms();
+        if self.awaits_booking(now_ms, &holdings).await {
+            return;
+        }
+        let Ok(standing) = self.standing().await else {
+            return;
+        };
+        // Only targets the node still holds a snapshot of keep a wait, so
+        // the list stays as short as the node's.
+        self.waiting
+            .retain(|(node, _)| snapshots.iter().any(|listed| listed.node == *node));
+        let targets = self.current(&snapshots, now_ms);
+        let params = self.config.params;
+        let inputs = Inputs {
+            targets: &targets,
+            pool,
+            book: &book,
+            holdings,
+            params: &params,
+            may_rebalance: self
+                .rebalance_wait
+                .is_none_or(|wait| now_ms >= wait.until_ms),
+            standing,
+        };
+        let now_s = u32::try_from(dassie_xrpl::unl::ledger_seconds(now_ms)).unwrap_or(u32::MAX);
+        let action = strategy::standing_offer(&inputs, now_s);
+        match strategy::decide(&inputs) {
+            Decision::Hold(hold) => {
+                let (current, waiting) = (targets.len(), self.waiting.len());
+                tracing::info!(target: TARGET, ?hold, current, waiting, ?holdings, "hold");
+                self.offer(action, now_ms).await;
+            }
+            Decision::Trades(trades) => {
+                self.trades(&trades, &targets).await;
+                self.offer(action, now_ms).await;
+            }
+            // Past the threshold, the standing offer has not brought it
+            // back: it goes, and the rebalance does.
+            Decision::Rebalance(rebalance) => {
+                if let Some(standing) = standing {
+                    self.cancel_offer(standing.sequence).await;
+                }
+                self.rebalance(&rebalance, &holdings).await;
+            }
+        }
+    }
+
+    /// What a decision reads: the targets' snapshots, the pool, the book
+    /// and the node's holdings; `None`, held, if the snapshots, the pool or
+    /// the holdings cannot be read.
+    async fn market(&mut self) -> Option<Market> {
         let snapshots = match self.node.peer_snapshots().await {
             Ok(snapshots) => snapshots,
             Err(problem) => {
                 tracing::warn!(target: TARGET, %problem, "hold: cannot read the targets' snapshots");
-                return;
+                return None;
             }
         };
         let pool = match self.xrpl.pool(self.config.token).await {
             Ok(pool) => pool,
             Err(problem) => {
                 tracing::warn!(target: TARGET, %problem, "hold: cannot read the pool");
-                return;
+                return None;
             }
         };
         // Without the book, it prices by the pool alone, which never costs
@@ -329,37 +483,15 @@ impl MarketMaker {
             Ok(holdings) => holdings,
             Err(problem) => {
                 tracing::warn!(target: TARGET, %problem, "hold: cannot read the node's holdings");
-                return;
+                return None;
             }
         };
-        let now_ms = self.clock.now_ms();
-        if self.awaits_booking(now_ms, &holdings).await {
-            return;
-        }
-        // Only targets the node still holds a snapshot of keep a wait, so
-        // the list stays as short as the node's.
-        self.waiting
-            .retain(|(node, _)| snapshots.iter().any(|listed| listed.node == *node));
-        let targets = self.current(&snapshots, now_ms);
-        let params = self.config.params;
-        let inputs = Inputs {
-            targets: &targets,
+        Some(Market {
+            snapshots,
             pool,
-            book: &book,
+            book,
             holdings,
-            params: &params,
-            may_rebalance: self
-                .rebalance_wait
-                .is_none_or(|wait| now_ms >= wait.until_ms),
-        };
-        match strategy::decide(&inputs) {
-            Decision::Hold(hold) => {
-                let (current, waiting) = (targets.len(), self.waiting.len());
-                tracing::info!(target: TARGET, ?hold, current, waiting, ?holdings, "hold");
-            }
-            Decision::Trades(trades) => self.trades(&trades, &targets).await,
-            Decision::Rebalance(rebalance) => self.rebalance(&rebalance, &holdings).await,
-        }
+        })
     }
 
     /// The targets whose snapshot counts at `now_ms`, each priced between

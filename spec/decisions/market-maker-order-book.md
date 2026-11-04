@@ -1,6 +1,6 @@
 # The market maker prices by the order book and the pool together, and rebalances through a standing offer of its own
 
-**Areas:** [Rate feed](../areas/rate-feed.md#trades), [XRPL](../areas/xrpl.md#amm-pools). Built: the market's mid, the cost of undoing a trade and a rebalance's delivery by the better of the pool and the order book. Not built yet ([roadmap](../roadmap.md#the-market-makers-standing-offer)): the standing offer.
+**Areas:** [Rate feed](../areas/rate-feed.md#trades), [XRPL](../areas/xrpl.md#the-order-book).
 
 ## Facts
 

@@ -144,10 +144,20 @@ The market maker values what it holds as a core node does, by a curve around an 
 
 ### Rebalancing
 
-- **Back to even, past the threshold.** Once an asset's share of what it holds is more than `thresholdPpm` from even, 5 points by default, the market maker rebalances before any trade: it spends what takes it back to even at the mid, asking for what the better of the pool and the book gives for it, at most what its owner book's account holds on the ledger now and its owner may spend there, less the fee's headroom for XRP: what is in the hub, or held for a deposit on its way, the account cannot spend.
+- **Back to even, past the threshold.** Once an asset's share of what it holds is more than `thresholdPpm` from even, 5 points by default, the market maker takes its standing offer away and rebalances before any trade: it spends what takes it back to even at the mid, asking for what the better of the pool and the book gives for it, at most what its owner book's account holds on the ledger now and its owner may spend there, less the fee's headroom for XRP: what is in the hub, or held for a deposit on its way, the account cannot spend.
 - **One that cannot go leaves the trades back toward even running.** A rebalance that would spend or deliver nothing, or that failed and waits to be tried again, a minute at first and twice as long each time again, up to half an hour, does not stop the trades: the market maker trades instead, but only from the asset it holds too much of, so it never holds while a target's quote clears such a trade and it can pay for it.
 - **After a rebalance that paid, or may still pay,** it decides nothing until the asset's books have booked it, within a bound, since until then the holding still counts what it spent. It takes the rebalance as booked once the holding has fallen by at least the least it can have cost, its most less a slippage's share twice over, and by all of what the node's own move between that asset's hub and book has on its way besides, as `GetHubStatus` says: such a move lowers the holding by up to its amount while it is on its way, so it never passes for the rebalance. A move that was on its way already when the rebalance paid may then hold the next decision back until the wait's bound, never longer; a submit whose answer was lost is followed by its hash like any other.
-- **One account, two signers.** The market maker signs its rebalances with the key of the account the node's deposits into its hubs come from, so the two may take a sequence both; the node recovers from one ([XRPL](xrpl.md#in-flight)).
+- **One account, two signers.** The market maker signs its rebalances and its offers with the key of the account the node's deposits into its hubs come from, so the two may take a sequence both; the node recovers from one ([XRPL](xrpl.md#in-flight)).
+
+### The standing offer
+
+Between rebalances, the market maker lets others bring it back to even: it keeps one offer of its own on the order book ([XRPL](xrpl.md#the-order-book), [market-maker-order-book](../decisions/market-maker-order-book.md)), unless its config's `standingOffer` is false.
+
+- **While off even by more than a fifth of its threshold,** one point by default, the offer gives the asset it holds too much of, as much as takes it back to even at the mid and no more than its owner book's account holds, less the fee's headroom for XRP, for the other asset at the market's mid. Within that band, it has none.
+- **It is replaced,** in one `OfferCreate` that names the standing one, once the mid has moved more than a twentieth of a percent from its price, what takes the market maker back to even more than a tenth from what it gives, it gives the other asset, or it expires within two minutes. Each expires by itself five minutes after it is placed, so one a stopped market maker leaves does not stand longer.
+- **It is taken away** once within the band, before a rebalance past the threshold, and when the market maker stops, within half a minute. More than one of its offers, as after a stop between two of its transactions, has the next taken away before it decides again.
+- **It reads its own offers** each tick with `account_offers`, at a validated ledger, and leaves them out of the book it prices by. Whoever crosses the offer pays its price, and the node books the fill as any transaction it did not sign ([XRPL](xrpl.md#the-order-book)).
+- **A change that failed waits** a minute, then twice as long each time again, up to half an hour, as a rebalance's does; trades go on meanwhile.
 
 ## Test vectors
 

@@ -23,7 +23,9 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::Message;
 
-use super::strategy::{Book, Level, MAX_FEE_DROPS, MAX_LEVELS, Pool, Rebalance, to_units};
+use super::strategy::{
+    Book, Level, MAX_FEE_DROPS, MAX_LEVELS, Offer, Pool, Rebalance, Side, Standing, to_units,
+};
 
 /// Most bytes in one message from the server.
 const MAX_MESSAGE_BYTES: usize = 1 << 20;
@@ -281,40 +283,158 @@ impl Xrpl {
         destination: AccountId,
         rebalance: &Rebalance,
     ) -> Result<Outcome, String> {
+        let next = self.next(wallet.account()).await?;
+        let terms = SendMaxTerms {
+            destination,
+            amount: rebalance.deliver,
+            send_max: rebalance.send_max,
+            fee: next.fee,
+            sequence: next.sequence,
+            last_ledger_sequence: next.last,
+            network_id: next.network_id,
+            memos: Vec::new(),
+        };
+        let signed =
+            codec::sign_send_max(wallet, terms).map_err(|e| format!("cannot sign: {e:?}"))?;
+        self.submit(&signed.blob, &signed.hash, next.first, next.last)
+            .await
+    }
+
+    /// Places `offer` from `wallet`'s account, in place of the standing
+    /// offer it names, and follows it as a rebalance.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::rebalance`].
+    pub async fn place_offer(&mut self, wallet: &Wallet, offer: &Offer) -> Result<Outcome, String> {
+        let next = self.next(wallet.account()).await?;
+        let terms = codec::OfferTerms {
+            taker_pays: offer.asks,
+            taker_gets: offer.gives,
+            offer_sequence: offer.replaces,
+            expiration: Some(offer.expiration),
+            fee: next.fee,
+            sequence: next.sequence,
+            last_ledger_sequence: next.last,
+            network_id: next.network_id,
+            memos: Vec::new(),
+        };
+        let signed = codec::sign_offer(wallet, terms).map_err(|e| format!("cannot sign: {e:?}"))?;
+        self.submit(&signed.blob, &signed.hash, next.first, next.last)
+            .await
+    }
+
+    /// Takes the offer `sequence` of `wallet`'s account away, and follows it
+    /// as a rebalance.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::rebalance`].
+    pub async fn cancel_offer(
+        &mut self,
+        wallet: &Wallet,
+        sequence: u32,
+    ) -> Result<Outcome, String> {
+        let next = self.next(wallet.account()).await?;
+        let terms = codec::OfferCancelTerms {
+            offer_sequence: sequence,
+            fee: next.fee,
+            sequence: next.sequence,
+            last_ledger_sequence: next.last,
+            network_id: next.network_id,
+        };
+        let signed =
+            codec::sign_offer_cancel(wallet, terms).map_err(|e| format!("cannot sign: {e:?}"))?;
+        self.submit(&signed.blob, &signed.hash, next.first, next.last)
+            .await
+    }
+
+    /// The offers of `account` between XRP and `token`, as of a validated
+    /// ledger: its first page, which holds the market maker's few.
+    ///
+    /// # Errors
+    ///
+    /// They cannot be read.
+    pub async fn own_offers(
+        &mut self,
+        account: AccountId,
+        token: IssuedAsset,
+    ) -> Result<Vec<Standing>, String> {
+        let result = self
+            .request(|id| api::account_offers(id, account, None))
+            .await
+            .map_err(|failure| failure.to_string())?;
+        let page = api::account_offers_result(&result).ok_or("an account_offers it cannot read")?;
+        if !page.validated {
+            return Err("an account_offers answer of a ledger not validated".into());
+        }
+        let side = |amount: Amount| match amount {
+            Amount::Xrp(_) => Some(Side::Xrp),
+            Amount::Token(held)
+                if held.currency == token.currency && held.issuer == token.issuer =>
+            {
+                Some(Side::Token)
+            }
+            Amount::Token(_) => None,
+        };
+        Ok(page
+            .offers
+            .iter()
+            .filter_map(|offer| {
+                let gives = side(offer.taker_gets)?;
+                (side(offer.taker_pays)? == gives.other()).then_some(Standing {
+                    sequence: offer.sequence,
+                    gives,
+                    gives_units: to_units(offer.taker_gets)?,
+                    asks_units: to_units(offer.taker_pays)?,
+                    expiration: offer.expiration,
+                })
+            })
+            .collect())
+    }
+
+    /// What the next transaction from `account` signs with: its fee, its
+    /// sequence, its network, and the ledgers it may be in.
+    async fn next(&mut self, account: AccountId) -> Result<Next, String> {
         let state = self.testnet_state().await?;
         let fee = fee_drops(&state).ok_or("the ledger's fee is above what a rebalance pays")?;
-        let account = wallet.account();
         let info = self
             .request(|id| api::account_info(id, account))
             .await
             .map_err(|failure| failure.to_string())?;
         let info = api::account_info_result(&info).ok_or("an account_info it cannot read")?;
         let first = state.validated_ledger.max(info.ledger_index);
-        let last = first.saturating_add(LEDGER_WINDOW);
-        let terms = SendMaxTerms {
-            destination,
-            amount: rebalance.deliver,
-            send_max: rebalance.send_max,
+        Ok(Next {
             fee,
             sequence: info.sequence,
-            last_ledger_sequence: last,
             network_id: state.network_id.filter(|id| *id > MAX_LEGACY_NETWORK_ID),
-            memos: Vec::new(),
-        };
-        let signed =
-            codec::sign_send_max(wallet, terms).map_err(|e| format!("cannot sign: {e:?}"))?;
-        let submitted = match self.request(|id| api::submit(id, &signed.blob)).await {
+            first,
+            last: first.saturating_add(LEDGER_WINDOW),
+        })
+    }
+
+    /// Submits the signed transaction `blob`, of `hash`, and follows it
+    /// until a validated ledger holds it, ledger `last` passes, or its polls
+    /// run out.
+    async fn submit(
+        &mut self,
+        blob: &[u8],
+        hash: &[u8; 32],
+        first: u32,
+        last: u32,
+    ) -> Result<Outcome, String> {
+        let submitted = match self.request(|id| api::submit(id, blob)).await {
             Ok(submitted) => submitted,
             // The server may have it, though its answer was lost: what
             // the ledger says of its hash decides.
             Err(Failure::Transport(problem)) => {
-                tracing::warn!(target: super::TARGET, %problem, "no answer to a rebalance's submit");
-                return Ok(self.follow(&signed.hash, first, last).await);
+                tracing::warn!(target: super::TARGET, %problem, "no answer to a submit");
+                return Ok(self.follow(hash, first, last).await);
             }
             Err(failure @ Failure::Api(_)) => return Err(failure.to_string()),
         };
         let Some(engine) = api::submit_result(&submitted) else {
-            return Ok(self.follow(&signed.hash, first, last).await);
+            return Ok(self.follow(hash, first, last).await);
         };
         // A malformed or failed one (tem…, tef…, tel…) never applies; one
         // that claims a fee (tec…) or waits (ter…) is decided by a
@@ -322,7 +442,7 @@ impl Xrpl {
         if engine.starts_with("tem") || engine.starts_with("tef") || engine.starts_with("tel") {
             return Ok(Outcome::Refused(engine));
         }
-        Ok(self.follow(&signed.hash, first, last).await)
+        Ok(self.follow(hash, first, last).await)
     }
 
     /// Asks after the transaction `hash`, which can be in ledgers `first`
@@ -355,6 +475,17 @@ impl Xrpl {
         }
         Outcome::Unknown
     }
+}
+
+/// What the next transaction from an account signs with.
+#[derive(Clone, Copy, Debug)]
+struct Next {
+    fee: u64,
+    sequence: u32,
+    network_id: Option<u32>,
+    /// The first and last ledger it may be in.
+    first: u32,
+    last: u32,
 }
 
 /// What the ledger charges now, in drops: the reference fee scaled by the
@@ -744,6 +875,66 @@ mod tests {
                 token: 51 * units / 10
             }]
         );
+    }
+
+    // spec/decisions/market-maker-order-book.md: it places its standing
+    // offer, replaces it in one transaction, reads it back as the ledger
+    // holds it, and takes it away.
+    #[tokio::test(start_paused = true)]
+    async fn it_places_replaces_reads_and_cancels_its_standing_offer() {
+        let server = fake_ledger().await;
+        let client = client();
+        let own = holder(&server, 5, 100_000_000).await;
+        let mut xrpl = Xrpl::new(server.url.clone(), client.clone());
+        let token = |value: &str| Amount::Token(dsusd().amount(TokenValue::parse(value).unwrap()));
+        let expiration = u32::try_from(server.ledger().close_time() + 300).unwrap();
+        let read = async |xrpl: &mut Xrpl, count: usize| {
+            for _ in 0..100 {
+                let offers = xrpl.own_offers(own.account(), dsusd()).await.unwrap();
+                if offers.len() == count {
+                    return offers;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            panic!("never {count} offers");
+        };
+        let placed = Offer {
+            gives: Amount::Xrp(10_000_000),
+            asks: token("5"),
+            replaces: None,
+            expiration,
+        };
+        let outcome = xrpl.place_offer(&own, &placed).await.unwrap();
+        assert!(outcome.may_have_paid(), "{outcome:?}");
+        let first = read(&mut xrpl, 1).await[0];
+        let units = 1_000_000_000;
+        assert_eq!(first.gives, Side::Xrp);
+        assert_eq!(
+            (first.gives_units, first.asks_units),
+            (10 * units, 5 * units)
+        );
+        assert_eq!(first.expiration, Some(expiration));
+        // Replaced in one transaction: one offer stands, the new one.
+        let replacing = Offer {
+            asks: token("5.5"),
+            replaces: Some(first.sequence),
+            ..placed
+        };
+        let outcome = xrpl.place_offer(&own, &replacing).await.unwrap();
+        assert!(outcome.may_have_paid(), "{outcome:?}");
+        let mut second = first;
+        for _ in 0..100 {
+            second = read(&mut xrpl, 1).await[0];
+            if second.sequence != first.sequence {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_ne!(second.sequence, first.sequence);
+        assert_eq!(second.asks_units, 55 * units / 10);
+        let outcome = xrpl.cancel_offer(&own, second.sequence).await.unwrap();
+        assert!(outcome.may_have_paid(), "{outcome:?}");
+        read(&mut xrpl, 0).await;
     }
 
     #[tokio::test(start_paused = true)]

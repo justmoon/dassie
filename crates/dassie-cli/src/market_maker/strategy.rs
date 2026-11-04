@@ -142,6 +142,9 @@ pub struct Params {
     pub xrp_cap: u64,
     /// The most one trade pays of the token, in its ledgers' units.
     pub token_cap: u64,
+    /// Whether it keeps a standing offer on the order book while it is off
+    /// even (spec/decisions/market-maker-order-book.md).
+    pub standing_offer: bool,
 }
 
 impl Params {
@@ -388,6 +391,9 @@ pub struct Inputs<'a> {
     /// Whether it may rebalance now: not while a rebalance that failed
     /// waits to be tried again.
     pub may_rebalance: bool,
+    /// Its standing offer on the order book, as the last validated ledger
+    /// holds it, if one stands.
+    pub standing: Option<Standing>,
 }
 
 /// A trade: a swap with `target` of up to `debit` of `from`'s asset, from
@@ -460,6 +466,177 @@ pub enum Decision {
     Trades(Vec<Trade>),
     /// Take the holdings back to even on the ledger.
     Rebalance(Rebalance),
+}
+
+/// How long a standing offer stands before it expires by itself, in
+/// seconds: five minutes, so that one a stopped market maker left does not
+/// stand.
+pub const OFFER_LIFE_S: u32 = 300;
+
+/// How long before it expires a standing offer is replaced, in seconds.
+const OFFER_RENEW_S: u32 = 120;
+
+/// How far the mid may move from a standing offer's price before it is
+/// replaced, in parts per million: a twentieth of a percent.
+pub const OFFER_STEP_PPM: u32 = 500;
+
+/// How far what takes the market maker back to even may be from what its
+/// standing offer gives before it is replaced, in parts per million: a
+/// tenth.
+const OFFER_SIZE_PPM: u32 = 100_000;
+
+/// The share of its threshold within which the market maker keeps no
+/// standing offer: a fifth.
+const OFFER_BAND_PER_THRESHOLD: u32 = 5;
+
+/// The market maker's standing offer, as the ledger holds it: what it
+/// still gives and asks for, in the ledgers' units.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Standing {
+    /// The sequence of the transaction that placed it, which names it.
+    pub sequence: u32,
+    /// The asset it gives.
+    pub gives: Side,
+    /// What it still gives of it.
+    pub gives_units: u64,
+    /// What it still asks for, of the other.
+    pub asks_units: u64,
+    /// When it expires, in seconds since the XRP Ledger's epoch.
+    pub expiration: Option<u32>,
+}
+
+/// An offer to place on the order book: it gives `gives` for `asks`,
+/// replacing the standing offer `replaces` in the same transaction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Offer {
+    /// What it gives: what the market maker holds too much of.
+    pub gives: Amount,
+    /// What it asks for, at the market's mid.
+    pub asks: Amount,
+    /// The standing offer it replaces, if one stands.
+    pub replaces: Option<u32>,
+    /// When it expires, in seconds since the XRP Ledger's epoch.
+    pub expiration: u32,
+}
+
+/// What to do with the standing offer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OfferAction {
+    /// Leave it as it is, or with none, none.
+    Keep,
+    /// Place this one, in place of the standing one if one stands.
+    Place(Offer),
+    /// Take the standing offer away.
+    Cancel(u32),
+}
+
+/// What to do with the standing offer at `now_s`, seconds since the XRP
+/// Ledger's epoch (spec/decisions/market-maker-order-book.md): while an
+/// asset's share is more than a fifth of the threshold from even, one offer
+/// that gives as much of it as takes the market maker back to even, at most
+/// what its owner book's account holds, for the other at the market's mid;
+/// replaced once the mid moved by more than a step, what takes it back to
+/// even by more than a tenth, it gives the other asset, or it is about to
+/// expire; taken away once within the band, or when standing offers are
+/// off. A rebalance takes it away first, in the loop.
+#[must_use]
+pub fn standing_offer(inputs: &Inputs<'_>, now_s: u32) -> OfferAction {
+    let wanted = if inputs.params.standing_offer {
+        Valuation::of(inputs)
+            .ok()
+            .and_then(|valuation| wanted_offer(inputs, &valuation))
+    } else {
+        None
+    };
+    match (inputs.standing, wanted) {
+        (None, None) => OfferAction::Keep,
+        (Some(standing), None) => OfferAction::Cancel(standing.sequence),
+        (None, Some(wanted)) => OfferAction::Place(offer(inputs, wanted, None, now_s)),
+        (Some(standing), Some(wanted)) => {
+            if stale(&standing, &wanted, now_s) {
+                OfferAction::Place(offer(inputs, wanted, Some(standing.sequence), now_s))
+            } else {
+                OfferAction::Keep
+            }
+        }
+    }
+}
+
+/// The offer the market maker wants to stand, in the ledgers' units: the
+/// asset it gives, what it gives, and what it asks for of the other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Wanted {
+    gives: Side,
+    gives_units: u64,
+    asks_units: u64,
+}
+
+/// The offer `valuation` wants: none within the band, or of dust.
+fn wanted_offer(inputs: &Inputs<'_>, valuation: &Valuation) -> Option<Wanted> {
+    let band = inputs.params.threshold_ppm / OFFER_BAND_PER_THRESHOLD;
+    let over = valuation.beyond_threshold(band)?;
+    let (xrp, token, _) = valuation.values();
+    let surplus = valuation.units_of(over, xrp.abs_diff(token) / 2)?;
+    let holding = inputs.holdings.of(over);
+    let spendable = match over {
+        Side::Xrp => holding.on_ledger.saturating_sub(FEE_HEADROOM_UNITS),
+        Side::Token => holding.on_ledger,
+    };
+    let gives_units = surplus.min(spendable);
+    let asks_units = valuation.units_of(over.other(), valuation.value(over, gives_units))?;
+    let token_asset = inputs.pool.token;
+    let whole = |side: Side, units: u64| to_amount(side, units, token_asset).and_then(to_units);
+    let (gives_units, asks_units) = (whole(over, gives_units)?, whole(over.other(), asks_units)?);
+    (gives_units > 0 && asks_units > 0).then_some(Wanted {
+        gives: over,
+        gives_units,
+        asks_units,
+    })
+}
+
+/// The offer to place for `wanted`, replacing `replaces`, expiring a life
+/// after `now_s`.
+fn offer(inputs: &Inputs<'_>, wanted: Wanted, replaces: Option<u32>, now_s: u32) -> Offer {
+    let token = inputs.pool.token;
+    let amount = |side: Side, units: u64| {
+        to_amount(side, units, token).unwrap_or(match side {
+            Side::Xrp => Amount::Xrp(0),
+            Side::Token => Amount::Token(token.amount(TokenValue::ZERO)),
+        })
+    };
+    Offer {
+        gives: amount(wanted.gives, wanted.gives_units),
+        asks: amount(wanted.gives.other(), wanted.asks_units),
+        replaces,
+        expiration: now_s.saturating_add(OFFER_LIFE_S),
+    }
+}
+
+/// Whether `standing` is to be replaced by `wanted` at `now_s`: it gives the
+/// other asset, its price is more than a step from the mid's, what it gives
+/// more than a tenth from what takes the market maker back to even, or it
+/// expires within the renewal's time.
+fn stale(standing: &Standing, wanted: &Wanted, now_s: u32) -> bool {
+    if standing.gives != wanted.gives {
+        return true;
+    }
+    if standing
+        .expiration
+        .is_none_or(|expiration| expiration <= now_s.saturating_add(OFFER_RENEW_S))
+    {
+        return true;
+    }
+    let million = u128::from(MILLION);
+    // Its price against the mid's: asks per unit given, multiplied out.
+    let standing_price = u128::from(standing.asks_units) * u128::from(wanted.gives_units);
+    let wanted_price = u128::from(wanted.asks_units) * u128::from(standing.gives_units);
+    let moved = standing_price
+        .abs_diff(wanted_price)
+        .saturating_mul(million)
+        > wanted_price.saturating_mul(u128::from(OFFER_STEP_PPM));
+    let resized = u128::from(standing.gives_units.abs_diff(wanted.gives_units)) * million
+        > u128::from(wanted.gives_units) * u128::from(OFFER_SIZE_PPM);
+    moved || resized
 }
 
 /// What to do now: a rebalance if an asset's share is beyond the
@@ -1021,6 +1198,7 @@ mod tests {
             slippage_ppm: 10_000,
             xrp_cap: 20 * ONE,
             token_cap: 10 * ONE,
+            standing_offer: false,
         }
     }
 
@@ -1048,6 +1226,7 @@ mod tests {
             holdings,
             params,
             may_rebalance: true,
+            standing: None,
         }
     }
 
@@ -1598,6 +1777,136 @@ mod tests {
         let paid = to_units(rebalance.send_max).unwrap() * 100 / 101;
         assert!(book_delivers <= paid / 2);
         assert!(book_delivers >= paid / 2 / 1_000 * 999);
+    }
+
+    /// The ledger's time the standing offer tests decide at.
+    const NOW_S: u32 = 1_000_000;
+
+    /// Inputs for a standing offer: offers on, `holdings`, `standing`.
+    fn offering<'a>(
+        params: &'a Params,
+        holdings: Holdings,
+        standing: Option<Standing>,
+    ) -> Inputs<'a> {
+        let mut inputs = inputs(&[], holdings, params);
+        inputs.standing = standing;
+        inputs
+    }
+
+    fn offers_on() -> Params {
+        Params {
+            standing_offer: true,
+            ..params()
+        }
+    }
+
+    /// 110 XRP, worth 55, and 45 of the token: 55% in XRP, beyond the band
+    /// of a point, within the threshold of five.
+    const LEANING: Holdings = held(110 * ONE, 45 * ONE);
+
+    /// The offer it places for [`LEANING`]: 10 XRP, half the difference,
+    /// for 5 of the token at the mid of half a dollar.
+    fn leaning_offer(replaces: Option<u32>) -> Offer {
+        Offer {
+            gives: Amount::Xrp(10_000_000),
+            asks: to_amount(Side::Token, 5 * ONE, token()).unwrap(),
+            replaces,
+            expiration: NOW_S + OFFER_LIFE_S,
+        }
+    }
+
+    /// The standing offer [`leaning_offer`] placed, as the ledger holds it.
+    fn standing(gives_units: u64, asks_units: u64, expiration: u32) -> Standing {
+        Standing {
+            sequence: 7,
+            gives: Side::Xrp,
+            gives_units,
+            asks_units,
+            expiration: Some(expiration),
+        }
+    }
+
+    // spec/decisions/market-maker-order-book.md: off even by more than a
+    // fifth of its threshold, it places one offer that takes it back to
+    // even, at the market's mid, which expires by itself.
+    #[test]
+    fn off_even_it_places_an_offer_back_to_even_at_the_mid() {
+        let params = offers_on();
+        assert_eq!(
+            standing_offer(&offering(&params, LEANING, None), NOW_S),
+            OfferAction::Place(leaning_offer(None))
+        );
+        // Within the band, none.
+        assert_eq!(
+            standing_offer(&offering(&params, held(101 * ONE, 49 * ONE), None), NOW_S),
+            OfferAction::Keep
+        );
+        // It gives no more than its owner book's account holds.
+        let mut short = LEANING;
+        short.xrp.on_ledger = 4 * ONE;
+        let OfferAction::Place(offer) = standing_offer(&offering(&params, short, None), NOW_S)
+        else {
+            panic!("an offer");
+        };
+        assert_eq!(to_units(offer.gives), Some(4 * ONE - FEE_HEADROOM_UNITS));
+    }
+
+    #[test]
+    fn a_standing_offer_stays_until_the_mid_its_size_or_its_life_moves_on() {
+        let params = offers_on();
+        let fresh = NOW_S + OFFER_LIFE_S;
+        let decide_with =
+            |standing: Standing| standing_offer(&offering(&params, LEANING, Some(standing)), NOW_S);
+        // As it was placed: it stays.
+        assert_eq!(
+            decide_with(standing(10 * ONE, 5 * ONE, fresh)),
+            OfferAction::Keep
+        );
+        // Within a step of the mid, and a tenth of its size: it stays.
+        assert_eq!(
+            decide_with(standing(10 * ONE, 5 * ONE / 10_000 * 10_004, fresh)),
+            OfferAction::Keep
+        );
+        assert_eq!(
+            decide_with(standing(95 * ONE / 10, 475 * ONE / 100, fresh)),
+            OfferAction::Keep
+        );
+        // Past a step of the mid, a tenth of its size, or about to expire,
+        // or giving the other asset: it is replaced in the same transaction.
+        let replaced = OfferAction::Place(leaning_offer(Some(7)));
+        assert_eq!(
+            decide_with(standing(10 * ONE, 5 * ONE / 1_000 * 1_001, fresh)),
+            replaced
+        );
+        assert_eq!(decide_with(standing(8 * ONE, 4 * ONE, fresh)), replaced);
+        assert_eq!(
+            decide_with(standing(10 * ONE, 5 * ONE, NOW_S + 60)),
+            replaced
+        );
+        let other_way = Standing {
+            gives: Side::Token,
+            ..standing(10 * ONE, 5 * ONE, fresh)
+        };
+        assert_eq!(decide_with(other_way), replaced);
+    }
+
+    #[test]
+    fn back_within_the_band_or_with_offers_off_it_takes_the_offer_away() {
+        let on = offers_on();
+        let placed = Some(standing(10 * ONE, 5 * ONE, NOW_S + OFFER_LIFE_S));
+        assert_eq!(
+            standing_offer(&offering(&on, EVEN, placed), NOW_S),
+            OfferAction::Cancel(7)
+        );
+        let off = params();
+        assert_eq!(
+            standing_offer(&offering(&off, LEANING, placed), NOW_S),
+            OfferAction::Cancel(7)
+        );
+        assert_eq!(
+            standing_offer(&offering(&off, LEANING, None), NOW_S),
+            OfferAction::Keep
+        );
     }
 
     #[test]
