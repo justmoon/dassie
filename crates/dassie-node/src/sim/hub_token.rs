@@ -51,7 +51,7 @@ use dassie_hub::consensus::MAX_VIEW_TIMEOUT_MS;
 use dassie_hub::escrow::PayoutTransaction;
 use dassie_hub::ledger::Phase;
 use dassie_hub::member::{DSUSD_SCHEME_ID, GAS_CHECK_LASTS_MS, LEAST_ESCROW_GAS_DROPS, member_key};
-use dassie_hub::promise::{Commitment, Signed};
+use dassie_hub::promise::{Commitment, Release, Signed};
 use dassie_hub::rules::{Asset, MAX_HOLD_MS};
 use dassie_ilp::ErrorCode;
 use dassie_kit::sim::{Outcome, Run, SeededRng};
@@ -674,18 +674,40 @@ fn refuse_far_ahead(sim: &mut Sim) -> Result<(), Outcome> {
         core.peer_inbound(inbound, sender, &body, None)
     });
     sim.loss_per_mille = loss;
+    // The T04 Reject comes alone, or, over a hub that takes releases, with
+    // node 0's release of the very commitment it refused, which lets node 1
+    // reject upstream at once (spec/decisions/signed-rejects.md).
+    let released = Release {
+        hold,
+        sequence: u64::MAX / 2,
+        expiry,
+    };
+    let payee_key = member(payee).public_key();
+    let t04 = |request_id: u32, packet: &[u8]| {
+        request_id == FAR_AHEAD_REQUEST
+            && matches!(
+                dassie_ilp::Packet::decode_exact(packet),
+                Ok(dassie_ilp::Packet::Reject(reject))
+                    if reject.code == ErrorCode::T04_INSUFFICIENT_LIQUIDITY
+            )
+    };
     let refused = sim.queue.values().any(|delivery| match delivery {
         Delivery::Request { from, to, body, .. } if *from == payee && *to == payer => {
-            matches!(
-                Content::decode_exact(body),
-                Ok(Content::InterledgerPacket { request_id, packet })
-                    if request_id == FAR_AHEAD_REQUEST
-                        && matches!(
-                            dassie_ilp::Packet::decode_exact(packet),
-                            Ok(dassie_ilp::Packet::Reject(reject))
-                                if reject.code == ErrorCode::T04_INSUFFICIENT_LIQUIDITY
-                        )
-            )
+            match Content::decode_exact(body) {
+                Ok(Content::InterledgerPacket { request_id, packet }) => t04(request_id, packet),
+                Ok(Content::HubReject {
+                    request_id,
+                    packet,
+                    release,
+                }) => {
+                    t04(request_id, packet)
+                        && Signed::<Release>::decode(&mut dassie_oer::Reader::new(release))
+                            .is_ok_and(|signed| {
+                                signed.value == released && signed.verifies(&id, &payee_key)
+                            })
+                }
+                _ => false,
+            }
         }
         _ => false,
     });
