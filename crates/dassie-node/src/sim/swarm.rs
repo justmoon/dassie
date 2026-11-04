@@ -51,7 +51,7 @@ use super::scripted::{
 use super::{Delivery, HUB, HUB_DSUSD, LONGEST_LIE_MS, REGIONAL_LATENCY_MS, Settling, Sim, key};
 use crate::engine::LedgerEvent;
 use crate::node::Policies;
-use crate::store::{Aim, OutgoingState, PeerSettings};
+use crate::store::{Aim, OutgoingState, PaymentId, PeerSettings};
 use dassie_ledger::LedgerId;
 use dassie_xrpl::fake::{Lie, VALIDATORS};
 
@@ -1135,8 +1135,13 @@ fn heal(
     // failed in the chaos. Only reconnects since its node last started
     // count: a start gives the payer all its reconnects again, so one on a
     // node that restarted since, the heal's own restarts included, must
-    // complete, as must anything else.
+    // complete, unless it runs out of time: a start does not move a
+    // payment's deadline, which runs from when it was made, so one sending
+    // at the heal may fail at it if it left less than a payment may take
+    // once the healed network was ready again ([`out_of_time`]). Anything
+    // else must complete.
     let mut reconnecting = Vec::new();
+    let mut sending = Vec::new();
     for &(from, _, _, outgoing) in &sim.outgoing.clone() {
         let state = sim.nodes[from]
             .store
@@ -1151,6 +1156,8 @@ fn heal(
         {
             sim.given_up.insert(outgoing);
             reconnecting.push((from, outgoing));
+        } else if state == Some(OutgoingState::Sending) {
+            sending.push((from, outgoing));
         }
     }
     // After a split that outlasted the chaos, what payments are left start
@@ -1164,12 +1171,26 @@ fn heal(
     if split {
         sim.run_until_or(healed + HEAL_MS, ready);
     }
+    // When the network was ready again, once it was.
+    let mut ready_at = ready(sim).then_some(sim.now);
     while *left != (0, 0) {
         pay(sim, options, rng, left);
     }
+    if let Some(at) = ready_at {
+        give_up_out_of_time(sim, &mut sending, at);
+    }
     let mut stuck = unsettled(sim);
     while stuck.is_some() && sim.now < healed + HEAL_MS {
-        sim.run_until(sim.now + LOOK_MS);
+        // Looked at every `LOOK_MS` as before, noting when it was ready on
+        // the way.
+        let until = sim.now + LOOK_MS;
+        if ready_at.is_none() && sim.run_until_or(until, ready) {
+            ready_at = Some(sim.now);
+        }
+        sim.run_until(until);
+        if let Some(at) = ready_at {
+            give_up_out_of_time(sim, &mut sending, at);
+        }
         stuck = unsettled(sim);
     }
     let seconds = (sim.now - healed) / 1_000;
@@ -1487,6 +1508,45 @@ fn reconnected_since_start(trace: &[String], from: usize, outgoing: &str) -> boo
     trace[since..].iter().any(|line| line.contains(&reconnects))
 }
 
+/// Whether an outgoing payment that was sending at the heal, as `state`,
+/// `deadline_ms` and `finished_at_ms` on its payer's clock show it, failed
+/// by its deadline, which fell less than a payment may take
+/// ([`PAID_WITHIN_MS`]) after the healed network was ready again, at
+/// `ready_ms` on the payer's clock. Its deadline runs from when it was
+/// made, in the chaos, and no restart moves it: the heal cannot ask it to
+/// complete in less time than any payment may take once the network
+/// routes it. One that failed before its deadline, for any other reason,
+/// still must not.
+fn out_of_time(
+    (state, deadline_ms, finished_at_ms): (OutgoingState, u64, Option<u64>),
+    ready_ms: u64,
+) -> bool {
+    state == OutgoingState::Failed
+        && finished_at_ms.is_some_and(|at| at >= deadline_ms)
+        && deadline_ms < ready_ms.saturating_add(PAID_WITHIN_MS)
+}
+
+/// Gives up each payment of `sending`, those sending at the heal and not
+/// reconnecting, that [`out_of_time`] once the network was ready again, at
+/// `ready_at`.
+fn give_up_out_of_time(sim: &mut Sim, sending: &mut Vec<(usize, PaymentId)>, ready_at: u64) {
+    sending.retain(|&(from, outgoing)| {
+        let row = sim.nodes[from]
+            .store
+            .outgoing_payment(outgoing)
+            .unwrap()
+            .unwrap();
+        let ready_ms = ready_at.saturating_add_signed(sim.nodes[from].skew_ms);
+        let fields = (row.state, row.deadline_ms, row.finished_at_ms);
+        if !out_of_time(fields, ready_ms) {
+            return true;
+        }
+        sim.given_up.insert(outgoing);
+        sim.count("outgoing out of time after the heal");
+        false
+    });
+}
+
 /// Whether a JSON message to or from the ledger has `key` set to `value`.
 fn names(message: &[u8], key: &str, value: &str) -> bool {
     serde_json::from_slice::<serde_json::Value>(message)
@@ -1498,6 +1558,45 @@ fn names(message: &[u8], key: &str, value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A payment sending at the heal may fail by its deadline only if that
+    // fell less than a payment may take after the network was ready again;
+    // one that failed before its deadline, or whose deadline left it all
+    // that time, must still complete.
+    #[test]
+    fn a_payment_may_run_out_of_time_only_within_a_payments_time_of_ready() {
+        let ready_ms = 1_000_000;
+        let failed = OutgoingState::Failed;
+        let deadline = ready_ms + PAID_WITHIN_MS - 1;
+        assert!(out_of_time((failed, deadline, Some(deadline)), ready_ms));
+        assert!(out_of_time(
+            (failed, deadline, Some(deadline + 40)),
+            ready_ms
+        ));
+        // Its deadline before the network was ready.
+        assert!(out_of_time(
+            (failed, ready_ms - 1, Some(ready_ms)),
+            ready_ms
+        ));
+        // All of a payment's time after the network was ready.
+        let late = ready_ms + PAID_WITHIN_MS;
+        assert!(!out_of_time((failed, late, Some(late)), ready_ms));
+        // Failed before its deadline, for another reason.
+        assert!(!out_of_time(
+            (failed, deadline, Some(deadline - 1)),
+            ready_ms
+        ));
+        // Not failed.
+        let completed = OutgoingState::Completed;
+        assert!(!out_of_time(
+            (completed, deadline, Some(deadline)),
+            ready_ms
+        ));
+        assert!(!out_of_time(
+            (OutgoingState::Sending, deadline, None),
+            ready_ms
+        ));
+    }
 
     // A share of the seeds draws a run over a hub, which keeps its members'
     // clocks within the hub's precision and its partitions short of the
