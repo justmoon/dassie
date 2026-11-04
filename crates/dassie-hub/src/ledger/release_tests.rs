@@ -319,6 +319,39 @@ fn a_hold_with_waiting_claims_stays_open() {
     assert!(hub.ledger.hold(hold).is_none());
 }
 
+// A claim made while a reduction waits for its notice moves the payout of
+// what waits past it: the reduction, due first, waits for the payout, and
+// both take effect in the block that pays it. Found by the `hub`
+// simulation, whose model of the hub's clock had the reduction apply at
+// its notice.
+#[test]
+fn a_reduction_due_while_claims_wait_waits_for_their_payout() {
+    let mut hub = Hub::new();
+    let (alice, alice_key, bob, bob_key, hold) = hold_for_bob(&mut hub);
+    hub.run(
+        alice,
+        &alice_key,
+        MemberOperation::HoldReduce {
+            hold,
+            amount: 1_000_000,
+        },
+    );
+    let reduction = hub.ledger.hold(hold).unwrap().reduction.unwrap();
+    let op = claim_until(&hub, &alice_key, hold, 1, 100, reduction.at + 10_000);
+    let op = hub.member(bob, &bob_key, op);
+    hub.block_at(reduction.at - 1, vec![op], &[]);
+    let due = hub.ledger.hold(hold).unwrap().pending_due;
+    assert!(due > reduction.at, "the claim's payout comes later");
+    let before = hub.balance(bob);
+    hub.block_at(reduction.at, vec![], &[]);
+    let waiting = hub.ledger.hold(hold).unwrap();
+    assert!(waiting.reduction.is_some(), "the reduction waits");
+    assert_eq!(hub.balance(bob), before);
+    hub.block_at(due, vec![], &[]);
+    assert!(hub.ledger.hold(hold).is_none(), "reduced to nothing");
+    assert_eq!(hub.balance(bob), before + 100);
+}
+
 // A hub of version 1 has no dispute: no block of it holds one, and the
 // ledger refuses one put to it, so validators that run a release from
 // before version 2 are never handed one.

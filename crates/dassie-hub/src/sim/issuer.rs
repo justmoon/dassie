@@ -21,7 +21,8 @@
 //! deposit is credited and no withdrawal settled; no reduction, shutdown or
 //! absence falls due but by the model's clock, which stands still during a
 //! freeze, so one pending at a freeze falls due only after the thaw, its
-//! notice moved by the freeze; the issuer's state in force is one the
+//! notice moved by the freeze, and a reduction only once no claim waits in
+//! its hold; the issuer's state in force is one the
 //! issuer was in, and only true clawbacks count, each once. At the end, the
 //! ledger holds what the escrow holds, to the unit, and the payout set
 //! pays the withdrawals already sequenced in full and each account its
@@ -41,7 +42,7 @@ use crate::digest::Digest;
 use crate::escrow::payout::{PayoutTransaction, payout_set};
 use crate::escrow::{ValidatorKeys, escrow_master};
 use crate::founding::starting_terms;
-use crate::ledger::{Block, Failure, Ledger, Outcome, Phase, Refusal};
+use crate::ledger::{Block, Detail, Failure, Ledger, Outcome, Phase, Refusal};
 use crate::operation::{
     AccountNumber, Clawback, Deposit, Destination, Issuer, MemberOperation, Operation,
     SignedMemberOperation, SignedValidatorOperation, ValidatorOperation,
@@ -198,6 +199,9 @@ struct Clock {
     paused: Millis,
     /// Each hold's reduction, due at this hub time.
     reductions: BTreeMap<HoldNumber, Millis>,
+    /// What claims took and wait in each hold, paid at this hub time; a
+    /// reduction waits for it (spec/decisions/signed-rejects.md).
+    claims: BTreeMap<HoldNumber, Millis>,
     /// Each validator's last vote recorded, in hub time.
     recorded: Vec<Millis>,
     /// The end of the shutdown's notice, in hub time.
@@ -884,7 +888,7 @@ impl Sim {
         let (member_outcomes, validator_outcomes) = outcomes.split_at(split);
         self.check_members(&before, member_ops, member_outcomes)?;
         self.check_validators(&before, validator_ops, validator_outcomes)?;
-        self.check_clock(&before, voters, validator_ops)?;
+        self.check_clock(&before, voters, member_ops, member_outcomes, validator_ops)?;
         self.learn(member_ops, member_outcomes);
         Ok(())
     }
@@ -1049,6 +1053,8 @@ impl Sim {
         &mut self,
         before: &Ledger,
         voters: Signers,
+        members: &[Operation],
+        outcomes: &[Outcome],
         validators: &[Operation],
     ) -> Checked {
         let frozen = before.frozen();
@@ -1056,7 +1062,7 @@ impl Sim {
         for index in voters.iter() {
             self.clock.recorded[index.get()] = hub_time;
         }
-        self.check_reductions(before, hub_time)?;
+        self.check_reductions(before, hub_time, members, outcomes)?;
         let voted = validators.iter().any(|op| {
             matches!(op, Operation::Validator(signed)
                 if signed.operation == ValidatorOperation::Shutdown)
@@ -1111,10 +1117,21 @@ impl Sim {
     }
 
     /// Reductions fall due by the model's clock only, so one pending at a
-    /// freeze only after the thaw. A new one starts the model's notice:
-    /// asked by a member, so while the hub was not frozen.
-    fn check_reductions(&mut self, before: &Ledger, hub_time: Millis) -> Checked {
+    /// freeze only after the thaw, and a hold's only once what claims took
+    /// from it no longer waits: paid at the start of the block the hold's
+    /// notice since its last claim that took something passed. A new one
+    /// starts the model's notice: asked by a member, so while the hub was
+    /// not frozen; a claim may come while frozen, within the freeze's
+    /// window, and runs by the clock the block began with.
+    fn check_reductions(
+        &mut self,
+        before: &Ledger,
+        hub_time: Millis,
+        members: &[Operation],
+        outcomes: &[Outcome],
+    ) -> Checked {
         let notice = self.ledger.terms().timers.hold_notice;
+        self.clock.claims.retain(|_, due| *due > hub_time);
         for (number, hold) in before.holds() {
             let Some(reduction) = hold.reduction else {
                 continue;
@@ -1127,20 +1144,39 @@ impl Sim {
                 .hold(number)
                 .is_none_or(|h| h.reduction.is_none());
             let due = self.clock.reductions.get(&number).copied().unwrap_or(0);
-            if applied != (hub_time >= due) {
+            let waits = self.clock.claims.contains_key(&number);
+            if applied != (hub_time >= due && !waits) {
                 return Err(self.bad(
                     "reduction",
                     &format!(
-                        "hold {} due at hub time {due}, applied {applied} at {hub_time}",
+                        "hold {} due at hub time {due}, claims waiting {waits}, applied \
+                         {applied} at {hub_time}",
                         number.0
                     ),
                 ));
+            }
+            if waits && hub_time >= due {
+                self.count("reduction-waited");
             }
             if applied {
                 self.clock.reductions.remove(&number);
                 if self.clock.caught.remove(&number) {
                     self.count("reduction-after-thaw");
                 }
+            }
+        }
+        for (operation, outcome) in members.iter().zip(outcomes) {
+            if let (
+                Operation::Member(signed),
+                Outcome::Applied {
+                    detail: Detail::Pending(taken),
+                    ..
+                },
+            ) = (operation, outcome)
+                && let MemberOperation::Claim { hold, .. } = signed.operation
+                && *taken > 0
+            {
+                self.clock.claims.insert(hold, hub_time + notice);
             }
         }
         let now = self.ledger.timestamp() - self.clock.paused;
