@@ -312,6 +312,96 @@ fn colluders_that_fork_are_named() {
     assert_eq!(named, network.faulty());
 }
 
+// Seed 2574180273427673 of the `hub` simulation: cut off just after two
+// colluders forked the chain, validator 0 alone finalized their block for
+// it, and the others the one they signed for validator 1, which saw
+// nothing conflict. Catching up from them, validator 0 asks for the blocks
+// above its own height, which do not build on its block: the evidence is
+// the others' block at its height, with its finalization, which comes
+// with the delivery.
+#[test]
+fn a_validator_cut_off_on_a_colluders_fork_finds_the_evidence_on_catching_up() {
+    let mut network = Network::new(5, &roles(4, &[Role::Collude, Role::Collude]), CONFIG);
+    while !network.forked {
+        run_for(&mut network, 1);
+    }
+    network.partition(&[0]);
+    run_for(&mut network, 3_000);
+    assert!(
+        network.disagreement().is_some(),
+        "validator 0 finalized another block"
+    );
+    assert!(
+        !network.evidence_found(),
+        "no honest validator saw the fork"
+    );
+    network.heal();
+    run_for(&mut network, 3_000);
+    assert!(network.evidence_found(), "validator 0 found the evidence");
+    assert_eq!(network.blamed_honest(), None);
+    let named = network.validators[0]
+        .evidence
+        .iter()
+        .fold(dassie_hub::Signers::NONE, |named, evidence| {
+            dassie_hub::Signers::from_bits(named.bits() | evidence.culprits().bits())
+        });
+    assert_eq!(named, network.faulty());
+}
+
+// A validator shown another block finalized at its own final height knows
+// of a fork, and loads no later state, which may be of the other chain;
+// but it still follows a chain that builds on its own, as one on the side
+// the hub goes on with must when it falls behind.
+#[test]
+fn a_validator_that_knows_of_a_fork_still_follows_its_own_chain() {
+    let mut network = honest(4);
+    run_for(&mut network, 1_000);
+    let ours = network.engine(3).tip().block.clone();
+    let mut other = ours.clone();
+    other.timestamp_ms += 1;
+    let digest = other.digest(&hub());
+    let signatures = (0..3)
+        .map(|at| {
+            let view = (other.epoch, other.view);
+            Vote::sign(
+                &hub(),
+                &key(at),
+                index(at),
+                VoteKind::Finalize,
+                view,
+                digest,
+            )
+            .signature
+        })
+        .collect();
+    let finalization = dassie_hub::consensus::Certificate {
+        kind: VoteKind::Finalize,
+        epoch: other.epoch,
+        view: other.view,
+        block: digest,
+        signers: (0..3)
+            .map(index)
+            .fold(dassie_hub::Signers::NONE, dassie_hub::Signers::with),
+        signatures,
+    };
+    let delivery = Message::Delivery(dassie_hub::consensus::wire::Delivery {
+        certified: vec![dassie_hub::consensus::wire::Certified {
+            certificate: finalization,
+            block: Some(other),
+        }],
+        ..Default::default()
+    });
+    inject(&mut network, 3, &delivery);
+    assert!(network.engine(3).is_forked());
+    network.partition(&[3]);
+    run_for(&mut network, 2_000);
+    network.heal();
+    let target = network.height(0);
+    run_for(&mut network, 2_000);
+    assert!(network.height(3) >= target, "it caught up on its own chain");
+    assert_eq!(network.state_loads, 0);
+}
+
 #[test]
 fn conflicting_votes_are_evidence() {
     let mut network = honest(4);

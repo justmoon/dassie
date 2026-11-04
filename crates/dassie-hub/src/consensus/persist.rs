@@ -1,6 +1,9 @@
 //! What the engine persists, so that it never signs two conflicting votes,
 //! even across a crash: the view it is in, every vote it signed above its
-//! last finalized block, and whether it declared the hub stalled. It also
+//! last finalized block, whether it declared the hub stalled, and whether
+//! it learned that another chain was finalized at a height it finalized
+//! (a fork, which only more than f faulty validators make), so that it
+//! signs no payout set. It also
 //! keeps the blocks it voted for and the certificates it holds above that
 //! block, so that the hub can go on even if every validator restarts at
 //! once: a later leader builds on a notarized block, or skips a view, only
@@ -26,7 +29,8 @@
 //!     digest OCTET STRING (SIZE(32)), block Block },
 //!   certificates SEQUENCE (SIZE(0..1024)) OF Certificate,
 //!   boundaries SEQUENCE (SIZE(0..8)) OF Finalized,
-//!   stalled BOOLEAN }
+//!   stalled BOOLEAN,
+//!   forked BOOLEAN OPTIONAL }
 //! Finalized ::= SEQUENCE { block Block,
 //!   repeats SEQUENCE (SIZE(0..32)) OF Block,
 //!   finalization CHOICE { none [0] NULL, some [1] Certificate } }
@@ -34,6 +38,9 @@
 //!
 //! The layout is this file's alone: a change of what the engine persists
 //! changes it here, with nothing to migrate but a host's stored bytes.
+//! `forked` is written only when true, and read as false when absent, so
+//! the bytes an earlier release wrote still decode; an earlier release
+//! cannot read the state of a validator that learned of a fork.
 
 use alloc::vec::Vec;
 
@@ -100,6 +107,8 @@ pub struct Stored {
     pub boundaries: Vec<Finalized>,
     /// Whether we declared the hub stalled.
     pub stalled: bool,
+    /// Whether another chain was shown finalized at a height we finalized.
+    pub forked: bool,
 }
 
 /// What a step changed, to persist before its outputs are sent.
@@ -130,6 +139,8 @@ pub struct Batch {
     pub epochs: Option<Vec<Epoch>>,
     /// We declared the hub stalled.
     pub stalled: bool,
+    /// Another chain was shown finalized at a height we finalized.
+    pub forked: bool,
 }
 
 impl Batch {
@@ -147,6 +158,7 @@ impl Batch {
             && self.tip.is_none()
             && self.epochs.is_none()
             && !self.stalled
+            && !self.forked
     }
 }
 
@@ -171,6 +183,7 @@ impl Stored {
             certificates: Vec::new(),
             boundaries: Vec::new(),
             stalled: false,
+            forked: false,
         }
     }
 
@@ -205,6 +218,7 @@ impl Stored {
             self.epochs = epochs;
         }
         self.stalled |= batch.stalled;
+        self.forked |= batch.forked;
         let epoch = self.running_epoch();
         let view = if self.tip.block.epoch == epoch {
             self.tip.block.view
@@ -388,6 +402,7 @@ impl Encode for Stored {
             + items_len(&self.certificates)
             + items_len(&self.boundaries)
             + 1
+            + usize::from(self.forked)
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
@@ -409,6 +424,9 @@ impl Encode for Stored {
         write_items(writer, &self.certificates);
         write_items(writer, &self.boundaries);
         writer.write_bool(self.stalled);
+        if self.forked {
+            writer.write_bool(true);
+        }
     }
 }
 
@@ -440,6 +458,61 @@ impl<'a> Decode<'a> for Stored {
             certificates: read_items(reader, MAX_STORED_ITEMS)?,
             boundaries: read_items(reader, MAX_BOUNDARIES)?,
             stalled: reader.read_bool()?,
+            forked: if reader.is_empty() {
+                false
+            } else if reader.read_bool()? {
+                true
+            } else {
+                // Written only when true: canonical bytes never hold false.
+                return Err(unexpected(reader));
+            },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dassie_identity::NodeKey;
+    use dassie_oer::{Decode, Encode};
+
+    use super::Stored;
+    use crate::consensus::types::Block;
+    use crate::digest::Digest;
+    use crate::validators::ValidatorSet;
+
+    fn stored() -> Stored {
+        let keys = (1..=4)
+            .map(|i| NodeKey::from_bytes(&[i; 32]).public_key())
+            .collect();
+        let genesis = Block {
+            epoch: 0,
+            view: 0,
+            height: 0,
+            parent: Digest::default(),
+            parent_view: 0,
+            timestamp_ms: 1,
+            payload: alloc::vec::Vec::new(),
+        };
+        Stored::genesis(genesis, ValidatorSet::new(keys).unwrap())
+    }
+
+    // What a release before the fork was kept wrote has no `forked`: it
+    // reads as false, and a state on a fork round-trips.
+    #[test]
+    fn forked_is_read_as_false_where_it_was_not_written() {
+        let before = stored();
+        let bytes = before.to_vec();
+        assert_eq!(Stored::decode_exact(&bytes).unwrap(), before);
+        let forked = Stored {
+            forked: true,
+            ..stored()
+        };
+        let written = forked.to_vec();
+        assert_eq!(written.len(), bytes.len() + 1);
+        assert_eq!(written.len(), forked.encoded_len());
+        assert_eq!(Stored::decode_exact(&written).unwrap(), forked);
+        let mut not_canonical = bytes;
+        not_canonical.push(0);
+        assert!(Stored::decode_exact(&not_canonical).is_err());
     }
 }

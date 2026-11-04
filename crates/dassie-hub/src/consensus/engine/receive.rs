@@ -289,7 +289,7 @@ impl Engine {
     /// names another block or nullifies the view; or, with its block, if it
     /// finalizes another block at a height we finalized (a repeat of ours
     /// is ours).
-    fn check_settled(&mut self, certificate: &Certificate, block: Option<&Block>) {
+    pub(super) fn check_settled(&mut self, certificate: &Certificate, block: Option<&Block>) {
         let Some(set) = self.epochs.for_epoch(certificate.epoch).cloned() else {
             return;
         };
