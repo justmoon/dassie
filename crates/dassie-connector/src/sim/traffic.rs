@@ -291,6 +291,7 @@ impl Simulation {
 
     fn advance(&mut self) {
         self.now += self.below(3_000);
+        dassie_kit::sim::publish_clock(self.now);
         while let Some((&key, _)) = self.due.first_key_value() {
             if key.0 > self.now {
                 break;

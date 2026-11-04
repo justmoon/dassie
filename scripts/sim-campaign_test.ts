@@ -1,6 +1,7 @@
 // scripts/sim-campaign.ts's logic against fixtures and a GitHub in memory:
 // no network, no sandbox.
 
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import {
@@ -21,6 +22,7 @@ import {
   reportMain,
   reportPullRequest,
   reportTrouble,
+  RUN_LIMIT_MINUTES,
   type RunRecord,
   sandboxArgs,
   sandboxEnv,
@@ -733,4 +735,22 @@ test("sandbox: the environment keeps the toolchain and withholds secrets", () =>
     NIX_CC: "/nix/store/cc",
     HOME: "/work/home",
   });
+});
+
+// The campaign's step outlasts the runner's wait for its last runs: the
+// supervisor's minute count matches the runner's own limit.
+test("the supervisor waits as long as the runner's run limit", async () => {
+  const source = await readFile(
+    new URL("../crates/dassie-sim/src/campaign.rs", import.meta.url),
+    "utf8",
+  );
+  const ceiling = source.match(
+    /pub const CEILING: Duration = Duration::from_secs\((\d+) \* 60\);/,
+  );
+  const limit = source.match(
+    /pub const RUN_LIMIT: Duration = Duration::from_secs\(CEILING\.as_secs\(\) \+ (\d+)\);/,
+  );
+  assert(ceiling && limit, "the runner's limits moved");
+  const seconds = Number(ceiling[1]) * 60 + Number(limit[1]);
+  assertEquals(RUN_LIMIT_MINUTES, Math.ceil(seconds / 60));
 });

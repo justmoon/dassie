@@ -693,6 +693,7 @@ impl Network {
         // one instant for ever.
         let mut spins = (self.now, 0u32);
         loop {
+            dassie_kit::sim::publish_clock(self.now);
             let message = self.queue.first_key_value().map(|((at, _), _)| *at);
             let timer = self.next_timer();
             let next = match (message, timer) {

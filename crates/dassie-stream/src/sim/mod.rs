@@ -511,6 +511,7 @@ impl Simulation {
             (None, None) => return false,
         };
         self.now = Timestamp::from_unix_ms(next.max(self.now.unix_ms));
+        dassie_kit::sim::publish_clock(self.now.unix_ms);
         while let Some(entry) = self.queue.first_entry() {
             if entry.key().0 > self.now.unix_ms {
                 break;

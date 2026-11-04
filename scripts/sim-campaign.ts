@@ -94,6 +94,15 @@ const SANDBOX_MEMORY_MAX = "80%";
  * cannot starve the supervisor. */
 const SANDBOX_TASKS_MAX = 4096;
 
+/**
+ * The longest the runner waits for one run, in minutes: its `RUN_LIMIT`
+ * (`crates/dassie-sim/src/campaign.rs`), past the ceiling of wall time
+ * by which a run's own watch has written its record. Once its minutes are
+ * up, a campaign waits for its runs under way, so its step is given this
+ * much beyond them, and a little more to write its summary.
+ */
+export const RUN_LIMIT_MINUTES = 91;
+
 // Records
 
 export type Outcome = "pass" | "safety" | "liveness" | "unsupported";
@@ -1474,7 +1483,7 @@ async function buildAndRun(
     "run",
     "none",
     `${slot}/home`,
-    (config.minutes + 15) * 60,
+    (config.minutes + RUN_LIMIT_MINUTES + 5) * 60,
     [
       `${slot}/target/sim/dassie-sim`,
       "campaign",
