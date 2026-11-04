@@ -194,8 +194,9 @@ fn value((dollars, xrp): (u64, u64), (pool_xrp, pool_dollars): (u64, u64)) -> u1
 // takes DSUSD in at better than spot, and its snapshot says so; the market
 // maker's node holds it, as it reads its peers' snapshots. The market
 // maker, even at the start, swaps DSUSD for XRP through d1, and once its
-// share of XRP is two points from even, swaps it back to even through the
-// pool from its owner book. So d1's share of its value in DSUSD
+// share of XRP is half a point from even, swaps it back to even through the
+// pool from its owner book: a threshold that low has it rebalance after a
+// trade or two, so the test swaps little, as CI's load needs. So d1's share of its value in DSUSD
 // rises, toward its target; the market maker's value, at the pool's price,
 // grows; and both members' books are as they were after both restart.
 #[tokio::test(start_paused = true)]
@@ -221,7 +222,7 @@ async fn a_market_maker_moves_a_skewed_core_node_toward_balance_and_gains() {
     let seeded = pool(&net);
     let (d1_before, maker_before) = (holdings(&net, d1).await, holdings(&net, maker).await);
 
-    let market_maker = market_maker(&net, maker, 20_000).await;
+    let market_maker = market_maker(&net, maker, 5_000).await;
     // A swap's DSUSD reached d1, and the node's XRP went back through the
     // pool: the only swaps on it are the market maker's. d1 pays its own
     // costs in DSUSD, such as the DSUSD hub's fee on each claim it redeems,
