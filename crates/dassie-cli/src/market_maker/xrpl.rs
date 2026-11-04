@@ -204,20 +204,27 @@ impl Xrpl {
 
     /// The order book between XRP and `token`, as of a validated ledger:
     /// both sides, best first, at most a page each, each offer as much as
-    /// its owner funds, and none of `own`'s, the market maker's account,
-    /// whose offers are no market to it.
+    /// its owner funds, none of `own`'s, the market maker's account, whose
+    /// offers are no market to it, and none that expired at or before
+    /// `now_s`, the ledger's time: rippled still lists an expired offer,
+    /// until a crossing meets it, but no crossing fills it.
     ///
     /// # Errors
     ///
     /// A side cannot be read, or is not of the two assets.
-    pub async fn book(&mut self, token: IssuedAsset, own: AccountId) -> Result<Book, String> {
+    pub async fn book(
+        &mut self,
+        token: IssuedAsset,
+        own: AccountId,
+        now_s: u32,
+    ) -> Result<Book, String> {
         let token_asset = Asset::Token {
             currency: token.currency,
             issuer: token.issuer,
         };
         Ok(Book {
-            bids: self.side(token_asset, Asset::Xrp, own).await?,
-            asks: self.side(Asset::Xrp, token_asset, own).await?,
+            bids: self.side(token_asset, Asset::Xrp, own, now_s).await?,
+            asks: self.side(Asset::Xrp, token_asset, own, now_s).await?,
         })
     }
 
@@ -227,6 +234,7 @@ impl Xrpl {
         gets: Asset,
         pays: Asset,
         own: AccountId,
+        now_s: u32,
     ) -> Result<Vec<Level>, String> {
         let limit = u32::try_from(MAX_LEVELS).unwrap_or(api::BOOK_PAGE);
         let result = self
@@ -237,35 +245,7 @@ impl Xrpl {
         if !page.validated {
             return Err("a book_offers answer of a ledger not validated".into());
         }
-        let mut levels = Vec::with_capacity(page.offers.len().min(MAX_LEVELS));
-        for offer in page.offers.iter().take(MAX_LEVELS) {
-            if offer.account == own {
-                continue;
-            }
-            let given = offer.taker_gets_funded.unwrap_or(offer.taker_gets);
-            let asked = offer.taker_pays_funded.unwrap_or(offer.taker_pays);
-            if given.asset() != gets || asked.asset() != pays {
-                return Err("a book_offers answer of another book".into());
-            }
-            let (given, asked) = (
-                to_units(given).ok_or("an offer beyond the ledger's units")?,
-                to_units(asked).ok_or("an offer beyond the ledger's units")?,
-            );
-            if given == 0 || asked == 0 {
-                continue;
-            }
-            levels.push(match gets {
-                Asset::Xrp => Level {
-                    xrp: given,
-                    token: asked,
-                },
-                Asset::Token { .. } => Level {
-                    xrp: asked,
-                    token: given,
-                },
-            });
-        }
-        Ok(levels)
+        levels(&page.offers, gets, pays, own, now_s)
     }
 
     /// Signs `rebalance` with `wallet`, paying `destination`, submits it,
@@ -475,6 +455,55 @@ impl Xrpl {
         }
         Outcome::Unknown
     }
+}
+
+/// The levels of a side of the book that gives `gets` for `pays`, from its
+/// `offers`, best first: each as much as its owner funds, none of `own`'s,
+/// none that expired at or before `now_s`, and none of nothing.
+///
+/// # Errors
+///
+/// An offer is of another book, or beyond the ledger's units.
+pub fn levels(
+    offers: &[api::BookOffer],
+    gets: Asset,
+    pays: Asset,
+    own: AccountId,
+    now_s: u32,
+) -> Result<Vec<Level>, String> {
+    let mut levels = Vec::with_capacity(offers.len().min(MAX_LEVELS));
+    for offer in offers.iter().take(MAX_LEVELS) {
+        if offer.account == own
+            || offer
+                .expiration
+                .is_some_and(|expiration| expiration <= now_s)
+        {
+            continue;
+        }
+        let given = offer.taker_gets_funded.unwrap_or(offer.taker_gets);
+        let asked = offer.taker_pays_funded.unwrap_or(offer.taker_pays);
+        if given.asset() != gets || asked.asset() != pays {
+            return Err("a book_offers answer of another book".into());
+        }
+        let (given, asked) = (
+            to_units(given).ok_or("an offer beyond the ledger's units")?,
+            to_units(asked).ok_or("an offer beyond the ledger's units")?,
+        );
+        if given == 0 || asked == 0 {
+            continue;
+        }
+        levels.push(match gets {
+            Asset::Xrp => Level {
+                xrp: given,
+                token: asked,
+            },
+            Asset::Token { .. } => Level {
+                xrp: asked,
+                token: given,
+            },
+        });
+    }
+    Ok(levels)
 }
 
 /// What the next transaction from an account signs with.
@@ -848,7 +877,7 @@ mod tests {
         let mut xrpl = Xrpl::new(server.url.clone(), client.clone());
         let mut book = Book::EMPTY;
         for _ in 0..100 {
-            book = xrpl.book(dsusd(), own.account()).await.unwrap();
+            book = xrpl.book(dsusd(), own.account(), 0).await.unwrap();
             if book.bids.len() == 2 && book.asks.len() == 1 {
                 break;
             }
@@ -875,6 +904,54 @@ mod tests {
                 token: 51 * units / 10
             }]
         );
+    }
+
+    // spec/decisions/market-maker-order-book.md: rippled lists an offer
+    // past its expiration until a crossing meets it, but none fills it: the
+    // book the market maker prices by leaves it out, as it leaves out its
+    // own and one of nothing, and keeps the rest in their order.
+    #[test]
+    fn expired_offers_and_its_own_are_no_market() {
+        let token = |value: &str| Amount::Token(dsusd().amount(TokenValue::parse(value).unwrap()));
+        let offer =
+            |account: u8, gets: Amount, pays: Amount, expiration: Option<u32>| api::BookOffer {
+                account: AccountId([account; 20]),
+                sequence: 1,
+                taker_gets: gets,
+                taker_pays: pays,
+                taker_gets_funded: None,
+                taker_pays_funded: None,
+                owner_funds: None,
+                quality: String::new(),
+                expiration,
+            };
+        let token_asset = Asset::Token {
+            currency: DSUSD_CURRENCY,
+            issuer: DSUSD_ISSUER,
+        };
+        let offers = [
+            offer(1, token("5"), Amount::Xrp(10_000_000), Some(100)),
+            offer(2, token("4.9"), Amount::Xrp(10_000_000), Some(101)),
+            offer(3, token("4.8"), Amount::Xrp(10_000_000), None),
+            offer(4, token("4.7"), Amount::Xrp(10_000_000), None),
+        ];
+        let units = 1_000_000_000;
+        let read = levels(&offers, token_asset, Asset::Xrp, AccountId([4; 20]), 100).unwrap();
+        assert_eq!(
+            read,
+            [
+                Level {
+                    xrp: 10 * units,
+                    token: 49 * units / 10
+                },
+                Level {
+                    xrp: 10 * units,
+                    token: 48 * units / 10
+                },
+            ]
+        );
+        // An offer of the other book is no answer.
+        assert!(levels(&offers, Asset::Xrp, token_asset, AccountId([9; 20]), 0).is_err());
     }
 
     // spec/decisions/market-maker-order-book.md: it places its standing

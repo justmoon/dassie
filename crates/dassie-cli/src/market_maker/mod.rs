@@ -165,6 +165,11 @@ pub struct MarketMaker {
     offer_wait: Option<Wait>,
 }
 
+/// The ledger's time at `now_ms`, in seconds since the XRP Ledger's epoch.
+fn ledger_now_s(now_ms: u64) -> u32 {
+    u32::try_from(dassie_xrpl::unl::ledger_seconds(now_ms)).unwrap_or(u32::MAX)
+}
+
 /// What a decision reads.
 struct Market {
     snapshots: Vec<PeerSnapshot>,
@@ -425,7 +430,7 @@ impl MarketMaker {
                 .is_none_or(|wait| now_ms >= wait.until_ms),
             standing,
         };
-        let now_s = u32::try_from(dassie_xrpl::unl::ledger_seconds(now_ms)).unwrap_or(u32::MAX);
+        let now_s = ledger_now_s(now_ms);
         let action = strategy::standing_offer(&inputs, now_s);
         match strategy::decide(&inputs) {
             Decision::Hold(hold) => {
@@ -470,7 +475,11 @@ impl MarketMaker {
         // less than the two.
         let book = match self
             .xrpl
-            .book(self.config.token, self.wallet.account())
+            .book(
+                self.config.token,
+                self.wallet.account(),
+                ledger_now_s(self.clock.now_ms()),
+            )
             .await
         {
             Ok(book) => book,

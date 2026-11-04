@@ -976,8 +976,8 @@ impl Valuation {
 /// [`PRICE_SCALE`]: between its best bid, the better of the pool's price
 /// less its fee and the book's best price for XRP at [`MID_DEPTH`], and its
 /// best ask, the better of the pool's price over its fee and the book's
-/// best price of XRP at that depth. A book crossed with itself or the pool
-/// leaves the pool's price.
+/// best price of XRP at that depth. A book with neither side that deep, or
+/// one crossed with itself or the pool, leaves the pool's price.
 fn mid(pool: &Pool, book: &Book) -> Result<u128, Hold> {
     let pool_xrp = u128::from(to_units(pool.holds(Side::Xrp)).ok_or(Hold::Range)?);
     let pool_token = u128::from(to_units(pool.holds(Side::Token)).ok_or(Hold::Range)?);
@@ -989,8 +989,16 @@ fn mid(pool: &Pool, book: &Book) -> Result<u128, Hold> {
     let price = pool_token.saturating_mul(PRICE_SCALE) / pool_xrp;
     let pool_bid = price.saturating_mul(million - fee) / million;
     let pool_ask = price.saturating_mul(million).div_ceil(million - fee);
-    let bid = Book::price_at_depth(&book.bids).map_or(pool_bid, |book_bid| book_bid.max(pool_bid));
-    let ask = Book::price_at_depth(&book.asks).map_or(pool_ask, |book_ask| book_ask.min(pool_ask));
+    let (book_bid, book_ask) = (
+        Book::price_at_depth(&book.bids),
+        Book::price_at_depth(&book.asks),
+    );
+    // A book with neither side that deep leaves the pool's price itself.
+    if book_bid.is_none() && book_ask.is_none() {
+        return Ok(price);
+    }
+    let bid = book_bid.map_or(pool_bid, |book_bid| book_bid.max(pool_bid));
+    let ask = book_ask.map_or(pool_ask, |book_ask| book_ask.min(pool_ask));
     if bid > ask {
         return Ok(price);
     }
@@ -1676,10 +1684,9 @@ mod tests {
         let half = PRICE_SCALE / 2;
         // Without a fee and a book, the pool's price.
         assert_eq!(price(&pool(), &Book::EMPTY), half);
-        // A fee of 1% each way is symmetric enough to leave it within a
-        // ten-thousandth.
+        // Without a book, the pool's price, whatever its fee.
         let fee = pool_with_fee(1_000);
-        assert!(price(&fee, &Book::EMPTY).abs_diff(half) < half / 10_000);
+        assert_eq!(price(&fee, &Book::EMPTY), half);
         // A book inside the pool's spread sets the mid.
         assert_eq!(price(&fee, &book(999_000, 1_003_000)), half / 1_000 * 1_001);
         // One outside it leaves the pool's side.
