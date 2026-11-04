@@ -672,6 +672,22 @@ mod tests {
     }
 
     #[test]
+    fn readings_a_hair_short_of_the_hold_trip_it_a_reading_later() {
+        // The first reading off the peg came a millisecond late, and the
+        // rest a minute apart: the reading a hold of minutes after the move
+        // falls a millisecond short of the hold, so the guard trips only on
+        // the next, a read interval later. This is how long a member's
+        // guard may take to halt its hub's ledger (`OFF_PEG_WITHIN_MS` in
+        // the node's simulations).
+        let mut guard = Guard::new(PEG);
+        read(&mut guard, 1, 900_000);
+        hold(&mut guard, READ_EVERY_MS, TRIP_HOLD_MS, 900_000);
+        assert_eq!(guard.paused(), None, "a millisecond short of the hold");
+        read(&mut guard, TRIP_HOLD_MS + READ_EVERY_MS, 900_000);
+        assert_eq!(guard.paused(), Some(PegPause::OffPeg));
+    }
+
+    #[test]
     fn off_upward_is_off_too() {
         let mut guard = Guard::new(PEG);
         hold(&mut guard, 0, TRIP_HOLD_MS, 1_100_000);

@@ -60,9 +60,9 @@ use dassie_peer::InboundId;
 use dassie_peer::wire::{Content, SchemeId};
 use dassie_settlement::PegPause;
 use dassie_xrpl::DROPS_PER_XRP;
+use dassie_xrpl::account::REQUEST_TIMEOUT_MS;
 use dassie_xrpl::api;
 use dassie_xrpl::codec::{Amount, TokenValue};
-use dassie_xrpl::account::REQUEST_TIMEOUT_MS;
 use dassie_xrpl::peg::{READ_EVERY_MS, TRIP_HOLD_MS};
 
 use super::checks::{check_events, check_funded, check_held, check_incoming, first_failure};
