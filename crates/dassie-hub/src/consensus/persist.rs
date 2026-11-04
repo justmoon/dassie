@@ -2,7 +2,8 @@
 //! even across a crash: the view it is in, every vote it signed above its
 //! last finalized block, whether it declared the hub stalled, and whether
 //! it learned that another chain was finalized at a height it finalized
-//! (a fork, which only more than f faulty validators make). It also
+//! (a fork, which only more than f faulty validators make), so that it
+//! signs no payout set. It also
 //! keeps the blocks it voted for and the certificates it holds above that
 //! block, so that the hub can go on even if every validator restarts at
 //! once: a later leader builds on a notarized block, or skips a view, only
@@ -38,7 +39,8 @@
 //! The layout is this file's alone: a change of what the engine persists
 //! changes it here, with nothing to migrate but a host's stored bytes.
 //! `forked` is written only when true, and read as false when absent, so
-//! the bytes an earlier release wrote still decode.
+//! the bytes an earlier release wrote still decode; an earlier release
+//! cannot read the state of a validator that learned of a fork.
 
 use alloc::vec::Vec;
 

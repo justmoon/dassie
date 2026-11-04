@@ -951,31 +951,23 @@ fn a_validator_that_stalled_alone_signs_no_set_while_the_hub_goes_on() {
     assert_eq!(signed(&net), 2);
 }
 
-// spec/areas/hubs.md#consensus, "A fork leaves evidence when a validator
-// catches up": a validator shown another block finalized at its own final
-// height is on one side of a fork that more than f faulty validators made.
-// It reports it once however often it is shown it, and signs no payout set
-// when it stalls, not even after a restart: with the colluders' signatures
-// its own would make a quorum for a block the hub did not go on from.
-#[test]
-fn a_validator_on_a_fork_signs_no_payout_set() {
+/// A delivery that shows validator `to` another block finalized at its own
+/// last final height, signed by a quorum of the others: what a validator
+/// on one side of a fork is shown of the other.
+fn another_finalized_at_the_tip(net: &Network, to: usize) -> Vec<u8> {
     use dassie_hub::consensus::wire::{Certified, Delivery, Message as Consensus};
     use dassie_hub::consensus::{Certificate, Vote, VoteKind};
     use dassie_hub::validators::{Signers, ValidatorIndex};
 
-    let mut net = Network::new();
-    net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
-    net.run(2_000);
     let hub = net.rules.id().0;
-    let tip = net.validators[0].engine().tip().clone();
+    let tip = net.validators[to].engine().tip().clone();
     assert!(tip.finalization.is_some(), "finalized by its own votes");
-    // The others' block at its height: a quorum of them signed it.
     let mut other = tip.block.clone();
     other.timestamp_ms += 1;
     let digest = other.digest(&hub);
     let mut signers = Signers::NONE;
     let mut signatures = Vec::new();
-    for index in 1..4 {
+    for index in (0..4).filter(|index| *index != to) {
         let key = ValidatorKeys::derive(&net.node_keys[index], TESTNET_NETWORK, &NONCE)
             .unwrap()
             .consensus;
@@ -1000,7 +992,74 @@ fn a_validator_on_a_fork_signs_no_payout_set() {
         }],
         ..Delivery::default()
     });
-    let bytes = Message::Consensus(delivery.to_vec()).to_vec();
+    Message::Consensus(delivery.to_vec()).to_vec()
+}
+
+// A validator that knows of a fork and falls further behind than peers keep
+// blocks loads no later state while it runs, which may be of the other
+// side; a restart lifts that, as one on the side the hub goes on with
+// needs, and it catches up. That it signs no payout set outlives the
+// restart.
+#[test]
+fn a_validator_that_knows_of_a_fork_catches_up_after_a_restart() {
+    let mut net = Network::new();
+    net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
+    net.run(2_000);
+    let bytes = another_finalized_at_the_tip(&net, 3);
+    let node = net.nodes[0];
+    net.validators[3].handle(net.now, PeerId(0), Some(&node), &bytes);
+    net.collect(3);
+    assert!(net.validators[3].engine().is_forked());
+    net.cut = Some(3);
+    let mut runs = 0;
+    while net.validators[0].ledger().height() < net.validators[3].ledger().height() + 200 {
+        net.run(500);
+        runs += 1;
+        assert!(runs < 100, "the three others go on alone");
+    }
+    let behind_at = net.validators[3].ledger().height();
+    net.cut = None;
+    for _ in 0..2_000 {
+        net.run(1);
+        net.serve_states();
+    }
+    assert_eq!(net.caught_up, 0, "no state while it runs");
+    assert_eq!(net.validators[3].ledger().height(), behind_at);
+    net.restart(3);
+    // A millisecond at a time, so a peer is still at the block it named
+    // when its state is served.
+    let mut runs = 0;
+    while net.validators[3].ledger().height() + 2 < net.validators[0].ledger().height() {
+        net.run(1);
+        net.serve_states();
+        runs += 1;
+        assert!(runs < 20_000, "it catches up");
+    }
+    assert!(net.caught_up > 0, "through a peer's state");
+    assert!(net.validators[3].engine().is_forked());
+    // The hub stalls: the others sign its payout set, it does not.
+    let stall = net.rules.terms.timers.stall;
+    net.no_finality = true;
+    net.now += stall + 1;
+    net.run(1);
+    assert!(net.validators.iter().all(|v| v.engine().is_stalled()));
+    let signed: Vec<usize> = net.payout_heights.iter().map(|(v, _)| *v).collect();
+    assert!(signed.contains(&0));
+    assert!(!signed.contains(&3), "no payout set from it");
+}
+
+// spec/areas/hubs.md#consensus, "A fork leaves evidence when a validator
+// catches up": a validator shown another block finalized at its own final
+// height is on one side of a fork that more than f faulty validators made.
+// It reports it once however often it is shown it, and signs no payout set
+// when it stalls, not even after a restart: with the colluders' signatures
+// its own would make a quorum for a block the hub did not go on from.
+#[test]
+fn a_validator_on_a_fork_signs_no_payout_set() {
+    let mut net = Network::new();
+    net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
+    net.run(2_000);
+    let bytes = another_finalized_at_the_tip(&net, 0);
     net.cut = Some(0);
     let node = net.nodes[1];
     let reported = |net: &Network| net.evidence.iter().filter(|(by, _)| *by == 0).count();

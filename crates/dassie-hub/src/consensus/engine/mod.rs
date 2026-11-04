@@ -141,11 +141,14 @@ pub struct Engine {
     /// finalization its own set made, oldest first.
     boundaries: VecDeque<Finalized>,
     stalled: bool,
-    /// Whether a block of another chain was shown finalized at a height we
-    /// finalized: more than f validators are faulty, so we load no later
-    /// state, which may be of the other chain, and the host signs no payout
-    /// set. Persisted.
+    /// Whether a block of another chain was ever shown finalized at a
+    /// height we finalized: more than f validators are faulty, and the host
+    /// signs no payout set. Persisted.
     forked: bool,
+    /// Whether that happened since we started: we load no later state,
+    /// which may be of the other chain, until a restart lifts it, so one on
+    /// the side the hub goes on with is never out of it for good.
+    refuses_loads: bool,
     /// The heights such a conflict was reported at, each once; within the
     /// history's heights.
     reported_forks: BTreeSet<u64>,
@@ -227,6 +230,7 @@ impl Engine {
             boundaries: stored.boundaries.into_iter().collect(),
             stalled: stored.stalled,
             forked: stored.forked,
+            refuses_loads: false,
             reported_forks: BTreeSet::new(),
             last_voted: [0; MAX_VALIDATORS],
             want: None,
@@ -419,10 +423,10 @@ impl Engine {
         self.stalled
     }
 
-    /// Whether a block of another chain was shown finalized at a height we
-    /// finalized: our chain is one side of a fork that more than f faulty
-    /// validators made, so a payout set of a block on it could undo the
-    /// other side's.
+    /// Whether a block of another chain was ever shown finalized at a
+    /// height we finalized, across restarts: our chain is one side of a
+    /// fork that more than f faulty validators made, so a payout set of a
+    /// block on it could undo the other side's.
     #[must_use]
     pub const fn is_forked(&self) -> bool {
         self.forked

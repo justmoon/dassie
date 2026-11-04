@@ -522,6 +522,7 @@ impl Engine {
             self.forked = true;
             self.batch.forked = true;
         }
+        self.refuses_loads = true;
         // Reported once per height: while peers keep it, every delivery
         // shows it again.
         if !self.reported_forks.insert(block.height) {

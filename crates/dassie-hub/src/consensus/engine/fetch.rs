@@ -338,8 +338,8 @@ impl Engine {
     /// Takes in a delivery: first the finalizations of views we finalized,
     /// which show whether the sender's chain is ours ([`Self::on_fetch`]);
     /// then its finalized blocks, as far as they build on our tip, and
-    /// never a state to load once another chain was shown finalized at a
-    /// height we finalized; then its other certificates.
+    /// no state to load once another chain was shown finalized at a height
+    /// we finalized, until a restart; then its other certificates.
     pub(super) fn on_delivery(&mut self, app: &mut dyn Application, delivery: Delivery) {
         let (settled, mut certified): (Vec<Certified>, Vec<Certified>) = delivery
             .certified
@@ -397,7 +397,8 @@ impl Engine {
     /// The finalization does not prove the block with a set we know, the
     /// block is not above the tip, the change does not fit: before the
     /// block, or another one is waiting; or another chain was shown
-    /// finalized at a height we finalized, so the block may be of it.
+    /// finalized at a height we finalized since we started, so the block
+    /// may be of it.
     pub fn jump(
         &mut self,
         now_ms: u64,
@@ -414,7 +415,7 @@ impl Engine {
             .ok_or(Invalid::Unproven)?;
         let digest = digests.first().copied().ok_or(Invalid::Unproven)?;
         let ahead = (block.epoch, block.view) > (self.tip.block.epoch, self.tip.block.view);
-        if block.height <= self.tip.block.height || !ahead || self.forked {
+        if block.height <= self.tip.block.height || !ahead || self.refuses_loads {
             return Err(Invalid::Stale);
         }
         let height = block.height;
@@ -456,9 +457,10 @@ impl Engine {
             return self.check_finalized(end, finalization);
         }
         // Beyond what we can connect: the host loads the state after it,
-        // unless we know of another chain, which it may be of.
+        // unless we learned of another chain since we started, which it may
+        // be of.
         if first.height > self.tip.block.height.saturating_add(1) {
-            if self.forked {
+            if self.refuses_loads {
                 return;
             }
             self.event(Event::Behind(Box::new(Finalized {
