@@ -90,7 +90,7 @@ impl Engine {
     }
 
     /// The next time something is due: a timer of our view, a proposal of
-    /// ours, a rebroadcast, or a request.
+    /// ours, a rebroadcast, a request, or asking whether a block is wanted.
     #[must_use]
     pub fn poll_timeout(&self) -> Option<u64> {
         let round = self.rounds.get(&self.view);
@@ -104,6 +104,10 @@ impl Engine {
             self.timers.propose_ms.filter(|_| voting && !proposed),
             self.timers.kick_ms,
             self.next_ask_ms(),
+            // When to ask again whether a block is wanted.
+            self.timers
+                .wanted_ms
+                .filter(|_| voting && !self.timers.armed),
         ];
         candidates.into_iter().flatten().min()
     }

@@ -234,6 +234,8 @@ pub struct Validator {
     /// Our own operations passed on and not yet taken by a final block,
     /// oldest first.
     own: VecDeque<Own>,
+    /// The last view whose leader we told we want a block in it.
+    told: Option<u64>,
 }
 
 /// The genesis block of a hub: its rules' digest, at the ledger's start.
@@ -298,6 +300,7 @@ impl Validator {
             actions: VecDeque::new(),
             batches: Vec::new(),
             own: VecDeque::new(),
+            told: None,
         })
     }
 
@@ -376,6 +379,7 @@ impl Validator {
             actions: VecDeque::new(),
             batches: Vec::new(),
             own: VecDeque::new(),
+            told: None,
         })
     }
 
@@ -506,7 +510,7 @@ impl Validator {
             Ok(Message::Operation(operation)) => {
                 self.chain.mempool.admit(&self.chain.ledger, operation);
             }
-            Ok(Message::Request(request)) => self.answer(from, request),
+            Ok(Message::Request(request)) => self.answer(now, from, request),
             Ok(Message::Share { sequence, signer }) => self.take_share(sequence, signer),
             Ok(Message::Statements(_) | Message::Payout(_)) | Err(_) => {}
         }
@@ -739,10 +743,67 @@ impl Validator {
         }
     }
 
-    fn answer(&mut self, from: PeerId, request: Request) {
+    /// Passes on to our view's leader what may make it want a block
+    /// (spec/decisions/blocks-when-wanted.md): a member may have sent it to
+    /// some validators only, and those that want a block would then time
+    /// out a view whose leader never proposes, which no quorum could
+    /// notarize after, so the next work would cost a view.
+    /// Once our view's timers run because our pool or a wake wants a block,
+    /// tells the view's leader, once a view: a block on our head, stamped
+    /// after it (`Request::Wake`). Whatever made us want it, sent to us
+    /// alone or carried over from an earlier view, the leader then wants a
+    /// block too and proposes before our timers run out, so no view dies
+    /// for it; at worst the block is empty.
+    fn tell_leader_wanted(&mut self) {
+        let view = self.engine.view();
+        if self.told == Some(view) {
+            return;
+        }
+        if let Some(stamp) = self.engine.wanted_by_application() {
+            self.told = Some(view);
+            let wake = Request::Wake {
+                at: stamp.saturating_add(1),
+            };
+            self.tell_leader(Message::Request(wake).to_vec());
+        }
+    }
+
+    fn tell_leader(&mut self, message: Vec<u8>) {
+        let view = self.engine.view();
+        let Some(leader) = self.engine.leader(view) else {
+            return;
+        };
+        if Some(leader) == self.engine.member() {
+            return;
+        }
+        let Some(key) = self.engine.set().keys().get(leader.get()).copied() else {
+            return;
+        };
+        self.actions.push_back(Action::Validator(key, message));
+    }
+
+    fn answer(&mut self, now: Millis, from: PeerId, request: Request) {
         let statements = match request {
             Request::Submit(operation) => {
-                self.chain.mempool.admit(&self.chain.ledger, operation);
+                let quiet = !self.engine.armed();
+                let message = quiet.then(|| Message::Operation(operation.clone()).to_vec());
+                if self.chain.mempool.admit(&self.chain.ledger, operation)
+                    && let Some(message) = message
+                {
+                    self.tell_leader(message);
+                }
+                return;
+            }
+            // A payer waits for a block stamped at or after `at`, or a
+            // validator for a block on its head: never one later than our
+            // clock allows a block it made, which a member's may run far
+            // ahead of.
+            Request::Wake { at } => {
+                let precision = crate::consensus::Config::DEFAULT.precision_ms;
+                self.chain.wake_at = self
+                    .chain
+                    .wake_at
+                    .max(at.min(now.saturating_add(precision)));
                 return;
             }
             Request::Account(key) => vec_of(Statement::account(&self.chain.ledger, key)),
@@ -861,29 +922,14 @@ impl Validator {
     /// After every input: the engine's outputs and events, the statements
     /// of blocks that became final, and the escrow signatures they call for.
     fn after(&mut self, now: Millis) {
-        // A block was final that our ledger cannot follow: more than f
-        // validators are faulty, or there is a bug. We stop as at a stall:
-        // never vote again, and sign the payout set of the last block we
-        // executed (spec/designs/settlement-hubs.md#9-shutdown).
-        if self.chain.halted() && !self.engine.is_stalled() {
-            self.engine.declare_stalled(now);
-        }
-        while let Some(output) = self.engine.poll_output() {
-            self.route(output);
-        }
-        while let Some(event) = self.engine.poll_event() {
-            match event {
-                Event::Proposed { view, block, .. } => self.chain.adopt_proposal(view, block),
-                Event::Behind(finalized) => self.actions.push_back(Action::Behind(finalized)),
-                Event::Evidence(evidence) => self.actions.push_back(Action::Evidence(evidence)),
-                _ => {}
-            }
-        }
-        self.batches.push(self.engine.take_batch());
+        self.step_engine(now);
         self.take_finals();
         self.forget_old_chain();
         self.attest_passed(now);
         self.attest_waiting(now);
+        // What those passed on may want a block too.
+        self.step_engine(now);
+        self.take_finals();
         self.sign_withdrawals();
         // Once ended or stalled, we sign the payout set of our last final
         // block, and again whenever we learn of a later one, never of an
@@ -914,6 +960,34 @@ impl Validator {
             self.sign_payout();
         }
         self.chain.check_invariants();
+    }
+
+    /// Steps the engine on what came, and takes what it did: its messages,
+    /// its events and its batch to persist.
+    fn step_engine(&mut self, now: Millis) {
+        // Something may want a block that did not: an operation, ours or
+        // a member's, or a wake. A view not armed yet asks again at once.
+        self.engine.work_arrived(now, &mut self.chain);
+        // A block was final that our ledger cannot follow: more than f
+        // validators are faulty, or there is a bug. We stop as at a stall:
+        // never vote again, and sign the payout set of the last block we
+        // executed (spec/designs/settlement-hubs.md#9-shutdown).
+        if self.chain.halted() && !self.engine.is_stalled() {
+            self.engine.declare_stalled(now);
+        }
+        while let Some(output) = self.engine.poll_output() {
+            self.route(output);
+        }
+        while let Some(event) = self.engine.poll_event() {
+            match event {
+                Event::Proposed { view, block, .. } => self.chain.adopt_proposal(view, block),
+                Event::Behind(finalized) => self.actions.push_back(Action::Behind(finalized)),
+                Event::Evidence(evidence) => self.actions.push_back(Action::Evidence(evidence)),
+                _ => {}
+            }
+        }
+        self.batches.push(self.engine.take_batch());
+        self.tell_leader_wanted();
     }
 
     /// Forgets what we kept of the escrow's old chain once the ledger wrote
@@ -1307,6 +1381,23 @@ mod tests {
     }
 
     #[test]
+    fn a_wake_asks_for_a_block_stamped_no_later_than_our_clock_allows() {
+        let mut v = validator();
+        let member = PeerId(100);
+        // A member's clock may run ahead of ours: we take ours, and the
+        // precision a block's stamp may be ahead of it.
+        v.answer(1_000, member, Request::Wake { at: 5_000 });
+        assert_eq!(v.chain.wake_at, 1_100);
+        // The latest stands: a block stamped at or after it decides both.
+        v.answer(2_000, member, Request::Wake { at: 1_500 });
+        assert_eq!(v.chain.wake_at, 1_500);
+        v.answer(3_000, member, Request::Wake { at: 1_200 });
+        assert_eq!(v.chain.wake_at, 1_500);
+        // Nothing is answered.
+        assert!(sent(&mut v, member).is_empty());
+    }
+
+    #[test]
     fn a_block_too_long_for_one_answer_is_sent_whole() {
         let mut v = validator();
         let long = MAX_ANSWER + 44;
@@ -1314,6 +1405,7 @@ mod tests {
         v.history.push_back(block_of(3, 1));
         let member = PeerId(100);
         v.answer(
+            0,
             member,
             Request::Since {
                 account: AccountNumber(6),
@@ -1381,12 +1473,12 @@ mod tests {
             account: AccountNumber(6),
             from: 1,
         };
-        v.answer(member, since.clone());
+        v.answer(0, member, since.clone());
         assert_eq!(sent(&mut v, member).len(), 1, "it answers");
         v.chain.finals.push_back(block_of(2, 1));
         v.take_finals();
         assert!(sent(&mut v, member).is_empty(), "nothing unasked");
-        v.answer(member, since);
+        v.answer(0, member, since);
         let statements: Vec<Statement> = sent(&mut v, member).into_iter().flatten().collect();
         assert!(matches!(
             statements[0],

@@ -4,7 +4,7 @@
 
 ## Facts
 
-- A hub proposes a block every interval, a tenth of a second, and each validator sends each other validator several messages for each: its votes, the certificates it put together, operations it passes on. A step often sends more than one message to the same validator.
+- A busy hub proposes a block every interval, a tenth of a second, and each validator sends each other validator several messages for each: its votes, the certificates it put together, operations it passes on. A step often sends more than one message to the same validator.
 - A node may validate several hubs, often with the same validators: the testnet's XRP hub and its dollar hub run on the same four nodes, and mainnet's will too.
 - Each message went on a stream of its own, and took one of the few places a node keeps for validators' requests until its hub's validator had written the step it took it in. A node that validates several hubs fills those places in bursts, and is answered busy.
 - A node of an older release resets a stream of a kind it does not know, and its sender sees that as it sees any stream reset: nothing tells it that the node cannot read the kind.

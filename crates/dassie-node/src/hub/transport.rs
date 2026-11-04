@@ -85,7 +85,7 @@ pub const MAX_MEMBER_REQUESTS: usize = 128;
 /// account in flight at a validator, so this is [`ACCOUNTS_PER_SENDER`]
 /// accounts of one node; a key anyone can make never takes every place,
 /// for up to the request timeout each.
-pub const MAX_MEMBER_REQUESTS_PER_SENDER: u32 = 16;
+pub const MAX_MEMBER_REQUESTS_PER_SENDER: u32 = 20;
 
 /// The accounts of one node a validator serves at once in full: one per
 /// asset it settles over hubs, which a node has few of.
@@ -360,11 +360,12 @@ pub struct Route {
 /// The most exchanges one of the node's hub accounts has in flight with
 /// one validator: what one step of the account asks a validator at once
 /// (its account, what was executed since its cursor, an operation, a
-/// lookup); while a validator is slow, a poll beyond it is skipped, and
-/// the account asks again. So the exchanges in flight are at most this
-/// many times the accounts times their validators, and a busy account
-/// never takes the room of another.
-pub const MAX_EXCHANGES_PER_VALIDATOR: u8 = 4;
+/// lookup, and while a packet waits for the hub, a wake, which goes far
+/// less often than the account polls: `WAKE_EVERY_MS`); while a validator
+/// is slow, a poll beyond it is skipped, and the account asks again. So
+/// the exchanges in flight are at most this many times the accounts times
+/// their validators, and a busy account never takes the room of another.
+pub const MAX_EXCHANGES_PER_VALIDATOR: u8 = 5;
 
 /// The places each sender holds among [`MAX_MEMBER_REQUESTS`], by node.
 type HeldBySender = Arc<Mutex<BTreeMap<NodeId, u32>>>;
@@ -1058,6 +1059,10 @@ mod tests {
             for _ in 0..share {
                 all.push(hubs.request_permit(HubAccess::Member, &sender).unwrap());
             }
+        }
+        // What whole shares leave, another sender takes.
+        for _ in 0..MAX_MEMBER_REQUESTS % share {
+            all.push(hubs.request_permit(HubAccess::Member, &key(9)).unwrap());
         }
         assert!(
             hubs.request_permit(HubAccess::Member, &key(3)).is_none(),

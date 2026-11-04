@@ -25,6 +25,7 @@ use crate::consensus::{
 };
 use crate::digest::Digest;
 use crate::ledger::{self, Ledger, Outcome, results_root};
+use crate::rules::IDLE_VERSION;
 use crate::validators::Signers;
 
 /// A block executed, and the state after it.
@@ -136,6 +137,10 @@ pub struct Chain {
     halted: bool,
     /// The highest final block dropped before the service took it.
     pub(super) lost: Option<u64>,
+    /// The latest time a member asked for a block stamped at or after, by
+    /// our clock (`Request::Wake`): wanted while the head's stamp is below
+    /// it (spec/decisions/blocks-when-wanted.md).
+    pub(super) wake_at: crate::rules::Millis,
 }
 
 impl Chain {
@@ -155,6 +160,7 @@ impl Chain {
             finals: VecDeque::new(),
             halted: false,
             lost: None,
+            wake_at: 0,
         }
     }
 
@@ -300,6 +306,37 @@ impl Application for Chain {
         // final or not; the engine asks about every final block too
         // (spec/decisions/epoch-handover.md).
         self.base(after)?.scheduled_change()
+    }
+
+    /// From version 3 on, a block only when one is wanted
+    /// (spec/decisions/blocks-when-wanted.md): while the pool holds what a
+    /// block on `head` would take, which every validator was sent, or a
+    /// member waits for a block stamped later than `head`. The engine adds
+    /// the heartbeat and a chain that waits to be final. Before version 3,
+    /// one every interval, as every validator of an older release makes.
+    fn wanted(&mut self, head: &Digest, stamp_ms: u64, now_ms: u64) -> u64 {
+        // A head whose state we let go of, or never had: we cannot tell
+        // what a block on it would take, and leave it to the heartbeat and
+        // the chain's lag rather than time out a view others find quiet.
+        let Some(base) = self.base(head) else {
+            return if self.ledger.version() >= IDLE_VERSION {
+                u64::MAX
+            } else {
+                0
+            };
+        };
+        if base.version() < IDLE_VERSION {
+            return 0;
+        }
+        let woken = stamp_ms < self.wake_at;
+        // What `propose` would take, so the two never disagree: a pool that
+        // seemed to want a block its leader would not fill would make empty
+        // blocks every interval.
+        if !self.halted && (woken || !self.mempool.select(base).is_empty()) {
+            now_ms
+        } else {
+            u64::MAX
+        }
     }
 
     fn propose(

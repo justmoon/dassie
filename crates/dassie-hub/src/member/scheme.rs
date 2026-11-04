@@ -1601,6 +1601,12 @@ impl SettlementScheme for HubScheme {
             self.redeem(account);
         }
         self.book_losses(effects);
+        let waiting = self
+            .peers
+            .values()
+            .filter_map(|peer| peer.payer.waiting_on())
+            .max();
+        account.wait_for_block(waiting);
         account.wake(self.next_due());
         self.cursor = account.cursor();
         self.stalled = account.stalled();

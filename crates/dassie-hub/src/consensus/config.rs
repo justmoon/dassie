@@ -22,6 +22,15 @@
 //! stamp, and its proposal takes Δ (`leader_timeout_ms`, interval + 2Δ); the
 //! notarize votes take another Δ (`advance_timeout_ms`, interval + 3Δ).
 //!
+//! A hub makes a block only when one is wanted
+//! (spec/decisions/blocks-when-wanted.md): when the application has work,
+//! when the chain waits to be final, or once [`Config::heartbeat_ms`]
+//! passed since the last block, whose ten seconds keep a quiet hub far
+//! inside what its members and owners read as a hub that goes on (rises
+//! heard within half a minute, a warning after a minute, a stall after
+//! six at the least). Until then no validator arms its view's timers, so
+//! a quiet hub sends nothing between its heartbeats.
+//!
 //! Views that fail in a row wait longer and longer
 //! ([`Config::backoff_after_views`]), but never longer than
 //! [`MAX_VIEW_TIMEOUT_MS`], and the stall a hub's rules set must fit around
@@ -139,6 +148,10 @@ pub struct Config {
     pub backoff_after_views: u64,
     /// The least time between two catch-up requests: a round trip.
     pub fetch_interval_ms: u64,
+    /// The longest a hub whose application wants no block goes without
+    /// one: an empty block this long after the last, so that validators
+    /// and members see it go on.
+    pub heartbeat_ms: u64,
 }
 
 const DELAY_MS: u64 = 50;
@@ -158,6 +171,7 @@ impl Config {
         skip_views: 10,
         backoff_after_views: 16,
         fetch_interval_ms: 2 * DELAY_MS,
+        heartbeat_ms: 10_000,
     };
 
     /// The hub's margin M with `faults` validators faulty
@@ -201,6 +215,14 @@ impl Config {
         assert!(
             self.advance_timeout_ms <= MAX_VIEW_TIMEOUT_MS,
             "no view waits longer than the longest"
+        );
+        assert!(
+            self.heartbeat_ms > self.max_retry_ms,
+            "a quiet hub's heartbeat is slower than a lagging chain's block"
+        );
+        assert!(
+            self.heartbeat_ms.saturating_mul(2) <= MIN_STALL_MS,
+            "a quiet hub never looks stalled"
         );
     }
 }

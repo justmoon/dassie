@@ -347,6 +347,44 @@ async fn until_moved(clock: &ManualClock, what: &str, mut done: impl AsyncFnMut(
     panic!("not done in time: {what}");
 }
 
+/// A member that asks every validator of `hubs` for a block stamped now,
+/// as on a busy hub: a hub of version 3 makes one only when wanted
+/// (spec/decisions/blocks-when-wanted.md). It waits neither for the
+/// answers, of which there are none, nor for a validator that is down.
+fn wake(clock: &ManualClock, member: &HubClient, nodes: &[Node], hubs: &[HubId]) {
+    let message = Message::Request(Request::Wake { at: clock.now_ms() }).to_vec();
+    for node in nodes {
+        for hub in hubs {
+            let (member, id, endpoint) =
+                (member.clone(), node.key.node_id(), node.endpoint.clone());
+            let (hub, message) = (*hub, message.clone());
+            tokio::spawn(async move {
+                let wait = Duration::from_secs(2);
+                let _ = member.exchange(id, &endpoint, &hub, &message, wait).await;
+            });
+        }
+    }
+}
+
+/// [`until_moved`] on a busy hub: before each step, a member asks every
+/// validator for a block ([`wake`]).
+async fn until_busy(
+    clock: &ManualClock,
+    what: &str,
+    (member, nodes, hubs): (&HubClient, &[Node], &[HubId]),
+    mut done: impl AsyncFnMut() -> bool,
+) {
+    for _ in 0..STEPS {
+        if done().await {
+            return;
+        }
+        wake(clock, member, nodes, hubs);
+        clock.advance(STEP_MS);
+        tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
+    }
+    panic!("not done in time: {what}");
+}
+
 /// Asks every validator `request` at once, as a member does, until f + 1
 /// of them signed a statement alike, and returns it: validators answer as
 /// of their own final block, so they agree once f + 1 answer at one height.
@@ -403,7 +441,10 @@ async fn four_validators_finalize_blocks_over_quic_and_a_member_hears_them() {
         .iter()
         .map(|n| start(n, &rules, genesis, &clock))
         .collect();
-    until_moved(&clock, "blocks become final", async || {
+    let busy = HubClient::new(Some(Arc::clone(&node(51, &shutdown).quic)), client());
+    let hubs = [rules.id()];
+    let busy = (&busy, &nodes[..], &hubs[..]);
+    until_busy(&clock, "blocks become final", busy, async || {
         nodes.iter().all(|n| height(n) >= 10)
     })
     .await;
@@ -443,7 +484,7 @@ async fn four_validators_finalize_blocks_over_quic_and_a_member_hears_them() {
         .unwrap()
         .height;
     assert!(at >= 10);
-    until_moved(&clock, "the others go on without it", async || {
+    until_busy(&clock, "the others go on without it", busy, async || {
         [0, 1, 3].iter().all(|&i| height(&nodes[i]) >= at + 10)
     })
     .await;
@@ -454,7 +495,7 @@ async fn four_validators_finalize_blocks_over_quic_and_a_member_hears_them() {
     );
     let others = height(&nodes[0]);
     // The others hear of it once their backoff from it ends, on real time.
-    until_moved(&clock, "it catches up and goes on", async || {
+    until_busy(&clock, "it catches up and goes on", busy, async || {
         height(&nodes[2]) > others + 5
     })
     .await;
@@ -483,11 +524,18 @@ async fn two_hubs_whose_validators_share_a_writer_both_finalize() {
         .iter()
         .flat_map(|n| start_sharing(n, &[&first, &second], genesis, &clock))
         .collect();
-    until_moved(&clock, "blocks of both hubs become final", async || {
-        nodes
-            .iter()
-            .all(|n| hubs.iter().all(|hub| height_of(n, hub) >= 10))
-    })
+    let busy = HubClient::new(Some(Arc::clone(&node(51, &shutdown).quic)), client());
+    let busy = (&busy, &nodes[..], &hubs[..]);
+    until_busy(
+        &clock,
+        "blocks of both hubs become final",
+        busy,
+        async || {
+            nodes
+                .iter()
+                .all(|n| hubs.iter().all(|hub| height_of(n, hub) >= 10))
+        },
+    )
     .await;
     for node in &nodes {
         let counts = node.hubs.write_counters().counts();
@@ -836,7 +884,10 @@ async fn a_validator_far_behind_catches_up_from_a_peers_state() {
         .iter()
         .map(|n| start(n, &rules, genesis, &clock))
         .collect();
-    until_moved(&clock, "blocks become final", async || {
+    let busy = HubClient::new(Some(Arc::clone(&node(51, &shutdown).quic)), client());
+    let hubs = [rules.id()];
+    let busy = (&busy, &nodes[..], &hubs[..]);
+    until_busy(&clock, "blocks become final", busy, async || {
         nodes.iter().all(|n| height(n) >= 5)
     })
     .await;
@@ -855,26 +906,32 @@ async fn a_validator_far_behind_catches_up_from_a_peers_state() {
     // Each keeps its last RETAINED_BLOCKS final blocks: past this, the
     // block after `at` is gone from every one of them.
     let past = at + u64::try_from(dassie_hub::consensus::RETAINED_BLOCKS).unwrap();
-    until_moved(
+    until_busy(
         &clock,
         "the others finalize past what they keep",
+        busy,
         async || (0..3).all(|i| height(&nodes[i]) > past),
     )
     .await;
 
     // The others hear of it once their backoff from it ends, on real time.
     running.push(start(&nodes[3], &rules, genesis, &clock));
-    until_moved(&clock, "it catches up through a peer's state", async || {
-        nodes[3]
-            .hubs
-            .statuses()
-            .first()
-            .is_some_and(|s| s.caught_up > 0)
-    })
+    until_busy(
+        &clock,
+        "it catches up through a peer's state",
+        busy,
+        async || {
+            nodes[3]
+                .hubs
+                .statuses()
+                .first()
+                .is_some_and(|s| s.caught_up > 0)
+        },
+    )
     .await;
     let caught = height(&nodes[3]);
     assert!(caught > past, "it took a state from after it left");
-    until_moved(&clock, "it finalizes again", async || {
+    until_busy(&clock, "it finalizes again", busy, async || {
         height(&nodes[3]) > caught + 5
     })
     .await;

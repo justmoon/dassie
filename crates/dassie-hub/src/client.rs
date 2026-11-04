@@ -225,6 +225,14 @@ pub enum Request {
         /// The place in the set of the first transaction asked for.
         from: u32,
     },
+    /// A block stamped at or after `at`, by the validator's clock, which
+    /// clamps it to its own: a payer whose packet waits for the hub asks it
+    /// while it waits, so a quiet hub decides the packet in time
+    /// (spec/decisions/blocks-when-wanted.md). Nothing is answered.
+    Wake {
+        /// When the commitment it waits on expired.
+        at: Millis,
+    },
 }
 
 impl AccountView {
@@ -1020,6 +1028,7 @@ impl Encode for Request {
             Self::Holds(_) => 4,
             Self::Since { .. } => 4 + 8,
             Self::Payout { .. } => 4,
+            Self::Wake { .. } => 8,
         }
     }
 
@@ -1046,6 +1055,10 @@ impl Encode for Request {
                 writer.write_u8(4);
                 writer.write_u32(*from);
             }
+            Self::Wake { at } => {
+                writer.write_u8(5);
+                writer.write_u64(*at);
+            }
         }
     }
 }
@@ -1064,6 +1077,9 @@ impl Request {
             3 => Self::Holds(AccountNumber(reader.read_u32()?)),
             4 => Self::Payout {
                 from: reader.read_u32()?,
+            },
+            5 => Self::Wake {
+                at: reader.read_u64()?,
             },
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         };
@@ -1452,6 +1468,9 @@ mod tests {
             Request::Since {
                 account: AccountNumber(2),
                 from: 9,
+            },
+            Request::Wake {
+                at: 1_800_000_000_000,
             },
         ] {
             assert_eq!(Request::decode_exact(&request.to_vec()).unwrap(), request);

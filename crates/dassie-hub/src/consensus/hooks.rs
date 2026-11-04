@@ -126,4 +126,23 @@ pub trait Application {
         let _ = after;
         None
     }
+
+    /// The earliest time, by our clock, that the application wants a block
+    /// on `head`, the block the next one would build on, stamped
+    /// `stamp_ms` (a repeat's stamp for a repeat): `0` always wants one,
+    /// the view's timers running from when it was entered, as Simplex
+    /// has it; any other time at or before `now_ms` wants one now, the
+    /// timers running from now, never from when the work was made, which
+    /// would cut the leader's time short; `u64::MAX` wants none
+    /// (spec/decisions/blocks-when-wanted.md). Until a block is wanted,
+    /// no validator arms its view's timers and the leader proposes nothing;
+    /// the engine wants one itself once the heartbeat passed or the chain
+    /// waits to be final. Every honest validator must come to want a block
+    /// within a message delay of the others, from what reaches all of
+    /// them: operations every validator is sent, or the chain. The default,
+    /// `0`, is Simplex as published: a block every interval.
+    fn wanted(&mut self, head: &Digest, stamp_ms: u64, now_ms: u64) -> u64 {
+        let _ = (head, stamp_ms, now_ms);
+        0
+    }
 }

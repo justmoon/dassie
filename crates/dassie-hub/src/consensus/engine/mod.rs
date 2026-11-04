@@ -6,6 +6,7 @@ mod boundary;
 mod chain;
 mod compact;
 mod fetch;
+mod idle;
 mod receive;
 mod round;
 mod timers;
@@ -104,6 +105,15 @@ struct Timers {
     propose_ms: Option<u64>,
     /// A step due once, after a start.
     kick_ms: Option<u64>,
+    /// Whether the leader and advance timers run: from when a block is
+    /// wanted, or the leader's proposal came
+    /// (spec/decisions/blocks-when-wanted.md).
+    armed: bool,
+    /// Until armed: when a block is wanted next, as last asked.
+    wanted_ms: Option<u64>,
+    /// Whether the application wanted a block on the view's head, and the
+    /// head's stamp: what we tell its leader.
+    wanted_on: Option<u64>,
 }
 
 /// One validator's consensus engine, generic over the application's
@@ -590,6 +600,8 @@ impl Engine {
     fn progress(&mut self, app: &mut dyn Application) {
         let mut settled = false;
         for _ in 0..MAX_PROGRESS_STEPS {
+            // Not a step: it signs nothing, and only arms the view's timers.
+            self.arm(app);
             let changed = self.enter_certified()
                 || self.finalize_chain(app)
                 || self.expire()

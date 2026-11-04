@@ -195,6 +195,12 @@ pub const ACCOUNT_EVERY_MS: u64 = 2_000;
 /// lost its network, may be where the hub stopped while the account was
 /// not listening ([`HubAccount::progressing`]).
 pub const RISE_HEARD_WITHIN_MS: u64 = 15 * ACCOUNT_EVERY_MS;
+/// How often the account asks each validator for a block while a packet
+/// waits for the hub (`Request::Wake`): a lost or refused wake costs this,
+/// well inside the second and a half the connector waits for the hub, and
+/// one is in flight at a validator at a time unless its round trip is
+/// longer, so a wake never takes the place of an operation's exchange.
+pub const WAKE_EVERY_MS: u64 = 500;
 /// Most keys looked up at once.
 pub const MAX_LOOKUPS: usize = 16;
 /// Most recent states of the account kept, to match the holds read anew
@@ -497,6 +503,11 @@ pub struct HubAccount {
     next_poll_ms: u64,
     last_account_ms: Option<u64>,
     wake_ms: Option<u64>,
+    /// While a packet waits for the hub: the stamp of the final block that
+    /// decides it ([`HubAccount::wait_for_block`]).
+    block_wanted: Option<u64>,
+    /// When the account last asked for that block.
+    woke_ms: Option<u64>,
     news: Vec<News>,
     effects: Vec<AssetEffect>,
 }
@@ -576,6 +587,8 @@ impl HubAccount {
             next_poll_ms: 0,
             last_account_ms: None,
             wake_ms: None,
+            block_wanted: None,
+            woke_ms: None,
             news: Vec::new(),
             effects: Vec::new(),
         };
@@ -998,6 +1011,21 @@ impl HubAccount {
         self.wake_ms = at_ms;
     }
 
+    /// Waits for a final block stamped at or after `at`, by the hub's
+    /// clock, while a packet waits for the hub: it asks each validator for
+    /// one (`Request::Wake`) at its next poll, and again every
+    /// [`WAKE_EVERY_MS`] while it waits, so that a quiet hub decides it
+    /// before the connector gives up on it, and a lost request or a
+    /// validator that restarted costs a wait of that
+    /// (spec/decisions/blocks-when-wanted.md). The first wait polls at once.
+    pub fn wait_for_block(&mut self, at: Option<u64>) {
+        if at.is_some() && self.block_wanted.is_none() {
+            self.next_poll_ms = self.next_poll_ms.min(self.now_ms);
+            self.woke_ms = None;
+        }
+        self.block_wanted = at;
+    }
+
     /// Asks the validators which account `key` has, until f + 1 agree:
     /// the answer comes as [`News::Member`]. At most [`MAX_LOOKUPS`] at
     /// once; past them, nothing is asked. Returns whether `key` is asked
@@ -1083,11 +1111,24 @@ impl HubAccount {
             }),
             None => {}
         }
+        // Before the lookups, which may fill what the account sends at
+        // once (`MAX_EFFECTS`): a packet waits on it.
+        let wake_due = self
+            .woke_ms
+            .is_none_or(|woke| self.now_ms >= woke.saturating_add(WAKE_EVERY_MS));
+        if let Some(at) = self.block_wanted
+            && self.version() >= crate::rules::IDLE_VERSION
+            && wake_due
+        {
+            self.woke_ms = Some(self.now_ms);
+            self.ask(&Request::Wake { at });
+        }
         let keys: Vec<PublicKey> = self.lookups.values().copied().collect();
         for key in keys {
             self.ask(&Request::Account(key));
         }
-        let busy = !self.holds.is_empty()
+        let busy = self.block_wanted.is_some()
+            || !self.holds.is_empty()
             || !self.queue.is_empty()
             || !self.lookups.is_empty()
             || self.resync;

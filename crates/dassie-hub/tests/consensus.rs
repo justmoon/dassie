@@ -2136,3 +2136,227 @@ fn a_block_we_lack_is_asked_for_by_key_until_it_comes() {
     engine.handle_timeout(START + 2_000, &mut app);
     assert!(fetches(&mut engine).is_empty());
 }
+
+// Blocks only when wanted (spec/decisions/blocks-when-wanted.md).
+
+/// A hub whose validators want no block until work comes.
+fn quiet(count: usize) -> Network {
+    let mut network = honest(count);
+    for validator in &mut network.validators {
+        validator.app.work = Some(0);
+    }
+    network
+}
+
+/// Work reaches `validators` now: a block is wanted until one above the
+/// highest final one takes it.
+fn work(network: &mut Network, validators: &[usize]) {
+    let at = (0..network.validators.len())
+        .filter(|index| network.is_up(*index))
+        .map(|index| network.height(index))
+        .max()
+        .unwrap_or(0)
+        + 1;
+    for &index in validators {
+        network.validators[index].app.work = Some(at);
+        network.act(index, |engine, app, now| engine.work_arrived(now, app));
+    }
+}
+
+fn nullifies(network: &Network) -> u64 {
+    (0..network.validators.len())
+        .filter(|index| network.is_up(*index))
+        .map(|index| network.engine(index).stats().nullifies)
+        .sum()
+}
+
+#[test]
+fn a_quiet_hub_makes_a_block_only_every_heartbeat() {
+    let mut network = quiet(4);
+    run_for(&mut network, 60_000);
+    assert_safe(&network);
+    for index in 0..4 {
+        let height = network.height(index);
+        assert!((5..=6).contains(&height), "{height}");
+    }
+    // No view times out while no block is wanted.
+    assert_eq!(nullifies(&network), 0);
+    let proposals: u64 = (0..4)
+        .map(|index| network.engine(index).stats().proposals)
+        .sum();
+    assert!(proposals <= 7, "{proposals}");
+}
+
+#[test]
+fn work_after_a_quiet_spell_is_final_within_the_regional_bound() {
+    let mut network = quiet(4);
+    run_for(&mut network, 25_000);
+    let before = network.height(0);
+    work(&mut network, &[0, 1, 2, 3]);
+    // The parent is long past its interval: the leader proposes at once,
+    // and the block is final three message delays and the precision later.
+    run_for(&mut network, 3 * CONFIG.max_delay_ms + CONFIG.precision_ms);
+    for index in 0..4 {
+        assert_eq!(network.height(index), before + 1);
+    }
+    // And that block was all that was wanted: none follows it before the
+    // heartbeat.
+    run_for(&mut network, 5_000);
+    for index in 0..4 {
+        assert_eq!(network.height(index), before + 1);
+    }
+    assert_eq!(nullifies(&network), 0);
+    assert_safe(&network);
+}
+
+#[test]
+fn an_offline_leader_with_work_is_skipped_as_in_a_busy_hub() {
+    let mut network = quiet(4);
+    network.crash(3);
+    run_for(&mut network, 12_000);
+    for _ in 0..12 {
+        let before = network.height(0);
+        let at = network.now;
+        work(&mut network, &[0, 1, 2]);
+        // Final within the margin with one faulty leader before an honest
+        // one, as the rules' margin promises.
+        while network.height(0) == before {
+            run_for(&mut network, 10);
+        }
+        assert!(
+            network.now - at <= CONFIG.margin_ms(1),
+            "{}",
+            network.now - at
+        );
+        run_for(&mut network, 1_000);
+    }
+    // Some of that work came while the offline validator led.
+    assert!(nullifies(&network) > 0);
+    assert_safe(&network);
+}
+
+#[test]
+fn work_fewer_than_a_quorum_hold_waits_for_the_heartbeat() {
+    let mut network = quiet(4);
+    run_for(&mut network, 10_500);
+    let before = network.height(0);
+    assert_eq!(before, 1);
+    // Work that only one validator holds, not the leader: its timer runs
+    // out, but no quorum nullifies the view.
+    let view = network.engine(0).view();
+    let leader = network.engine(0).leader(view).unwrap().get();
+    let holder = (leader + 1) % 4;
+    work(&mut network, &[holder]);
+    run_for(&mut network, 5_000);
+    for index in 0..4 {
+        assert_eq!(network.height(index), before);
+        assert_eq!(network.engine(index).view(), view);
+    }
+    assert_eq!(nullifies(&network), 1);
+    // The heartbeat brings the block, and the work in it.
+    run_for(&mut network, 5_000);
+    for index in 0..4 {
+        assert_eq!(network.height(index), before + 1);
+    }
+    assert_safe(&network);
+}
+
+#[test]
+fn a_block_left_unfinal_gets_a_child_before_the_heartbeat() {
+    let mut network = quiet(4);
+    run_for(&mut network, 10_500);
+    let before = network.height(0);
+    network.lose_every_finalize = true;
+    work(&mut network, &[0, 1, 2, 3]);
+    run_for(&mut network, 1_000);
+    // Notarized, never final.
+    assert_eq!(network.height(0), before);
+    network.lose_every_finalize = false;
+    // Once the longest rebroadcast interval passed since its stamp, an
+    // empty block builds on it, and finalizing that one finalizes both.
+    run_for(&mut network, CONFIG.max_retry_ms + 500);
+    for index in 0..4 {
+        assert_eq!(network.height(index), before + 2);
+    }
+    assert_safe(&network);
+}
+
+#[test]
+fn slow_links_make_no_chain_of_empty_blocks() {
+    let mut network = quiet(4);
+    // Every message some 60 ms slower than the region promises: a block is
+    // final well after three message delays past its stamp.
+    for index in 0..4 {
+        network.slow.insert(index, 60);
+    }
+    run_for(&mut network, 10_500);
+    let before = network.height(0);
+    work(&mut network, &[0, 1, 2, 3]);
+    run_for(&mut network, 5_000);
+    for index in 0..4 {
+        assert_eq!(network.height(index), before + 1);
+    }
+    assert_safe(&network);
+}
+
+#[test]
+fn a_stalled_validator_and_an_observer_never_spin_in_a_quiet_hub() {
+    // A fifth validator outside the set follows the hub; the network
+    // asserts no timer is due at one instant for ever.
+    let mut network = Network::with_genesis(1, &roles(5, &[]), CONFIG, 4);
+    for validator in &mut network.validators {
+        validator.app.work = Some(0);
+    }
+    run_for(&mut network, 10_500);
+    network.act(2, |engine, _, now| engine.declare_stalled(now));
+    run_for(&mut network, 60_000);
+    assert!(network.height(0) >= 5);
+    assert!(network.engine(2).is_stalled());
+    assert_safe(&network);
+}
+
+#[test]
+fn a_restart_in_a_quiet_hub_times_out_no_view() {
+    let mut network = quiet(4);
+    run_for(&mut network, 15_000);
+    network.crash(1);
+    run_for(&mut network, 1_000);
+    network.start(1);
+    run_for(&mut network, 30_000);
+    assert_eq!(nullifies(&network), 0);
+    for index in 0..4 {
+        assert!(network.height(index) >= 4, "{}", network.height(index));
+    }
+    assert_safe(&network);
+}
+
+#[test]
+fn a_quiet_hub_hands_over_to_a_new_set_on_its_heartbeats() {
+    let mut network = Network::with_genesis(3, &roles(5, &[]), CONFIG, 4);
+    let next = dassie_hub::ValidatorSet::new(
+        [4, 1, 2, 3]
+            .iter()
+            .map(|at| key(*at).public_key())
+            .collect(),
+    )
+    .unwrap();
+    for sim in &mut network.validators {
+        sim.app.work = Some(0);
+        sim.app.schedule = Some(dassie_hub::sim::Schedule {
+            at: 2,
+            from: 4,
+            set: next.clone(),
+        });
+    }
+    run_for(&mut network, 80_000);
+    assert_safe(&network);
+    for index in 0..5 {
+        assert!(network.height(index) >= 6, "{}", network.height(index));
+        assert_eq!(network.engine(index).set_for_height(4), &next);
+    }
+    // The new set makes blocks when work comes, as the old one did.
+    let before = network.height(4);
+    work(&mut network, &[1, 2, 3, 4]);
+    run_for(&mut network, 3 * CONFIG.max_delay_ms + CONFIG.precision_ms);
+    assert_eq!(network.height(4), before + 1);
+}

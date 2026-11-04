@@ -186,6 +186,7 @@ impl Engine {
         if gave_up && vote.view == self.view && me != leader {
             self.timers.leader_ms = Some(self.now_ms);
             self.timers.advance_ms = Some(self.now_ms);
+            self.timers.armed = true;
         }
         formed
     }

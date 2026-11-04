@@ -12,7 +12,6 @@
 
 use alloc::vec::Vec;
 
-use super::super::config::MAX_VIEW_TIMEOUT_MS;
 use super::super::hooks::{Application, ProposeContext, VerifyContext};
 use super::super::io::{Event, Recipient};
 use super::super::types::{Block, MAX_PAYLOAD_BYTES, Vote, VoteKind};
@@ -49,41 +48,27 @@ enum Check {
 }
 
 impl Engine {
-    /// Enters `view`, and arms its timers.
+    /// Enters `view`. Its timers are armed once a block is wanted in it
+    /// (`arm`), which is asked at once.
     pub(super) fn enter(&mut self, view: u64) {
         self.view = view;
         self.batch.view = Some(view);
         let now = self.now_ms;
         self.timers = Timers {
             entered_ms: now,
+            wanted_ms: Some(now),
             ..Timers::default()
         };
-        if self.voter(view).is_some() {
-            let (leader_ms, advance_ms) = if self.skips(view) {
-                (now, now)
-            } else {
-                let factor = self.backoff_at(view);
-                let wait = |timeout: u64| {
-                    timeout
-                        .saturating_mul(factor)
-                        .min(MAX_VIEW_TIMEOUT_MS.max(timeout))
-                };
-                (
-                    now.saturating_add(wait(self.config.leader_timeout_ms)),
-                    now.saturating_add(wait(self.config.advance_timeout_ms)),
-                )
-            };
-            self.timers.leader_ms = Some(leader_ms);
-            self.timers.advance_ms = Some(advance_ms);
-            // A view we nullified before a restart or a new set: say so
-            // again at once.
-            if self
+        // A view we nullified before a restart or a new set: say so
+        // again at once.
+        if self.voter(view).is_some()
+            && self
                 .rounds
                 .get(&view)
                 .is_some_and(|round| round.voted_nullify())
-            {
-                self.timers.retry = Some((now, self.config.advance_timeout_ms));
-            }
+        {
+            self.arm_from(view, now);
+            self.timers.retry = Some((now, self.config.advance_timeout_ms));
         }
         if let Some(leader) = self.leader(view) {
             self.event(Event::EnteredView { view, leader });
@@ -120,7 +105,7 @@ impl Engine {
 
     /// Whether `view`'s leader has been gone for a while that a quorum was
     /// not: its view is nullified at once (Commonware's skip timeout).
-    fn skips(&self, view: u64) -> bool {
+    pub(super) fn skips(&self, view: u64) -> bool {
         let Some(leader) = self.leader(view) else {
             return false;
         };
@@ -189,13 +174,17 @@ impl Engine {
         let Some(me) = self.voter(view) else {
             return false;
         };
-        let idle = self
+        let untouched = self
             .rounds
             .get(&view)
             .is_none_or(|round| round.proposal.is_none() && round.own_votes().next().is_none());
         // Without room for the view's round, nothing we propose is held.
         let room = self.rounds.contains_key(&view) || self.rounds.len() < MAX_ROUNDS;
-        if self.leader(view) != Some(me) || !idle || !room {
+        // Only once a block is wanted; from then on whatever the
+        // application says, so that validators that armed on the same
+        // operation never see us fall silent.
+        let wanted = self.timers.armed;
+        if self.leader(view) != Some(me) || !untouched || !room || !wanted {
             return false;
         }
         // Armed again below only while we wait for the interval: a parent
