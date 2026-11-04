@@ -84,7 +84,7 @@ pub use ledgers::{BalanceView, LedgerView, RemovalBlocker};
 pub use names::NamesView;
 pub use own_snapshot::{Content as SnapshotContent, OwnSnapshots, grid_bp};
 pub use packets::ledger_slug;
-pub use payers::{CreatedOutgoing, NewOutgoing};
+pub use payers::{CreatedOutgoing, NewOutgoing, OUTGOING_DEADLINE_MS};
 pub use peers::{NetworkView, PeerView};
 pub use probes::{
     MAX_PROBES, MAX_PROBES_PER_CLIENT, Measured, OWNER_PROBES, PROBE_TIMEOUT_MS, Prober,
