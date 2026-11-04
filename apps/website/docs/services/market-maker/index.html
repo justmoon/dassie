@@ -40,9 +40,10 @@
         quotes, and pushes it to its peers. Your market maker's node peers
         with the core nodes it trades through, its <em>targets</em>, and
         reads their snapshots. The market maker values its own holdings the
-        way a core node does, at the price of an XRP Ledger pool between XRP
-        and a dollar token, but on a flatter curve: it gives a little more
-        for the asset it holds less of. Every ten seconds it:
+        way a core node does, at the market's price on the XRP Ledger
+        between XRP and a dollar token, from its pool and the order book
+        beside it, but on a flatter curve: it gives a little more for the
+        asset it holds less of. Every ten seconds it:
       </p>
       <ol class="steps">
         <li>
@@ -338,7 +339,9 @@
       <h2 id="curve-and-rebalancing">Its curve and rebalancing</h2>
       <p>
         The market maker counts what its node holds of each asset in its hub
-        and on its own account together, and values both at the pool's price.
+        and on its own account together, and values both at the market's mid:
+        halfway between the best bid and ask of the pool, its fee counted, and
+        of the order book beside it, where 100 XRP of offers would fill.
       </p>
       <ul>
         <li>
@@ -349,9 +352,10 @@
         </li>
         <li>
           <strong>The cost of undoing a swap:</strong> what a swap takes
-          beyond even, the market maker will sell back on the pool one day.
-          So that part pays the pool's fee and the price impact of a
-          rebalance, read from the pool when it decides. A swap back toward
+          beyond even, the market maker will sell back one day, on the pool or
+          the order book, whichever is cheaper. So that part pays what that
+          costs: the pool's fee and the price impact of a rebalance, or the
+          book's spread and depth, read when it decides. A swap back toward
           even pays none of it. What is left over is the margin, its profit.
         </li>
         <li>

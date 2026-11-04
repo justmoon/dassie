@@ -153,6 +153,13 @@ A node's default rate sources are exchanges whose terms license their market dat
 - **Done when:** a new node's sources are only these; XRP's rate follows mainnet's XRP/RLUSD pool, and a pool pushed for less than half the window leaves it unmoved; a test node signs nothing on mainnet; no dollar token's scheme or hub pauses for its price; the fiat currencies' rates come from the four banks, each dropped once older than its calendar allows; the wallet names the sources; and the keeper holds DSUSD's pool at mainnet's XRP/RLUSD price.
 - **Later:** a source of XRP's price in dollars outside every dollar token's pool, close to real time and with terms that allow a node's use, and the peg guard on it again.
 
+### The market maker's standing offer
+
+The market maker prices by the order book and its pool together, and rebalances on the ledger only past its threshold ([Rate feed](areas/rate-feed.md#rebalancing)). [market-maker-order-book](decisions/market-maker-order-book.md) has it keep one offer of its own on the order book while it is off even, at the market's mid, so that others pay it the spread rather than it paying the pool's fee.
+
+- **Left to build:** offers in the XRPL codec, the API and the fake ledger (placing, replacing, cancelling, crossing, the order book and the account's offers read); the market maker's standing offer, placed, replaced and cancelled by its band, step and tenth, expiring by itself; the area docs and the market maker's docs page.
+- **Done when:** in the market maker's tests on paused time against the fake ledger, a market maker off even keeps one offer at the market's mid that brings it back to even; another account crossing it moves the market maker toward even, booked by its node as a deposit and a withdrawal; the offer follows the mid and is gone once it is even, before a rebalance past the threshold, and when it stops.
+
 ## Not built yet
 
 Gaps between what the spec's contract or decisions ask for and what `main` does. Each can be picked up on its own.

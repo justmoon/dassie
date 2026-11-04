@@ -312,6 +312,19 @@ impl MarketMaker {
                 return;
             }
         };
+        // Without the book, it prices by the pool alone, which never costs
+        // less than the two.
+        let book = match self
+            .xrpl
+            .book(self.config.token, self.wallet.account())
+            .await
+        {
+            Ok(book) => book,
+            Err(problem) => {
+                tracing::warn!(target: TARGET, %problem, "cannot read the order book: the pool alone");
+                strategy::Book::EMPTY
+            }
+        };
         let holdings = match self.node.holdings().await {
             Ok(holdings) => holdings,
             Err(problem) => {
@@ -332,6 +345,7 @@ impl MarketMaker {
         let inputs = Inputs {
             targets: &targets,
             pool,
+            book: &book,
             holdings,
             params: &params,
             may_rebalance: self

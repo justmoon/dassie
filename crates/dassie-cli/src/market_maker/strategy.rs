@@ -6,20 +6,22 @@
 //! XRP and an issued token, each in the settlement hub of its asset and in
 //! the owner book that funds it. It values what it holds as a core node
 //! does, by a curve around an even share of each, but flatter, at the
-//! XRP Ledger's AMM pool's price ([`Valuation`]). A trade is a swap with
+//! market's mid on the XRP Ledger: between the best bid and ask of its AMM
+//! pool, its fee counted, and of the order book beside it ([`Valuation`]). A trade is a swap with
 //! one target, from the hub's method of asset `a` to the hub's method of
 //! `b`, which the node sends for its owner (`SwapWithPeer`); it is worth it
 //! while what comes back, valued by the curve at the state the trades in
-//! flight leave after it, less what selling back on the pool the part of
-//! it that takes the market maker beyond even would cost, exceeds what it
+//! flight leave after it, less what selling back the part of it that takes
+//! the market maker beyond even would cost, on the pool or the order book,
+//! whichever is cheaper, exceeds what it
 //! pays, valued alike, by the margin. Every target whose quote clears gets
 //! a trade of its own, as large as its ladders allow with the trade still
 //! clearing, and it asks the node for no less per unit than what clears.
 //! A rebalance takes the market maker back to even once its share of an
 //! asset is beyond a threshold: one Payment from the node's XRPL account to
 //! itself, which spends the asset it holds too much of and delivers the
-//! other, through the pool. One that cannot go leaves the trades back
-//! toward even running.
+//! other, through the pool and the order book, which the ledger routes it
+//! through. One that cannot go leaves the trades back toward even running.
 //!
 //! Every amount is in the node's ledger units: all its books count at scale 9
 //! (spec/areas/ledger.md#ledgers-and-amounts), so a drop is
@@ -75,6 +77,19 @@ const FEE_PPM_PER_UNIT: u32 = 10;
 
 /// How many halvings a search of an amount takes at most: one per bit.
 const SEARCH_STEPS: u32 = 64;
+
+/// The most offers of each side of the order book the market maker reads:
+/// a page of `book_offers`.
+pub const MAX_LEVELS: usize = 100;
+
+/// The scale of a price, the token's units per unit of XRP: a millionth of
+/// a millionth.
+const PRICE_SCALE: u128 = 1_000_000_000_000;
+
+/// How deep a side of the order book counts toward the market's mid, in
+/// XRP's units: 100 XRP. Its best price is the one at which that much of
+/// it fills, so that an offer of a few drops cannot move the mid.
+pub const MID_DEPTH: u64 = 100 * 1_000_000_000;
 
 /// Which of the node's two assets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -217,6 +232,90 @@ impl Pool {
     }
 }
 
+/// One offer on the order book between XRP and the token, as much of it as
+/// its owner can fund, in the ledgers' units.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Level {
+    /// Its XRP: what it gives, or asks for.
+    pub xrp: u64,
+    /// Its token: what it asks for, or gives.
+    pub token: u64,
+}
+
+impl Level {
+    /// Its price, the token's units per unit of XRP, scaled by
+    /// [`PRICE_SCALE`]; `None` for one of nothing.
+    fn price(self) -> Option<u128> {
+        (self.xrp > 0 && self.token > 0)
+            .then(|| u128::from(self.token).saturating_mul(PRICE_SCALE) / u128::from(self.xrp))
+    }
+}
+
+/// The order book between XRP and the token, each side best first, at most
+/// [`MAX_LEVELS`] each.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Book {
+    /// The offers that give the token for XRP: what selling XRP takes.
+    pub bids: Vec<Level>,
+    /// The offers that give XRP for the token: what selling the token
+    /// takes.
+    pub asks: Vec<Level>,
+}
+
+impl Book {
+    /// The price, scaled by [`PRICE_SCALE`], of the offer at which
+    /// [`MID_DEPTH`] of XRP fills on `levels`, best first; `None` for a side
+    /// not that deep.
+    fn price_at_depth(levels: &[Level]) -> Option<u128> {
+        let mut xrp: u64 = 0;
+        for level in levels.iter().take(MAX_LEVELS) {
+            xrp = xrp.saturating_add(level.xrp);
+            if xrp >= MID_DEPTH {
+                return level.price();
+            }
+        }
+        None
+    }
+
+    /// An empty book: the pool alone.
+    pub const EMPTY: Self = Self {
+        bids: Vec::new(),
+        asks: Vec::new(),
+    };
+
+    /// What selling `paid` of `side`'s asset into the book yields of the
+    /// other, in its units, rounded down, at the offers' prices, best
+    /// first; `None` if the book cannot take all of it.
+    #[must_use]
+    pub fn sell(&self, side: Side, paid: u64) -> Option<u64> {
+        let levels = match side {
+            Side::Xrp => &self.bids,
+            Side::Token => &self.asks,
+        };
+        let mut left = u128::from(paid);
+        let mut out: u128 = 0;
+        for level in levels.iter().take(MAX_LEVELS) {
+            if left == 0 {
+                break;
+            }
+            let (takes, gives) = match side {
+                Side::Xrp => (u128::from(level.xrp), u128::from(level.token)),
+                Side::Token => (u128::from(level.token), u128::from(level.xrp)),
+            };
+            if takes == 0 {
+                continue;
+            }
+            let taken = left.min(takes);
+            out = out.saturating_add(taken.saturating_mul(gives) / takes);
+            left -= taken;
+        }
+        if left > 0 {
+            return None;
+        }
+        u64::try_from(out).ok()
+    }
+}
+
 /// What the node holds of one asset, in its ledgers' units, none below
 /// zero (spec/areas/rate-feed.md#holdings).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -280,6 +379,8 @@ pub struct Inputs<'a> {
     pub targets: &'a [TargetQuote],
     /// The pool.
     pub pool: Pool,
+    /// The order book beside it.
+    pub book: &'a Book,
     /// The node's holdings.
     pub holdings: Holdings,
     /// The settings.
@@ -449,7 +550,8 @@ const fn further(a: Hold, b: Hold) -> Hold {
 }
 
 /// What the market maker holds, and what is left to pay with in each hub,
-/// valued at the pool's price in the token's units (spec/decisions/market-maker-inventory.md).
+/// valued at the market's mid in the token's units
+/// (spec/decisions/market-maker-inventory.md, spec/decisions/market-maker-order-book.md).
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Valuation {
     /// What it holds of XRP and of the token, in their units.
@@ -458,9 +560,9 @@ struct Valuation {
     /// What is left in each hub to pay a trade with.
     xrp_in_hub: u64,
     token_in_hub: u64,
-    /// The pool's XRP and token, in their units: its price.
-    pool_xrp: u128,
-    pool_token: u128,
+    /// The market's mid, the token's units per unit of XRP, scaled by
+    /// [`PRICE_SCALE`].
+    price: u128,
     /// The curve's `k`, and what undoing a trade beyond even costs, for
     /// each asset that comes in, in parts per million of its value.
     curve_ppm: u128,
@@ -470,23 +572,17 @@ struct Valuation {
 }
 
 impl Valuation {
-    /// The holdings and the pool's price `inputs` give, and what undoing a
-    /// trade costs on the pool now.
+    /// The holdings `inputs` give, valued at the market's mid, and what
+    /// undoing a trade costs on the pool or the book now.
     fn of(inputs: &Inputs<'_>) -> Result<Self, Hold> {
-        let pool = inputs.pool;
-        let pool_xrp = u128::from(to_units(pool.holds(Side::Xrp)).ok_or(Hold::Range)?);
-        let pool_token = u128::from(to_units(pool.holds(Side::Token)).ok_or(Hold::Range)?);
-        if pool_xrp == 0 || pool_token == 0 {
-            return Err(Hold::Pool(SwapError::Dry));
-        }
+        let price = mid(&inputs.pool, inputs.book)?;
         let holdings = inputs.holdings;
         let mut valuation = Self {
             xrp: holdings.xrp.total,
             token: holdings.token.total,
             xrp_in_hub: holdings.xrp.in_hub(),
             token_in_hub: holdings.token.in_hub(),
-            pool_xrp,
-            pool_token,
+            price,
             curve_ppm: u128::from(inputs.params.curve_ppm),
             undo_xrp_ppm: 0,
             undo_token_ppm: 0,
@@ -497,12 +593,12 @@ impl Valuation {
         Ok(valuation)
     }
 
-    /// `units` of `side`'s asset, valued at the pool's price, in the
+    /// `units` of `side`'s asset, valued at the market's mid, in the
     /// token's units, rounded down.
     fn value(&self, side: Side, units: u64) -> u128 {
         match side {
             Side::Token => u128::from(units),
-            Side::Xrp => u128::from(units).saturating_mul(self.pool_token) / self.pool_xrp,
+            Side::Xrp => u128::from(units).saturating_mul(self.price) / PRICE_SCALE,
         }
     }
 
@@ -511,7 +607,7 @@ impl Valuation {
     fn units_of(&self, side: Side, value: u128) -> Option<u64> {
         let units = match side {
             Side::Token => value,
-            Side::Xrp => value.checked_mul(self.pool_xrp)? / self.pool_token,
+            Side::Xrp => value.checked_mul(PRICE_SCALE)? / self.price,
         };
         u64::try_from(units).ok()
     }
@@ -591,10 +687,12 @@ impl Valuation {
         next
     }
 
-    /// What selling back on the pool a rebalance's worth of `side`'s asset
-    /// costs, in parts per million of its value: the pool's fee, and the
-    /// price impact of a rebalance of the threshold's share of the
-    /// market maker's value, rounded up; at least the fee.
+    /// What selling back a rebalance's worth of `side`'s asset costs
+    /// against the market's mid, in parts per million of its value: on the
+    /// pool, its fee and the price impact of a rebalance of the threshold's
+    /// share of the market maker's value, or on the order book, the
+    /// spread and the depth it walks, whichever is less; rounded up. The
+    /// ledger routes a rebalance through both, so it costs no more.
     fn undo_ppm(&self, inputs: &Inputs<'_>, side: Side) -> Result<u128, Hold> {
         let fee = u128::from(inputs.pool.trading_fee) * u128::from(FEE_PPM_PER_UNIT);
         let (_, _, total) = self.values();
@@ -605,11 +703,14 @@ impl Valuation {
         if sold == 0 {
             return Ok(fee);
         }
-        let back = swap_back(&inputs.pool, side, size)?;
+        let on_pool = swap_back(&inputs.pool, side, size)?;
+        let back = inputs
+            .book
+            .sell(side, size)
+            .map_or(on_pool, |on_book| on_book.max(on_pool));
         let back_value = self.value(side.other(), back);
         let lost = sold.saturating_sub(back_value);
-        let ppm = lost.saturating_mul(u128::from(MILLION)).div_ceil(sold);
-        Ok(ppm.max(fee))
+        Ok(lost.saturating_mul(u128::from(MILLION)).div_ceil(sold))
     }
 
     /// What paying `paid` of `from`'s asset for `received` of the other
@@ -694,6 +795,31 @@ impl Valuation {
     }
 }
 
+/// The market's mid, the token's units per unit of XRP, scaled by
+/// [`PRICE_SCALE`]: between its best bid, the better of the pool's price
+/// less its fee and the book's best price for XRP at [`MID_DEPTH`], and its
+/// best ask, the better of the pool's price over its fee and the book's
+/// best price of XRP at that depth. A book crossed with itself or the pool
+/// leaves the pool's price.
+fn mid(pool: &Pool, book: &Book) -> Result<u128, Hold> {
+    let pool_xrp = u128::from(to_units(pool.holds(Side::Xrp)).ok_or(Hold::Range)?);
+    let pool_token = u128::from(to_units(pool.holds(Side::Token)).ok_or(Hold::Range)?);
+    if pool_xrp == 0 || pool_token == 0 {
+        return Err(Hold::Pool(SwapError::Dry));
+    }
+    let million = u128::from(MILLION);
+    let fee = (u128::from(pool.trading_fee) * u128::from(FEE_PPM_PER_UNIT)).min(million - 1);
+    let price = pool_token.saturating_mul(PRICE_SCALE) / pool_xrp;
+    let pool_bid = price.saturating_mul(million - fee) / million;
+    let pool_ask = price.saturating_mul(million).div_ceil(million - fee);
+    let bid = Book::price_at_depth(&book.bids).map_or(pool_bid, |book_bid| book_bid.max(pool_bid));
+    let ask = Book::price_at_depth(&book.asks).map_or(pool_ask, |book_ask| book_ask.min(pool_ask));
+    if bid > ask {
+        return Ok(price);
+    }
+    Ok(bid + (ask - bid) / 2)
+}
+
 /// The largest amount up to `most` for which `holds` does, if any does at
 /// a small one: a sixty-fourth of `most`, or `most` itself. `holds` is
 /// taken to hold for every amount below one it holds for.
@@ -771,12 +897,19 @@ fn rebalance(inputs: &Inputs<'_>, valuation: &Valuation, over: Side) -> Result<R
     let pool = &inputs.pool;
     let out = amm::swap_out(pool.holds(over), pool.holds(to), pool.trading_fee, paid)
         .map_err(Hold::Pool)?;
+    let on_pool = to_units(out).ok_or(Hold::Range)?;
+    // The ledger routes the Payment through the pool and the order book, so
+    // it delivers at least what the better of them gives for what it pays.
+    let paid_units = to_units(paid).ok_or(Hold::Range)?;
+    let best = inputs
+        .book
+        .sell(over, paid_units)
+        .map_or(on_pool, |on_book| on_book.max(on_pool));
     // Whole drops or millionths, as the other owner book books them: a token's
     // exact price can take every digit a value has, and an amount that
     // leaves the line or the pool more digits than the ledger holds is
     // rounded by the ledger, or refused by the fake.
-    let deliver =
-        to_amount(to, to_units(out).ok_or(Hold::Range)?, token_asset).ok_or(Hold::Range)?;
+    let deliver = to_amount(to, best, token_asset).ok_or(Hold::Range)?;
     if deliver.is_zero() {
         return Err(Hold::Dust);
     }
@@ -891,6 +1024,9 @@ mod tests {
         }
     }
 
+    /// No order book beside the pool.
+    static NO_BOOK: Book = Book::EMPTY;
+
     /// The pool's price both ways, × 10^15, with no fee.
     const POOL_XRP_TO_TOKEN: u64 = 500_000_000_000_000;
     const POOL_TOKEN_TO_XRP: u64 = 2_000_000_000_000_000;
@@ -908,6 +1044,7 @@ mod tests {
         Inputs {
             targets,
             pool: pool(),
+            book: &NO_BOOK,
             holdings,
             params,
             may_rebalance: true,
@@ -1337,6 +1474,130 @@ mod tests {
             send_max: Amount::Xrp(0),
         };
         assert_eq!(least_spent(&dust, params.slippage_ppm), 1);
+    }
+
+    /// A book of one deep offer each side, `bid_ppm` and `ask_ppm` from
+    /// the pool's price of half a dollar an XRP, 1000 XRP deep.
+    fn book(bid_ppm: u64, ask_ppm: u64) -> Book {
+        let at = |ppm: u64| Level {
+            xrp: 1_000 * ONE,
+            token: 500 * ONE / 1_000_000 * ppm,
+        };
+        Book {
+            bids: vec![at(bid_ppm)],
+            asks: vec![at(ask_ppm)],
+        }
+    }
+
+    // spec/decisions/market-maker-order-book.md: the market's mid is between
+    // the best bid and ask of the pool, its fee counted, and of the book.
+    #[test]
+    fn the_mid_is_the_best_of_the_pool_and_the_book() {
+        let price = |pool: &Pool, book: &Book| mid(pool, book).unwrap();
+        let half = PRICE_SCALE / 2;
+        // Without a fee and a book, the pool's price.
+        assert_eq!(price(&pool(), &Book::EMPTY), half);
+        // A fee of 1% each way is symmetric enough to leave it within a
+        // ten-thousandth.
+        let fee = pool_with_fee(1_000);
+        assert!(price(&fee, &Book::EMPTY).abs_diff(half) < half / 10_000);
+        // A book inside the pool's spread sets the mid.
+        assert_eq!(price(&fee, &book(999_000, 1_003_000)), half / 1_000 * 1_001);
+        // One outside it leaves the pool's side.
+        let wide = price(&fee, &book(900_000, 1_100_000));
+        assert!(wide.abs_diff(half) < half / 10_000);
+        // A few drops inside the spread move nothing: only the price at
+        // which a hundred XRP fill counts.
+        let mut baited = book(999_000, 1_003_000);
+        baited.bids.insert(
+            0,
+            Level {
+                xrp: 1_000,
+                token: 1_000,
+            },
+        );
+        assert_eq!(price(&fee, &baited), half / 1_000 * 1_001);
+    }
+
+    #[test]
+    fn the_book_is_walked_best_first_and_no_further_than_it_is_deep() {
+        let book = Book {
+            bids: vec![
+                Level {
+                    xrp: 10 * ONE,
+                    token: 5 * ONE,
+                },
+                Level {
+                    xrp: 10 * ONE,
+                    token: 4 * ONE,
+                },
+            ],
+            asks: Vec::new(),
+        };
+        assert_eq!(book.sell(Side::Xrp, 10 * ONE), Some(5 * ONE));
+        assert_eq!(book.sell(Side::Xrp, 15 * ONE), Some(7 * ONE));
+        assert_eq!(book.sell(Side::Xrp, 21 * ONE), None);
+        assert_eq!(book.sell(Side::Token, ONE), None);
+    }
+
+    // With a pool fee of 1%, a target that pays 1.5% over the market at even
+    // does not clear: undoing it on the pool costs more. A book a twentieth
+    // of a percent either side of the mid makes undoing it cheap, and it
+    // clears.
+    #[test]
+    fn a_deep_tight_book_makes_undoing_a_trade_cheap() {
+        let params = params();
+        let quotes = one(rates(
+            POOL_XRP_TO_TOKEN / 1_000 * 1_015,
+            POOL_TOKEN_TO_XRP / 1_000 * 1_015,
+        ));
+        let mut on_pool = inputs(&quotes, EVEN, &params);
+        on_pool.pool = pool_with_fee(1_000);
+        assert_eq!(decide(&on_pool), Decision::Hold(Hold::Margin));
+        let tight = book(999_500, 1_000_500);
+        let mut with_book = on_pool;
+        with_book.book = &tight;
+        let trades = trades_of(decide(&with_book));
+        assert!(!trades.is_empty());
+    }
+
+    // The ledger routes a rebalance through the pool and the book: it is
+    // asked to deliver what the better of them gives.
+    #[test]
+    fn a_rebalance_delivers_what_the_book_gives_when_it_is_better() {
+        let params = params();
+        let skewed = held(300 * ONE, 50 * ONE);
+        let mut on_pool = inputs(&[], skewed, &params);
+        on_pool.pool = pool_with_fee(1_000);
+        let Decision::Rebalance(pool_only) = decide(&on_pool) else {
+            panic!("a rebalance");
+        };
+        let tight = book(999_500, 1_000_500);
+        let mut with_book = on_pool;
+        with_book.book = &tight;
+        let Decision::Rebalance(rebalance) = decide(&with_book) else {
+            panic!("a rebalance");
+        };
+        // Both spend what takes it back to even at the mid, which the book
+        // moves by no more than a ten-thousandth here.
+        let (spends, pool_spends) = (
+            to_units(rebalance.send_max).unwrap(),
+            to_units(pool_only.send_max).unwrap(),
+        );
+        assert!(spends.abs_diff(pool_spends) < pool_spends / 10_000);
+        let (book_delivers, pool_delivers) = (
+            to_units(rebalance.deliver).unwrap(),
+            to_units(pool_only.deliver).unwrap(),
+        );
+        assert!(
+            book_delivers > pool_delivers,
+            "{book_delivers} {pool_delivers}"
+        );
+        // What the book gives for what it pays, a twentieth of a percent
+        // below the mid.
+        let paid = to_units(rebalance.send_max).unwrap() * 100 / 101;
+        assert!(book_delivers <= paid / 2);
+        assert!(book_delivers >= paid / 2 / 1_000 * 999);
     }
 
     #[test]
