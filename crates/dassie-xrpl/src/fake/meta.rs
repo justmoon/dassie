@@ -9,9 +9,10 @@
 //! defaults; a changed one with its fields as they are and those that
 //! changed as they were, and the transaction that changed it before; a
 //! deleted one as it ended, and what changed of it. An object names the
-//! last transaction that changed it (`PreviousTxnID`), and a trust line or
-//! a pool made or deleted names it in its owners' roots too, so an owner
-//! the transaction did not otherwise change is listed with that alone.
+//! last transaction that changed it (`PreviousTxnID`), and a trust line, a
+//! pool or an offer made or deleted names it in its owners' roots too, so
+//! an owner the transaction did not otherwise change is listed with that
+//! alone.
 
 use alloc::string::ToString;
 use alloc::vec::Vec;
@@ -23,6 +24,7 @@ use super::objects::{
     LEDGER_INDEX, MODIFIED_NODE, NEW_FIELDS, Object, PREVIOUS_FIELDS, PREVIOUS_TXN_ID,
     PREVIOUS_TXN_LGR_SEQ, TRANSACTION_INDEX, TRANSACTION_RESULT, Thread, UNTHREADED,
 };
+use super::offers::{Offer, OfferKey};
 use super::pools::{Pool, pool_account};
 use super::signers::signer_list_index;
 use super::tokens::{LineKey, line_index};
@@ -58,6 +60,9 @@ pub(super) struct Touched {
     signer_lists: Vec<(AccountId, Option<SignerList>, SignerList)>,
     /// Each pool before, by its token.
     pools: Vec<(IssuedAsset, Option<Pool>)>,
+    /// Each offer before, and as last written: what a deleted offer ended
+    /// as.
+    offers: Vec<(OfferKey, Option<Offer>, Offer)>,
 }
 
 impl Touched {
@@ -88,6 +93,15 @@ impl Touched {
         match self.signer_lists.iter_mut().find(|(id, _, _)| *id == owner) {
             Some((_, _, last)) => *last = written,
             None => self.signer_lists.push((owner, before, written)),
+        }
+    }
+
+    /// The offer `key` is written as `written`, or deleted as it was; it
+    /// was `before`, unless it was written already.
+    pub fn offer(&mut self, key: OfferKey, before: Option<Offer>, written: Offer) {
+        match self.offers.iter_mut().find(|(offer, _, _)| *offer == key) {
+            Some((_, _, last)) => *last = written,
+            None => self.offers.push((key, before, written)),
         }
     }
 
@@ -450,6 +464,19 @@ impl FakeLedger {
                     .map(|list| objects::signer_list(list, previous)),
                 last: Some(objects::signer_list(last, previous)),
                 owners: Vec::new(),
+                accounts: alloc::vec![*owner],
+            });
+        }
+        for ((owner, sequence), before, last) in &touched.offers {
+            let key = crate::records::offer_key(*owner, *sequence);
+            let previous = self.thread(&key);
+            let object = |offer: &Offer| objects::offer(*owner, *sequence, offer, previous);
+            changes.push(Change {
+                key,
+                before: before.as_ref().map(object),
+                after: self.offers.get(&(*owner, *sequence)).map(object),
+                last: Some(object(last)),
+                owners: alloc::vec![*owner],
                 accounts: alloc::vec![*owner],
             });
         }

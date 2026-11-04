@@ -1,10 +1,12 @@
 //! The binary form of the transactions the node signs or checks
 //! (spec/areas/xrpl.md#the-transactions): a `Payment` of XRP or of a token,
 //! with memos and perhaps a destination tag; a `TrustSet` that opens or
-//! changes a line to a token's issuer; and what an account that several
-//! keys control is set up with: an `AccountSet` that requires destination
-//! tags or disables the master key, a `SetRegularKey`, and a
-//! `SignerListSet`.
+//! changes a line to a token's issuer; an `OfferCreate` that places an
+//! offer on the ledger's order book, perhaps in place of one the account
+//! has there, and an `OfferCancel` that takes one away ([`sign_offer`],
+//! [`sign_offer_cancel`]); and what an account that several keys control is
+//! set up with: an `AccountSet` that requires destination tags or disables
+//! the master key, a `SetRegularKey`, and a `SignerListSet`.
 //!
 //! Fields go in the ledger's canonical order, by type code and then field
 //! code; the decoder takes only that order, each field once, and only the
@@ -50,6 +52,8 @@ const HASH_PREFIX: [u8; 4] = *b"TXN\0";
 const PAYMENT: u16 = 0;
 const ACCOUNT_SET: u16 = 3;
 const SET_REGULAR_KEY: u16 = 5;
+const OFFER_CREATE: u16 = 7;
+const OFFER_CANCEL: u16 = 8;
 const SIGNER_LIST_SET: u16 = 12;
 const TRUST_SET: u16 = 20;
 
@@ -315,6 +319,67 @@ pub struct SignerListSet {
     pub signing: Signing,
 }
 
+/// An OfferCreate: places an offer on the ledger's order book that gives
+/// `taker_gets` for `taker_pays`, or as much of it as the account holds,
+/// after crossing what the opposite book offers at that price or better.
+/// What does not cross rests in the book as the account's offer, named by
+/// this transaction's sequence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OfferCreate {
+    /// Whose offer.
+    pub account: AccountId,
+    /// What it asks for: what a taker pays the account, drops or a token
+    /// amount not below zero.
+    pub taker_pays: Amount,
+    /// What it gives: what a taker gets from the account, drops or a token
+    /// amount not below zero.
+    pub taker_gets: Amount,
+    /// The sequence of the account's offer it replaces, which is taken
+    /// away in the same transaction, if any.
+    pub offer_sequence: Option<u32>,
+    /// When it expires, in seconds since the XRP Ledger's epoch, if it
+    /// does: a ledger that closed then or later no longer holds it.
+    pub expiration: Option<u32>,
+    /// The fee, in drops.
+    pub fee: u64,
+    /// The sender's sequence number, which names the offer.
+    pub sequence: u32,
+    /// The last ledger the transaction may be in, if any.
+    pub last_ledger_sequence: Option<u32>,
+    /// Flags; 0 for the node's.
+    pub flags: u32,
+    /// The network, required above 1024 and left out below.
+    pub network_id: Option<u32>,
+    /// Memos.
+    pub memos: Vec<Memo>,
+    /// Who signs it.
+    pub signing: Signing,
+}
+
+/// An OfferCancel: takes the account's offer named by `offer_sequence` off
+/// the order book, if it is still there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OfferCancel {
+    /// Whose offer.
+    pub account: AccountId,
+    /// The sequence of the OfferCreate that placed it.
+    pub offer_sequence: u32,
+    /// The fee, in drops.
+    pub fee: u64,
+    /// The sender's sequence number.
+    pub sequence: u32,
+    /// The last ledger the transaction may be in, if any.
+    pub last_ledger_sequence: Option<u32>,
+    /// Flags.
+    pub flags: u32,
+    /// The network, required above 1024 and left out below.
+    pub network_id: Option<u32>,
+    /// Memos.
+    pub memos: Vec<Memo>,
+    /// Who signs it.
+    pub signing: Signing,
+}
+
 /// A transaction the codec reads: any of its kinds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Transaction {
@@ -322,6 +387,10 @@ pub enum Transaction {
     Payment(Payment),
     /// A TrustSet.
     TrustSet(TrustSet),
+    /// An OfferCreate.
+    OfferCreate(OfferCreate),
+    /// An OfferCancel.
+    OfferCancel(OfferCancel),
     /// An AccountSet.
     AccountSet(AccountSet),
     /// A SetRegularKey.
@@ -577,13 +646,17 @@ macro_rules! common_body {
             network_id: $tx.network_id,
             flags: $tx.flags,
             sequence: $tx.sequence,
+            expiration: None,
             destination_tag: None,
+            offer_sequence: None,
             last_ledger_sequence: $tx.last_ledger_sequence,
             set_flag: None,
             clear_flag: None,
             signer_quorum: None,
             amount: None,
             limit_amount: None,
+            taker_pays: None,
+            taker_gets: None,
             fee: $tx.fee,
             send_max: None,
             signing: &$tx.signing,
@@ -720,6 +793,97 @@ impl Fields for TrustSet {
 
 impl Transact for TrustSet {}
 
+const OFFER_CREATE_REQUIRED: u32 =
+    wire::COMMON_REQUIRED | bits(&[wire::TAKER_PAYS, wire::TAKER_GETS]);
+const OFFER_CREATE_ALLOWED: u32 =
+    wire::COMMON_ALLOWED | OFFER_CREATE_REQUIRED | bits(&[wire::EXPIRATION, wire::OFFER_SEQUENCE]);
+
+impl Fields for OfferCreate {
+    fn body(&self) -> Body<'_> {
+        Body {
+            taker_pays: Some(self.taker_pays),
+            taker_gets: Some(self.taker_gets),
+            offer_sequence: self.offer_sequence,
+            expiration: self.expiration,
+            ..common_body!(self, OFFER_CREATE)
+        }
+    }
+
+    fn signing_mut(&mut self) -> &mut Signing {
+        &mut self.signing
+    }
+
+    fn check(&self) {
+        assert!(
+            self.taker_pays.is_payable() && self.taker_gets.is_payable(),
+            "amounts within the ledger's"
+        );
+    }
+
+    /// Amounts not below zero; whether the ledger takes them, such as two
+    /// of one asset, is its to say.
+    fn from_fields(mut fields: Decoded) -> Result<Self, DecodeError> {
+        fields.expect(OFFER_CREATE, OFFER_CREATE_REQUIRED, OFFER_CREATE_ALLOWED)?;
+        let taker_pays = fields.taker_pays.ok_or(DecodeError::Field)?;
+        let taker_gets = fields.taker_gets.ok_or(DecodeError::Field)?;
+        if !taker_pays.is_payable() || !taker_gets.is_payable() {
+            return Err(DecodeError::Value);
+        }
+        Ok(Self {
+            account: fields.account()?,
+            taker_pays,
+            taker_gets,
+            offer_sequence: fields.offer_sequence,
+            expiration: fields.expiration,
+            fee: fields.fee,
+            sequence: fields.sequence,
+            last_ledger_sequence: fields.last_ledger_sequence,
+            flags: fields.flags,
+            network_id: fields.network_id,
+            signing: fields.signing()?,
+            memos: fields.memos,
+        })
+    }
+}
+
+impl Transact for OfferCreate {}
+
+const OFFER_CANCEL_REQUIRED: u32 = wire::COMMON_REQUIRED | wire::bit(wire::OFFER_SEQUENCE);
+
+impl Fields for OfferCancel {
+    fn body(&self) -> Body<'_> {
+        Body {
+            offer_sequence: Some(self.offer_sequence),
+            ..common_body!(self, OFFER_CANCEL)
+        }
+    }
+
+    fn signing_mut(&mut self) -> &mut Signing {
+        &mut self.signing
+    }
+
+    fn from_fields(mut fields: Decoded) -> Result<Self, DecodeError> {
+        fields.expect(
+            OFFER_CANCEL,
+            OFFER_CANCEL_REQUIRED,
+            wire::COMMON_ALLOWED | OFFER_CANCEL_REQUIRED,
+        )?;
+        Ok(Self {
+            account: fields.account()?,
+            offer_sequence: fields.offer_sequence.ok_or(DecodeError::Field)?,
+            fee: fields.fee,
+            sequence: fields.sequence,
+            last_ledger_sequence: fields.last_ledger_sequence,
+            flags: fields.flags,
+            network_id: fields.network_id,
+            signing: fields.signing()?,
+            memos: fields.memos,
+        })
+    }
+}
+
+impl Transact for OfferCancel {}
+
 impl Fields for AccountSet {
     fn body(&self) -> Body<'_> {
         Body {
@@ -835,6 +999,8 @@ impl Fields for Transaction {
         match self {
             Self::Payment(tx) => tx.body(),
             Self::TrustSet(tx) => tx.body(),
+            Self::OfferCreate(tx) => tx.body(),
+            Self::OfferCancel(tx) => tx.body(),
             Self::AccountSet(tx) => tx.body(),
             Self::SetRegularKey(tx) => tx.body(),
             Self::SignerListSet(tx) => tx.body(),
@@ -845,6 +1011,8 @@ impl Fields for Transaction {
         match self {
             Self::Payment(tx) => tx.signing_mut(),
             Self::TrustSet(tx) => tx.signing_mut(),
+            Self::OfferCreate(tx) => tx.signing_mut(),
+            Self::OfferCancel(tx) => tx.signing_mut(),
             Self::AccountSet(tx) => tx.signing_mut(),
             Self::SetRegularKey(tx) => tx.signing_mut(),
             Self::SignerListSet(tx) => tx.signing_mut(),
@@ -855,6 +1023,8 @@ impl Fields for Transaction {
         match self {
             Self::Payment(tx) => tx.check(),
             Self::TrustSet(tx) => tx.check(),
+            Self::OfferCreate(tx) => tx.check(),
+            Self::OfferCancel(tx) => tx.check(),
             Self::AccountSet(tx) => tx.check(),
             Self::SetRegularKey(tx) => tx.check(),
             Self::SignerListSet(tx) => tx.check(),
@@ -866,6 +1036,8 @@ impl Fields for Transaction {
         match fields.kind {
             PAYMENT => Payment::from_fields(fields).map(Self::Payment),
             TRUST_SET => TrustSet::from_fields(fields).map(Self::TrustSet),
+            OFFER_CREATE => OfferCreate::from_fields(fields).map(Self::OfferCreate),
+            OFFER_CANCEL => OfferCancel::from_fields(fields).map(Self::OfferCancel),
             ACCOUNT_SET => AccountSet::from_fields(fields).map(Self::AccountSet),
             SET_REGULAR_KEY => SetRegularKey::from_fields(fields).map(Self::SetRegularKey),
             SIGNER_LIST_SET => SignerListSet::from_fields(fields).map(Self::SignerListSet),
@@ -960,10 +1132,11 @@ pub struct SendMaxTerms {
     pub memos: Vec<Memo>,
 }
 
-/// Why terms are no Payment the ledger would take.
+/// Why terms are no transaction the ledger would take.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TermsError {
-    /// The amount is zero, below zero or beyond the ledger's.
+    /// The amount is zero, below zero or beyond the ledger's: a Payment's,
+    /// or either of an offer's.
     Amount,
     /// `SendMax` is zero, below zero or beyond the ledger's, or XRP for
     /// XRP.
@@ -973,8 +1146,23 @@ pub enum TermsError {
     /// More memos than [`MAX_MEMOS`], or one longer than
     /// [`MAX_MEMO_BYTES`].
     Memos,
-    /// It pays the payer the same asset it spends.
+    /// It pays the payer the same asset it spends, or an offer gives the
+    /// asset it asks for.
     Redundant,
+    /// An offer to replace or cancel of sequence zero, or not before the
+    /// transaction's own: none the account placed before
+    /// (`temBAD_SEQUENCE`).
+    OfferSequence,
+    /// An offer that expires at zero (`temBAD_EXPIRATION`).
+    Expiration,
+}
+
+/// Whether `memos` are few and short enough for the codec.
+fn memos_fit(memos: &[Memo]) -> bool {
+    let long = |memo: &Memo| {
+        memo.memo_type.len() > MAX_MEMO_BYTES || memo.memo_data.len() > MAX_MEMO_BYTES
+    };
+    memos.len() <= MAX_MEMOS && !memos.iter().any(long)
 }
 
 /// Signs, with `wallet`, a Payment from its account on `terms`: one that
@@ -996,10 +1184,7 @@ pub fn sign_send_max(wallet: &Wallet, terms: SendMaxTerms) -> Result<Signed<Paym
     if terms.fee > crate::MAX_DROPS {
         return Err(TermsError::Fee);
     }
-    let long = |memo: &Memo| {
-        memo.memo_type.len() > MAX_MEMO_BYTES || memo.memo_data.len() > MAX_MEMO_BYTES
-    };
-    if terms.memos.len() > MAX_MEMOS || terms.memos.iter().any(long) {
+    if !memos_fit(&terms.memos) {
         return Err(TermsError::Memos);
     }
     let account = wallet.account();
@@ -1021,6 +1206,129 @@ pub fn sign_send_max(wallet: &Wallet, terms: SendMaxTerms) -> Result<Signed<Paym
         signing: Signing::by(wallet.public_key()),
     };
     Ok(payment.sign(wallet))
+}
+
+/// An offer on the ledger's order book from the account that signs it
+/// ([`sign_offer`]): it gives at most `taker_gets` for `taker_pays`, at
+/// that price or better for the account.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OfferTerms {
+    /// What it asks for.
+    pub taker_pays: Amount,
+    /// What it gives for it: another asset.
+    pub taker_gets: Amount,
+    /// The sequence of the account's offer it replaces in the same
+    /// transaction, if any: one placed before, which is taken away whether
+    /// or not it is still there.
+    pub offer_sequence: Option<u32>,
+    /// When it expires, in seconds since the XRP Ledger's epoch, if it
+    /// does.
+    pub expiration: Option<u32>,
+    /// The fee, in drops.
+    pub fee: u64,
+    /// The account's sequence number, which names the offer.
+    pub sequence: u32,
+    /// The last ledger the transaction may be in.
+    pub last_ledger_sequence: u32,
+    /// The network, required above 1024 and left out below.
+    pub network_id: Option<u32>,
+    /// Memos.
+    pub memos: Vec<Memo>,
+}
+
+/// Signs, with `wallet`, an OfferCreate from its account on `terms`, with
+/// no flags: it crosses what the opposite book offers at its price or
+/// better, and what is left rests as the account's offer, in place of the
+/// one `terms.offer_sequence` names. Who calls it keeps the sequence: this
+/// signs, and sends nothing.
+///
+/// # Errors
+///
+/// Why `terms` are no offer the ledger would take ([`TermsError`]).
+pub fn sign_offer(wallet: &Wallet, terms: OfferTerms) -> Result<Signed<OfferCreate>, TermsError> {
+    let fits = |amount: &Amount| !amount.is_zero() && amount.is_payable();
+    if !fits(&terms.taker_pays) || !fits(&terms.taker_gets) {
+        return Err(TermsError::Amount);
+    }
+    if terms.taker_pays.asset() == terms.taker_gets.asset() {
+        return Err(TermsError::Redundant);
+    }
+    if terms
+        .offer_sequence
+        .is_some_and(|offer| offer == 0 || offer >= terms.sequence)
+    {
+        return Err(TermsError::OfferSequence);
+    }
+    if terms.expiration == Some(0) {
+        return Err(TermsError::Expiration);
+    }
+    if terms.fee > crate::MAX_DROPS {
+        return Err(TermsError::Fee);
+    }
+    if !memos_fit(&terms.memos) {
+        return Err(TermsError::Memos);
+    }
+    let offer = OfferCreate {
+        account: wallet.account(),
+        taker_pays: terms.taker_pays,
+        taker_gets: terms.taker_gets,
+        offer_sequence: terms.offer_sequence,
+        expiration: terms.expiration,
+        fee: terms.fee,
+        sequence: terms.sequence,
+        last_ledger_sequence: Some(terms.last_ledger_sequence),
+        flags: 0,
+        network_id: terms.network_id,
+        memos: terms.memos,
+        signing: Signing::by(wallet.public_key()),
+    };
+    Ok(offer.sign(wallet))
+}
+
+/// The account's offer to take off the order book ([`sign_offer_cancel`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OfferCancelTerms {
+    /// The sequence of the OfferCreate that placed it.
+    pub offer_sequence: u32,
+    /// The fee, in drops.
+    pub fee: u64,
+    /// The account's sequence number.
+    pub sequence: u32,
+    /// The last ledger the transaction may be in.
+    pub last_ledger_sequence: u32,
+    /// The network, required above 1024 and left out below.
+    pub network_id: Option<u32>,
+}
+
+/// Signs, with `wallet`, an OfferCancel from its account on `terms`, with
+/// no flags and no memos. It succeeds whether or not the offer is still
+/// there. Who calls it keeps the sequence.
+///
+/// # Errors
+///
+/// Why `terms` are no OfferCancel the ledger would take ([`TermsError`]).
+pub fn sign_offer_cancel(
+    wallet: &Wallet,
+    terms: OfferCancelTerms,
+) -> Result<Signed<OfferCancel>, TermsError> {
+    if terms.offer_sequence == 0 || terms.offer_sequence >= terms.sequence {
+        return Err(TermsError::OfferSequence);
+    }
+    if terms.fee > crate::MAX_DROPS {
+        return Err(TermsError::Fee);
+    }
+    let cancel = OfferCancel {
+        account: wallet.account(),
+        offer_sequence: terms.offer_sequence,
+        fee: terms.fee,
+        sequence: terms.sequence,
+        last_ledger_sequence: Some(terms.last_ledger_sequence),
+        flags: 0,
+        network_id: terms.network_id,
+        memos: Vec::new(),
+        signing: Signing::by(wallet.public_key()),
+    };
+    Ok(cancel.sign(wallet))
 }
 
 #[cfg(test)]

@@ -349,6 +349,11 @@ impl FakeLedger {
             let key = objects::amm_key(*token);
             out.push((key, objects::amm(*token, pool, self.thread(&key))));
         }
+        for ((owner, sequence), offer) in &self.offers {
+            let key = crate::records::offer_key(*owner, *sequence);
+            let object = objects::offer(*owner, *sequence, offer, self.thread(&key));
+            out.push((key, object));
+        }
         out.extend(self.chain.skip_lists());
         out.push((
             objects::fees_key(),

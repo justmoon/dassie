@@ -18,9 +18,9 @@ use dassie_xrpl::Config;
 use dassie_xrpl::amount::{MAX_DECIMALS, MAX_EXPONENT, MAX_MANTISSA, MIN_EXPONENT, MIN_MANTISSA};
 use dassie_xrpl::api::line_flags;
 use dassie_xrpl::codec::{
-    self, AccountSet, Amount, Currency, MAX_MEMO_BYTES, MAX_MEMOS, MAX_SIGNERS, Memo, Payment,
-    SetRegularKey, Signer, SignerEntry, SignerListSet, Signing, TF_PARTIAL_PAYMENT, TokenAmount,
-    TokenValue, Transact, Transaction, TrustSet,
+    self, AccountSet, Amount, Currency, MAX_MEMO_BYTES, MAX_MEMOS, MAX_SIGNERS, Memo, OfferCancel,
+    OfferCreate, Payment, SetRegularKey, Signer, SignerEntry, SignerListSet, Signing,
+    TF_PARTIAL_PAYMENT, TokenAmount, TokenValue, Transact, Transaction, TrustSet,
 };
 use dassie_xrpl::keys::{MAX_SIGNATURE_BYTES, PublicKey, Signature};
 use dassie_xrpl::{AccountId, MAX_DROPS, UNITS_PER_DROP, Wallet, api, base58, from_hex, hex_upper};
@@ -308,6 +308,57 @@ fn account_settings() -> impl Strategy<Value = Transaction> {
                         memos: c.memos,
                         signing: c.signing,
                     }),
+                }
+            },
+        )
+}
+
+/// An OfferCreate or an OfferCancel: any fields the codec can write,
+/// whether the ledger would take them or not.
+fn offers() -> impl Strategy<Value = Transaction> {
+    (
+        any::<[u8; 20]>(),
+        (payable(), payable()),
+        (any::<Option<u32>>(), any::<Option<u32>>(), any::<u32>()),
+        any::<bool>(),
+        common(),
+    )
+        .prop_map(
+            |(
+                account,
+                (taker_pays, taker_gets),
+                (offer_sequence, expiration, cancelled),
+                cancel,
+                c,
+            )| {
+                let account = AccountId(account);
+                if cancel {
+                    Transaction::OfferCancel(OfferCancel {
+                        account,
+                        offer_sequence: cancelled,
+                        fee: c.fee,
+                        sequence: c.sequence,
+                        last_ledger_sequence: c.last_ledger_sequence,
+                        flags: c.flags,
+                        network_id: c.network_id,
+                        memos: c.memos,
+                        signing: c.signing,
+                    })
+                } else {
+                    Transaction::OfferCreate(OfferCreate {
+                        account,
+                        taker_pays,
+                        taker_gets,
+                        offer_sequence,
+                        expiration,
+                        fee: c.fee,
+                        sequence: c.sequence,
+                        last_ledger_sequence: c.last_ledger_sequence,
+                        flags: c.flags,
+                        network_id: c.network_id,
+                        memos: c.memos,
+                        signing: c.signing,
+                    })
                 }
             },
         )
@@ -1633,6 +1684,16 @@ proptest! {
         let blob = trust_set.blob();
         prop_assert_eq!(TrustSet::decode(&blob), Ok(trust_set.clone()));
         prop_assert_eq!(Transaction::decode(&blob), Ok(Transaction::TrustSet(trust_set)));
+        let changed = mutate(blob, &mutations);
+        if let Ok(decoded) = Transaction::decode(&changed) {
+            prop_assert_eq!(decoded.blob(), changed);
+        }
+    }
+
+    #[test]
+    fn offers_decode_what_was_changed_or_refuse_it(tx in offers(), mutations in mutations()) {
+        let blob = tx.blob();
+        prop_assert_eq!(Transaction::decode(&blob), Ok(tx));
         let changed = mutate(blob, &mutations);
         if let Ok(decoded) = Transaction::decode(&changed) {
             prop_assert_eq!(decoded.blob(), changed);

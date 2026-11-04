@@ -610,6 +610,219 @@ fn signer_lists_are_checked_as_the_ledger_checks_them() {
     assert_eq!(SignerListError::Quorum.code(), "temBAD_QUORUM");
 }
 
+fn offer_terms(taker_pays: Amount, taker_gets: Amount) -> OfferTerms {
+    OfferTerms {
+        taker_pays,
+        taker_gets,
+        offer_sequence: None,
+        expiration: None,
+        fee: 12,
+        sequence: 5,
+        last_ledger_sequence: 25,
+        network_id: None,
+        memos: Vec::new(),
+    }
+}
+
+#[test]
+fn offers_and_cancels_decode_to_themselves() {
+    let wallet = Wallet::from_seed([1; 16]);
+    for terms in [
+        offer_terms(Amount::Xrp(30_000_000), Amount::Token(rlusd("25"))),
+        OfferTerms {
+            offer_sequence: Some(4),
+            expiration: Some(800_000_100),
+            network_id: Some(21_338),
+            memos: alloc::vec![Memo {
+                memo_type: alloc::vec![1],
+                memo_data: alloc::vec![2; 256],
+            }],
+            ..offer_terms(Amount::Token(rlusd("0.75")), Amount::Xrp(1_000_000))
+        },
+    ] {
+        let signed = sign_offer(&wallet, terms.clone()).unwrap();
+        assert_eq!(signed.tx.offer_sequence, terms.offer_sequence);
+        assert_eq!(signed.tx.expiration, terms.expiration);
+        assert_eq!(OfferCreate::decode(&signed.blob), Ok(signed.tx.clone()));
+        assert_eq!(
+            Transaction::decode(&signed.blob),
+            Ok(Transaction::OfferCreate(signed.tx.clone()))
+        );
+        assert!(signed.tx.signatures_valid());
+        assert_eq!(hash(&signed.blob), signed.hash);
+        // Each kind refuses the other.
+        assert_eq!(Payment::decode(&signed.blob), Err(DecodeError::Value));
+        assert_eq!(OfferCancel::decode(&signed.blob), Err(DecodeError::Value));
+    }
+    let cancel = OfferCancelTerms {
+        offer_sequence: 4,
+        fee: 12,
+        sequence: 6,
+        last_ledger_sequence: 26,
+        network_id: None,
+    };
+    let signed = sign_offer_cancel(&wallet, cancel).unwrap();
+    assert_eq!(OfferCancel::decode(&signed.blob), Ok(signed.tx.clone()));
+    assert_eq!(
+        Transaction::decode(&signed.blob).unwrap().blob(),
+        signed.blob
+    );
+    assert_eq!(OfferCreate::decode(&signed.blob), Err(DecodeError::Value));
+}
+
+#[test]
+fn offers_are_refused_where_the_ledger_refuses_them() {
+    let wallet = Wallet::from_seed([1; 16]);
+    let (xrp, token) = (Amount::Xrp(1_000_000), Amount::Token(rlusd("1")));
+    let refused = [
+        (offer_terms(Amount::Xrp(0), token), TermsError::Amount),
+        (
+            offer_terms(xrp, Amount::Token(rlusd("0"))),
+            TermsError::Amount,
+        ),
+        (
+            offer_terms(Amount::Token(rlusd("-1")), xrp),
+            TermsError::Amount,
+        ),
+        (
+            offer_terms(Amount::Xrp(crate::MAX_DROPS + 1), token),
+            TermsError::Amount,
+        ),
+        (
+            offer_terms(token, Amount::Token(rlusd("2"))),
+            TermsError::Redundant,
+        ),
+        (offer_terms(xrp, Amount::Xrp(5)), TermsError::Redundant),
+        (
+            OfferTerms {
+                offer_sequence: Some(0),
+                ..offer_terms(xrp, token)
+            },
+            TermsError::OfferSequence,
+        ),
+        (
+            OfferTerms {
+                offer_sequence: Some(5),
+                ..offer_terms(xrp, token)
+            },
+            TermsError::OfferSequence,
+        ),
+        (
+            OfferTerms {
+                expiration: Some(0),
+                ..offer_terms(xrp, token)
+            },
+            TermsError::Expiration,
+        ),
+        (
+            OfferTerms {
+                fee: crate::MAX_DROPS + 1,
+                ..offer_terms(xrp, token)
+            },
+            TermsError::Fee,
+        ),
+        (
+            OfferTerms {
+                memos: alloc::vec![
+                    Memo {
+                        memo_type: Vec::new(),
+                        memo_data: Vec::new(),
+                    };
+                    MAX_MEMOS + 1
+                ],
+                ..offer_terms(xrp, token)
+            },
+            TermsError::Memos,
+        ),
+    ];
+    for (terms, error) in refused {
+        assert_eq!(sign_offer(&wallet, terms.clone()), Err(error), "{terms:?}");
+    }
+}
+
+#[test]
+fn a_token_for_another_of_its_currency_is_two_assets() {
+    let wallet = Wallet::from_seed([1; 16]);
+    let other = TokenAmount {
+        issuer: AccountId([8; 20]),
+        ..rlusd("1")
+    };
+    let terms = offer_terms(Amount::Token(rlusd("1")), Amount::Token(other));
+    assert!(sign_offer(&wallet, terms).is_ok());
+}
+
+#[test]
+fn cancels_are_refused_where_the_ledger_refuses_them() {
+    let wallet = Wallet::from_seed([1; 16]);
+    let cancel = |offer_sequence| OfferCancelTerms {
+        offer_sequence,
+        fee: 12,
+        sequence: 6,
+        last_ledger_sequence: 26,
+        network_id: None,
+    };
+    for offer_sequence in [0, 6, 7] {
+        assert_eq!(
+            sign_offer_cancel(&wallet, cancel(offer_sequence)),
+            Err(TermsError::OfferSequence)
+        );
+    }
+    assert_eq!(
+        sign_offer_cancel(
+            &wallet,
+            OfferCancelTerms {
+                fee: crate::MAX_DROPS + 1,
+                ..cancel(5)
+            }
+        ),
+        Err(TermsError::Fee)
+    );
+}
+
+#[test]
+fn an_offer_names_both_amounts_and_never_a_negative_one() {
+    let wallet = Wallet::from_seed([1; 16]);
+    let offer = sign_offer(
+        &wallet,
+        offer_terms(Amount::Token(rlusd("1")), Amount::Xrp(1_000_000)),
+    )
+    .unwrap()
+    .tx;
+    let blob = offer.blob();
+    // TakerPays (0x64) is a token: its sign bit is the second of its
+    // first byte.
+    let pays_at = blob.iter().position(|b| *b == 0x64).unwrap() + 1;
+    let mut negative = blob.clone();
+    negative[pays_at] &= !0x40;
+    assert_eq!(OfferCreate::decode(&negative), Err(DecodeError::Value));
+    // Without TakerGets (0x65 and its eight bytes), it is none.
+    let gets_at = blob.iter().position(|b| *b == 0x65).unwrap();
+    let mut without = blob.clone();
+    without.drain(gets_at..gets_at + 9);
+    assert_eq!(OfferCreate::decode(&without), Err(DecodeError::Field));
+    // An OfferCancel names the offer it takes away.
+    let cancel = sign_offer_cancel(
+        &wallet,
+        OfferCancelTerms {
+            offer_sequence: 4,
+            fee: 12,
+            sequence: 6,
+            last_ledger_sequence: 26,
+            network_id: None,
+        },
+    )
+    .unwrap();
+    // OfferSequence (0x20 0x19) and its four bytes.
+    let at = cancel
+        .blob
+        .windows(2)
+        .position(|pair| pair == [0x20, 0x19])
+        .unwrap();
+    let mut without = cancel.blob.clone();
+    without.drain(at..at + 6);
+    assert_eq!(OfferCancel::decode(&without), Err(DecodeError::Field));
+}
+
 #[test]
 fn signer_arrays_are_bounded() {
     let account = AccountId([1; 20]);

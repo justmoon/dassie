@@ -17,6 +17,10 @@
 //! AMM pools ([`pools`]): a constant-product pool of XRP and a token with a
 //! trading fee, `amm_info`, and Payments with `SendMax` that cross it.
 //!
+//! The order book ([`offers`]): offers that `OfferCreate` places, replaces
+//! and crosses against the opposite book, and `OfferCancel` takes away,
+//! with `book_offers` and `account_offers`.
+//!
 //! Keys (`fake/signers.rs`): an account signs with its master key unless it is
 //! disabled, its regular key, or its signer list's signers together, each
 //! alone, as of when a transaction applies; destination tags, which an
@@ -41,6 +45,7 @@ mod chain;
 pub mod lies;
 mod meta;
 mod objects;
+pub mod offers;
 pub mod pools;
 mod proofs;
 pub mod shamap;
@@ -75,6 +80,7 @@ pub enum Unsaved {
     NotFound,
 }
 pub use lies::Lie;
+pub use offers::{MAX_BOOK_OFFERS, MAX_CROSSED_OFFERS, MAX_OFFERS, Offer};
 pub use pools::{POOL_ACCOUNT_FLAGS, PoolState, pool_account};
 pub use proofs::MAX_STATE_PROOF_KEYS;
 pub use tokens::{ExactSum, ripple_state};
@@ -86,6 +92,7 @@ pub use validators::{
 use chain::Chain;
 use meta::{Applied, Touched};
 use objects::{Thread, token_json};
+use offers::OfferKey;
 use pools::{Pool, PoolSet};
 use tokens::{Clawback, IssuerSet, LineKey};
 use validators::Validators;
@@ -267,10 +274,18 @@ pub struct FakeLedger {
     pools: BTreeMap<IssuedAsset, Pool>,
     /// Signer lists, by their owner.
     signer_lists: BTreeMap<AccountId, SignerList>,
+    /// The offers in the order book, by their owner and sequence.
+    offers: BTreeMap<OfferKey, Offer>,
+    /// How many offers were ever placed: the next is placed after them.
+    offers_placed: u64,
     /// The last validated ledger.
     ledger: u32,
     /// When it closed, in seconds since the XRP Ledger's epoch.
     close_time: u64,
+    /// When the ledger before the one closing closed: what an offer's
+    /// expiration is checked against as a ledger applies, as rippled
+    /// checks it.
+    parent_close_time: u64,
     /// The first ledger the history holds: before it, `account_tx` and
     /// `tx` know nothing.
     history_from: u32,
@@ -373,8 +388,11 @@ impl FakeLedger {
             supply: BTreeMap::new(),
             pools: BTreeMap::new(),
             signer_lists: BTreeMap::new(),
+            offers: BTreeMap::new(),
+            offers_placed: 0,
             ledger: FIRST_LEDGER,
             close_time: FIRST_CLOSE_TIME,
+            parent_close_time: FIRST_CLOSE_TIME,
             history_from: FIRST_LEDGER,
             account_tx_from: FIRST_LEDGER,
             history: Vec::new(),
@@ -430,6 +448,14 @@ impl FakeLedger {
     #[must_use]
     pub const fn ledger(&self) -> u32 {
         self.ledger
+    }
+
+    /// When the last validated ledger closed, in seconds since the XRP
+    /// Ledger's epoch: an offer that expires then or before is gone from
+    /// the next ledger on.
+    #[must_use]
+    pub const fn close_time(&self) -> u64 {
+        self.close_time
     }
 
     /// How many transactions wait for the next close, which applies them.
@@ -523,8 +549,8 @@ impl FakeLedger {
     }
 
     /// Starts the chain again, as a testnet reset does: every account but
-    /// genesis and the issuers, every trust line, signer list and pool, and
-    /// all history wiped, from a ledger below the last, which closes later.
+    /// genesis and the issuers, every trust line, signer list, pool and
+    /// offer, and all history wiped, from a ledger below the last, which closes later.
     /// Only the testnet resets.
     pub fn reset(&mut self) {
         assert!(self.network.resets(), "only the testnet resets");
@@ -554,6 +580,7 @@ impl FakeLedger {
         self.supply.clear();
         self.pools.clear();
         self.signer_lists.clear();
+        self.offers.clear();
         self.queued.clear();
         self.queued_hashes.clear();
         self.seal_first();
@@ -567,6 +594,7 @@ impl FakeLedger {
             self.wiped = self.wiped.saturating_add(removed.balance);
         }
         self.signer_lists.remove(&account);
+        self.offers.retain(|(owner, _), _| *owner != account);
     }
 
     /// Moves `drops` from genesis to `to`, which exists, as of the next
@@ -712,6 +740,8 @@ impl FakeLedger {
             "ledger_entry" => self.ledger_entry(&request),
             "account_objects" => self.account_objects(&request),
             "amm_info" => self.amm_info(&request),
+            "book_offers" => self.book_offers(&request),
+            "account_offers" => self.account_offers(&request),
             "tx" => self.tx(connection, &request),
             "submit" => self.submit(&request),
             "validations" => self.validations(connection, &request),
@@ -748,6 +778,7 @@ impl FakeLedger {
     /// second after its parent's.
     pub fn close_at(&mut self, close_time: u64) -> Vec<(ConnectionId, Vec<u8>)> {
         self.ledger = self.ledger.saturating_add(1);
+        self.parent_close_time = self.close_time;
         self.close_time = close_time.max(self.close_time.saturating_add(1));
         let mut out = Vec::new();
         let queued = core::mem::take(&mut self.queued);
@@ -1146,6 +1177,10 @@ impl FakeLedger {
         match tx {
             Transaction::Payment(payment) => self.pay(touched, payment),
             Transaction::TrustSet(set) => Outcome::code(self.trust_set(touched, set, prior)),
+            Transaction::OfferCreate(offer) => {
+                Outcome::code(self.offer_create(touched, offer, prior))
+            }
+            Transaction::OfferCancel(cancel) => Outcome::code(self.offer_cancel(touched, cancel)),
             Transaction::AccountSet(set) => Outcome::code(self.account_set(touched, set)),
             Transaction::SetRegularKey(set) => Outcome::code(self.set_regular_key(touched, set)),
             Transaction::SignerListSet(set) => {
@@ -1283,6 +1318,8 @@ fn preflight(tx: &Tx) -> Result<(), &'static str> {
             Ok(())
         }
         Transaction::TrustSet(trust_set) => tokens::preflight_trust_set(trust_set),
+        Transaction::OfferCreate(offer) => offers::preflight_offer_create(offer),
+        Transaction::OfferCancel(cancel) => offers::preflight_offer_cancel(cancel),
         Transaction::AccountSet(set) => signers::preflight_account_set(set),
         Transaction::SetRegularKey(set) => signers::preflight_set_regular_key(set),
         Transaction::SignerListSet(set) => signers::preflight_signer_list_set(set),

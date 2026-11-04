@@ -1,7 +1,7 @@
 //! Golden vectors: the node's wallets on both networks, from
 //! `dassie-identity`'s chain, and Payments, token amounts and TrustSets as
 //! xrpl.js 3.1.0 writes and signs them, with Payments that name a
-//! `SendMax` (testdata/xrpl).
+//! `SendMax`, and OfferCreates and OfferCancels (testdata/xrpl).
 
 #![allow(
     clippy::unwrap_used,
@@ -12,8 +12,9 @@
 
 use dassie_identity::NodeKey;
 use dassie_xrpl::codec::{
-    Amount, Currency, Memo, Payment, SendMaxTerms, Signed, Signing, TokenAmount, TokenValue,
-    Transact, Transaction, TrustSet, hash, sign_send_max,
+    Amount, Currency, Memo, OfferCancel, OfferCancelTerms, OfferCreate, OfferTerms, Payment,
+    SendMaxTerms, Signed, Signing, TokenAmount, TokenValue, Transact, Transaction, TrustSet, hash,
+    sign_offer, sign_offer_cancel, sign_send_max,
 };
 use dassie_xrpl::{AccountId, Wallet, from_hex, hex_upper, network};
 use serde_json::Value;
@@ -306,6 +307,88 @@ fn send_max_payments_sign_and_hash_as_xrpl_js_does() {
         assert_eq!(
             amount(&vector["decoded"]["SendMax"]),
             signed.tx.send_max.unwrap()
+        );
+    }
+}
+
+/// The memo of a vector's transaction, if it has one.
+fn memos(tx: &Value) -> Vec<Memo> {
+    tx.get("Memos")
+        .map(|memos| {
+            let memo = &memos[0]["Memo"];
+            vec![Memo {
+                memo_type: from_hex(text(memo, "MemoType")).unwrap(),
+                memo_data: from_hex(text(memo, "MemoData")).unwrap(),
+            }]
+        })
+        .unwrap_or_default()
+}
+
+// OfferCreates (spec/areas/xrpl.md#the-order-book): XRP for a token, a token
+// for XRP and a token for another, with and without the offer each
+// replaces, an expiration and a memo, signed by the codec's own helper.
+#[test]
+fn offers_sign_and_hash_as_xrpl_js_does() {
+    let vectors = read("tests/data/vectors.json");
+    let offers = vectors["offers"].as_array().unwrap();
+    assert_eq!(offers.len(), 4);
+    for vector in offers {
+        let (wallet, tx) = common(vector);
+        assert_eq!(number(tx, "Flags"), 0);
+        let terms = OfferTerms {
+            taker_pays: amount(&tx["TakerPays"]),
+            taker_gets: amount(&tx["TakerGets"]),
+            offer_sequence: tx.get("OfferSequence").map(|_| number(tx, "OfferSequence")),
+            expiration: tx.get("Expiration").map(|_| number(tx, "Expiration")),
+            fee: text(tx, "Fee").parse().unwrap(),
+            sequence: number(tx, "Sequence"),
+            last_ledger_sequence: number(tx, "LastLedgerSequence"),
+            network_id: tx.get("NetworkID").map(|_| number(tx, "NetworkID")),
+            memos: memos(tx),
+        };
+        let signed = sign_offer(&wallet, terms).unwrap();
+        assert_eq!(signed.tx.account.to_address(), text(tx, "Account"));
+        let unsigned = OfferCreate {
+            signing: Signing::by(wallet.public_key()),
+            ..signed.tx.clone()
+        };
+        check(
+            vector,
+            &unsigned.signing_payload(),
+            &signed,
+            Transaction::OfferCreate(signed.tx.clone()),
+        );
+        let decoded = &vector["decoded"];
+        assert_eq!(amount(&decoded["TakerPays"]), signed.tx.taker_pays);
+        assert_eq!(amount(&decoded["TakerGets"]), signed.tx.taker_gets);
+    }
+}
+
+// OfferCancels: the offer of a sequence taken off the book.
+#[test]
+fn offer_cancels_sign_and_hash_as_xrpl_js_does() {
+    let vectors = read("tests/data/vectors.json");
+    let cancels = vectors["offerCancels"].as_array().unwrap();
+    assert_eq!(cancels.len(), 2);
+    for vector in cancels {
+        let (wallet, tx) = common(vector);
+        let terms = OfferCancelTerms {
+            offer_sequence: number(tx, "OfferSequence"),
+            fee: text(tx, "Fee").parse().unwrap(),
+            sequence: number(tx, "Sequence"),
+            last_ledger_sequence: number(tx, "LastLedgerSequence"),
+            network_id: tx.get("NetworkID").map(|_| number(tx, "NetworkID")),
+        };
+        let signed = sign_offer_cancel(&wallet, terms).unwrap();
+        let unsigned = OfferCancel {
+            signing: Signing::by(wallet.public_key()),
+            ..signed.tx.clone()
+        };
+        check(
+            vector,
+            &unsigned.signing_payload(),
+            &signed,
+            Transaction::OfferCancel(signed.tx.clone()),
         );
     }
 }

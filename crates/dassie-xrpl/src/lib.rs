@@ -7,8 +7,9 @@
 //!   conversion to and from whole units.
 //! - [`codec`]: the binary form of the transactions the node sends, a
 //!   `Payment` of XRP or of a token with memos and perhaps a destination
-//!   tag or a `SendMax` in another asset, a `TrustSet`, and what sets up an
-//!   account several keys control (`AccountSet`, `SetRegularKey`,
+//!   tag or a `SendMax` in another asset, a `TrustSet`, an `OfferCreate`
+//!   and an `OfferCancel` on the order book, and what sets up an account
+//!   several keys control (`AccountSet`, `SetRegularKey`,
 //!   `SignerListSet`); their signing by one key or by several, each
 //!   alone, and their hash.
 //! - [`binary`]: the ledger's binary format, any of it, read in its
@@ -37,7 +38,8 @@
 //! - [`api`]: the rippled WebSocket JSON the node speaks: requests, and
 //!   what comes back, parsed and bounded.
 //! - [`amm`]: an AMM pool's price, exact, for a client that swaps through
-//!   one; no scheme does.
+//!   one; no scheme does. [`offer`]: an offer's price on the order book,
+//!   for a client that trades there; no scheme does either.
 //! - [`network`]: the XRP Ledger's networks, the testnet and mainnet, and
 //!   everything that tells one from the other to an account on it.
 //! - [`account`]: the node's XRPL account on a network, an external asset:
@@ -61,7 +63,7 @@
 //!   to and from a dollar token's ledger while its AMM pool prices it off
 //!   a dollar.
 //! - `fake` (feature `fake`): a model of the ledger, with tokens, AMM
-//!   pools and signer lists, real headers and hash trees of each ledger it
+//!   pools, an order book and signer lists, real headers and hash trees of each ledger it
 //!   closes, validators that sign them and a publisher that lists them, the
 //!   proof methods of a patched rippled, and a server that lies on request,
 //!   for simulations and tests.
@@ -94,6 +96,7 @@ pub mod keys;
 pub mod lists;
 pub mod manifest;
 pub mod network;
+pub mod offer;
 pub mod peg;
 pub mod records;
 pub mod rlusd;
