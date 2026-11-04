@@ -736,12 +736,14 @@ impl Core {
     }
 
     /// Whether a request to settle on `scheme` from `node` is still one we
-    /// answer: the peering is active and not being ended, and has a method
-    /// on it that is not being wound down
-    /// (spec/decisions/ending-a-peering.md).
+    /// answer: the peering is active and not being ended, neither privately
+    /// nor told, as by the peer or by a ban, and has a method on it that is
+    /// not being wound down (spec/decisions/ending-a-peering.md). A
+    /// terminating peering keeps no `depeering`, so only an active one
+    /// answers.
     fn answers_on(&self, node: NodeId, scheme: SchemeId) -> bool {
         self.peer
-            .peering_of(&node)
+            .active_peering_of(&node)
             .filter(|peering| peering.depeering.is_none())
             .and_then(|peering| peering.method(scheme))
             .is_some_and(|method| !method.winding_down())
