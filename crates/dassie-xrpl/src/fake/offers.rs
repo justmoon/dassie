@@ -595,8 +595,9 @@ impl FakeLedger {
         let mut left: BTreeMap<AccountId, Option<Amount>> = BTreeMap::new();
         let mut offers = Vec::new();
         let book = self.book(pays, gets);
-        let listed = (book.iter()).filter(|(_, offer)| !Self::expired(offer, self.close_time));
-        for ((owner, sequence), offer) in listed.take(limit) {
+        // Expired offers too, as rippled lists them until a crossing meets
+        // them: a client tells them by their expiration.
+        for ((owner, sequence), offer) in book.iter().take(limit) {
             let first = !left.contains_key(owner);
             let held = *left
                 .entry(*owner)
@@ -656,8 +657,8 @@ impl FakeLedger {
             .and_then(Value::as_u64)
             .and_then(|marker| usize::try_from(marker).ok())
             .unwrap_or(0);
+        // Expired offers too, as rippled lists them.
         let owned: Vec<(u32, &Offer)> = (self.offers.range((id, 0)..=(id, u32::MAX)))
-            .filter(|(_, offer)| !Self::expired(offer, self.close_time))
             .map(|((_, sequence), offer)| (*sequence, offer))
             .collect();
         let page: Vec<Value> = (owned.iter().skip(skip).take(limit))
