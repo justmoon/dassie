@@ -615,7 +615,8 @@ fn names_line(peer: &proto::PeerCounters) -> Option<String> {
 }
 
 /// How long a hub may go without a final block before status says so: a
-/// block is final every fraction of a second while the hub runs.
+/// busy hub makes one every fraction of a second, and a quiet one at
+/// least every heartbeat, ten seconds (spec/decisions/blocks-when-wanted.md).
 const HUB_QUIET_MS: i64 = 60_000;
 
 /// A hub the node validates (spec/areas/hubs.md#the-validator-in-the-node):

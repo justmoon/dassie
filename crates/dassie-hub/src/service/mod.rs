@@ -739,16 +739,52 @@ impl Validator {
         }
     }
 
+    /// Passes on to our view's leader what may make us want a block while
+    /// the view is quiet (spec/decisions/blocks-when-wanted.md): a member
+    /// may have sent it to some validators only, and those that want a
+    /// block would then time out a view whose leader never proposes, which
+    /// no quorum could notarize after, so the next work would cost a view.
+    /// The leader has it within a message delay of us, and proposes before
+    /// our timer runs out. Only while quiet: once armed, every honest
+    /// validator in the view is, and nothing a member sends can split them.
+    fn tell_leader(&mut self, message: Vec<u8>) {
+        let view = self.engine.view();
+        let Some(leader) = self.engine.leader(view) else {
+            return;
+        };
+        if Some(leader) == self.engine.member() {
+            return;
+        }
+        let Some(key) = self.engine.set().keys().get(leader.get()).copied() else {
+            return;
+        };
+        self.actions.push_back(Action::Validator(key, message));
+    }
+
     fn answer(&mut self, now: Millis, from: PeerId, request: Request) {
         let statements = match request {
             Request::Submit(operation) => {
-                self.chain.mempool.admit(&self.chain.ledger, operation);
+                let quiet = !self.engine.armed();
+                let message = quiet.then(|| Message::Operation(operation.clone()).to_vec());
+                if self.chain.mempool.admit(&self.chain.ledger, operation)
+                    && let Some(message) = message
+                {
+                    self.tell_leader(message);
+                }
                 return;
             }
             // A payer waits for a block stamped at or after `at`: never
             // one later than our clock, which a member's may run ahead of.
             Request::Wake { at } => {
-                self.chain.wake_at = self.chain.wake_at.max(at.min(now));
+                let quiet = !self.engine.armed();
+                let before = self.chain.wake_at;
+                self.chain.wake_at = before.max(at.min(now));
+                if quiet && self.chain.wake_at > before {
+                    let wake = Request::Wake {
+                        at: self.chain.wake_at,
+                    };
+                    self.tell_leader(Message::Request(wake).to_vec());
+                }
                 return;
             }
             Request::Account(key) => vec_of(Statement::account(&self.chain.ledger, key)),
@@ -867,32 +903,14 @@ impl Validator {
     /// After every input: the engine's outputs and events, the statements
     /// of blocks that became final, and the escrow signatures they call for.
     fn after(&mut self, now: Millis) {
-        // Something may want a block that did not: an operation, ours or
-        // a member's, or a wake. A view not armed yet asks again at once.
-        self.engine.work_arrived(now, &mut self.chain);
-        // A block was final that our ledger cannot follow: more than f
-        // validators are faulty, or there is a bug. We stop as at a stall:
-        // never vote again, and sign the payout set of the last block we
-        // executed (spec/designs/settlement-hubs.md#9-shutdown).
-        if self.chain.halted() && !self.engine.is_stalled() {
-            self.engine.declare_stalled(now);
-        }
-        while let Some(output) = self.engine.poll_output() {
-            self.route(output);
-        }
-        while let Some(event) = self.engine.poll_event() {
-            match event {
-                Event::Proposed { view, block, .. } => self.chain.adopt_proposal(view, block),
-                Event::Behind(finalized) => self.actions.push_back(Action::Behind(finalized)),
-                Event::Evidence(evidence) => self.actions.push_back(Action::Evidence(evidence)),
-                _ => {}
-            }
-        }
-        self.batches.push(self.engine.take_batch());
+        self.step_engine(now);
         self.take_finals();
         self.forget_old_chain();
         self.attest_passed(now);
         self.attest_waiting(now);
+        // What those passed on may want a block too.
+        self.step_engine(now);
+        self.take_finals();
         self.sign_withdrawals();
         // Once ended or stalled, we sign the payout set of our last final
         // block, and again whenever we learn of a later one, never of an
@@ -923,6 +941,33 @@ impl Validator {
             self.sign_payout();
         }
         self.chain.check_invariants();
+    }
+
+    /// Steps the engine on what came, and takes what it did: its messages,
+    /// its events and its batch to persist.
+    fn step_engine(&mut self, now: Millis) {
+        // Something may want a block that did not: an operation, ours or
+        // a member's, or a wake. A view not armed yet asks again at once.
+        self.engine.work_arrived(now, &mut self.chain);
+        // A block was final that our ledger cannot follow: more than f
+        // validators are faulty, or there is a bug. We stop as at a stall:
+        // never vote again, and sign the payout set of the last block we
+        // executed (spec/designs/settlement-hubs.md#9-shutdown).
+        if self.chain.halted() && !self.engine.is_stalled() {
+            self.engine.declare_stalled(now);
+        }
+        while let Some(output) = self.engine.poll_output() {
+            self.route(output);
+        }
+        while let Some(event) = self.engine.poll_event() {
+            match event {
+                Event::Proposed { view, block, .. } => self.chain.adopt_proposal(view, block),
+                Event::Behind(finalized) => self.actions.push_back(Action::Behind(finalized)),
+                Event::Evidence(evidence) => self.actions.push_back(Action::Evidence(evidence)),
+                _ => {}
+            }
+        }
+        self.batches.push(self.engine.take_batch());
     }
 
     /// Forgets what we kept of the escrow's old chain once the ledger wrote

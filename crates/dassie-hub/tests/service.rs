@@ -1662,3 +1662,71 @@ fn a_validator_restarted_in_a_quiet_hub_times_out_no_view() {
         assert!(v.ledger().height() >= 4, "{}", v.ledger().height());
     }
 }
+
+/// Sends `request` to validators `to` only, as a member that reaches some
+/// of them, or an adversary, does.
+fn request_some(net: &mut Network, to: &[usize], request: &Request) {
+    let bytes = Message::Request(request.clone()).to_vec();
+    for &i in to {
+        net.validators[i].handle(net.now, MEMBER, None, &bytes);
+        net.collect(i);
+    }
+}
+
+/// The two validators of a quiet hub that do not lead its view, and are
+/// more than n − q: what a wake or an operation sent to them alone arms.
+fn not_leading(net: &Network) -> Vec<usize> {
+    let engine = net.validators[0].engine();
+    let leader = engine.leader(engine.view()).unwrap().get();
+    (0..4).filter(|i| *i != leader).take(2).collect()
+}
+
+fn nullifies(net: &Network) -> u64 {
+    net.validators
+        .iter()
+        .map(|v| v.engine().stats().nullifies)
+        .sum()
+}
+
+// spec/decisions/blocks-when-wanted.md: a wake that reaches some validators
+// only, not the leader, never kills the quiet view: they pass it on to the
+// leader, which proposes before their timers run out.
+#[test]
+fn a_wake_to_some_validators_reaches_the_leader_and_costs_no_view() {
+    let mut net = Network::new();
+    net.run(15_000);
+    let before = net.validators[0].ledger().height();
+    let to = not_leading(&net);
+    let at = net.now;
+    request_some(&mut net, &to, &Request::Wake { at });
+    net.run(Config::DEFAULT.block_interval_ms + 3 * Config::DEFAULT.max_delay_ms);
+    for v in &net.validators {
+        assert_eq!(v.ledger().height(), before + 1);
+    }
+    assert_eq!(nullifies(&net), 0);
+}
+
+#[test]
+fn an_operation_sent_to_some_validators_reaches_the_leader_and_costs_no_view() {
+    let mut net = Network::new();
+    let (number, key) = member(&mut net, 41);
+    net.run(15_000);
+    let before = net.validators[0].ledger().height();
+    let hub = *net.validators[0].ledger().hub();
+    let sequence = net.validators[0].ledger().account(number).unwrap().sequence;
+    let disbursal = MemberOperation::SetDisbursal(Destination {
+        account: [8; 20],
+        tag: None,
+    });
+    let op = Operation::Member(SignedMemberOperation::sign(
+        &hub, number, sequence, 10, disbursal, &key,
+    ));
+    let to = not_leading(&net);
+    request_some(&mut net, &to, &Request::Submit(op));
+    net.run(Config::DEFAULT.block_interval_ms + 3 * Config::DEFAULT.max_delay_ms);
+    for v in &net.validators {
+        assert_eq!(v.ledger().height(), before + 1);
+        assert_eq!(v.ledger().account(number).unwrap().sequence, sequence + 1);
+    }
+    assert_eq!(nullifies(&net), 0);
+}
