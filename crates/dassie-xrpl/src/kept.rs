@@ -24,6 +24,10 @@ use crate::amount::TokenValue;
 pub(crate) const ACCOUNT_VERSION: u8 = 1;
 /// The version of a scheme's state, the owner book's.
 pub(crate) const SCHEME_VERSION: u8 = 2;
+/// The version of the XRP scheme's state: [`SCHEME_VERSION`]'s, then the
+/// reserve the books were last matched to. It still reads a state of
+/// [`SCHEME_VERSION`], which knows no reserve.
+pub(crate) const XRP_SCHEME_VERSION: u8 = 3;
 
 /// Bytes being written.
 pub(crate) struct Out(pub(crate) Vec<u8>);
@@ -104,6 +108,14 @@ impl<'a> In<'a> {
     pub(crate) fn state(state: &'a [u8], version: u8) -> Option<Self> {
         let mut input = Self(Reader::new(state));
         (input.u8()? == version).then_some(input)
+    }
+
+    /// A state of any of `versions`, with the one it is: `None` for any
+    /// other.
+    pub(crate) fn state_of(state: &'a [u8], versions: &[u8]) -> Option<(Self, u8)> {
+        let mut input = Self(Reader::new(state));
+        let version = input.u8()?;
+        versions.contains(&version).then_some((input, version))
     }
 
     /// Whether every byte was read.

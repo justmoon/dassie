@@ -2984,9 +2984,16 @@ mod tests {
             longer.push(0);
             assert!(refused(&longer));
             let mut other = state.clone();
-            other[0] = 3;
+            other[0] = 4;
             assert!(refused(&other));
         }
+        // The XRP scheme's state of the version before, which kept no
+        // matched reserve, is still read, and written in its own.
+        let reserve = if scheme_kept.last() == Some(&0) { 1 } else { 9 };
+        let mut before = scheme_kept[..scheme_kept.len() - reserve].to_vec();
+        before[0] = crate::kept::SCHEME_VERSION;
+        let read = crate::XrplScheme::new(&restored, None, &before).unwrap();
+        assert_eq!(read.state()[0], crate::kept::XRP_SCHEME_VERSION);
         // The scheme's state of the version before, written while the XRPL
         // schemes peered: no database the node opens keeps one.
         let mut older = scheme_kept.clone();
