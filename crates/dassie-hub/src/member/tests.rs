@@ -2629,3 +2629,86 @@ fn a_hub_shutting_down_cannot_receive() {
     assert_eq!(restarted.state(), state, "the scheme's state round-trips");
     assert!(!restarted.can_receive(), "a restart forgot the shutdown");
 }
+
+// spec/areas/hubs.md#the-members-side: a state of the account is told only
+// with the holds as of its block. A quorum may cover a block before f + 1
+// agree on a final block at or past it, each having ended its answer at
+// another; the hub may have paid what a claim of ours took by then, in the
+// balance the state shows, while the hold still has it waiting. Told then,
+// the scheme would count it twice, and reconcile it through suspense, then
+// back.
+#[test]
+fn a_state_waits_for_the_final_block_that_pays_what_waits() {
+    let hub = Hub::new();
+    let mut account = synced(&hub);
+    let notice = hub.rules.terms.timers.hold_notice;
+    let hold = crate::promise::HoldNumber(1);
+    let open = executed_by_9(
+        &hub,
+        1,
+        10,
+        MemberOperation::HoldOpen {
+            payee: AccountNumber(7),
+            amount: 100,
+        },
+        crate::ledger::Detail::Hold(hold),
+    );
+    let claim = executed_by_9(
+        &hub,
+        2,
+        11,
+        claim_on(1, 1_000_000),
+        crate::ledger::Detail::Pending(5),
+    );
+    let final_at = |height: u64| Statement::Final {
+        height,
+        timestamp: 1_011 + notice + height,
+    };
+    let early = Statement::Final {
+        height: 12,
+        timestamp: 1_012,
+    };
+    let read = [open, claim, early];
+    for v in 0..3 {
+        say_all(&hub, &mut account, v, &read);
+    }
+    assert_eq!(account.cursor(), 12);
+    assert_eq!(account.hold(hold).unwrap().waiting(), 5);
+    account.told();
+    // Past when it is due, each validator ends its answer at another final
+    // block: a quorum covers 50, f + 1 agree on none.
+    for (v, height) in [(0, 50), (1, 51), (2, 52)] {
+        say_all(&hub, &mut account, v, &[final_at(height)]);
+    }
+    assert_eq!(account.cursor(), 50);
+    for v in 0..2 {
+        say_all(&hub, &mut account, v, &[hub.account_statement(50, true)]);
+    }
+    let state_told = |account: &HubAccount| {
+        account
+            .news()
+            .iter()
+            .any(|news| matches!(news, News::Account { .. }))
+    };
+    assert!(
+        !state_told(&account),
+        "not while what waits may be in its balance"
+    );
+    assert_eq!(account.hold(hold).unwrap().waiting(), 5);
+    // Once f + 1 agree on a final block past it, what waits is paid, and
+    // the state, older than that touch, is dropped.
+    for v in 0..2 {
+        say_all(&hub, &mut account, v, &[final_at(52)]);
+    }
+    assert_eq!(account.cursor(), 52);
+    assert_eq!(account.hold(hold).unwrap().waiting(), 0);
+    assert!(matches!(account.news(), [News::ClaimsPaid { .. }, ..]));
+    assert!(!state_told(&account));
+    account.told();
+    // The next state is told as soon as it is read.
+    for v in 0..2 {
+        say_all(&hub, &mut account, v, &[hub.account_statement(52, true)]);
+    }
+    assert!(matches!(account.news(), [News::Account { height: 52, .. }]));
+    account.check_invariants();
+}

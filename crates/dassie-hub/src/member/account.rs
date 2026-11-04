@@ -1620,7 +1620,17 @@ impl HubAccount {
         let Some((height, view)) = self.waiting_view else {
             return;
         };
-        if height > self.cursor {
+        // While a hold waits to pay what claims took, or to reduce, not
+        // before the holds mirror what was due by its block: a final block
+        // at or past it was told, so what the hub paid by then is applied,
+        // or, if anything was, a touch past it drops the view below.
+        // Otherwise what the hub paid out of a hold toward us would count
+        // both in the balance and in the hold.
+        let due = self
+            .holds
+            .values()
+            .any(|mirror| mirror.waiting() > 0 || mirror.reduction.is_some());
+        if height > self.cursor || (due && height > self.told_final) {
             return;
         }
         self.waiting_view = None;
