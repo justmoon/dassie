@@ -23,7 +23,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::Message;
 
-use super::strategy::{MAX_FEE_DROPS, Pool, Rebalance};
+use super::strategy::{Book, Level, MAX_FEE_DROPS, MAX_LEVELS, Pool, Rebalance, to_units};
 
 /// Most bytes in one message from the server.
 const MAX_MESSAGE_BYTES: usize = 1 << 20;
@@ -198,6 +198,72 @@ impl Xrpl {
             }
             _ => Err("an amm_info answer of another pool".into()),
         }
+    }
+
+    /// The order book between XRP and `token`, as of a validated ledger:
+    /// both sides, best first, at most a page each, each offer as much as
+    /// its owner funds, and none of `own`'s, the market maker's account,
+    /// whose offers are no market to it.
+    ///
+    /// # Errors
+    ///
+    /// A side cannot be read, or is not of the two assets.
+    pub async fn book(&mut self, token: IssuedAsset, own: AccountId) -> Result<Book, String> {
+        let token_asset = Asset::Token {
+            currency: token.currency,
+            issuer: token.issuer,
+        };
+        Ok(Book {
+            bids: self.side(token_asset, Asset::Xrp, own).await?,
+            asks: self.side(Asset::Xrp, token_asset, own).await?,
+        })
+    }
+
+    /// The offers that give `gets` for `pays`, best first, as levels.
+    async fn side(
+        &mut self,
+        gets: Asset,
+        pays: Asset,
+        own: AccountId,
+    ) -> Result<Vec<Level>, String> {
+        let limit = u32::try_from(MAX_LEVELS).unwrap_or(api::BOOK_PAGE);
+        let result = self
+            .request(|id| api::book_offers(id, gets, pays, limit))
+            .await
+            .map_err(|failure| failure.to_string())?;
+        let page = api::book_offers_result(&result).ok_or("a book_offers answer it cannot read")?;
+        if !page.validated {
+            return Err("a book_offers answer of a ledger not validated".into());
+        }
+        let mut levels = Vec::with_capacity(page.offers.len().min(MAX_LEVELS));
+        for offer in page.offers.iter().take(MAX_LEVELS) {
+            if offer.account == own {
+                continue;
+            }
+            let given = offer.taker_gets_funded.unwrap_or(offer.taker_gets);
+            let asked = offer.taker_pays_funded.unwrap_or(offer.taker_pays);
+            if given.asset() != gets || asked.asset() != pays {
+                return Err("a book_offers answer of another book".into());
+            }
+            let (given, asked) = (
+                to_units(given).ok_or("an offer beyond the ledger's units")?,
+                to_units(asked).ok_or("an offer beyond the ledger's units")?,
+            );
+            if given == 0 || asked == 0 {
+                continue;
+            }
+            levels.push(match gets {
+                Asset::Xrp => Level {
+                    xrp: given,
+                    token: asked,
+                },
+                Asset::Token { .. } => Level {
+                    xrp: asked,
+                    token: given,
+                },
+            });
+        }
+        Ok(levels)
     }
 
     /// Signs `rebalance` with `wallet`, paying `destination`, submits it,
@@ -601,6 +667,83 @@ mod tests {
             Some(left)
         );
         server.stop();
+    }
+
+    /// Places an offer from `wallet` that gives `gets` for `pays`, and
+    /// waits until the ledger holds it.
+    async fn place(server: &Server, wallet: &Wallet, gets: Amount, pays: Amount) {
+        let sequence = server_sequence(server, wallet.account());
+        let signed = codec::sign_offer(
+            wallet,
+            codec::OfferTerms {
+                taker_pays: pays,
+                taker_gets: gets,
+                offer_sequence: None,
+                expiration: None,
+                fee: FEE_BASE,
+                sequence,
+                last_ledger_sequence: server.ledger().ledger() + 20,
+                network_id: None,
+                memos: Vec::new(),
+            },
+        )
+        .unwrap();
+        let submit = serde_json::json!({ "command": "submit", "tx_blob": dassie_xrpl::hex_upper(&signed.blob) });
+        server.ledger().request(0, submit.to_string().as_bytes());
+        eventually(|| server.ledger().offer(wallet.account(), sequence).is_some()).await;
+    }
+
+    // spec/decisions/market-maker-order-book.md: both sides of the book,
+    // best first, in the ledgers' units, as much of each offer as its owner
+    // funds, and none of the market maker's own.
+    #[tokio::test(start_paused = true)]
+    async fn it_reads_both_sides_of_the_book_but_its_own_offers() {
+        let server = fake_ledger().await;
+        let client = client();
+        let token = |value: &str| Amount::Token(dsusd().amount(TokenValue::parse(value).unwrap()));
+        let (bidder, asker, own) = (
+            holder(&server, 2, 100_000_000).await,
+            holder(&server, 3, 100_000_000).await,
+            holder(&server, 4, 100_000_000).await,
+        );
+        mint(&client, &server, bidder.account(), "20").await;
+        // Bids: DSUSD for XRP, at 0.5 and 0.49 a XRP.
+        place(&server, &bidder, token("5"), Amount::Xrp(10_000_000)).await;
+        place(&server, &bidder, token("4.9"), Amount::Xrp(10_000_000)).await;
+        // An ask: XRP for DSUSD, at 0.51.
+        place(&server, &asker, Amount::Xrp(10_000_000), token("5.1")).await;
+        // The market maker's own, behind the ask, which it leaves out.
+        place(&server, &own, Amount::Xrp(1_000_000), token("0.6")).await;
+        let mut xrpl = Xrpl::new(server.url.clone(), client.clone());
+        let mut book = Book::EMPTY;
+        for _ in 0..100 {
+            book = xrpl.book(dsusd(), own.account()).await.unwrap();
+            if book.bids.len() == 2 && book.asks.len() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let units = 1_000_000_000;
+        assert_eq!(
+            book.bids,
+            [
+                Level {
+                    xrp: 10 * units,
+                    token: 5 * units
+                },
+                Level {
+                    xrp: 10 * units,
+                    token: 49 * units / 10
+                },
+            ]
+        );
+        assert_eq!(
+            book.asks,
+            [Level {
+                xrp: 10 * units,
+                token: 51 * units / 10
+            }]
+        );
     }
 
     #[tokio::test(start_paused = true)]
