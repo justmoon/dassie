@@ -27,7 +27,7 @@ use dassie_xrpl::fake::{FAUCET_DROPS, RESERVE_BASE};
 use super::checks::{
     check_anchored, check_delivered, check_funded, check_held, check_true, first_failure,
 };
-use super::hub::{HubNet, owed};
+use super::hub::{HubNet, held_toward, owed};
 use super::{
     DSUSD, HUB, HUB_DSUSD, HUB_LIVE, HUB_RLUSD, LIVE_XRP, RLUSD, Sim, XRP, key, received,
     xrpl_account,
@@ -444,9 +444,10 @@ pub(super) fn check_losses(sim: &Sim) -> Result<(), String> {
 
 /// Each member's books hold what its schemes hold: each owner book its
 /// account's XRP less the reserve or its token's line, and in the hub at
-/// `place` what its account and its peers' holds toward it hold, as the
-/// hub's honest validators have it once the network is calm and it read the
-/// operations of its own they applied.
+/// `place` what its account and its peers' holds toward it hold, claims
+/// waiting in them included ([`held_toward`]), as the hub's honest
+/// validators have it once the network is calm and it read the operations
+/// of its own they applied.
 ///
 /// Once the network is calm and an honest node read up to the hub's newest
 /// block, it has read every operation of its own the hub applied; only a
@@ -514,16 +515,12 @@ pub(super) fn check_books_in(sim: &Sim, place: usize, liar: Option<usize>) -> Re
                 ));
             }
         }
-        let toward: u64 = ledger
-            .holds()
-            .filter(|(_, hold)| hold.payee == number)
-            .map(|(_, hold)| hold.amount)
-            .sum();
+        let toward = held_toward(ledger.holds().map(|(_, hold)| hold), number);
         let held = i128::from(dassie_hub::member::units(account.balance + toward));
         if booked != held {
             return Err(format!(
                 "node {index} books {booked} in the {ours} hub, where its account holds {} and \
-                 its peers' holds toward it {toward}",
+                 its peers' holds toward it, claims waiting included, {toward}",
                 account.balance
             ));
         }
