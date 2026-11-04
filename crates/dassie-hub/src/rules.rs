@@ -117,7 +117,18 @@ pub const RELEASES_VERSION: u16 = 2;
 /// a hub moves to it only once its validators run such a release.
 pub const BATCHES_VERSION: u16 = 3;
 
-const _: () = assert!(RELEASES_VERSION <= BATCHES_VERSION && BATCHES_VERSION <= HUB_VERSION);
+/// The first version whose validators make a block only when one is
+/// wanted, and at least every heartbeat, and whose members ask for one
+/// while a packet waits for the hub (spec/decisions/blocks-when-wanted.md).
+/// It changes nothing a ledger executes; it only makes a quiet hub's
+/// validators wait, which every validator must do alike.
+pub const IDLE_VERSION: u16 = 3;
+
+const _: () = assert!(
+    RELEASES_VERSION <= BATCHES_VERSION
+        && BATCHES_VERSION <= HUB_VERSION
+        && IDLE_VERSION <= HUB_VERSION
+);
 
 /// A hub, named by the digest of its rules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -136,6 +136,10 @@ pub struct Chain {
     halted: bool,
     /// The highest final block dropped before the service took it.
     pub(super) lost: Option<u64>,
+    /// The latest time a member asked for a block stamped at or after, by
+    /// our clock (`Request::Wake`): wanted while the head's stamp is below
+    /// it (spec/decisions/blocks-when-wanted.md).
+    pub(super) wake_at: crate::rules::Millis,
 }
 
 impl Chain {
@@ -155,6 +159,7 @@ impl Chain {
             finals: VecDeque::new(),
             halted: false,
             lost: None,
+            wake_at: 0,
         }
     }
 

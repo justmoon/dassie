@@ -375,6 +375,16 @@ impl Payer {
         None
     }
 
+    /// The latest expiry of a commitment whose packet waits for the hub: a
+    /// final block stamped at or after it decides them all.
+    pub(super) fn waiting_on(&self) -> Option<Millis> {
+        self.packets
+            .values()
+            .filter(|packet| packet.state == State::Waiting)
+            .map(|packet| packet.commitment.expiry)
+            .max()
+    }
+
     /// A final block stamped `timestamp`, up to which we read everything
     /// on the hold: the waits whose commitment expired by then are decided
     /// without a fulfillment, by request, and what can no longer be

@@ -506,7 +506,7 @@ impl Validator {
             Ok(Message::Operation(operation)) => {
                 self.chain.mempool.admit(&self.chain.ledger, operation);
             }
-            Ok(Message::Request(request)) => self.answer(from, request),
+            Ok(Message::Request(request)) => self.answer(now, from, request),
             Ok(Message::Share { sequence, signer }) => self.take_share(sequence, signer),
             Ok(Message::Statements(_) | Message::Payout(_)) | Err(_) => {}
         }
@@ -739,10 +739,16 @@ impl Validator {
         }
     }
 
-    fn answer(&mut self, from: PeerId, request: Request) {
+    fn answer(&mut self, now: Millis, from: PeerId, request: Request) {
         let statements = match request {
             Request::Submit(operation) => {
                 self.chain.mempool.admit(&self.chain.ledger, operation);
+                return;
+            }
+            // A payer waits for a block stamped at or after `at`: never
+            // one later than our clock, which a member's may run ahead of.
+            Request::Wake { at } => {
+                self.chain.wake_at = self.chain.wake_at.max(at.min(now));
                 return;
             }
             Request::Account(key) => vec_of(Statement::account(&self.chain.ledger, key)),
@@ -1307,6 +1313,22 @@ mod tests {
     }
 
     #[test]
+    fn a_wake_asks_for_a_block_stamped_no_later_than_our_clock() {
+        let mut v = validator();
+        let member = PeerId(100);
+        // A member's clock may run ahead of ours: we take ours.
+        v.answer(1_000, member, Request::Wake { at: 5_000 });
+        assert_eq!(v.chain.wake_at, 1_000);
+        // The latest stands: a block stamped at or after it decides both.
+        v.answer(2_000, member, Request::Wake { at: 1_500 });
+        assert_eq!(v.chain.wake_at, 1_500);
+        v.answer(3_000, member, Request::Wake { at: 1_200 });
+        assert_eq!(v.chain.wake_at, 1_500);
+        // Nothing is answered.
+        assert!(sent(&mut v, member).is_empty());
+    }
+
+    #[test]
     fn a_block_too_long_for_one_answer_is_sent_whole() {
         let mut v = validator();
         let long = MAX_ANSWER + 44;
@@ -1314,6 +1336,7 @@ mod tests {
         v.history.push_back(block_of(3, 1));
         let member = PeerId(100);
         v.answer(
+            0,
             member,
             Request::Since {
                 account: AccountNumber(6),
@@ -1381,12 +1404,12 @@ mod tests {
             account: AccountNumber(6),
             from: 1,
         };
-        v.answer(member, since.clone());
+        v.answer(0, member, since.clone());
         assert_eq!(sent(&mut v, member).len(), 1, "it answers");
         v.chain.finals.push_back(block_of(2, 1));
         v.take_finals();
         assert!(sent(&mut v, member).is_empty(), "nothing unasked");
-        v.answer(member, since);
+        v.answer(0, member, since);
         let statements: Vec<Statement> = sent(&mut v, member).into_iter().flatten().collect();
         assert!(matches!(
             statements[0],

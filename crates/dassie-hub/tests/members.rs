@@ -153,6 +153,9 @@ struct Validators {
     complete_from: u64,
     /// The XRP Ledger ledger of the issuer's last hold a quorum attested.
     issuer_ledger: u32,
+    /// The blocks members asked for, by validator and stamp
+    /// (`Request::Wake`).
+    wakes: Vec<(usize, Millis)>,
 }
 
 impl Validators {
@@ -192,6 +195,7 @@ impl Validators {
             deposits: 0,
             complete_from: 1,
             issuer_ledger: 0,
+            wakes: Vec::new(),
         };
         hub.attest(&ValidatorOperation::AttestEscrow { sequence: 10 });
         hub.block(START + 1);
@@ -435,6 +439,10 @@ impl Validators {
                 return None;
             }
             Request::Payout { .. } => return None,
+            Request::Wake { at } => {
+                self.wakes.push((index, at));
+                return None;
+            }
             Request::Account(key) => vec![Statement::account(&self.ledger, key)],
             Request::Since { account, from } => self.since(account, from),
             Request::Holds(account) => {
@@ -1350,6 +1358,52 @@ fn a_deferred_reject_is_decided_from_the_hub() {
         .on_released(name_a, 2, &mut Vec::new());
     world.run(500);
     assert!(world.members[a].books.losses.is_empty(), "decided in time");
+}
+
+/// spec/decisions/blocks-when-wanted.md: while a packet waits for the hub,
+/// its payer asks every validator at each poll for a block stamped at or
+/// after its commitment's expiry, so that a quiet hub decides it in time;
+/// and no longer once it is decided. A hub older than version 3 makes a
+/// block every interval anyway, and is asked nothing.
+#[test]
+fn a_waiting_packet_asks_the_validators_for_a_block() {
+    for version in [2, dassie_hub::rules::IDLE_VERSION] {
+        let world = World::of_version([Fault::Honest; 4], Asset::Xrp, version);
+        let (mut world, a, b) = World::pair_in(world, 2);
+        world.prepare((a, b), 2, P, 2_000).unwrap();
+        // The commitment expires the hub's margin before the Prepare.
+        let expiry = world.now + 2_000;
+        // A quiet hub: no block since before the commitment expired.
+        world.next_block = u64::MAX;
+        world.run(2_000);
+        world.wait((a, b), 2, world.now + 1_000);
+        world.run(500);
+        let asked: BTreeSet<usize> = world
+            .validators
+            .wakes
+            .iter()
+            .filter(|(_, at)| *at < expiry)
+            .map(|(index, _)| *index)
+            .collect();
+        if version >= dassie_hub::rules::IDLE_VERSION {
+            assert_eq!(asked, (0..4).collect(), "every validator");
+            // Again at every poll while it waits.
+            assert!(world.validators.wakes.len() >= 8);
+        } else {
+            assert!(world.validators.wakes.is_empty(), "version {version}");
+        }
+        assert!(world.members[a].decided.is_empty());
+        // The block it asked for decides it.
+        world.next_block = world.now;
+        world.run(500);
+        assert_eq!(world.members[a].decided.len(), 1);
+        world.validators.wakes.clear();
+        world.run(2_000);
+        assert!(
+            world.validators.wakes.is_empty(),
+            "decided: nothing to wait for"
+        );
+    }
 }
 
 /// In a hub of version 1: a packet the payer gave up on, which the payee

@@ -497,6 +497,9 @@ pub struct HubAccount {
     next_poll_ms: u64,
     last_account_ms: Option<u64>,
     wake_ms: Option<u64>,
+    /// While a packet waits for the hub: the stamp of the final block that
+    /// decides it ([`HubAccount::wait_for_block`]).
+    block_wanted: Option<u64>,
     news: Vec<News>,
     effects: Vec<AssetEffect>,
 }
@@ -576,6 +579,7 @@ impl HubAccount {
             next_poll_ms: 0,
             last_account_ms: None,
             wake_ms: None,
+            block_wanted: None,
             news: Vec::new(),
             effects: Vec::new(),
         };
@@ -998,6 +1002,19 @@ impl HubAccount {
         self.wake_ms = at_ms;
     }
 
+    /// Waits for a final block stamped at or after `at`, by the hub's
+    /// clock, while a packet waits for the hub: every poll asks each
+    /// validator for one (`Request::Wake`), so that a quiet hub decides it
+    /// before the connector gives up on it, and a lost request or a
+    /// validator that restarted costs a poll
+    /// (spec/decisions/blocks-when-wanted.md). The first wait polls at once.
+    pub fn wait_for_block(&mut self, at: Option<u64>) {
+        if at.is_some() && self.block_wanted.is_none() {
+            self.next_poll_ms = self.next_poll_ms.min(self.now_ms);
+        }
+        self.block_wanted = at;
+    }
+
     /// Asks the validators which account `key` has, until f + 1 agree:
     /// the answer comes as [`News::Member`]. At most [`MAX_LOOKUPS`] at
     /// once; past them, nothing is asked. Returns whether `key` is asked
@@ -1087,7 +1104,13 @@ impl HubAccount {
         for key in keys {
             self.ask(&Request::Account(key));
         }
-        let busy = !self.holds.is_empty()
+        if let Some(at) = self.block_wanted
+            && self.version() >= crate::rules::IDLE_VERSION
+        {
+            self.ask(&Request::Wake { at });
+        }
+        let busy = self.block_wanted.is_some()
+            || !self.holds.is_empty()
             || !self.queue.is_empty()
             || !self.lookups.is_empty()
             || self.resync;
