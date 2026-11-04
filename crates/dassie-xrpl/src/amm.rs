@@ -167,9 +167,9 @@ pub fn lp_tokens(drops: u64, value: TokenValue) -> Option<TokenValue> {
 
 /// `mantissa × 10^exponent`, not below zero.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Decimal {
-    mantissa: u128,
-    exponent: i32,
+pub(crate) struct Decimal {
+    pub(crate) mantissa: u128,
+    pub(crate) exponent: i32,
 }
 
 fn whole(n: u32) -> Decimal {
@@ -180,7 +180,7 @@ fn whole(n: u32) -> Decimal {
 }
 
 /// An amount as a decimal: drops are whole; `None` below zero.
-fn dec(amount: Amount) -> Option<Decimal> {
+pub(crate) fn dec(amount: Amount) -> Option<Decimal> {
     match amount {
         Amount::Xrp(drops) => Some(Decimal {
             mantissa: u128::from(drops),
@@ -231,7 +231,7 @@ fn checked(
     Ok([a, b, c])
 }
 
-fn mul(a: Decimal, b: Decimal) -> Result<Decimal, SwapError> {
+pub(crate) fn mul(a: Decimal, b: Decimal) -> Result<Decimal, SwapError> {
     Ok(Decimal {
         mantissa: a
             .mantissa
@@ -281,7 +281,7 @@ fn sub(a: Decimal, b: Decimal) -> Result<Decimal, SwapError> {
 
 /// How two decimals compare: one that does not fit at the lower exponent
 /// is beyond any 128 bits, so above the other.
-fn compare(a: Decimal, b: Decimal) -> Ordering {
+pub(crate) fn compare(a: Decimal, b: Decimal) -> Ordering {
     match (a.mantissa == 0, b.mantissa == 0) {
         (true, true) => return Ordering::Equal,
         (true, false) => return Ordering::Less,
@@ -295,14 +295,14 @@ fn compare(a: Decimal, b: Decimal) -> Ordering {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Round {
+pub(crate) enum Round {
     Down,
     Up,
 }
 
 /// `numerator / denominator`, as an amount of `asset` the ledger can
 /// express, rounded as `round` says.
-fn quotient(
+pub(crate) fn quotient(
     numerator: Decimal,
     denominator: Decimal,
     asset: Asset,
@@ -310,7 +310,7 @@ fn quotient(
 ) -> Result<Amount, SwapError> {
     assert!(
         denominator.mantissa > 0,
-        "a pool's price divides by its holdings"
+        "a price divides by more than nothing"
     );
     let exponent = numerator
         .exponent

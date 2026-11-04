@@ -27,13 +27,17 @@ const SIGNER_WEIGHT: (u8, u8) = (UINT16, 3);
 pub const NETWORK_ID: (u8, u8) = (UINT32, 1);
 pub const FLAGS: (u8, u8) = (UINT32, 2);
 pub const SEQUENCE: (u8, u8) = (UINT32, 4);
+pub const EXPIRATION: (u8, u8) = (UINT32, 10);
 pub const DESTINATION_TAG: (u8, u8) = (UINT32, 14);
+pub const OFFER_SEQUENCE: (u8, u8) = (UINT32, 25);
 pub const LAST_LEDGER_SEQUENCE: (u8, u8) = (UINT32, 27);
 pub const SET_FLAG: (u8, u8) = (UINT32, 33);
 pub const CLEAR_FLAG: (u8, u8) = (UINT32, 34);
 pub const SIGNER_QUORUM: (u8, u8) = (UINT32, 35);
 pub const AMOUNT_FIELD: (u8, u8) = (AMOUNT, 1);
 pub const LIMIT_AMOUNT: (u8, u8) = (AMOUNT, 3);
+pub const TAKER_PAYS: (u8, u8) = (AMOUNT, 4);
+pub const TAKER_GETS: (u8, u8) = (AMOUNT, 5);
 pub const FEE: (u8, u8) = (AMOUNT, 8);
 pub const SEND_MAX: (u8, u8) = (AMOUNT, 9);
 pub const SIGNING_PUB_KEY: (u8, u8) = (BLOB, 3);
@@ -54,18 +58,22 @@ pub const MEMOS: (u8, u8) = (ARRAY, 9);
 
 /// Every field a transaction the codec knows may have, in canonical order:
 /// the order they are written in, and the only one they are read in.
-pub const TX_FIELDS: [(u8, u8); 21] = [
+pub const TX_FIELDS: [(u8, u8); 25] = [
     TRANSACTION_TYPE,
     NETWORK_ID,
     FLAGS,
     SEQUENCE,
+    EXPIRATION,
     DESTINATION_TAG,
+    OFFER_SEQUENCE,
     LAST_LEDGER_SEQUENCE,
     SET_FLAG,
     CLEAR_FLAG,
     SIGNER_QUORUM,
     AMOUNT_FIELD,
     LIMIT_AMOUNT,
+    TAKER_PAYS,
+    TAKER_GETS,
     FEE,
     SEND_MAX,
     SIGNING_PUB_KEY,
@@ -140,13 +148,17 @@ pub struct Body<'a> {
     pub network_id: Option<u32>,
     pub flags: u32,
     pub sequence: u32,
+    pub expiration: Option<u32>,
     pub destination_tag: Option<u32>,
+    pub offer_sequence: Option<u32>,
     pub last_ledger_sequence: Option<u32>,
     pub set_flag: Option<u32>,
     pub clear_flag: Option<u32>,
     pub signer_quorum: Option<u32>,
     pub amount: Option<Amount>,
     pub limit_amount: Option<Amount>,
+    pub taker_pays: Option<Amount>,
+    pub taker_gets: Option<Amount>,
     pub fee: u64,
     pub send_max: Option<Amount>,
     pub signing: &'a Signing,
@@ -196,7 +208,9 @@ fn write_numbers(body: &Body<'_>, out: &mut Vec<u8>) {
         (NETWORK_ID, body.network_id),
         (FLAGS, Some(body.flags)),
         (SEQUENCE, Some(body.sequence)),
+        (EXPIRATION, body.expiration),
         (DESTINATION_TAG, body.destination_tag),
+        (OFFER_SEQUENCE, body.offer_sequence),
         (LAST_LEDGER_SEQUENCE, body.last_ledger_sequence),
         (SET_FLAG, body.set_flag),
         (CLEAR_FLAG, body.clear_flag),
@@ -213,6 +227,8 @@ fn write_amounts(body: &Body<'_>, out: &mut Vec<u8>) {
     for (id, amount) in [
         (AMOUNT_FIELD, body.amount),
         (LIMIT_AMOUNT, body.limit_amount),
+        (TAKER_PAYS, body.taker_pays),
+        (TAKER_GETS, body.taker_gets),
         (FEE, Some(Amount::Xrp(body.fee))),
         (SEND_MAX, body.send_max),
     ] {
@@ -363,13 +379,17 @@ pub struct Decoded {
     pub network_id: Option<u32>,
     pub flags: u32,
     pub sequence: u32,
+    pub expiration: Option<u32>,
     pub destination_tag: Option<u32>,
+    pub offer_sequence: Option<u32>,
     pub last_ledger_sequence: Option<u32>,
     pub set_flag: Option<u32>,
     pub clear_flag: Option<u32>,
     pub signer_quorum: Option<u32>,
     pub amount: Option<Amount>,
     pub limit_amount: Option<Amount>,
+    pub taker_pays: Option<Amount>,
+    pub taker_gets: Option<Amount>,
     pub fee: u64,
     pub send_max: Option<Amount>,
     /// `None` if it was empty, as a multi-signed transaction's is.
@@ -506,13 +526,17 @@ impl<'a> Reader<'a> {
             NETWORK_ID => fields.network_id = Some(self.uint32()?),
             FLAGS => fields.flags = self.uint32()?,
             SEQUENCE => fields.sequence = self.uint32()?,
+            EXPIRATION => fields.expiration = Some(self.uint32()?),
             DESTINATION_TAG => fields.destination_tag = Some(self.uint32()?),
+            OFFER_SEQUENCE => fields.offer_sequence = Some(self.uint32()?),
             LAST_LEDGER_SEQUENCE => fields.last_ledger_sequence = Some(self.uint32()?),
             SET_FLAG => fields.set_flag = Some(self.uint32()?),
             CLEAR_FLAG => fields.clear_flag = Some(self.uint32()?),
             SIGNER_QUORUM => fields.signer_quorum = Some(self.uint32()?),
             AMOUNT_FIELD => fields.amount = Some(self.amount()?),
             LIMIT_AMOUNT => fields.limit_amount = Some(self.amount()?),
+            TAKER_PAYS => fields.taker_pays = Some(self.amount()?),
+            TAKER_GETS => fields.taker_gets = Some(self.amount()?),
             FEE => fields.fee = from_xrp(self.take()?)?,
             SEND_MAX => fields.send_max = Some(self.amount()?),
             SIGNING_PUB_KEY => {

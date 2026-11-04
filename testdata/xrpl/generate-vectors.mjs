@@ -5,9 +5,11 @@
 // the blob it submits and the hash it reports. Then the token wire format
 // (spec/areas/xrpl.md#tokens): token amounts on their own, at the edges of
 // what the ledger can express, and token Payments and TrustSets as xrpl.js
-// signs them, with RLUSD of its testnet issuer. Last, cross-currency
+// signs them, with RLUSD of its testnet issuer. Then cross-currency
 // Payments with `SendMax` (spec/areas/xrpl.md#tokens): one asset delivered,
 // at most `SendMax` of the other spent, through the ledger's default paths.
+// Last, OfferCreates and OfferCancels on the order book
+// (spec/areas/xrpl.md#the-order-book).
 //
 // Run from the repository root, with xrpl@3.1.0 installed somewhere:
 //
@@ -207,6 +209,59 @@ for (const [index, shape] of sendMaxShapes.entries()) {
   sendMaxPayments.push(signedVector(from, tx, wallet));
 }
 
+// Offers on the order book (spec/areas/xrpl.md#the-order-book): an
+// OfferCreate of XRP for a token, of a token for XRP and of a token for
+// another, with and without the offer it replaces, an expiration and a
+// memo, at every width the codec has; and OfferCancels.
+const offerShapes = [
+  { pays: "30000000", gets: { value: "25" }, fee: "12", sequence: 5, last: 25 },
+  { pays: { value: "0.75" }, gets: "1000000", replaces: 3_999_999, expiration: 800_000_100, fee: "15", sequence: 4_000_000, last: 4_000_020, memo: true },
+  { pays: { value: "1e-81", currency: "USD" }, gets: { value: "9999999999999999e80" }, replaces: 1, expiration: 0xffff_ffff, fee: "1000", sequence: 0xffff_ffff, last: 0xffff_ffff, network: 21_338 },
+  { pays: "1", gets: { value: "9999999999999999e80" }, replaces: 7, fee: "10", sequence: 8, last: 28 },
+];
+const cancelShapes = [
+  { replaces: 7, fee: "12", sequence: 9, last: 29 },
+  { replaces: 0xffff_fffe, fee: "1000", sequence: 0xffff_ffff, last: 0xffff_ffff, network: 21_338 },
+];
+
+const offers = [];
+for (const [index, shape] of offerShapes.entries()) {
+  const from = chain[2 + index * 3];
+  const wallet = Wallet.fromSeed(from.xrplTestnetWallet.familySeed);
+  const tx = {
+    TransactionType: "OfferCreate",
+    Account: wallet.address,
+    TakerPays: sendMaxAmount(shape.pays),
+    TakerGets: sendMaxAmount(shape.gets),
+    Fee: shape.fee,
+    Flags: 0,
+    Sequence: shape.sequence,
+    LastLedgerSequence: shape.last,
+    ...(shape.replaces === undefined ? {} : { OfferSequence: shape.replaces }),
+    ...(shape.expiration === undefined ? {} : { Expiration: shape.expiration }),
+    ...(shape.memo ? { Memos: [{ Memo: { MemoType: MEMO_TYPE, MemoData: hex(from.nodeId) } }] } : {}),
+    ...network(shape),
+  };
+  offers.push(signedVector(from, tx, wallet));
+}
+
+const offerCancels = [];
+for (const [index, shape] of cancelShapes.entries()) {
+  const from = chain[14 + index * 3];
+  const wallet = Wallet.fromSeed(from.xrplTestnetWallet.familySeed);
+  const tx = {
+    TransactionType: "OfferCancel",
+    Account: wallet.address,
+    OfferSequence: shape.replaces,
+    Fee: shape.fee,
+    Flags: 0,
+    Sequence: shape.sequence,
+    LastLedgerSequence: shape.last,
+    ...network(shape),
+  };
+  offerCancels.push(signedVector(from, tx, wallet));
+}
+
 writeFileSync(
   "crates/dassie-xrpl/tests/data/vectors.json",
   `${JSON.stringify(
@@ -218,6 +273,8 @@ writeFileSync(
       tokenPayments,
       trustSets,
       sendMaxPayments,
+      offers,
+      offerCancels,
     },
     null,
     2,

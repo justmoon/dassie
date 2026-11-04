@@ -5,7 +5,8 @@
 //!
 //! - **Keys** are rippled's: an account's root, a trust line by its two
 //!   accounts and currency, an account's signer list, the `AMM` object of
-//!   the pool of XRP and a token, and the fee settings.
+//!   the pool of XRP and a token, an account's offer and the directory of
+//!   an order book at a quality, and the fee settings.
 //! - **Objects** are read on the walker of canonical serializations
 //!   ([`crate::binary`]), each by the fields its reader needs: an account's
 //!   root, a trust line, a signer list, the fee settings in either of
@@ -229,6 +230,37 @@ pub fn signer_list_key(account: AccountId) -> [u8; 32] {
 #[must_use]
 pub fn amm_key(issuer: AccountId, currency: Currency) -> [u8; 32] {
     key(b'A', &[&[0; 20], &[0; 20], &issuer.0, &currency.0])
+}
+
+/// The key of `account`'s offer, placed by its transaction of `sequence`.
+#[must_use]
+pub fn offer_key(account: AccountId, sequence: u32) -> [u8; 32] {
+    key(b'o', &[&account.0, &sequence.to_be_bytes()])
+}
+
+/// The key of the directory of the offers that ask for `pays` and give
+/// `gets` at `quality` ([`crate::offer::quality`]): the book's key, of the
+/// two currencies and then the two issuers, all zeros for XRP's, with the
+/// quality in its last eight bytes.
+#[must_use]
+pub fn book_directory(pays: Asset, gets: Asset, quality: u64) -> [u8; 32] {
+    let issuer = |asset: Asset| match asset {
+        Asset::Xrp => [0; 20],
+        Asset::Token { issuer, .. } => issuer.0,
+    };
+    let mut directory = key(
+        b'B',
+        &[
+            &pays.currency_bits(),
+            &gets.currency_bits(),
+            &issuer(pays),
+            &issuer(gets),
+        ],
+    );
+    if let Some(tail) = directory.get_mut(24..) {
+        tail.copy_from_slice(&quality.to_be_bytes());
+    }
+    directory
 }
 
 /// The key of the fee settings.
@@ -951,6 +983,31 @@ mod tests {
         (list.as_array().unwrap().iter())
             .find(|object| object["label"] == label)
             .unwrap()
+    }
+
+    // An offer of EUR for USD as rippled's documentation of `book_offers`
+    // shows it: under the key of its owner and sequence, in a directory of
+    // its book whose key ends with the bits of its quality.
+    #[test]
+    fn an_offer_and_its_book_directory_are_rippled_s() {
+        let owner = AccountId::parse("rM3X3QSr8icjTGpaF52dozhbT2BZSXJQYM").unwrap();
+        assert_eq!(
+            crate::hex_upper(&offer_key(owner, 264_542)),
+            "96A9104BF3137131FF8310B9174F3B37170E2144C813CA2A1695DF2C5677E811"
+        );
+        let token = |currency: &str, issuer: &str| Asset::Token {
+            currency: Currency::parse(currency).unwrap(),
+            issuer: AccountId::parse(issuer).unwrap(),
+        };
+        let usd = token("USD", "rvYAfWj5gh67oV6fW32ZzP3Aw4Eubs59B");
+        let eur = token("EUR", "rhub8VRN55s94qWKDv6jmDy1pUykJzF3wq");
+        let quality = u64::from_str_radix("55055E4C405218EB", 16).unwrap();
+        assert_eq!(crate::offer::quality_text(quality), "1.511056473200875");
+        let directory = book_directory(usd, eur, quality);
+        assert_eq!(directory[24..], quality.to_be_bytes());
+        // One book at another quality, and another book.
+        assert_eq!(book_directory(usd, eur, 1)[..24], directory[..24]);
+        assert_ne!(book_directory(eur, usd, quality)[..24], directory[..24]);
     }
 
     // Mainnet's fee settings, in drops since its `XRPFees` amendment, under

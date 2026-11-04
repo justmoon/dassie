@@ -19,6 +19,7 @@ use alloc::vec::Vec;
 use serde_json::{Map, Value, json};
 
 use super::Account;
+use super::offers::Offer;
 use super::pools::Pool;
 use super::tokens::{Clawback, IssuerSet};
 use crate::amm;
@@ -48,6 +49,7 @@ const TRADING_FEE: FieldId = FieldId::new(Type::UInt16, 5);
 pub(super) const FLAGS: FieldId = FieldId::new(Type::UInt32, 2);
 pub(super) const SEQUENCE: FieldId = FieldId::new(Type::UInt32, 4);
 pub(super) const PREVIOUS_TXN_LGR_SEQ: FieldId = FieldId::new(Type::UInt32, 5);
+const EXPIRATION: FieldId = FieldId::new(Type::UInt32, 10);
 const TRANSFER_RATE: FieldId = FieldId::new(Type::UInt32, 11);
 const OWNER_COUNT: FieldId = FieldId::new(Type::UInt32, 13);
 const LAST_LEDGER_SEQUENCE: FieldId = FieldId::new(Type::UInt32, 27);
@@ -56,14 +58,18 @@ const SET_FLAG: FieldId = FieldId::new(Type::UInt32, 33);
 const CLEAR_FLAG: FieldId = FieldId::new(Type::UInt32, 34);
 const SIGNER_QUORUM: FieldId = FieldId::new(Type::UInt32, 35);
 const SIGNER_LIST_ID: FieldId = FieldId::new(Type::UInt32, 38);
+const BOOK_NODE: FieldId = FieldId::new(Type::UInt64, 3);
 const OWNER_NODE: FieldId = FieldId::new(Type::UInt64, 4);
 const LOW_NODE: FieldId = FieldId::new(Type::UInt64, 7);
 const HIGH_NODE: FieldId = FieldId::new(Type::UInt64, 8);
 pub(super) const PREVIOUS_TXN_ID: FieldId = FieldId::new(Type::Hash256, 5);
 pub(super) const LEDGER_INDEX: FieldId = FieldId::new(Type::Hash256, 6);
 const AMM_ID: FieldId = FieldId::new(Type::Hash256, 14);
+const BOOK_DIRECTORY: FieldId = FieldId::new(Type::Hash256, 16);
 const AMOUNT: FieldId = FieldId::new(Type::Amount, 1);
 pub(super) const BALANCE: FieldId = FieldId::new(Type::Amount, 2);
+const TAKER_PAYS: FieldId = FieldId::new(Type::Amount, 4);
+const TAKER_GETS: FieldId = FieldId::new(Type::Amount, 5);
 const LOW_LIMIT: FieldId = FieldId::new(Type::Amount, 6);
 const HIGH_LIMIT: FieldId = FieldId::new(Type::Amount, 7);
 const FEE: FieldId = FieldId::new(Type::Amount, 8);
@@ -94,7 +100,7 @@ pub(super) const AFFECTED_NODES: FieldId = FieldId::new(Type::Array, 8);
 const MEMOS: FieldId = FieldId::new(Type::Array, 9);
 
 /// Each field's name, as rippled's JSON writes it.
-const NAMES: [(FieldId, &str); 61] = [
+const NAMES: [(FieldId, &str); 67] = [
     (TRANSACTION_RESULT, "TransactionResult"),
     (LEDGER_ENTRY_TYPE, "LedgerEntryType"),
     (TRANSACTION_TYPE, "TransactionType"),
@@ -104,24 +110,30 @@ const NAMES: [(FieldId, &str); 61] = [
     (FLAGS, "Flags"),
     (SEQUENCE, "Sequence"),
     (PREVIOUS_TXN_LGR_SEQ, "PreviousTxnLgrSeq"),
+    (EXPIRATION, "Expiration"),
     (TRANSFER_RATE, "TransferRate"),
     (OWNER_COUNT, "OwnerCount"),
     (FieldId::new(Type::UInt32, 14), "DestinationTag"),
+    (FieldId::new(Type::UInt32, 25), "OfferSequence"),
     (LAST_LEDGER_SEQUENCE, "LastLedgerSequence"),
     (TRANSACTION_INDEX, "TransactionIndex"),
     (SET_FLAG, "SetFlag"),
     (CLEAR_FLAG, "ClearFlag"),
     (SIGNER_QUORUM, "SignerQuorum"),
     (SIGNER_LIST_ID, "SignerListID"),
+    (BOOK_NODE, "BookNode"),
     (OWNER_NODE, "OwnerNode"),
     (LOW_NODE, "LowNode"),
     (HIGH_NODE, "HighNode"),
     (PREVIOUS_TXN_ID, "PreviousTxnID"),
     (LEDGER_INDEX, "LedgerIndex"),
     (AMM_ID, "AMMID"),
+    (BOOK_DIRECTORY, "BookDirectory"),
     (AMOUNT, "Amount"),
     (BALANCE, "Balance"),
     (FieldId::new(Type::Amount, 3), "LimitAmount"),
+    (TAKER_PAYS, "TakerPays"),
+    (TAKER_GETS, "TakerGets"),
     (LOW_LIMIT, "LowLimit"),
     (HIGH_LIMIT, "HighLimit"),
     (FEE, "Fee"),
@@ -162,13 +174,15 @@ const NAMES: [(FieldId, &str); 61] = [
 pub(super) const ACCOUNT_ROOT: u16 = 0x0061;
 pub(super) const RIPPLE_STATE: u16 = 0x0072;
 const SIGNER_LIST: u16 = 0x0053;
+const OFFER: u16 = 0x006F;
 pub(super) const LEDGER_HASHES: u16 = 0x0068;
 const FEE_SETTINGS: u16 = 0x0073;
 const AMM: u16 = 0x0079;
 
-const ENTRY_TYPES: [(u16, &str); 6] = [
+const ENTRY_TYPES: [(u16, &str); 7] = [
     (ACCOUNT_ROOT, "AccountRoot"),
     (RIPPLE_STATE, "RippleState"),
+    (OFFER, "Offer"),
     (SIGNER_LIST, "SignerList"),
     (LEDGER_HASHES, "LedgerHashes"),
     (FEE_SETTINGS, "FeeSettings"),
@@ -182,10 +196,12 @@ const CLAWBACK: u16 = 30;
 /// one, so no ledger's kind is taken.
 const POOL_SET: u16 = 0xFFFF;
 
-const TRANSACTION_TYPES: [(u16, &str); 7] = [
+const TRANSACTION_TYPES: [(u16, &str); 9] = [
     (0, "Payment"),
     (ACCOUNT_SET, "AccountSet"),
     (5, "SetRegularKey"),
+    (7, "OfferCreate"),
+    (8, "OfferCancel"),
     (12, "SignerListSet"),
     (20, "TrustSet"),
     (CLAWBACK, "Clawback"),
@@ -411,6 +427,31 @@ pub(super) fn signer_list(list: &SignerList, thread: Thread) -> Object {
     object
 }
 
+/// An offer: what it asks for and gives, when it expires, and its book's
+/// directory at its quality. The fake keeps no directories: its page in
+/// the book and in its owner's directory is the first.
+pub(super) fn offer(owner: AccountId, sequence: u32, offer: &Offer, thread: Thread) -> Object {
+    let directory = records::book_directory(
+        offer.taker_pays.asset(),
+        offer.taker_gets.asset(),
+        offer.quality,
+    );
+    let mut object = Object::entry(OFFER);
+    object.put_u32(FLAGS, 0);
+    object.put_u32(SEQUENCE, sequence);
+    if let Some(expiration) = offer.expiration {
+        object.put_u32(EXPIRATION, expiration);
+    }
+    object.put(BOOK_NODE, &0_u64.to_be_bytes());
+    object.put(OWNER_NODE, &0_u64.to_be_bytes());
+    object.put(BOOK_DIRECTORY, &directory);
+    object.put_amount(TAKER_PAYS, &offer.taker_pays);
+    object.put_amount(TAKER_GETS, &offer.taker_gets);
+    object.put(ACCOUNT, &owner.0);
+    put_thread(&mut object, thread);
+    object
+}
+
 /// A token's issue, as an `Issue` field holds it.
 fn issue(token: IssuedAsset) -> [u8; 40] {
     let mut out = [0; 40];
@@ -541,6 +582,15 @@ pub(super) fn pool_set(set: &super::pools::PoolSet, fee: u64) -> Object {
     object
 }
 
+/// An amount as the ledger's JSON writes one: drops in a string, or a
+/// token.
+pub(super) fn amount_json(amount: &Amount) -> Value {
+    match amount {
+        Amount::Xrp(drops) => drops.to_string().into(),
+        Amount::Token(token) => token_json(token),
+    }
+}
+
 /// A token amount as the ledger's JSON writes one.
 pub(super) fn token_json(amount: &TokenAmount) -> Value {
     json!({
@@ -639,10 +689,7 @@ fn leaf_json(field: &Field<'_>) -> Option<Value> {
         Type::UInt32 => field.uint32().ok()?.into(),
         // In hex, without leading zeros, as rippled writes these.
         Type::UInt64 => alloc::format!("{:x}", field.uint64().ok()?).into(),
-        Type::Amount => match field.amount().ok()? {
-            Amount::Xrp(drops) => drops.to_string().into(),
-            Amount::Token(token) => token_json(&token),
-        },
+        Type::Amount => amount_json(&field.amount().ok()?),
         Type::AccountId => field
             .account()
             .ok()?

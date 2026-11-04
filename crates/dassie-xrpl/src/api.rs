@@ -10,6 +10,10 @@
 //! AMM pools (spec/areas/xrpl.md#amm-pools): what a pool of two assets
 //! holds and charges, from `amm_info`.
 //!
+//! The order book (spec/areas/xrpl.md#the-order-book): a book's best
+//! offers with what their owners hold to give, from `book_offers`, and an
+//! account's own offers, from `account_offers`.
+//!
 //! Who signs for an account (spec/areas/xrpl.md#the-transactions): whether
 //! its master key is disabled and destination tags are required, its
 //! regular key, and its signer list with what else it owns, from
@@ -1180,6 +1184,258 @@ fn pool_amount(value: Option<&Value>) -> Option<Amount> {
         .map(Amount::Token)
 }
 
+/// The longest quality text read: rippled writes sixteen digits, a point
+/// and up to 25 zeros, or a mantissa and an exponent.
+const MAX_QUALITY_TEXT: usize = 64;
+
+/// What an offer gives or asks for, as the ledger writes it: drops, or a
+/// token above zero; or, `funded`, an amount not below zero.
+fn offer_amount(value: Option<&Value>, funded: bool) -> Option<Amount> {
+    let amount = pool_amount(value)?;
+    (funded || !amount.is_zero()).then_some(amount)
+}
+
+/// A quality as rippled writes it: digits, a point, an exponent.
+fn quality_text(value: Option<&Value>) -> Option<String> {
+    let text = value?.as_str()?;
+    let fits = !text.is_empty()
+        && text.len() <= MAX_QUALITY_TEXT
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'e' | b'E' | b'-' | b'+'));
+    fits.then(|| text.to_string())
+}
+
+/// An offer's expiration, if it names one: seconds since the XRP Ledger's
+/// epoch.
+fn expiration(value: Option<&Value>) -> Option<Option<u32>> {
+    match value {
+        None => Some(None),
+        some => Some(Some(number(some)?)),
+    }
+}
+
+/// One offer of a book, from `book_offers`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BookOffer {
+    /// Whose offer.
+    pub account: AccountId,
+    /// The sequence of the transaction that placed it, which names it.
+    pub sequence: u32,
+    /// What it still gives: what a taker gets.
+    pub taker_gets: Amount,
+    /// What it still asks for: what a taker pays.
+    pub taker_pays: Amount,
+    /// What of `taker_gets` its owner holds to give, when that is less:
+    /// what a taker can get from it now.
+    pub taker_gets_funded: Option<Amount>,
+    /// What a taker pays for `taker_gets_funded`, when that is given.
+    pub taker_pays_funded: Option<Amount>,
+    /// What its owner holds of what it gives, given on the first offer of
+    /// each owner, of `taker_gets`'s asset.
+    pub owner_funds: Option<Amount>,
+    /// Its quality, what it asks for each unit it gives, as rippled writes
+    /// it ([`crate::offer::quality_text`]).
+    pub quality: String,
+    /// When it expires, in seconds since the XRP Ledger's epoch, if it
+    /// does.
+    pub expiration: Option<u32>,
+}
+
+/// A book of offers, best first, as of a ledger, from `book_offers`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BookOffers {
+    /// Its offers, at most [`BOOK_PAGE`], each of the book's two assets.
+    pub offers: Vec<BookOffer>,
+    /// The ledger this is as of.
+    pub ledger_index: u32,
+    /// Whether that ledger is validated.
+    pub validated: bool,
+}
+
+/// Most offers a `book_offers` request asks for, and an answer is read
+/// with: rippled's most.
+pub const BOOK_PAGE: u32 = 100;
+
+/// Most offers an `account_offers` page asks for.
+pub const OFFERS_PAGE: u32 = 200;
+
+/// The best offers, at most `limit` and at most [`BOOK_PAGE`], of the book a
+/// taker would pay `taker_pays` into and get `taker_gets` from: the offers
+/// that give `taker_gets` for `taker_pays`, as of the last validated
+/// ledger.
+#[must_use]
+pub fn book_offers(id: u64, taker_gets: Asset, taker_pays: Asset, limit: u32) -> Vec<u8> {
+    request(
+        id,
+        "book_offers",
+        json!({
+            "taker_gets": asset_json(taker_gets),
+            "taker_pays": asset_json(taker_pays),
+            "limit": limit.clamp(1, BOOK_PAGE),
+            "ledger_index": "validated",
+        }),
+    )
+}
+
+/// Reads `book_offers`' result: offers that each give one asset for
+/// another, the same two for all, and funded amounts of the same assets.
+/// `None` if any of it is not so, the answer names no ledger, or it lists
+/// more than [`BOOK_PAGE`].
+#[must_use]
+pub fn book_offers_result(result: &Value) -> Option<BookOffers> {
+    let list = result.get("offers")?.as_array()?;
+    if list.len() > usize::try_from(BOOK_PAGE).unwrap_or(usize::MAX) {
+        return None;
+    }
+    let offers = list.iter().map(book_offer).collect::<Option<Vec<_>>>()?;
+    let assets = |offer: &BookOffer| (offer.taker_gets.asset(), offer.taker_pays.asset());
+    let one_book = offers
+        .iter()
+        .zip(offers.iter().skip(1))
+        .all(|(a, b)| assets(a) == assets(b));
+    one_book.then_some(BookOffers {
+        offers,
+        ledger_index: number(result.get("ledger_index"))?,
+        validated: result.get("validated").and_then(Value::as_bool) == Some(true),
+    })
+}
+
+/// One offer of `book_offers`, with its funded amounts and its owner's
+/// funds of the assets it trades.
+fn book_offer(offer: &Value) -> Option<BookOffer> {
+    let taker_gets = offer_amount(offer.get("TakerGets"), false)?;
+    let taker_pays = offer_amount(offer.get("TakerPays"), false)?;
+    if taker_gets.asset() == taker_pays.asset() {
+        return None;
+    }
+    let funded = |key: &str, asset: Asset| match offer.get(key) {
+        None => Some(None),
+        some => offer_amount(some, true)
+            .filter(|amount| amount.asset() == asset)
+            .map(Some),
+    };
+    let owner_funds = match offer.get("owner_funds") {
+        None => None,
+        some => Some(owner_funds(some, taker_gets.asset())?),
+    };
+    Some(BookOffer {
+        account: AccountId::parse(offer.get("Account")?.as_str()?)?,
+        sequence: number(offer.get("Sequence"))?,
+        taker_gets_funded: funded("taker_gets_funded", taker_gets.asset())?,
+        taker_pays_funded: funded("taker_pays_funded", taker_pays.asset())?,
+        taker_gets,
+        taker_pays,
+        owner_funds,
+        quality: quality_text(offer.get("quality"))?,
+        expiration: expiration(offer.get("Expiration"))?,
+    })
+}
+
+/// An owner's funds of `asset`, as `book_offers` writes them: drops, or a
+/// token's value, in a string.
+fn owner_funds(value: Option<&Value>, asset: Asset) -> Option<Amount> {
+    match asset {
+        Asset::Xrp => drops(value).map(Amount::Xrp),
+        Asset::Token { currency, issuer } => {
+            let value = TokenValue::parse(value?.as_str()?)?;
+            (!value.is_negative()).then_some(Amount::Token(TokenAmount {
+                value,
+                currency,
+                issuer,
+            }))
+        }
+    }
+}
+
+/// The offers `account` has in the order book as of the last validated
+/// ledger, a page of at most [`OFFERS_PAGE`] at a time from `marker`.
+#[must_use]
+pub fn account_offers(id: u64, account: AccountId, marker: Option<&Value>) -> Vec<u8> {
+    let mut params = json!({
+        "account": account.to_address(),
+        "ledger_index": "validated",
+        "limit": OFFERS_PAGE,
+    });
+    if let (Some(object), Some(marker)) = (params.as_object_mut(), marker) {
+        object.insert("marker".into(), marker.clone());
+    }
+    request(id, "account_offers", params)
+}
+
+/// One of an account's offers, from `account_offers`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AccountOffer {
+    /// The sequence of the transaction that placed it, which names it.
+    pub sequence: u32,
+    /// Its flags, such as passive or sell.
+    pub flags: u32,
+    /// What it still gives.
+    pub taker_gets: Amount,
+    /// What it still asks for.
+    pub taker_pays: Amount,
+    /// Its quality, as rippled writes it.
+    pub quality: String,
+    /// When it expires, in seconds since the XRP Ledger's epoch, if it
+    /// does.
+    pub expiration: Option<u32>,
+}
+
+/// A page of an account's offers, as of a ledger, from `account_offers`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AccountOffers {
+    /// Whose offers.
+    pub account: AccountId,
+    /// Its offers on this page, at most [`OFFERS_PAGE`], each of two
+    /// assets.
+    pub offers: Vec<AccountOffer>,
+    /// Where the next page starts, if there is one.
+    pub marker: Option<Value>,
+    /// The ledger this is as of.
+    pub ledger_index: u32,
+    /// Whether that ledger is validated.
+    pub validated: bool,
+}
+
+/// Reads `account_offers`' result: offers that each give one asset for
+/// another. `None` if any of it is not so, the answer names no ledger, or
+/// the page is longer than asked for.
+#[must_use]
+pub fn account_offers_result(result: &Value) -> Option<AccountOffers> {
+    let list = result.get("offers")?.as_array()?;
+    if list.len() > usize::try_from(OFFERS_PAGE).unwrap_or(usize::MAX) {
+        return None;
+    }
+    let offers = list
+        .iter()
+        .map(|offer| {
+            let taker_gets = offer_amount(offer.get("taker_gets"), false)?;
+            let taker_pays = offer_amount(offer.get("taker_pays"), false)?;
+            if taker_gets.asset() == taker_pays.asset() {
+                return None;
+            }
+            Some(AccountOffer {
+                sequence: number(offer.get("seq"))?,
+                flags: number(offer.get("flags"))?,
+                taker_gets,
+                taker_pays,
+                quality: quality_text(offer.get("quality"))?,
+                expiration: expiration(offer.get("expiration"))?,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(AccountOffers {
+        account: AccountId::parse(result.get("account")?.as_str()?)?,
+        offers,
+        marker: result
+            .get("marker")
+            .filter(|marker| !marker.is_null())
+            .cloned(),
+        ledger_index: number(result.get("ledger_index"))?,
+        validated: result.get("validated").and_then(Value::as_bool) == Some(true),
+    })
+}
+
 /// A page of `account_tx`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AccountTx {
@@ -1682,6 +1938,202 @@ mod tests {
         assert!(
             refused(&|r| r["amm"]["asset2_frozen"] = true.into()).is_some_and(|i| i.asset2_frozen)
         );
+    }
+
+    /// A `book_offers` result of EUR for USD in the shape rippled's
+    /// documentation shows, as of a validated ledger: its first offer,
+    /// funded in full, and one its owner holds less for, with its funds and
+    /// funded amounts as the documentation's second has them.
+    fn book_result() -> Value {
+        let eur = |value: &str| json!({ "currency": "EUR", "issuer": "rhub8VRN55s94qWKDv6jmDy1pUykJzF3wq", "value": value });
+        let usd = |value: &str| json!({ "currency": "USD", "issuer": "rvYAfWj5gh67oV6fW32ZzP3Aw4Eubs59B", "value": value });
+        json!({
+            "ledger_index": 7_035_305,
+            "offers": [
+                {
+                    "Account": "rM3X3QSr8icjTGpaF52dozhbT2BZSXJQYM",
+                    "BookDirectory": "7E5F614417C2D0A7CEFEB73C4AA773ED5B078DE2B5771F6D55055E4C405218EB",
+                    "BookNode": "0000000000000000",
+                    "Flags": 0,
+                    "LedgerEntryType": "Offer",
+                    "OwnerNode": "0000000000000AE0",
+                    "PreviousTxnID": "6956221794397C25A53647182E5C78A439766D600724074C99D78982E37599F1",
+                    "PreviousTxnLgrSeq": 7_022_646,
+                    "Sequence": 264_542,
+                    "TakerGets": eur("17.90363633316433"),
+                    "TakerPays": usd("27.05340557506234"),
+                    "index": "96A9104BF3137131FF8310B9174F3B37170E2144C813CA2A1695DF2C5677E811",
+                    "quality": "1.511056473200875",
+                },
+                {
+                    "Account": "rDhvfvsyBBTe8VFRp9q9hTmuUH91szQDyo",
+                    "BookDirectory": "7E5F614417C2D0A7CEFEB73C4AA773ED5B078DE2B5771F6D5505DCAA8FE12000",
+                    "BookNode": "0000000000000000",
+                    "Expiration": 802_000_000,
+                    "Flags": 131_072,
+                    "LedgerEntryType": "Offer",
+                    "OwnerNode": "0000000000000001",
+                    "PreviousTxnID": "8D7B9A1D8A0AB6D1ACB9B4D6CE5AE61A2D2E2EF5E5A3A2C8E8AA77A8B3B5E7E1",
+                    "PreviousTxnLgrSeq": 7_035_304,
+                    "Sequence": 49,
+                    "TakerGets": eur("50"),
+                    "TakerPays": usd("77.03962"),
+                    "index": "C5B2B8D7B0C5C5D2D3C1E9D5D5D7D5F0B0C5C5D2D3C1E9D5D5D7D5F0B0C5C5D2",
+                    "owner_funds": "0.0002765",
+                    "quality": "1.540792623633906",
+                    "taker_gets_funded": eur("0.0002765"),
+                    "taker_pays_funded": usd("0.0004260291804347806"),
+                },
+            ],
+            "validated": true,
+        })
+    }
+
+    #[test]
+    fn a_book_is_read_best_first_with_what_its_owners_hold() {
+        let token = |currency: &str, issuer: &str| Asset::Token {
+            currency: Currency::parse(currency).unwrap(),
+            issuer: AccountId::parse(issuer).unwrap(),
+        };
+        let eur = token("EUR", "rhub8VRN55s94qWKDv6jmDy1pUykJzF3wq");
+        let usd = token("USD", "rvYAfWj5gh67oV6fW32ZzP3Aw4Eubs59B");
+        let request: Value = serde_json::from_slice(&book_offers(4, eur, usd, 1_000)).unwrap();
+        assert_eq!(request["command"], "book_offers");
+        assert_eq!(request["taker_gets"]["currency"], "EUR");
+        assert_eq!(
+            request["taker_pays"]["issuer"],
+            "rvYAfWj5gh67oV6fW32ZzP3Aw4Eubs59B"
+        );
+        assert_eq!(request["limit"], BOOK_PAGE);
+        assert_eq!(request["ledger_index"], "validated");
+        let book = book_offers_result(&book_result()).unwrap();
+        assert!(book.validated);
+        assert_eq!(book.ledger_index, 7_035_305);
+        let [first, second] = book.offers.as_slice() else {
+            panic!("two offers");
+        };
+        assert_eq!(
+            first.account.to_address(),
+            "rM3X3QSr8icjTGpaF52dozhbT2BZSXJQYM"
+        );
+        assert_eq!((first.sequence, first.expiration), (264_542, None));
+        assert_eq!(first.taker_gets.asset(), eur);
+        assert_eq!(first.taker_pays.asset(), usd);
+        assert_eq!(first.quality, "1.511056473200875");
+        assert_eq!((first.taker_gets_funded, first.owner_funds), (None, None));
+        assert_eq!(second.expiration, Some(802_000_000));
+        let value = |amount: Option<Amount>| amount.unwrap().token().unwrap().value.to_string();
+        assert_eq!(value(second.owner_funds), "0.0002765");
+        assert_eq!(value(second.taker_gets_funded), "0.0002765");
+        assert_eq!(value(second.taker_pays_funded), "0.0004260291804347806");
+    }
+
+    #[test]
+    fn a_book_that_is_not_one_is_refused() {
+        let refused = |change: &dyn Fn(&mut Value)| {
+            let mut result = book_result();
+            change(&mut result);
+            book_offers_result(&result)
+        };
+        assert!(refused(&|_| {}).is_some());
+        // Nothing given, or one asset on both sides.
+        assert!(refused(&|r| r["offers"][0]["TakerGets"]["value"] = "0".into()).is_none());
+        assert!(
+            refused(&|r| r["offers"][0]["TakerPays"] = r["offers"][0]["TakerGets"].clone())
+                .is_none()
+        );
+        // Two books in one answer.
+        assert!(refused(&|r| r["offers"][1]["TakerPays"] = "1000000".into()).is_none());
+        // Funds of another asset, or that do not read.
+        assert!(refused(&|r| r["offers"][1]["taker_gets_funded"] = "5".into()).is_none());
+        assert!(refused(&|r| r["offers"][1]["owner_funds"] = "a lot".into()).is_none());
+        assert!(refused(&|r| r["offers"][1]["owner_funds"] = "-1".into()).is_none());
+        // A quality that is no number, an answer of no ledger, and more
+        // offers than asked for.
+        assert!(refused(&|r| r["offers"][0]["quality"] = 1.5.into()).is_none());
+        assert!(refused(&|r| r["ledger_index"] = Value::Null).is_none());
+        let page = usize::try_from(BOOK_PAGE).unwrap();
+        assert!(
+            refused(&|r| r["offers"] = Value::Array(alloc::vec![r["offers"][0].clone(); page + 1]))
+                .is_none()
+        );
+        assert!(refused(&|r| r["validated"] = false.into()).is_some_and(|book| !book.validated));
+    }
+
+    /// An `account_offers` result in the shape rippled's documentation
+    /// shows, as of a validated ledger: its first offer, XRP for USD, and
+    /// USD for XRP until it expires.
+    fn account_offers_json() -> Value {
+        json!({
+            "account": "rpP2JgiMyTF5jR5hLG3xHCPi1knBb1v9cM",
+            "ledger_index": 18_539_596,
+            "offers": [
+                {
+                    "flags": 0,
+                    "quality": "0.000000007599140009999998",
+                    "seq": 6_578_020,
+                    "taker_gets": "29740867287",
+                    "taker_pays": {
+                        "currency": "USD",
+                        "issuer": "rvYAfWj5gh67oV6fW32ZzP3Aw4Eubs59B",
+                        "value": "226.0050145327418",
+                    },
+                },
+                {
+                    "expiration": 802_000_000,
+                    "flags": 131_072,
+                    "quality": "133236588.7186573",
+                    "seq": 6_572_128,
+                    "taker_gets": {
+                        "currency": "USD",
+                        "issuer": "rvYAfWj5gh67oV6fW32ZzP3Aw4Eubs59B",
+                        "value": "75",
+                    },
+                    "taker_pays": "9992744154",
+                },
+            ],
+            "marker": "8D1C7B4E2D1A0F3E",
+            "validated": true,
+        })
+    }
+
+    #[test]
+    fn an_account_s_offers_are_read_a_page_at_a_time() {
+        let account = AccountId::parse("rpP2JgiMyTF5jR5hLG3xHCPi1knBb1v9cM").unwrap();
+        let request: Value = serde_json::from_slice(&account_offers(5, account, None)).unwrap();
+        assert_eq!(request["command"], "account_offers");
+        assert_eq!(request["limit"], OFFERS_PAGE);
+        assert_eq!(request.get("marker"), None);
+        let marker = json!("8D1C7B4E2D1A0F3E");
+        let next: Value =
+            serde_json::from_slice(&account_offers(6, account, Some(&marker))).unwrap();
+        assert_eq!(next["marker"], marker);
+        let page = account_offers_result(&account_offers_json()).unwrap();
+        assert_eq!(page.account, account);
+        assert_eq!(page.marker, Some(marker));
+        assert!(page.validated);
+        let [first, second] = page.offers.as_slice() else {
+            panic!("two offers");
+        };
+        assert_eq!(first.sequence, 6_578_020);
+        assert_eq!(first.taker_gets, Amount::Xrp(29_740_867_287));
+        assert_eq!(first.expiration, None);
+        assert_eq!(second.taker_pays, Amount::Xrp(9_992_744_154));
+        assert_eq!(
+            (second.flags, second.expiration),
+            (131_072, Some(802_000_000))
+        );
+        assert_eq!(second.quality, "133236588.7186573");
+        let refused = |change: &dyn Fn(&mut Value)| {
+            let mut result = account_offers_json();
+            change(&mut result);
+            account_offers_result(&result)
+        };
+        assert!(refused(&|r| r["offers"][0]["taker_gets"] = "0".into()).is_none());
+        assert!(refused(&|r| r["offers"][1]["taker_gets"] = "5".into()).is_none());
+        assert!(refused(&|r| r["offers"][0]["seq"] = (-1).into()).is_none());
+        assert!(refused(&|r| r["offers"][1]["expiration"] = "soon".into()).is_none());
+        assert!(refused(&|r| r["account"] = "nobody".into()).is_none());
     }
 
     /// An `account_objects` result as rippled's documentation shows a

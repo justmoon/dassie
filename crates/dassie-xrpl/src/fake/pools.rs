@@ -532,7 +532,7 @@ impl FakeLedger {
 
 /// An asset as a request names it: `{"currency": "XRP"}`, or a currency
 /// and its issuer.
-fn asset(value: &Value) -> Option<Asset> {
+pub(super) fn asset(value: &Value) -> Option<Asset> {
     let object = value.as_object()?;
     let currency = object.get("currency")?.as_str()?;
     match object.get("issuer") {

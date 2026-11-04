@@ -25,7 +25,9 @@ use dassie_settlement::{
 };
 use dassie_xrpl::account::{self, MAX_SETTLING_MS, News, XrplAccount};
 use dassie_xrpl::amount::IssuedAsset;
-use dassie_xrpl::codec::{Amount, Payment, Signing, TokenValue, Transact, TrustSet};
+use dassie_xrpl::codec::{
+    Amount, OfferTerms, Payment, Signing, TokenValue, Transact, TrustSet, sign_offer,
+};
 use dassie_xrpl::dsusd::{self, DsusdScheme, UNITS_PER_MICRO};
 use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, Lie, RESERVE_BASE, RESERVE_INC};
 use dassie_xrpl::{AccountId, UNITS_PER_DROP, Wallet, XrplScheme, api};
@@ -1342,6 +1344,89 @@ fn xrp_paid_by_hand_is_a_withdrawal_and_moves_no_dsusd() {
         owner - i128::from((3_000_000 + FEE_BASE) * UNITS_PER_DROP)
     );
     assert_eq!(world.nodes[0].books[USD].owner, 0);
+}
+
+/// Node `index`'s account offers `gets` for `pays` on the ledger's order
+/// book, signed by hand, as a client of the account's such as a market
+/// maker signs one: no scheme signs it.
+fn offer_by_hand(world: &mut World, index: usize, pays: Amount, gets: Amount) -> u32 {
+    let wallet = Wallet::from_entropy(&entropy(world.nodes[index].seed));
+    let sequence = world.ledger.sequence(wallet.account()).unwrap();
+    let terms = OfferTerms {
+        taker_pays: pays,
+        taker_gets: gets,
+        offer_sequence: None,
+        expiration: None,
+        fee: FEE_BASE,
+        sequence,
+        last_ledger_sequence: world.ledger.ledger() + 10,
+        network_id: None,
+        memos: Vec::new(),
+    };
+    let signed = sign_offer(&wallet, terms).unwrap();
+    let submit =
+        serde_json::json!({ "command": "submit", "tx_blob": dassie_xrpl::hex_upper(&signed.blob) });
+    let reply: serde_json::Value =
+        serde_json::from_slice(&world.ledger.request(0, submit.to_string().as_bytes())).unwrap();
+    assert_eq!(reply["result"]["engine_result"], "tesSUCCESS");
+    sequence
+}
+
+// spec/areas/xrpl.md#the-order-book: an offer of the account's on the
+// ledger's order book, crossed by another account's, is booked as any
+// transaction no scheme signed, by what it did to the account's XRP and its
+// line. Placed by hand, its fee is a withdrawal and its reserve goes out
+// through suspense; crossed, what the account got is a deposit and what it
+// gave a withdrawal, each on its own scheme's books, on both accounts; used
+// up, its reserve comes back. The books match the ledger throughout.
+#[test]
+fn an_offer_crossed_by_another_account_is_booked_by_both_schemes() {
+    let mut world = World::new(&[true, true]);
+    world.closes(3);
+    world.mint(0, "10");
+    world.close();
+    let dsusd = |text: &str| Amount::Token(IssuedAsset::DSUSD.amount(value(text)));
+    let drops = |xrp: u64| Amount::Xrp(xrp * 1_000_000);
+    // Node 0 sells its 10 DSUSD at 2 XRP each.
+    let resting = offer_by_hand(&mut world, 0, drops(20), dsusd("10"));
+    world.closes(2);
+    let maker = world.address(0);
+    assert!(world.ledger.offer(maker, resting).is_some());
+    let reserve = i128::from(RESERVE_INC * UNITS_PER_DROP);
+    assert_eq!(
+        world.nodes[0].books[XRP].reconciled.last(),
+        Some(&(-reserve, ReconcileCause::Reserve))
+    );
+    // Node 1 takes 4 of them for 8 XRP.
+    offer_by_hand(&mut world, 1, dsusd("4"), drops(8));
+    world.closes(2);
+    let books = &world.nodes[0].books;
+    assert_eq!(
+        books[XRP].deposits.last(),
+        Some(&(8_000_000 * UNITS_PER_DROP))
+    );
+    assert_eq!(books[USD].withdrawals.last(), Some(&usd(4_000_000)));
+    let books = &world.nodes[1].books;
+    assert_eq!(books[USD].deposits.last(), Some(&usd(4_000_000)));
+    assert_eq!(
+        books[XRP].withdrawals.last(),
+        Some(&((8_000_000 + FEE_BASE) * UNITS_PER_DROP))
+    );
+    // And the other 6 for 12: the offer is used up, and its reserve back.
+    offer_by_hand(&mut world, 1, dsusd("6"), drops(12));
+    world.closes(2);
+    assert_eq!(world.ledger.offer(maker, resting), None);
+    let books = &world.nodes[0].books;
+    assert_eq!(
+        books[XRP].deposits.last(),
+        Some(&(12_000_000 * UNITS_PER_DROP))
+    );
+    assert_eq!(books[USD].withdrawals.last(), Some(&usd(6_000_000)));
+    assert_eq!(
+        books[XRP].reconciled.last(),
+        Some(&(reserve, ReconcileCause::Reserve))
+    );
+    assert_eq!(books[USD].settlement, 0);
 }
 
 // spec/areas/xrpl.md#the-token-scheme: what moved the line while the node was
