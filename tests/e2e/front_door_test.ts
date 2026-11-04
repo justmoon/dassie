@@ -360,7 +360,14 @@ test(
       const back = app.finished[0];
       assert(back, "the app's browser came back to the app");
       assertEquals(app.finished.length, 1);
-      assert(appPage.url().startsWith(app.finish), appPage.url());
+      // The app's server sees the finish request before the browser has
+      // committed the navigation, so wait for its URL.
+      await until(
+        appPage,
+        "the app's browser is at its finish URI",
+        () => appPage.url(),
+        (url) => url.startsWith(app.finish),
+      );
       assert(ownerPage.url().startsWith(wallet), ownerPage.url());
       const reference = back.get("interact_ref") ?? "";
       assertEquals(
