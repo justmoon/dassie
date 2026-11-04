@@ -18,7 +18,7 @@ use dassie_feed::{FEED_HEARTBEAT_MS, FEED_MIN_INTERVAL_MS};
 use dassie_node::clock::Clock;
 use dassie_node::rpc::proto;
 use dassie_xrpl::network::TESTNET;
-use support::hubs::{HubAsset, HubNet, Joining, Member, pass, until};
+use support::hubs::{HubAsset, HubNet, Joining, Member, STEP_MS, pass, until};
 use support::rates::{RatesServer, coinbase};
 use support::swaps::{XRP_PER_USD, gain_ppm, held, peer_snapshot, rated, set_spread, swap_status};
 
@@ -46,9 +46,9 @@ const QUIET_PPM: i128 = 2_000;
 /// a given moment: its heartbeat, and the least interval between two.
 const FRESH_SNAPSHOT_MS: u64 = FEED_HEARTBEAT_MS + FEED_MIN_INTERVAL_MS;
 
-/// The most times the test looks for the two to have stopped: swapping
-/// that goes on through so many heartbeats never stops.
-const CALM_ROUNDS: usize = 20;
+/// How long, in heartbeats, the test looks for the two to have stopped:
+/// swapping that goes on through so many never stops.
+const CALM_HEARTBEATS: u64 = 20;
 
 /// How far `member` is from its targets, an even split of its value: the
 /// gap between its dollars and its XRP in dollars at the rate, and their
@@ -60,10 +60,14 @@ async fn skew(net: &HubNet, member: &Member) -> (u64, u64) {
 }
 
 /// Whether the node's swap service has nothing pending: no swap in flight,
-/// no peer backed off from or waited on for its next snapshot. Each of
-/// those only defers its next decision.
+/// no peer backed off from or waited on for its next snapshot, no method
+/// waiting for room on its own way out. Each of those only defers its
+/// next decision.
 fn idle(status: &proto::GetSwapStatusResponse) -> bool {
-    status.in_flight == 0 && status.backing_off == 0 && status.waiting_for_snapshot == 0
+    status.in_flight == 0
+        && status.backing_off == 0
+        && status.waiting_for_snapshot == 0
+        && status.waiting_for_room == 0
 }
 
 /// Each way of a swap between `d1` and `d2`, and what it gains the node
@@ -95,9 +99,12 @@ type Way = (&'static str, Option<i128>);
 /// nothing was pending, and each has since been pushed a snapshot of the
 /// other made after that moment: each decided again on the other's quotes
 /// as they are after every swap, and sent nothing. And both snapshots
-/// price every way, so that they decided on open quotes.
+/// price every way, so that they decided on open quotes. A node pushes a
+/// snapshot at least every heartbeat, so the test waits for one no longer
+/// than [`FRESH_SNAPSHOT_MS`], and looks again at once when either swaps.
 async fn stopped(net: &HubNet, d1: &Member, d2: &Member) -> [Way; 4] {
-    for _ in 0..CALM_ROUNDS {
+    let give_up_at = net.clock.now_ms() + CALM_HEARTBEATS * FRESH_SNAPSHOT_MS;
+    while net.clock.now_ms() < give_up_at {
         // Each tried by itself, and swaps went through: from either end,
         // as the other's may all be refused.
         until("both idle, each tried, a swap made", async || {
@@ -114,19 +121,28 @@ async fn stopped(net: &HubNet, d1: &Member, d2: &Member) -> [Way; 4] {
             swap_status(&d1.node).await.sent,
             swap_status(&d2.node).await.sent,
         ];
-        pass(FRESH_SNAPSHOT_MS).await;
-        let (one, two) = (swap_status(&d1.node).await, swap_status(&d2.node).await);
-        if !idle(&one) || !idle(&two) || [one.sent, two.sent] != sent {
-            continue;
-        }
-        let Some((ways, (of_d2, of_d1))) = gains(net, d1, d2).await else {
-            continue;
-        };
-        if of_d2 > calm_at && of_d1 > calm_at && ways.iter().all(|(_, gain)| gain.is_some()) {
-            return ways;
+        // Still calm at each look, until each holds a snapshot of the
+        // other made after `calm_at`, and a look after that, by which each
+        // has decided on it.
+        let mut fresh = false;
+        for _ in 0..FRESH_SNAPSHOT_MS / STEP_MS {
+            pass(STEP_MS).await;
+            let (one, two) = (swap_status(&d1.node).await, swap_status(&d2.node).await);
+            if !idle(&one) || !idle(&two) || [one.sent, two.sent] != sent {
+                break;
+            }
+            if fresh {
+                match gains(net, d1, d2).await {
+                    Some((ways, _)) if ways.iter().all(|(_, gain)| gain.is_some()) => return ways,
+                    _ => break,
+                }
+            }
+            fresh = gains(net, d1, d2)
+                .await
+                .is_some_and(|(_, (of_d2, of_d1))| of_d2 > calm_at && of_d1 > calm_at);
         }
     }
-    panic!("they kept swapping through {CALM_ROUNDS} heartbeats");
+    panic!("they kept swapping through {CALM_HEARTBEATS} heartbeats");
 }
 
 // spec/decisions/peer-swaps.md, spec/areas/connector.md#the-swap-service:
@@ -175,8 +191,11 @@ async fn two_core_nodes_skewed_opposite_ways_swap_until_neither_gains() {
         rated(&member.node, &rates).await;
     }
     let ways = stopped(&net, d1, d2).await;
+    let mut sent = Vec::new();
     for member in [d1, d2] {
-        assert!(swap_status(&member.node).await.by_itself);
+        let status = swap_status(&member.node).await;
+        assert!(status.by_itself);
+        sent.push(status.sent);
     }
     // Neither's quotes clear the other's costs: at the top of the other's
     // book, valued at the swapping node's own curve, no swap gains more
@@ -186,6 +205,13 @@ async fn two_core_nodes_skewed_opposite_ways_swap_until_neither_gains() {
         assert!(gain < QUIET_PPM, "{way} gains {gain} ppm");
     }
     net.settled(&[d1, d2]).await;
+    // Nor did either swap again while settling ended, as the moves between
+    // its hubs and its owner books that its swaps called for landed.
+    for (index, member) in [d1, d2].into_iter().enumerate() {
+        let status = swap_status(&member.node).await;
+        assert_eq!(status.sent, sent[index], "d{} swapped again", index + 1);
+        assert!(idle(&status), "d{} swaps again: {status:?}", index + 1);
+    }
     // Each is closer to an even split of its value: the gap between its
     // dollars and its XRP, as a share of the whole, fell.
     for (index, member) in [d1, d2].into_iter().enumerate() {
