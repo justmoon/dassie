@@ -234,6 +234,8 @@ pub struct Validator {
     /// Our own operations passed on and not yet taken by a final block,
     /// oldest first.
     own: VecDeque<Own>,
+    /// The last view whose leader we told we want a block in it.
+    told: Option<u64>,
 }
 
 /// The genesis block of a hub: its rules' digest, at the ledger's start.
@@ -298,6 +300,7 @@ impl Validator {
             actions: VecDeque::new(),
             batches: Vec::new(),
             own: VecDeque::new(),
+            told: None,
         })
     }
 
@@ -376,6 +379,7 @@ impl Validator {
             actions: VecDeque::new(),
             batches: Vec::new(),
             own: VecDeque::new(),
+            told: None,
         })
     }
 
@@ -739,14 +743,31 @@ impl Validator {
         }
     }
 
-    /// Passes on to our view's leader what may make us want a block while
-    /// the view is quiet (spec/decisions/blocks-when-wanted.md): a member
-    /// may have sent it to some validators only, and those that want a
-    /// block would then time out a view whose leader never proposes, which
-    /// no quorum could notarize after, so the next work would cost a view.
-    /// The leader has it within a message delay of us, and proposes before
-    /// our timer runs out. Only while quiet: once armed, every honest
-    /// validator in the view is, and nothing a member sends can split them.
+    /// Passes on to our view's leader what may make it want a block
+    /// (spec/decisions/blocks-when-wanted.md): a member may have sent it to
+    /// some validators only, and those that want a block would then time
+    /// out a view whose leader never proposes, which no quorum could
+    /// notarize after, so the next work would cost a view.
+    /// Once our view's timers run because our pool or a wake wants a block,
+    /// tells the view's leader, once a view: a block on our head, stamped
+    /// after it (`Request::Wake`). Whatever made us want it, sent to us
+    /// alone or carried over from an earlier view, the leader then wants a
+    /// block too and proposes before our timers run out, so no view dies
+    /// for it; at worst the block is empty.
+    fn tell_leader_wanted(&mut self) {
+        let view = self.engine.view();
+        if self.told == Some(view) {
+            return;
+        }
+        if let Some(stamp) = self.engine.wanted_by_application() {
+            self.told = Some(view);
+            let wake = Request::Wake {
+                at: stamp.saturating_add(1),
+            };
+            self.tell_leader(Message::Request(wake).to_vec());
+        }
+    }
+
     fn tell_leader(&mut self, message: Vec<u8>) {
         let view = self.engine.view();
         let Some(leader) = self.engine.leader(view) else {
@@ -773,18 +794,16 @@ impl Validator {
                 }
                 return;
             }
-            // A payer waits for a block stamped at or after `at`: never
-            // one later than our clock, which a member's may run ahead of.
+            // A payer waits for a block stamped at or after `at`, or a
+            // validator for a block on its head: never one later than our
+            // clock allows a block it made, which a member's may run far
+            // ahead of.
             Request::Wake { at } => {
-                let quiet = !self.engine.armed();
-                let before = self.chain.wake_at;
-                self.chain.wake_at = before.max(at.min(now));
-                if quiet && self.chain.wake_at > before {
-                    let wake = Request::Wake {
-                        at: self.chain.wake_at,
-                    };
-                    self.tell_leader(Message::Request(wake).to_vec());
-                }
+                let precision = crate::consensus::Config::DEFAULT.precision_ms;
+                self.chain.wake_at = self
+                    .chain
+                    .wake_at
+                    .max(at.min(now.saturating_add(precision)));
                 return;
             }
             Request::Account(key) => vec_of(Statement::account(&self.chain.ledger, key)),
@@ -968,6 +987,7 @@ impl Validator {
             }
         }
         self.batches.push(self.engine.take_batch());
+        self.tell_leader_wanted();
     }
 
     /// Forgets what we kept of the escrow's old chain once the ledger wrote
@@ -1361,12 +1381,13 @@ mod tests {
     }
 
     #[test]
-    fn a_wake_asks_for_a_block_stamped_no_later_than_our_clock() {
+    fn a_wake_asks_for_a_block_stamped_no_later_than_our_clock_allows() {
         let mut v = validator();
         let member = PeerId(100);
-        // A member's clock may run ahead of ours: we take ours.
+        // A member's clock may run ahead of ours: we take ours, and the
+        // precision a block's stamp may be ahead of it.
         v.answer(1_000, member, Request::Wake { at: 5_000 });
-        assert_eq!(v.chain.wake_at, 1_000);
+        assert_eq!(v.chain.wake_at, 1_100);
         // The latest stands: a block stamped at or after it decides both.
         v.answer(2_000, member, Request::Wake { at: 1_500 });
         assert_eq!(v.chain.wake_at, 1_500);

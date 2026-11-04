@@ -82,6 +82,9 @@ impl Engine {
         if asked == 0 {
             return entered;
         }
+        if asked <= now {
+            self.timers.wanted_on = Some(head.stamp);
+        }
         let heartbeat = head.stamp.saturating_add(self.config.heartbeat_ms);
         let at = asked.min(heartbeat).min(self.lag_at(&head));
         at.max(now)
@@ -164,6 +167,23 @@ impl Engine {
         }
         self.advance(now_ms);
         self.progress(app);
+    }
+
+    /// While our view's timers run because the application wanted a block
+    /// on its head, and the leader's proposal has not come: the head's
+    /// stamp. The host tells the view's leader, which may lack what we
+    /// have: work some validators were sent alone, or a wake carried over
+    /// from an earlier view.
+    #[must_use]
+    pub fn wanted_by_application(&self) -> Option<u64> {
+        let proposed = self
+            .rounds
+            .get(&self.view)
+            .is_some_and(|round| round.proposal.is_some());
+        if !self.timers.armed || proposed {
+            return None;
+        }
+        self.timers.wanted_on
     }
 
     /// Whether our view's timers run: a block is wanted in it, or we do

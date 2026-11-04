@@ -1730,3 +1730,28 @@ fn an_operation_sent_to_some_validators_reaches_the_leader_and_costs_no_view() {
     }
     assert_eq!(nullifies(&net), 0);
 }
+
+// spec/decisions/blocks-when-wanted.md: wakes that keep coming to the same
+// two validators, which carry over from one view into the next, kill no
+// view either: whoever wants a block tells each view's leader.
+#[test]
+fn wakes_that_keep_coming_to_some_validators_kill_no_view() {
+    let mut net = Network::new();
+    net.run(15_000);
+    let to = not_leading(&net);
+    for _ in 0..600 {
+        let at = net.now;
+        request_some(&mut net, &to, &Request::Wake { at });
+        net.run(5);
+    }
+    assert_eq!(nullifies(&net), 0);
+    let before = net.validators[0].ledger().height();
+    assert!(before > 2, "{before}");
+    // Real work after it is final at once.
+    net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
+    net.run(Config::DEFAULT.block_interval_ms + 3 * Config::DEFAULT.max_delay_ms);
+    for v in &net.validators {
+        assert!(v.ledger().height() > before);
+    }
+    assert_eq!(nullifies(&net), 0);
+}

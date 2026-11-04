@@ -1111,10 +1111,8 @@ impl HubAccount {
             }),
             None => {}
         }
-        let keys: Vec<PublicKey> = self.lookups.values().copied().collect();
-        for key in keys {
-            self.ask(&Request::Account(key));
-        }
+        // Before the lookups, which may fill what the account sends at
+        // once (`MAX_EFFECTS`): a packet waits on it.
         let wake_due = self
             .woke_ms
             .is_none_or(|woke| self.now_ms >= woke.saturating_add(WAKE_EVERY_MS));
@@ -1124,6 +1122,10 @@ impl HubAccount {
         {
             self.woke_ms = Some(self.now_ms);
             self.ask(&Request::Wake { at });
+        }
+        let keys: Vec<PublicKey> = self.lookups.values().copied().collect();
+        for key in keys {
+            self.ask(&Request::Account(key));
         }
         let busy = self.block_wanted.is_some()
             || !self.holds.is_empty()

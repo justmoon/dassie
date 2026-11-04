@@ -111,6 +111,9 @@ struct Timers {
     armed: bool,
     /// Until armed: when a block is wanted next, as last asked.
     wanted_ms: Option<u64>,
+    /// Whether the application wanted a block on the view's head, and the
+    /// head's stamp: what we tell its leader.
+    wanted_on: Option<u64>,
 }
 
 /// One validator's consensus engine, generic over the application's
