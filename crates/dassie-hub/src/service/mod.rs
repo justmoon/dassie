@@ -867,6 +867,9 @@ impl Validator {
     /// After every input: the engine's outputs and events, the statements
     /// of blocks that became final, and the escrow signatures they call for.
     fn after(&mut self, now: Millis) {
+        // Something may want a block that did not: an operation, ours or
+        // a member's, or a wake. A view not armed yet asks again at once.
+        self.engine.work_arrived(now, &mut self.chain);
         // A block was final that our ledger cannot follow: more than f
         // validators are faulty, or there is a bug. We stop as at a stall:
         // never vote again, and sign the payout set of the last block we

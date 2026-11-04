@@ -773,6 +773,10 @@ mod tests {
         bundles: Vec<(usize, u64)>,
         /// Whether the validators are cut off from each other.
         cut: bool,
+        /// Whether a member asks every validator for a block every
+        /// interval, as on a busy hub: a hub of version 3 makes one only
+        /// when wanted (spec/decisions/blocks-when-wanted.md).
+        busy: bool,
     }
 
     impl Net {
@@ -822,6 +826,7 @@ mod tests {
                 held: Vec::new(),
                 bundles: Vec::new(),
                 cut: false,
+                busy: false,
             };
             net.open();
             net
@@ -870,6 +875,16 @@ mod tests {
         fn run(&mut self, ms: u64) {
             for _ in 0..ms {
                 self.now += 1;
+                if self.busy && self.now.is_multiple_of(100) {
+                    let wake = Message::Request(dassie_hub::client::Request::Wake { at: self.now });
+                    let wake = wake.to_vec();
+                    for i in 0..self.drivers.len() {
+                        let step = self.drivers[i]
+                            .handle(self.now, PeerId(1_000), None, &wake)
+                            .unwrap();
+                        self.deliver(i, step);
+                    }
+                }
                 for i in 0..self.drivers.len() {
                     if self.drivers[i].deadline().is_some_and(|at| at <= self.now) {
                         let step = self.drivers[i].tick(self.now).unwrap();
@@ -901,6 +916,7 @@ mod tests {
     #[test]
     fn validators_restart_from_what_they_wrote() {
         let mut net = Net::new();
+        net.busy = true;
         for i in 0..net.drivers.len() {
             let attest = ValidatorOperation::AttestEscrow { sequence: 5 };
             let (step, taken) = net.drivers[i].attest(net.now, attest).unwrap();

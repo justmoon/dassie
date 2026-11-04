@@ -28,6 +28,7 @@
 - A release keeps the code of every version it runs. The oldest goes once no hub runs it.
 - A version that changes consensus needs the engine to switch at the block the move takes effect in, as epochs hand over; version 2 changes the ledger alone.
 - A version that changes only how validators exchange messages, as version 3 does, still cuts off a hub's members on releases that do not run it, though nothing changes for them: a member stops using a hub whose version its release does not run.
+- Version 3 also changes when validators time out a view, which must be alike for every validator: the engine asks the application about the state a block would build on, so all switch at the block the move takes effect in ([blocks-when-wanted](blocks-when-wanted.md)).
 
 ## Rejected
 

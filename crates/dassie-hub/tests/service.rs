@@ -14,7 +14,7 @@
 use std::collections::VecDeque;
 
 use dassie_hub::client::{Agreement, Request, Statement};
-use dassie_hub::consensus::{PeerId, Stored};
+use dassie_hub::consensus::{Config, PeerId, Stored};
 use dassie_hub::digest::Digest;
 use dassie_hub::escrow::{ValidatorKeys, escrow_master};
 use dassie_hub::ledger::Outcome;
@@ -115,6 +115,10 @@ struct Network {
     /// Whether every vote to finalize, finalization and catch-up is lost,
     /// so blocks are notarized and none becomes final.
     no_finality: bool,
+    /// Whether a member asks every validator for a block every interval,
+    /// as on a busy hub: a hub of version 3 makes one only when wanted
+    /// (spec/decisions/blocks-when-wanted.md).
+    busy: bool,
     now: u64,
 }
 
@@ -184,6 +188,7 @@ impl Network {
             operations: vec![0; 4],
             payout_heights: Vec::new(),
             no_finality: false,
+            busy: false,
             now: START,
         }
     }
@@ -262,10 +267,24 @@ impl Network {
         self.collect(index);
     }
 
-    /// Runs the network for `ms` of time, a millisecond at a time.
+    /// Runs the network for `ms` of time, a millisecond at a time, or at
+    /// once to the next timer while nothing is on its way.
     fn run(&mut self, ms: u64) {
-        for _ in 0..ms {
+        let end = self.now + ms;
+        while self.now < end {
+            if !self.busy && self.queue.is_empty() {
+                let next = self
+                    .validators
+                    .iter()
+                    .filter_map(Validator::poll_timeout)
+                    .min()
+                    .unwrap_or(end);
+                self.now = self.now.max(next.min(end).saturating_sub(1));
+            }
             self.now += 1;
+            if self.busy && self.now.is_multiple_of(Config::DEFAULT.block_interval_ms) {
+                self.wake();
+            }
             for i in 0..self.validators.len() {
                 if self.validators[i]
                     .poll_timeout()
@@ -323,6 +342,16 @@ impl Network {
     fn attest_all(&mut self, operation: &ValidatorOperation) {
         for i in 0..self.validators.len() {
             self.validators[i].attest(self.now, operation.clone());
+            self.collect(i);
+        }
+    }
+
+    /// A member asks every validator it reaches for a block stamped now.
+    fn wake(&mut self) {
+        let bytes = Message::Request(Request::Wake { at: self.now }).to_vec();
+        let cut = self.cut;
+        for i in (0..self.validators.len()).filter(|i| cut != Some(*i)) {
+            self.validators[i].handle(self.now, MEMBER, None, &bytes);
             self.collect(i);
         }
     }
@@ -599,6 +628,7 @@ fn deposit_of(seed: u8) -> Deposit {
 #[test]
 fn what_a_caught_up_validator_s_skipped_blocks_executed_is_not_attested_again() {
     let mut net = Network::new();
+    net.busy = true;
     net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
     net.run(1_000);
     for i in 0..4 {
@@ -646,6 +676,7 @@ fn what_a_caught_up_validator_s_skipped_blocks_executed_is_not_attested_again() 
 #[test]
 fn a_validator_whose_place_moves_still_attests() {
     let mut net = Network::new();
+    net.busy = true;
     net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
     net.run(1_000);
     // The same validators, in the reverse order: each one's index moves.
@@ -828,6 +859,7 @@ fn only_validators_are_served_catch_up() {
 #[test]
 fn a_validator_far_behind_takes_a_peers_state_and_goes_on() {
     let mut net = Network::new();
+    net.busy = true;
     net.run(100);
     net.cut = Some(3);
     // The others finalize more blocks than they keep for catching up.
@@ -865,6 +897,7 @@ fn a_validator_far_behind_takes_a_peers_state_and_goes_on() {
 #[test]
 fn validators_that_stalled_apart_come_to_sign_one_payout_set() {
     let mut net = Network::new();
+    net.busy = true;
     net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
     net.run(2_000);
     // Validator 3 falls behind; the others go on without it.
@@ -913,6 +946,7 @@ fn validators_that_stalled_apart_come_to_sign_one_payout_set() {
 #[test]
 fn a_validator_that_stalled_alone_signs_no_set_while_the_hub_goes_on() {
     let mut net = Network::new();
+    net.busy = true;
     net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
     net.run(2_000);
     net.cut = Some(3);
@@ -1003,6 +1037,7 @@ fn another_finalized_at_the_tip(net: &Network, to: usize) -> Vec<u8> {
 #[test]
 fn a_validator_that_knows_of_a_fork_catches_up_after_a_restart() {
     let mut net = Network::new();
+    net.busy = true;
     net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
     net.run(2_000);
     let bytes = another_finalized_at_the_tip(&net, 3);
@@ -1096,6 +1131,7 @@ fn a_validator_on_a_fork_signs_no_payout_set() {
 #[test]
 fn a_state_that_is_not_the_blocks_is_refused() {
     let mut net = Network::new();
+    net.busy = true;
     net.run(100);
     net.cut = Some(3);
     let mut runs = 0;
@@ -1145,6 +1181,7 @@ fn carries_finality(bytes: &[u8]) -> bool {
 #[test]
 fn finality_returns_after_more_blocks_than_validators_keep_states_of() {
     let mut net = Network::new();
+    net.busy = true;
     net.run(100);
     let final_height = net.validators[0].ledger().height();
     let view = net.validators[0].engine().view();
@@ -1176,6 +1213,7 @@ fn finality_returns_after_more_blocks_than_validators_keep_states_of() {
 #[test]
 fn a_validator_resumes_from_what_its_host_persisted() {
     let mut net = Network::new();
+    net.busy = true;
     let (number, key) = member(&mut net, 31);
     let before = net.validators[2].ledger().height();
     assert!(before > 3, "blocks became final");
@@ -1452,6 +1490,7 @@ fn a_stall_while_frozen_signs_no_payout_set_until_a_thaw() {
 
     // The whole hub stalls while frozen.
     let mut net = Network::with_terms(token);
+    net.busy = true;
     member(&mut net, 31);
     attest_issuer(&mut net, 20, true);
     net.no_finality = true;
@@ -1462,6 +1501,7 @@ fn a_stall_while_frozen_signs_no_payout_set_until_a_thaw() {
 
     // Validator 3 stalls alone while frozen; the others thaw the hub.
     let mut net = Network::with_terms(token);
+    net.busy = true;
     member(&mut net, 31);
     attest_issuer(&mut net, 20, true);
     net.cut = Some(3);
@@ -1544,5 +1584,81 @@ fn deposits_a_freeze_left_without_room_are_credited_once_after_the_thaw() {
             amount * u64::try_from(count).unwrap(),
             "each credited once"
         );
+    }
+}
+
+// spec/decisions/blocks-when-wanted.md: a hub of version 3 makes a block
+// only when one is wanted, and at least every heartbeat, so a quiet hub
+// is never judged stalled.
+#[test]
+fn a_quiet_hub_makes_a_block_every_heartbeat_and_never_stalls() {
+    let mut net = Network::new();
+    let stall = net.rules.terms.timers.stall;
+    net.run(stall + 60_000);
+    let beats = (stall + 60_000) / Config::DEFAULT.heartbeat_ms;
+    for v in &net.validators {
+        assert!(!v.engine().is_stalled());
+        let height = v.ledger().height();
+        assert!(
+            height + 1 >= beats && height <= beats,
+            "{height} of {beats}"
+        );
+        assert_eq!(v.engine().stats().nullifies, 0);
+    }
+    assert_eq!(net.payouts, 0);
+}
+
+#[test]
+fn a_wake_brings_one_block_stamped_at_or_after_it() {
+    let mut net = Network::new();
+    net.run(15_000);
+    let before = net.validators[0].ledger().height();
+    let at = net.now;
+    net.request(&Request::Wake { at });
+    net.run(Config::DEFAULT.block_interval_ms + 3 * Config::DEFAULT.max_delay_ms);
+    for v in &net.validators {
+        assert_eq!(v.ledger().height(), before + 1);
+        assert!(v.ledger().timestamp() >= at);
+    }
+    // That block is all it asked for.
+    net.run(5_000);
+    for v in &net.validators {
+        assert_eq!(v.ledger().height(), before + 1);
+    }
+}
+
+#[test]
+fn work_after_a_quiet_spell_is_final_at_once() {
+    let mut net = Network::new();
+    net.run(600_000);
+    let before = net.validators[0].ledger().height();
+    net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
+    // The block's parent is long past its interval: it is proposed at once,
+    // and final three message delays later.
+    net.run(3 * Config::DEFAULT.max_delay_ms);
+    for v in &net.validators {
+        assert_eq!(v.ledger().height(), before + 1);
+    }
+}
+
+#[test]
+fn a_hub_of_version_2_makes_a_block_every_interval() {
+    let mut net = Network::with_terms(|terms| terms.version = 2);
+    net.run(10_000);
+    for v in &net.validators {
+        assert!(v.ledger().height() >= 80, "{}", v.ledger().height());
+    }
+}
+
+#[test]
+fn a_validator_restarted_in_a_quiet_hub_times_out_no_view() {
+    let mut net = Network::new();
+    net.run(15_000);
+    // It lost the states of blocks not final, and asks nothing of them.
+    net.restart(2);
+    net.run(30_000);
+    for v in &net.validators {
+        assert_eq!(v.engine().stats().nullifies, 0);
+        assert!(v.ledger().height() >= 4, "{}", v.ledger().height());
     }
 }
