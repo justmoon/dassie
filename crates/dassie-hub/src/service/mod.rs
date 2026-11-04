@@ -906,7 +906,11 @@ impl Validator {
         let due = self
             .payout_height
             .is_none_or(|signed| signed < height && stopped);
-        if ended && due && !held {
+        // A validator that learned its chain is one side of a fork signs
+        // no payout set of it: with the faulty ones' signatures it could
+        // make a quorum for a block the hub did not go on from, and undo
+        // what the other side did.
+        if ended && due && !held && !self.engine.is_forked() {
             self.sign_payout();
         }
         self.chain.check_invariants();

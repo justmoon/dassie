@@ -456,6 +456,8 @@ impl Engine {
             self.vote_log.pop_front();
         }
         self.settled_conflicts.retain(|at| *at >= oldest);
+        let lowest = self.history.front().map_or(height, |(_, f)| f.block.height);
+        self.reported_forks.retain(|at| *at >= lowest);
         let (tip, tip_block) = (self.tip_digest, self.tip.block.clone());
         self.blocks.retain(|_, block| {
             let repeats_tip = block.parent == tip && block.repeats(&tip_block);
@@ -516,9 +518,17 @@ impl Engine {
         if digest == block.digest(&self.hub) || our_certificate.epoch != certificate.epoch {
             return;
         }
+        if !self.forked {
+            self.forked = true;
+            self.batch.forked = true;
+        }
+        // Reported once per height: while peers keep it, every delivery
+        // shows it again.
+        if !self.reported_forks.insert(block.height) {
+            return;
+        }
         let signers =
             Signers::from_bits(our_certificate.signers.bits() & certificate.signers.bits());
-        self.forked = true;
         self.evidence(Evidence::Finalizations {
             first: ours,
             second: Finalized::new(block.clone(), Some(certificate.clone())),

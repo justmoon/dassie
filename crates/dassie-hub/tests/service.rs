@@ -951,6 +951,87 @@ fn a_validator_that_stalled_alone_signs_no_set_while_the_hub_goes_on() {
     assert_eq!(signed(&net), 2);
 }
 
+// spec/areas/hubs.md#consensus, "A fork leaves evidence when a validator
+// catches up": a validator shown another block finalized at its own final
+// height is on one side of a fork that more than f faulty validators made.
+// It reports it once however often it is shown it, and signs no payout set
+// when it stalls, not even after a restart: with the colluders' signatures
+// its own would make a quorum for a block the hub did not go on from.
+#[test]
+fn a_validator_on_a_fork_signs_no_payout_set() {
+    use dassie_hub::consensus::wire::{Certified, Delivery, Message as Consensus};
+    use dassie_hub::consensus::{Certificate, Vote, VoteKind};
+    use dassie_hub::validators::{Signers, ValidatorIndex};
+
+    let mut net = Network::new();
+    net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
+    net.run(2_000);
+    let hub = net.rules.id().0;
+    let tip = net.validators[0].engine().tip().clone();
+    assert!(tip.finalization.is_some(), "finalized by its own votes");
+    // The others' block at its height: a quorum of them signed it.
+    let mut other = tip.block.clone();
+    other.timestamp_ms += 1;
+    let digest = other.digest(&hub);
+    let mut signers = Signers::NONE;
+    let mut signatures = Vec::new();
+    for index in 1..4 {
+        let key = ValidatorKeys::derive(&net.node_keys[index], TESTNET_NETWORK, &NONCE)
+            .unwrap()
+            .consensus;
+        let signer = ValidatorIndex::new(index).unwrap();
+        let view = (other.epoch, other.view);
+        let vote = Vote::sign(&hub, &key, signer, VoteKind::Finalize, view, digest);
+        signers = signers.with(signer);
+        signatures.push(vote.signature);
+    }
+    let finalization = Certificate {
+        kind: VoteKind::Finalize,
+        epoch: other.epoch,
+        view: other.view,
+        block: digest,
+        signers,
+        signatures,
+    };
+    let delivery = Consensus::Delivery(Delivery {
+        certified: vec![Certified {
+            certificate: finalization,
+            block: Some(other),
+        }],
+        ..Delivery::default()
+    });
+    let bytes = Message::Consensus(delivery.to_vec()).to_vec();
+    net.cut = Some(0);
+    let node = net.nodes[1];
+    let reported = |net: &Network| net.evidence.iter().filter(|(by, _)| *by == 0).count();
+    net.validators[0].handle(net.now, PeerId(1), Some(&node), &bytes);
+    net.collect(0);
+    assert!(net.validators[0].engine().is_forked());
+    // Two finalizations of one height, and two certificates of one view.
+    let first = reported(&net);
+    assert_eq!(first, 2);
+    for _ in 0..3 {
+        net.validators[0].handle(net.now, PeerId(1), Some(&node), &bytes);
+        net.collect(0);
+    }
+    assert_eq!(reported(&net), first, "reported once");
+    // It finalizes nothing more, and declares the hub stalled.
+    let stall = net.rules.terms.timers.stall;
+    net.now += stall + 1;
+    net.validators[0].tick(net.now);
+    net.collect(0);
+    assert!(net.validators[0].engine().is_stalled());
+    let signed = |net: &Network| net.payout_heights.iter().any(|(v, _)| *v == 0);
+    assert!(!signed(&net), "no payout set of its side of the fork");
+    // A restart keeps that it is on a fork.
+    net.restart(0);
+    net.now += 1;
+    net.validators[0].tick(net.now);
+    net.collect(0);
+    assert!(net.validators[0].engine().is_forked());
+    assert!(!signed(&net), "not after a restart either");
+}
+
 // A state that is not the one the block names is refused, and nothing
 // changes.
 #[test]

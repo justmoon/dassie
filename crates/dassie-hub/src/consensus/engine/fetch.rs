@@ -337,9 +337,9 @@ impl Engine {
 
     /// Takes in a delivery: first the finalizations of views we finalized,
     /// which show whether the sender's chain is ours ([`Self::on_fetch`]);
-    /// then its finalized blocks, unless another chain was shown finalized
-    /// at a height we finalized, which we neither follow nor load; then its
-    /// other certificates.
+    /// then its finalized blocks, as far as they build on our tip, and
+    /// never a state to load once another chain was shown finalized at a
+    /// height we finalized; then its other certificates.
     pub(super) fn on_delivery(&mut self, app: &mut dyn Application, delivery: Delivery) {
         let (settled, mut certified): (Vec<Certified>, Vec<Certified>) = delivery
             .certified
@@ -348,9 +348,7 @@ impl Engine {
         for certified in settled {
             self.check_settled(&certified.certificate, certified.block.as_ref());
         }
-        if let Some(finalization) = &delivery.finalization
-            && !self.forked
-        {
+        if let Some(finalization) = &delivery.finalization {
             self.take_finalized(app, &delivery.finalized, finalization);
         }
         // The highest view first: a block the chain lacks is taken below
@@ -457,8 +455,12 @@ impl Engine {
         if end.height <= self.tip.block.height {
             return self.check_finalized(end, finalization);
         }
-        // Beyond what we can connect: the host loads the state after it.
+        // Beyond what we can connect: the host loads the state after it,
+        // unless we know of another chain, which it may be of.
         if first.height > self.tip.block.height.saturating_add(1) {
+            if self.forked {
+                return;
+            }
             self.event(Event::Behind(Box::new(Finalized {
                 block: end.clone(),
                 repeats: blocks.get(content..).unwrap_or_default().to_vec(),

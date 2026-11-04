@@ -142,9 +142,13 @@ pub struct Engine {
     boundaries: VecDeque<Finalized>,
     stalled: bool,
     /// Whether a block of another chain was shown finalized at a height we
-    /// finalized: more than f validators are faulty, and we take no state
-    /// of that chain to load. Kept in memory only.
+    /// finalized: more than f validators are faulty, so we load no later
+    /// state, which may be of the other chain, and the host signs no payout
+    /// set. Persisted.
     forked: bool,
+    /// The heights such a conflict was reported at, each once; within the
+    /// history's heights.
+    reported_forks: BTreeSet<u64>,
     /// The last view each validator of the running set voted in.
     last_voted: [u64; MAX_VALIDATORS],
     /// What we lack, and whom to ask: set when a proposal or
@@ -222,7 +226,8 @@ impl Engine {
             settled_conflicts: BTreeSet::new(),
             boundaries: stored.boundaries.into_iter().collect(),
             stalled: stored.stalled,
-            forked: false,
+            forked: stored.forked,
+            reported_forks: BTreeSet::new(),
             last_voted: [0; MAX_VALIDATORS],
             want: None,
             fetched_ms: None,
@@ -412,6 +417,15 @@ impl Engine {
     #[must_use]
     pub const fn is_stalled(&self) -> bool {
         self.stalled
+    }
+
+    /// Whether a block of another chain was shown finalized at a height we
+    /// finalized: our chain is one side of a fork that more than f faulty
+    /// validators made, so a payout set of a block on it could undo the
+    /// other side's.
+    #[must_use]
+    pub const fn is_forked(&self) -> bool {
+        self.forked
     }
 
     /// Declares the hub stalled: we never vote or propose in it again,
@@ -616,6 +630,10 @@ impl Engine {
             "epochs' last blocks within bound, each certified"
         );
         assert!(self.vote_log.len() <= MAX_VOTE_LOG, "vote log within bound");
+        assert!(
+            self.reported_forks.len() <= RETAINED_BLOCKS,
+            "forks reported within bound"
+        );
         assert!(self.events.len() <= MAX_EVENTS, "events within bound");
         assert!(self.view > self.tip_view(), "the view is above the tip");
         assert!(
