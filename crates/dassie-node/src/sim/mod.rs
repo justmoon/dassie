@@ -635,7 +635,7 @@ fn ilp_packet(body: &[u8]) -> Option<(u32, dassie_ilp::Packet<'_>)> {
     }
     // A Prepare comes on a method, over a settlement hub with its
     // commitment, and a Reject over a hub with the payee's release, which
-    // the simulation does not read.
+    // only the checks that need it read (`hub_token::refuse_far_ahead`).
     let (Content::InterledgerPacket { request_id, packet }
     | Content::MethodPacket {
         request_id, packet, ..
