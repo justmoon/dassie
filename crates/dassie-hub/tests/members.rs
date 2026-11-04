@@ -1361,8 +1361,8 @@ fn a_deferred_reject_is_decided_from_the_hub() {
 }
 
 /// spec/decisions/blocks-when-wanted.md: while a packet waits for the hub,
-/// its payer asks every validator at each poll for a block stamped at or
-/// after its commitment's expiry, so that a quiet hub decides it in time;
+/// its payer asks every validator every half second for a block stamped at
+/// or after its commitment's expiry, so that a quiet hub decides it in time;
 /// and no longer once it is decided. A hub older than version 3 makes a
 /// block every interval anyway, and is asked nothing.
 #[test]
@@ -1377,7 +1377,7 @@ fn a_waiting_packet_asks_the_validators_for_a_block() {
         world.next_block = u64::MAX;
         world.run(2_000);
         world.wait((a, b), 2, world.now + 1_000);
-        world.run(500);
+        world.run(1_200);
         let asked: BTreeSet<usize> = world
             .validators
             .wakes
@@ -1387,8 +1387,10 @@ fn a_waiting_packet_asks_the_validators_for_a_block() {
             .collect();
         if version >= dassie_hub::rules::IDLE_VERSION {
             assert_eq!(asked, (0..4).collect(), "every validator");
-            // Again at every poll while it waits.
-            assert!(world.validators.wakes.len() >= 8);
+            // Again while it waits, but far less often than it polls, so
+            // a wake never takes an operation's place among its exchanges.
+            let rounds = world.validators.wakes.len() / 4;
+            assert_eq!(rounds, 3, "at once, and every half second");
         } else {
             assert!(world.validators.wakes.is_empty(), "version {version}");
         }
