@@ -402,11 +402,6 @@ impl Sim {
             1 => 10_000 + self.rng.below(60_000),
             _ => 50 + self.rng.below(1_500),
         };
-        // Once the hub shuts down, what is on its way gets in before its
-        // end: the escrow's last state is what the payout set pays.
-        if self.ledger.phase() != Phase::Running && !self.calm() {
-            dt = dt.min(1_500);
-        }
         if self.token() && self.rng.below(12) == 0 {
             self.issuer_acts();
         }
@@ -422,6 +417,12 @@ impl Sim {
         }
         self.escrow_applies();
         self.faulty_acts();
+        // Once the hub shuts down, what is on its way gets in before its
+        // end, what the issuer did in this step included: the escrow's last
+        // state is what the payout set pays.
+        if self.ledger.phase() != Phase::Running && !self.calm() {
+            dt = dt.min(1_500);
+        }
         let members = self.member_ops();
         let validators = self.due();
         self.block(dt, members, validators)
