@@ -339,7 +339,7 @@ fn an_offer_is_replaced_and_cancelled() {
 }
 
 #[test]
-fn an_offer_past_its_expiration_is_gone() {
+fn an_offer_past_its_expiration_is_listed_until_a_crossing_takes_it_away() {
     let mut ledger = FakeLedger::new();
     let wallets = traders(&mut ledger, &[1, 2], "10");
     let (maker, taker) = (&wallets[0], &wallets[1]);
@@ -359,13 +359,14 @@ fn an_offer_past_its_expiration_is_gone() {
     let listed = offers_of(&mut ledger, maker.account());
     assert_eq!(listed.offers[0].expiration, Some(expiration));
     close(&mut ledger);
-    // Not listed, though it is still there until a crossing meets it.
-    assert!(offers_of(&mut ledger, maker.account()).offers.is_empty());
-    assert!(
-        book(&mut ledger, dsusd_asset(), Asset::Xrp)
-            .offers
-            .is_empty()
-    );
+    // Expired, it is still listed, as rippled lists it, with its expiration
+    // for a client to tell, until a crossing meets it.
+    let listed = offers_of(&mut ledger, maker.account());
+    assert_eq!(listed.offers.len(), 1);
+    assert_eq!(listed.offers[0].expiration, Some(expiration));
+    let listed = book(&mut ledger, dsusd_asset(), Asset::Xrp);
+    assert_eq!(listed.offers.len(), 1);
+    assert_eq!(listed.offers[0].expiration, Some(expiration));
     assert!(ledger.offer(maker.account(), sequence).is_some());
     let owned = owner_count(&ledger, maker.account());
     let (record, meta, taken) = offer(&mut ledger, taker, dsusd("5"), xrp(10));
