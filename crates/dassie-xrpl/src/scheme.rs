@@ -47,7 +47,7 @@ use crate::account::{MAX_ACCOUNT_DROPS, News, Ours, XrplAccount};
 use crate::api::{AccountInfo, TxRecord};
 use crate::codec::Memo;
 use crate::follower::{Follower, cancel_pending, failure_of, hash_name, narrow};
-use crate::kept::{In, Out, SCHEME_VERSION};
+use crate::kept::{In, Out, SCHEME_VERSION, XRP_SCHEME_VERSION};
 use crate::keys::AccountId;
 use crate::network::{self, Network};
 
@@ -202,8 +202,10 @@ pub struct XrpScheme<N: NativeXrp> {
     /// The reserve, base and per owned object, in drops.
     reserve: (u64, u64),
     /// The reserve the books were last matched to, in drops: at the next
-    /// match, what a change from it makes is the reserve's. Unknown until
-    /// the first match after a start or a write-off, which explains
+    /// match, what a change from it makes is the reserve's. Kept across
+    /// restarts with the books, so a reserve that changed while the node
+    /// was down is the reserve's too. Unknown until the first match after
+    /// a write-off, or from a state that kept none, which explains
     /// nothing.
     matched_reserve: Option<u64>,
     /// Told that the account is synced, since it was last written off.
@@ -244,8 +246,12 @@ impl<N: NativeXrp> XrpScheme<N> {
             xrp: PhantomData,
         };
         if !state.is_empty() {
-            let mut input = In::state(state, SCHEME_VERSION).ok_or(SchemeError::InvalidData)?;
+            let (mut input, version) = In::state_of(state, &[SCHEME_VERSION, XRP_SCHEME_VERSION])
+                .ok_or(SchemeError::InvalidData)?;
             scheme.f.read(&mut input).ok_or(SchemeError::InvalidData)?;
+            if version == XRP_SCHEME_VERSION {
+                scheme.matched_reserve = input.option(In::u64).ok_or(SchemeError::InvalidData)?;
+            }
             input.finish().ok_or(SchemeError::InvalidData)?;
         }
         Ok(scheme)
@@ -567,13 +573,14 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
     }
 
     fn state(&self) -> Vec<u8> {
-        let mut out = Out::state(SCHEME_VERSION);
+        let mut out = Out::state(XRP_SCHEME_VERSION);
         self.f.write(&mut out);
+        out.option(self.matched_reserve, Out::u64);
         out.0
     }
 
     fn state_version(&self) -> u64 {
-        self.f.fingerprint(0)
+        self.f.fingerprint(self.matched_reserve.unwrap_or(u64::MAX))
     }
 
     fn on_asset(&mut self, _now_ms: u64, asset: &mut dyn ExternalAsset, effects: &mut Vec<Effect>) {

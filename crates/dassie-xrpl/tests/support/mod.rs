@@ -505,8 +505,11 @@ fn decode_account(state: &[u8]) -> Map<String, Value> {
     joined
 }
 
+/// The scheme's state, of version 3 but for one a test writes without
+/// the matched reserve, which is of version 2.
 fn encode_scheme(state: &Map<String, Value>) -> Option<Vec<u8>> {
-    let mut out = Out::new(2);
+    let matched = state.get("matched_reserve");
+    let mut out = Out::new(if matched.is_some() { 3 } else { 2 });
     match state.get("cursor") {
         None | Some(Value::Null) => out.bool(false),
         Some(cursor) => {
@@ -532,13 +535,22 @@ fn encode_scheme(state: &Map<String, Value>) -> Option<Vec<u8>> {
             out.u8(u8::try_from(number(outcome.get(1))?).ok()?);
         }
     }
+    match matched {
+        None => {}
+        Some(Value::Null) => out.bool(false),
+        Some(reserve) => {
+            out.bool(true);
+            out.u64(number(Some(reserve))?);
+        }
+    }
     Some(out.0)
 }
 
 fn decode_scheme(state: &[u8]) -> Map<String, Value> {
     let mut input = In(state);
     let mut joined = Map::new();
-    assert_eq!(input.u8(), Some(2), "version 2");
+    let version = input.u8();
+    assert!(matches!(version, Some(2 | 3)), "version 2 or 3");
     let mut read = || -> Option<()> {
         let cursor = if input.bool()? {
             serde_json::json!([input.u32()?, input.u32()?])
@@ -559,6 +571,14 @@ fn decode_scheme(state: &[u8]) -> Map<String, Value> {
             Value::Null
         };
         joined.insert("owner_outcome".into(), outcome);
+        if version == Some(3) {
+            let reserve = if input.bool()? {
+                input.u64()?.into()
+            } else {
+                Value::Null
+            };
+            joined.insert("matched_reserve".into(), reserve);
+        }
         input.0.is_empty().then_some(())
     };
     assert!(read().is_some(), "a state the scheme wrote");

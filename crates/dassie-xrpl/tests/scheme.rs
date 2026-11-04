@@ -578,6 +578,29 @@ fn a_new_reserve_is_reconciled() {
     );
 }
 
+// spec/areas/xrpl.md#state-and-restarts: the reserve the books were matched
+// to is kept with them, so one that changed while the node was down is the
+// reserve's too, as when a token scheme's line was opened just before a
+// crash.
+#[test]
+fn a_reserve_changed_across_a_restart_is_the_reserves() {
+    let mut world = funded();
+    let kept = world.kept(0);
+    world.disconnect(0);
+    world.ledger.set_reserve(2 * RESERVE_BASE, 0);
+    world.close();
+    world.restore(0, kept);
+    world.connect(0);
+    world.closes(2);
+    assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
+    let reserve = i128::from(RESERVE_BASE * UNITS_PER_DROP);
+    assert_eq!(world.nodes[0].books.suspense, -reserve);
+    assert_eq!(
+        world.nodes[0].books.reconciled,
+        [(-reserve, ReconcileCause::Reserve)]
+    );
+}
+
 // A reserve above the balance explains what the books hold, and no more:
 // they never hold less than nothing. Lowered again, it explains what comes
 // back.
