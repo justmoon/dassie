@@ -50,15 +50,15 @@ const WITHHELD_MS: u64 = 4 * STALL_MS;
 /// each holds it when it expires.
 const LAPSES_AFTER_MS: u64 = STALL_MS;
 
-/// What each member's owner moves into the XRP hub in [`run_across`] and
-/// `node-hubs`, in XRP: as much as each node's owner starts with on the
+/// What each member's owner deposits into the XRP hub by hand in
+/// [`run_across`] and `node-hubs`, in XRP: as much as each node's owner starts with on the
 /// hub's ledger in a run, [`Settling::deposit`], which the checks of its
 /// assets count from.
-pub const HUB_STAKE_XRP: u64 = 100;
+pub const OWNER_DEPOSIT_XRP: u64 = 100;
 
 const _: () = assert!(
-    Settling::deposit(HUB) == HUB_STAKE_XRP as i128 * DROPS_PER_XRP as i128 * 1_000,
-    "a stake is what the checks count each owner started with in the hub"
+    Settling::deposit(HUB) == OWNER_DEPOSIT_XRP as i128 * DROPS_PER_XRP as i128 * 1_000,
+    "an owner's deposit is what the checks count each owner started with in the hub"
 );
 
 /// The most an owner moves into the hub at once in [`run_lies`], in XRP:
@@ -372,7 +372,7 @@ fn script_across(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     // nodes 0 and 1: node 0 and node 2 share no hub, so what one pays the
     // other crosses node 1 or 3, which converts.
     join_hubs(sim)?;
-    super::hub_pairs::stake(sim)?;
+    super::hub_pairs::owner_deposits(sim)?;
     sim.join_network(2);
     if !sim.run_until_or(sim.now + READY_WITHIN_MS, routed) {
         return Err(Outcome::liveness(
