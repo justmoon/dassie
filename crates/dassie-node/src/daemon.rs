@@ -1209,7 +1209,10 @@ mod tests {
     }
 
     // QUIC is the peer protocol's only transport: a node whose UDP port is
-    // taken does not start.
+    // taken does not start. The node binds its TCP ports first, at ports
+    // `free_ports` found free and let go, which a test running beside it
+    // may take meanwhile: then it fails on that port, before it gets to
+    // QUIC, and the test takes other ports, a few times at most.
     #[test]
     fn a_node_without_its_quic_socket_does_not_start() {
         let taken = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -1220,14 +1223,23 @@ mod tests {
             ("DASSIE_STATE_DIRECTORY", state.to_str().unwrap()),
             ("DASSIE_IPC_SOCKET_PATH", socket.to_str().unwrap()),
         ]);
-        let options = DaemonOptions {
-            runtime: Some(Runtime::Standalone),
-            ports: TcpPorts::These(free_ports()),
-            listen: Some(Ipv4Addr::LOCALHOST.into()),
-            quic: Some(taken.local_addr().unwrap()),
-            feed: FeedSocket::At(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
-        };
-        let error = Prepared::new(&env, options).unwrap_err();
+        let mut error = None;
+        for _ in 0..5 {
+            let options = DaemonOptions {
+                runtime: Some(Runtime::Standalone),
+                ports: TcpPorts::These(free_ports()),
+                listen: Some(Ipv4Addr::LOCALHOST.into()),
+                quic: Some(taken.local_addr().unwrap()),
+                feed: FeedSocket::At(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
+            };
+            let failed = Prepared::new(&env, options).unwrap_err();
+            let raced = matches!(&failed, DaemonError::Bind(what, _) if what.starts_with("port "));
+            error = Some(failed);
+            if !raced {
+                break;
+            }
+        }
+        let error = error.unwrap();
         assert!(
             matches!(&error, DaemonError::Bind(what, _) if what.contains("QUIC")),
             "{error}"
