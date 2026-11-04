@@ -42,7 +42,9 @@
 //! steeply it values its inventory, `marginPpm`, what a trade gains after
 //! the cost of undoing it, `thresholdPpm`, how far an asset's share may be
 //! from even before it rebalances, and `slippagePpm`, how far the pool's
-//! price may move against a rebalance. `caFile`
+//! price may move against a rebalance. `standingOffer`, true unless it is
+//! false, has it keep a standing offer on the order book while it is off
+//! even (spec/decisions/market-maker-order-book.md). `caFile`
 //! adds roots to trust the XRPL server by, besides the platform's, and
 //! `allowPrivate` lets it be on a private address, and on `ws://`: both
 //! for dev and tests, whose hosts may have no roots of their own. Every problem is a [`ConfigError`]; nothing
@@ -200,6 +202,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
             "marginPpm",
             "thresholdPpm",
             "slippagePpm",
+            "standingOffer",
             "caFile",
             "allowPrivate",
         ],
@@ -230,18 +233,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
     if xrp.owner_book == token_ledgers.owner_book {
         return Err(ConfigError::SameLedger("owner book"));
     }
-    let threshold_ppm = root.ppm("thresholdPpm", MAX_THRESHOLD_PPM)?;
-    if threshold_ppm == 0 {
-        return Err(root.invalid("thresholdPpm"));
-    }
-    let params = Params {
-        curve_ppm: root.ppm("curvePpm", MAX_CURVE_PPM)?,
-        margin_ppm: root.ppm("marginPpm", MAX_MARGIN_PPM)?,
-        threshold_ppm,
-        slippage_ppm: root.ppm("slippagePpm", MAX_SLIPPAGE_PPM)?,
-        xrp_cap,
-        token_cap,
-    };
+    let params = params(&root, xrp_cap, token_cap)?;
     Ok(Config {
         socket,
         passphrase_file,
@@ -252,6 +244,30 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         params,
         ca_file,
         allow_private,
+    })
+}
+
+/// The strategy's settings, with the caps of the two assets.
+fn params(root: &Fields<'_>, xrp_cap: u64, token_cap: u64) -> Result<Params, ConfigError> {
+    let threshold_ppm = root.ppm("thresholdPpm", MAX_THRESHOLD_PPM)?;
+    if threshold_ppm == 0 {
+        return Err(root.invalid("thresholdPpm"));
+    }
+    // On unless the config turns it off (spec/decisions/market-maker-order-book.md).
+    let standing_offer = match root.get("standingOffer") {
+        None => true,
+        Some(value) => value
+            .as_bool()
+            .ok_or_else(|| root.invalid("standingOffer"))?,
+    };
+    Ok(Params {
+        curve_ppm: root.ppm("curvePpm", MAX_CURVE_PPM)?,
+        margin_ppm: root.ppm("marginPpm", MAX_MARGIN_PPM)?,
+        threshold_ppm,
+        slippage_ppm: root.ppm("slippagePpm", MAX_SLIPPAGE_PPM)?,
+        xrp_cap,
+        token_cap,
+        standing_offer,
     })
 }
 
@@ -503,6 +519,13 @@ mod tests {
         assert_eq!(config.params.threshold_ppm, 50_000);
         assert_eq!(config.params.token_cap, 500_000_000);
         assert_eq!(config.params.cap(Side::Xrp), 1_000_000_000);
+        assert!(config.params.standing_offer);
+        let off = with(|v| v["standingOffer"] = json!(false)).unwrap();
+        assert!(!off.params.standing_offer);
+        assert_eq!(
+            with(|v| v["standingOffer"] = json!("no")),
+            Err(ConfigError::Invalid("standingOffer".into()))
+        );
         assert!(!config.allow_private);
         assert_eq!(config.ca_file, None);
         let config = with(|v| v["caFile"] = json!("/etc/ca.pem")).unwrap();

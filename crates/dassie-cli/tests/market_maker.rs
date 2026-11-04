@@ -317,3 +317,123 @@ async fn a_market_maker_moves_each_of_two_core_nodes_toward_balance() {
     }
     net.stop(members).await;
 }
+
+/// Has the fake ledger take the signed transaction `blob`.
+fn submit(net: &HubNet, blob: &[u8]) {
+    let submit =
+        serde_json::json!({ "command": "submit", "tx_blob": dassie_xrpl::hex_upper(blob) });
+    net.xrpl.ledger().request(0, submit.to_string().as_bytes());
+}
+
+/// An account of no node's with XRP and `dollars` DSUSD, which takes from
+/// the order book.
+async fn taker(net: &HubNet, dollars: &str) -> Wallet {
+    use dassie_xrpl::codec::{self, Signing, Transact};
+    let wallet = Wallet::from_seed([9; 16]);
+    let account = wallet.account();
+    net.xrpl.ledger().deposit(account, 200 * 1_000_000);
+    until("the taker's account", async || {
+        net.xrpl.ledger().sequence(account).is_some()
+    })
+    .await;
+    let sequence = net.xrpl.ledger().sequence(account).unwrap();
+    let last = net.xrpl.ledger().ledger() + 20;
+    let line = codec::TrustSet {
+        account,
+        limit: DSUSD.amount(TokenValue::MAX),
+        fee: dassie_xrpl::fake::FEE_BASE,
+        sequence,
+        last_ledger_sequence: Some(last),
+        flags: codec::TF_SET_NO_RIPPLE,
+        network_id: None,
+        memos: Vec::new(),
+        signing: Signing::by(wallet.public_key()),
+    }
+    .sign(&wallet);
+    submit(net, &line.blob);
+    until("the taker's line", async || {
+        net.xrpl
+            .ledger()
+            .line(account, DSUSD.issuer, DSUSD.currency)
+            .is_some()
+    })
+    .await;
+    net.xrpl
+        .ledger()
+        .issue(account, DSUSD.amount(TokenValue::parse(dollars).unwrap()))
+        .unwrap();
+    wallet
+}
+
+// spec/decisions/market-maker-order-book.md: a market maker a little off
+// even, within its threshold, keeps one offer on the order book that gives
+// what it holds too much of, XRP, for DSUSD at the market's mid. Another
+// account crossing it moves the market maker toward even, which its node
+// books; and stopped, it leaves no offer standing.
+#[tokio::test(start_paused = true)]
+async fn a_standing_offer_crossed_by_a_taker_brings_the_market_maker_toward_even() {
+    use dassie_xrpl::codec;
+    let net = hubs_and_pool().await;
+    let members = net
+        .members(
+            &[
+                Joining::of(81, BOTH).with_dollars(CORE_DOLLARS),
+                // 1000 XRP, worth 500 dollars, beside 450: 52.6% in XRP.
+                Joining::of(91, BOTH).with_dollars("450").pinned_to(&[81]),
+            ],
+            &[],
+        )
+        .await;
+    let [d1, maker] = [&members[0], &members[1]];
+    net.peered(&[d1, maker]).await;
+    let _rates = quoting(&net, maker, &[d1]).await;
+    net.settled(&[d1, maker]).await;
+    let taker = taker(&net, "50").await;
+    let before = holdings(&net, maker).await;
+
+    let market_maker = market_maker(&net, maker, 50_000).await;
+    let mut crossed = false;
+    run_until(
+        "the market maker's standing offer is crossed and booked",
+        market_maker,
+        async || {
+            if !crossed {
+                // Once its offer stands, the taker gives 10 DSUSD for up to
+                // 20 XRP, the mid's price: it crosses the offer there.
+                let standing = net.xrpl.ledger().offer_count() > 0;
+                if standing {
+                    let sequence = net.xrpl.ledger().sequence(taker.account()).unwrap();
+                    let terms = codec::OfferTerms {
+                        taker_pays: Amount::Xrp(19_000_000),
+                        taker_gets: Amount::Token(DSUSD.amount(TokenValue::parse("10").unwrap())),
+                        offer_sequence: None,
+                        expiration: None,
+                        fee: dassie_xrpl::fake::FEE_BASE,
+                        sequence,
+                        last_ledger_sequence: net.xrpl.ledger().ledger() + 20,
+                        network_id: None,
+                        memos: Vec::new(),
+                    };
+                    submit(&net, &codec::sign_offer(&taker, terms).unwrap().blob);
+                    crossed = true;
+                }
+                return false;
+            }
+            held(&net, maker, HubAsset::Dollar).await > before.0
+        },
+    )
+    .await;
+    net.settled(&[d1, maker]).await;
+    let after = holdings(&net, maker).await;
+    assert!(
+        more_dollars(after, before),
+        "the market maker went from {before:?} to {after:?} (DSUSD, XRP)"
+    );
+    // The taker's offer filled whole; stopped, the market maker took what
+    // is left of its own away, so none stands.
+    until("no offer stands", async || {
+        net.xrpl.ledger().offer_count() == 0
+    })
+    .await;
+    net.stop(members).await;
+}

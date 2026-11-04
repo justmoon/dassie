@@ -365,7 +365,7 @@
         "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
         "`dassie verify-install`, which also names the release key",
         "`dassie front-door`: runs a front door, which is no node, and serves names by reading the bootstrap nodes' name lists itself (`DASSIE_BOOTSTRAP_NODES`); `--make-key` makes its key and prints the entry a node names it by",
-        "`dassie market-maker`: with one periphery node of its own in two hubs, pinned to one or more core nodes, values its holdings by a curve flatter than the core nodes', at an AMM pool's price on the XRP Ledger, and swaps through every core node whose snapshot beats that by a margin after what undoing the trade on the pool would cost, several at once, asking its node for no less than the rate that clears; once its share of an asset is far from even, it swaps back to even through the pool with a `SendMax` that bounds the price"
+        "`dassie market-maker`: with one periphery node of its own in two hubs, pinned to one or more core nodes, values its holdings by a curve flatter than the core nodes', at the market's mid on the XRP Ledger, of an AMM pool and the order book beside it, and swaps through every core node whose snapshot beats that by a margin after what undoing the trade on the pool or the book would cost, several at once, asking its node for no less than the rate that clears; while it is a little off even, it keeps one offer of its own on the order book at the mid, which others cross to bring it back; once its share of an asset is far from even, it swaps back to even through the pool with a `SendMax` that bounds the price"
       ]
     },
     "node": {

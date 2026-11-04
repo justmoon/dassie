@@ -23,7 +23,9 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::Message;
 
-use super::strategy::{MAX_FEE_DROPS, Pool, Rebalance};
+use super::strategy::{
+    Book, Level, MAX_FEE_DROPS, MAX_LEVELS, Offer, Pool, Rebalance, Side, Standing, to_units,
+};
 
 /// Most bytes in one message from the server.
 const MAX_MESSAGE_BYTES: usize = 1 << 20;
@@ -200,6 +202,52 @@ impl Xrpl {
         }
     }
 
+    /// The order book between XRP and `token`, as of a validated ledger:
+    /// both sides, best first, at most a page each, each offer as much as
+    /// its owner funds, none of `own`'s, the market maker's account, whose
+    /// offers are no market to it, and none that expired at or before
+    /// `now_s`, the ledger's time: rippled still lists an expired offer,
+    /// until a crossing meets it, but no crossing fills it.
+    ///
+    /// # Errors
+    ///
+    /// A side cannot be read, or is not of the two assets.
+    pub async fn book(
+        &mut self,
+        token: IssuedAsset,
+        own: AccountId,
+        now_s: u32,
+    ) -> Result<Book, String> {
+        let token_asset = Asset::Token {
+            currency: token.currency,
+            issuer: token.issuer,
+        };
+        Ok(Book {
+            bids: self.side(token_asset, Asset::Xrp, own, now_s).await?,
+            asks: self.side(Asset::Xrp, token_asset, own, now_s).await?,
+        })
+    }
+
+    /// The offers that give `gets` for `pays`, best first, as levels.
+    async fn side(
+        &mut self,
+        gets: Asset,
+        pays: Asset,
+        own: AccountId,
+        now_s: u32,
+    ) -> Result<Vec<Level>, String> {
+        let limit = u32::try_from(MAX_LEVELS).unwrap_or(api::BOOK_PAGE);
+        let result = self
+            .request(|id| api::book_offers(id, gets, pays, limit))
+            .await
+            .map_err(|failure| failure.to_string())?;
+        let page = api::book_offers_result(&result).ok_or("a book_offers answer it cannot read")?;
+        if !page.validated {
+            return Err("a book_offers answer of a ledger not validated".into());
+        }
+        levels(&page.offers, gets, pays, own, now_s)
+    }
+
     /// Signs `rebalance` with `wallet`, paying `destination`, submits it,
     /// and follows it until a validated ledger holds it, its last ledger
     /// passes, or its polls run out.
@@ -215,40 +263,158 @@ impl Xrpl {
         destination: AccountId,
         rebalance: &Rebalance,
     ) -> Result<Outcome, String> {
+        let next = self.next(wallet.account()).await?;
+        let terms = SendMaxTerms {
+            destination,
+            amount: rebalance.deliver,
+            send_max: rebalance.send_max,
+            fee: next.fee,
+            sequence: next.sequence,
+            last_ledger_sequence: next.last,
+            network_id: next.network_id,
+            memos: Vec::new(),
+        };
+        let signed =
+            codec::sign_send_max(wallet, terms).map_err(|e| format!("cannot sign: {e:?}"))?;
+        self.submit(&signed.blob, &signed.hash, next.first, next.last)
+            .await
+    }
+
+    /// Places `offer` from `wallet`'s account, in place of the standing
+    /// offer it names, and follows it as a rebalance.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::rebalance`].
+    pub async fn place_offer(&mut self, wallet: &Wallet, offer: &Offer) -> Result<Outcome, String> {
+        let next = self.next(wallet.account()).await?;
+        let terms = codec::OfferTerms {
+            taker_pays: offer.asks,
+            taker_gets: offer.gives,
+            offer_sequence: offer.replaces,
+            expiration: Some(offer.expiration),
+            fee: next.fee,
+            sequence: next.sequence,
+            last_ledger_sequence: next.last,
+            network_id: next.network_id,
+            memos: Vec::new(),
+        };
+        let signed = codec::sign_offer(wallet, terms).map_err(|e| format!("cannot sign: {e:?}"))?;
+        self.submit(&signed.blob, &signed.hash, next.first, next.last)
+            .await
+    }
+
+    /// Takes the offer `sequence` of `wallet`'s account away, and follows it
+    /// as a rebalance.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::rebalance`].
+    pub async fn cancel_offer(
+        &mut self,
+        wallet: &Wallet,
+        sequence: u32,
+    ) -> Result<Outcome, String> {
+        let next = self.next(wallet.account()).await?;
+        let terms = codec::OfferCancelTerms {
+            offer_sequence: sequence,
+            fee: next.fee,
+            sequence: next.sequence,
+            last_ledger_sequence: next.last,
+            network_id: next.network_id,
+        };
+        let signed =
+            codec::sign_offer_cancel(wallet, terms).map_err(|e| format!("cannot sign: {e:?}"))?;
+        self.submit(&signed.blob, &signed.hash, next.first, next.last)
+            .await
+    }
+
+    /// The offers of `account` between XRP and `token`, as of a validated
+    /// ledger: its first page, which holds the market maker's few.
+    ///
+    /// # Errors
+    ///
+    /// They cannot be read.
+    pub async fn own_offers(
+        &mut self,
+        account: AccountId,
+        token: IssuedAsset,
+    ) -> Result<Vec<Standing>, String> {
+        let result = self
+            .request(|id| api::account_offers(id, account, None))
+            .await
+            .map_err(|failure| failure.to_string())?;
+        let page = api::account_offers_result(&result).ok_or("an account_offers it cannot read")?;
+        if !page.validated {
+            return Err("an account_offers answer of a ledger not validated".into());
+        }
+        let side = |amount: Amount| match amount {
+            Amount::Xrp(_) => Some(Side::Xrp),
+            Amount::Token(held)
+                if held.currency == token.currency && held.issuer == token.issuer =>
+            {
+                Some(Side::Token)
+            }
+            Amount::Token(_) => None,
+        };
+        Ok(page
+            .offers
+            .iter()
+            .filter_map(|offer| {
+                let gives = side(offer.taker_gets)?;
+                (side(offer.taker_pays)? == gives.other()).then_some(Standing {
+                    sequence: offer.sequence,
+                    gives,
+                    gives_units: to_units(offer.taker_gets)?,
+                    asks_units: to_units(offer.taker_pays)?,
+                    expiration: offer.expiration,
+                })
+            })
+            .collect())
+    }
+
+    /// What the next transaction from `account` signs with: its fee, its
+    /// sequence, its network, and the ledgers it may be in.
+    async fn next(&mut self, account: AccountId) -> Result<Next, String> {
         let state = self.testnet_state().await?;
         let fee = fee_drops(&state).ok_or("the ledger's fee is above what a rebalance pays")?;
-        let account = wallet.account();
         let info = self
             .request(|id| api::account_info(id, account))
             .await
             .map_err(|failure| failure.to_string())?;
         let info = api::account_info_result(&info).ok_or("an account_info it cannot read")?;
         let first = state.validated_ledger.max(info.ledger_index);
-        let last = first.saturating_add(LEDGER_WINDOW);
-        let terms = SendMaxTerms {
-            destination,
-            amount: rebalance.deliver,
-            send_max: rebalance.send_max,
+        Ok(Next {
             fee,
             sequence: info.sequence,
-            last_ledger_sequence: last,
             network_id: state.network_id.filter(|id| *id > MAX_LEGACY_NETWORK_ID),
-            memos: Vec::new(),
-        };
-        let signed =
-            codec::sign_send_max(wallet, terms).map_err(|e| format!("cannot sign: {e:?}"))?;
-        let submitted = match self.request(|id| api::submit(id, &signed.blob)).await {
+            first,
+            last: first.saturating_add(LEDGER_WINDOW),
+        })
+    }
+
+    /// Submits the signed transaction `blob`, of `hash`, and follows it
+    /// until a validated ledger holds it, ledger `last` passes, or its polls
+    /// run out.
+    async fn submit(
+        &mut self,
+        blob: &[u8],
+        hash: &[u8; 32],
+        first: u32,
+        last: u32,
+    ) -> Result<Outcome, String> {
+        let submitted = match self.request(|id| api::submit(id, blob)).await {
             Ok(submitted) => submitted,
             // The server may have it, though its answer was lost: what
             // the ledger says of its hash decides.
             Err(Failure::Transport(problem)) => {
-                tracing::warn!(target: super::TARGET, %problem, "no answer to a rebalance's submit");
-                return Ok(self.follow(&signed.hash, first, last).await);
+                tracing::warn!(target: super::TARGET, %problem, "no answer to a submit");
+                return Ok(self.follow(hash, first, last).await);
             }
             Err(failure @ Failure::Api(_)) => return Err(failure.to_string()),
         };
         let Some(engine) = api::submit_result(&submitted) else {
-            return Ok(self.follow(&signed.hash, first, last).await);
+            return Ok(self.follow(hash, first, last).await);
         };
         // A malformed or failed one (tem…, tef…, tel…) never applies; one
         // that claims a fee (tec…) or waits (ter…) is decided by a
@@ -256,7 +422,7 @@ impl Xrpl {
         if engine.starts_with("tem") || engine.starts_with("tef") || engine.starts_with("tel") {
             return Ok(Outcome::Refused(engine));
         }
-        Ok(self.follow(&signed.hash, first, last).await)
+        Ok(self.follow(hash, first, last).await)
     }
 
     /// Asks after the transaction `hash`, which can be in ledgers `first`
@@ -289,6 +455,66 @@ impl Xrpl {
         }
         Outcome::Unknown
     }
+}
+
+/// The levels of a side of the book that gives `gets` for `pays`, from its
+/// `offers`, best first: each as much as its owner funds, none of `own`'s,
+/// none that expired at or before `now_s`, and none of nothing.
+///
+/// # Errors
+///
+/// An offer is of another book, or beyond the ledger's units.
+pub fn levels(
+    offers: &[api::BookOffer],
+    gets: Asset,
+    pays: Asset,
+    own: AccountId,
+    now_s: u32,
+) -> Result<Vec<Level>, String> {
+    let mut levels = Vec::with_capacity(offers.len().min(MAX_LEVELS));
+    for offer in offers.iter().take(MAX_LEVELS) {
+        if offer.account == own
+            || offer
+                .expiration
+                .is_some_and(|expiration| expiration <= now_s)
+        {
+            continue;
+        }
+        let given = offer.taker_gets_funded.unwrap_or(offer.taker_gets);
+        let asked = offer.taker_pays_funded.unwrap_or(offer.taker_pays);
+        if given.asset() != gets || asked.asset() != pays {
+            return Err("a book_offers answer of another book".into());
+        }
+        let (given, asked) = (
+            to_units(given).ok_or("an offer beyond the ledger's units")?,
+            to_units(asked).ok_or("an offer beyond the ledger's units")?,
+        );
+        if given == 0 || asked == 0 {
+            continue;
+        }
+        levels.push(match gets {
+            Asset::Xrp => Level {
+                xrp: given,
+                token: asked,
+            },
+            Asset::Token { .. } => Level {
+                xrp: asked,
+                token: given,
+            },
+        });
+    }
+    Ok(levels)
+}
+
+/// What the next transaction from an account signs with.
+#[derive(Clone, Copy, Debug)]
+struct Next {
+    fee: u64,
+    sequence: u32,
+    network_id: Option<u32>,
+    /// The first and last ledger it may be in.
+    first: u32,
+    last: u32,
 }
 
 /// What the ledger charges now, in drops: the reference fee scaled by the
@@ -601,6 +827,191 @@ mod tests {
             Some(left)
         );
         server.stop();
+    }
+
+    /// Places an offer from `wallet` that gives `gets` for `pays`, and
+    /// waits until the ledger holds it.
+    async fn place(server: &Server, wallet: &Wallet, gets: Amount, pays: Amount) {
+        let sequence = server_sequence(server, wallet.account());
+        let signed = codec::sign_offer(
+            wallet,
+            codec::OfferTerms {
+                taker_pays: pays,
+                taker_gets: gets,
+                offer_sequence: None,
+                expiration: None,
+                fee: FEE_BASE,
+                sequence,
+                last_ledger_sequence: server.ledger().ledger() + 20,
+                network_id: None,
+                memos: Vec::new(),
+            },
+        )
+        .unwrap();
+        let submit = serde_json::json!({ "command": "submit", "tx_blob": dassie_xrpl::hex_upper(&signed.blob) });
+        server.ledger().request(0, submit.to_string().as_bytes());
+        eventually(|| server.ledger().offer(wallet.account(), sequence).is_some()).await;
+    }
+
+    // spec/decisions/market-maker-order-book.md: both sides of the book,
+    // best first, in the ledgers' units, as much of each offer as its owner
+    // funds, and none of the market maker's own.
+    #[tokio::test(start_paused = true)]
+    async fn it_reads_both_sides_of_the_book_but_its_own_offers() {
+        let server = fake_ledger().await;
+        let client = client();
+        let token = |value: &str| Amount::Token(dsusd().amount(TokenValue::parse(value).unwrap()));
+        let (bidder, asker, own) = (
+            holder(&server, 2, 100_000_000).await,
+            holder(&server, 3, 100_000_000).await,
+            holder(&server, 4, 100_000_000).await,
+        );
+        mint(&client, &server, bidder.account(), "20").await;
+        // Bids: DSUSD for XRP, at 0.5 and 0.49 a XRP.
+        place(&server, &bidder, token("5"), Amount::Xrp(10_000_000)).await;
+        place(&server, &bidder, token("4.9"), Amount::Xrp(10_000_000)).await;
+        // An ask: XRP for DSUSD, at 0.51.
+        place(&server, &asker, Amount::Xrp(10_000_000), token("5.1")).await;
+        // The market maker's own, behind the ask, which it leaves out.
+        place(&server, &own, Amount::Xrp(1_000_000), token("0.6")).await;
+        let mut xrpl = Xrpl::new(server.url.clone(), client.clone());
+        let mut book = Book::EMPTY;
+        for _ in 0..100 {
+            book = xrpl.book(dsusd(), own.account(), 0).await.unwrap();
+            if book.bids.len() == 2 && book.asks.len() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let units = 1_000_000_000;
+        assert_eq!(
+            book.bids,
+            [
+                Level {
+                    xrp: 10 * units,
+                    token: 5 * units
+                },
+                Level {
+                    xrp: 10 * units,
+                    token: 49 * units / 10
+                },
+            ]
+        );
+        assert_eq!(
+            book.asks,
+            [Level {
+                xrp: 10 * units,
+                token: 51 * units / 10
+            }]
+        );
+    }
+
+    // spec/decisions/market-maker-order-book.md: rippled lists an offer
+    // past its expiration until a crossing meets it, but none fills it: the
+    // book the market maker prices by leaves it out, as it leaves out its
+    // own and one of nothing, and keeps the rest in their order.
+    #[test]
+    fn expired_offers_and_its_own_are_no_market() {
+        let token = |value: &str| Amount::Token(dsusd().amount(TokenValue::parse(value).unwrap()));
+        let offer =
+            |account: u8, gets: Amount, pays: Amount, expiration: Option<u32>| api::BookOffer {
+                account: AccountId([account; 20]),
+                sequence: 1,
+                taker_gets: gets,
+                taker_pays: pays,
+                taker_gets_funded: None,
+                taker_pays_funded: None,
+                owner_funds: None,
+                quality: String::new(),
+                expiration,
+            };
+        let token_asset = Asset::Token {
+            currency: DSUSD_CURRENCY,
+            issuer: DSUSD_ISSUER,
+        };
+        let offers = [
+            offer(1, token("5"), Amount::Xrp(10_000_000), Some(100)),
+            offer(2, token("4.9"), Amount::Xrp(10_000_000), Some(101)),
+            offer(3, token("4.8"), Amount::Xrp(10_000_000), None),
+            offer(4, token("4.7"), Amount::Xrp(10_000_000), None),
+        ];
+        let units = 1_000_000_000;
+        let read = levels(&offers, token_asset, Asset::Xrp, AccountId([4; 20]), 100).unwrap();
+        assert_eq!(
+            read,
+            [
+                Level {
+                    xrp: 10 * units,
+                    token: 49 * units / 10
+                },
+                Level {
+                    xrp: 10 * units,
+                    token: 48 * units / 10
+                },
+            ]
+        );
+        // An offer of the other book is no answer.
+        assert!(levels(&offers, Asset::Xrp, token_asset, AccountId([9; 20]), 0).is_err());
+    }
+
+    // spec/decisions/market-maker-order-book.md: it places its standing
+    // offer, replaces it in one transaction, reads it back as the ledger
+    // holds it, and takes it away.
+    #[tokio::test(start_paused = true)]
+    async fn it_places_replaces_reads_and_cancels_its_standing_offer() {
+        let server = fake_ledger().await;
+        let client = client();
+        let own = holder(&server, 5, 100_000_000).await;
+        let mut xrpl = Xrpl::new(server.url.clone(), client.clone());
+        let token = |value: &str| Amount::Token(dsusd().amount(TokenValue::parse(value).unwrap()));
+        let expiration = u32::try_from(server.ledger().close_time() + 300).unwrap();
+        let read = async |xrpl: &mut Xrpl, count: usize| {
+            for _ in 0..100 {
+                let offers = xrpl.own_offers(own.account(), dsusd()).await.unwrap();
+                if offers.len() == count {
+                    return offers;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            panic!("never {count} offers");
+        };
+        let placed = Offer {
+            gives: Amount::Xrp(10_000_000),
+            asks: token("5"),
+            replaces: None,
+            expiration,
+        };
+        let outcome = xrpl.place_offer(&own, &placed).await.unwrap();
+        assert!(outcome.may_have_paid(), "{outcome:?}");
+        let first = read(&mut xrpl, 1).await[0];
+        let units = 1_000_000_000;
+        assert_eq!(first.gives, Side::Xrp);
+        assert_eq!(
+            (first.gives_units, first.asks_units),
+            (10 * units, 5 * units)
+        );
+        assert_eq!(first.expiration, Some(expiration));
+        // Replaced in one transaction: one offer stands, the new one.
+        let replacing = Offer {
+            asks: token("5.5"),
+            replaces: Some(first.sequence),
+            ..placed
+        };
+        let outcome = xrpl.place_offer(&own, &replacing).await.unwrap();
+        assert!(outcome.may_have_paid(), "{outcome:?}");
+        let mut second = first;
+        for _ in 0..100 {
+            second = read(&mut xrpl, 1).await[0];
+            if second.sequence != first.sequence {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_ne!(second.sequence, first.sequence);
+        assert_eq!(second.asks_units, 55 * units / 10);
+        let outcome = xrpl.cancel_offer(&own, second.sequence).await.unwrap();
+        assert!(outcome.may_have_paid(), "{outcome:?}");
+        read(&mut xrpl, 0).await;
     }
 
     #[tokio::test(start_paused = true)]

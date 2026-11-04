@@ -40,9 +40,10 @@
         quotes, and pushes it to its peers. Your market maker's node peers
         with the core nodes it trades through, its <em>targets</em>, and
         reads their snapshots. The market maker values its own holdings the
-        way a core node does, at the price of an XRP Ledger pool between XRP
-        and a dollar token, but on a flatter curve: it gives a little more
-        for the asset it holds less of. Every ten seconds it:
+        way a core node does, at the market's price on the XRP Ledger
+        between XRP and a dollar token, from its pool and the order book
+        beside it, but on a flatter curve: it gives a little more for the
+        asset it holds less of. Every ten seconds it:
       </p>
       <ol class="steps">
         <li>
@@ -205,7 +206,8 @@
   "curvePpm": 10000,
   "marginPpm": 2000,
   "thresholdPpm": 50000,
-  "slippagePpm": 10000
+  "slippagePpm": 10000,
+  "standingOffer": true
 }</code></pre>
       </figure>
       <dl class="ref">
@@ -281,6 +283,15 @@
             fails rather than pays a worse price, in parts per million.
           </p>
         </dd>
+        <dt id="standingoffer"><code>standingOffer</code></dt>
+        <dd>
+          <p>
+            Optional, <code>true</code> unless you set it to
+            <code>false</code>: whether it keeps a
+            <a href="#the-standing-offer">standing offer</a> on the order
+            book while it is off even.
+          </p>
+        </dd>
         <dt id="cafile"><code>caFile</code></dt>
         <dd>
           <p>
@@ -338,7 +349,9 @@
       <h2 id="curve-and-rebalancing">Its curve and rebalancing</h2>
       <p>
         The market maker counts what its node holds of each asset in its hub
-        and on its own account together, and values both at the pool's price.
+        and on its own account together, and values both at the market's mid:
+        halfway between the best bid and ask of the pool, its fee counted, and
+        of the order book beside it, where 100 XRP of offers would fill.
       </p>
       <ul>
         <li>
@@ -349,9 +362,10 @@
         </li>
         <li>
           <strong>The cost of undoing a swap:</strong> what a swap takes
-          beyond even, the market maker will sell back on the pool one day.
-          So that part pays the pool's fee and the price impact of a
-          rebalance, read from the pool when it decides. A swap back toward
+          beyond even, the market maker will sell back one day, on the pool or
+          the order book, whichever is cheaper. So that part pays what that
+          costs: the pool's fee and the price impact of a rebalance, or the
+          book's spread and depth, read when it decides. A swap back toward
           even pays none of it. What is left over is the margin, its profit.
         </li>
         <li>
@@ -367,6 +381,42 @@
         share of its value between rebalances: with five points and $1,500,
         about $75, and a 1% move in XRP's price changes that by 75 cents
         either way. A smaller threshold holds less and rebalances more often.
+      </p>
+      <h2 id="the-standing-offer">The standing offer</h2>
+      <p>
+        Between rebalances, the market maker lets others bring it back to
+        even, rather than paying the pool's fee itself. While its share of
+        either asset is more than a fifth of <code>thresholdPpm</code> from
+        even, one point by default, it keeps one offer on the XRP Ledger's
+        order book from its node's account: it gives the asset it holds too
+        much of, as much as takes it back to even, for the other at the
+        market's mid.
+      </p>
+      <ul>
+        <li>
+          It replaces the offer, in one transaction, once the mid moves more
+          than a twentieth of a percent or the amount by more than a tenth,
+          and before it expires. Each offer expires by itself after five
+          minutes, so one left behind by a stopped market maker doesn't stand
+          for long.
+        </li>
+        <li>
+          It takes the offer away once it is back within the band, before a
+          swap on the pool past the threshold, and when it stops.
+        </li>
+        <li>
+          While it stands, the offer holds the XRP Ledger's owner reserve for
+          one object, 0.2 XRP, on your node's account. Your node books each
+          fill as a deposit and a withdrawal on its own.
+        </li>
+      </ul>
+      <p>
+        On a quiet book, such as the testnet's, few traders take it, and the market
+        maker mostly rebalances on the pool past its threshold.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/market-maker-order-book.md">Why a standing offer</a>
       </p>
       <p class="why">
         <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rate-feed.md#market-maker">The market maker in full</a>,
