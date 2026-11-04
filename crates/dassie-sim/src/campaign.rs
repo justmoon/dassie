@@ -15,11 +15,17 @@
 //! the wall-time limit. In processes of their own, eight take as long as
 //! one.
 //!
-//! Every simulation bounds its steps, so every run ends. A run that still
-//! takes far too long in wall time, such as one stuck in a loop inside a
-//! single step, is stopped and reported as a liveness failure at
-//! `wall-time`. A run that ends without its record, as one that overflows
-//! its stack aborts, is a safety failure at `abort`.
+//! Every simulation bounds its steps, so every run ends. A run stuck in a
+//! loop inside a single step shows as a simulated clock that stands still
+//! ([`dassie_kit::sim::publish_clock`]): the run's own process watches its
+//! clock ([`watch`]), and once it has stood still for [`STALL`] of wall
+//! time, writes the run's record as a liveness failure at `stalled`, and
+//! ends. A run whose clock keeps moving is slow, not stuck, and runs on,
+//! up to [`CEILING`], past which it is a liveness failure at `wall-time`.
+//! Either record says how far the run got in simulated time. A process
+//! that writes neither is stopped at [`RUN_LIMIT`], still at `wall-time`.
+//! A run that ends without its record, as one that overflows its stack
+//! aborts, is a safety failure at `abort`.
 //!
 //! No run outlives the campaign. When it ends early, as when its output
 //! is closed or it cannot start a run, its threads start no more runs, and
@@ -57,13 +63,33 @@ pub const TEXT_BYTES: usize = 16 * 1024;
 /// under.
 const RECORD_BYTES: u64 = 1 << 20;
 
-/// How long a run may take in wall time before the campaign stops it and
-/// reports it. Far longer than any run takes, so that only a run that is
-/// stuck reaches it, and a slow machine never does: the longest, `node`
-/// runs of twelve nodes whose network stays split for two days, take a
-/// minute and a half alone on a fast core, and twice that with another
-/// run on the core's other hyperthread, as on a campaign's VM.
-pub const RUN_LIMIT: Duration = Duration::from_secs(10 * 60);
+/// How long a run's simulated clock may stand still before its watch
+/// stops it as stuck ([`watch`]). A run's clock stands still only while it
+/// handles the events of one instant, a few hundred steps of milliseconds
+/// each, and while it judges the run after its last instant, reading its
+/// trace and books once: seconds, even for the heaviest `node` runs, over
+/// two hubs of seven validators, on a campaign's loaded VM. Five minutes
+/// is a hundred times that, so no run that moves on is taken for stuck,
+/// and a stuck one is still found sooner than a whole run's limit would.
+pub const STALL: Duration = Duration::from_secs(5 * 60);
+
+/// How long a run may take in wall time, its clock moving or not, before
+/// its watch stops it at `wall-time`: a guard against a run that moves too
+/// slowly to end, not the measure of a stuck one, which [`STALL`] is. The
+/// longest runs are the `node` runs over two hubs: up to about two
+/// simulated hours (the chaos, a split over the hubs of up to sixteen
+/// minutes, the network forming again, and a heal that may wait for the
+/// longest backoff, an hour), at about twenty seconds of a core per
+/// simulated minute with seven validators and five members each, so forty
+/// minutes alone and twice that beside another run on the core's other
+/// hyperthread, as on a campaign's VM.
+pub const CEILING: Duration = Duration::from_secs(90 * 60);
+
+/// How long the campaign waits for a run's process before it stops it
+/// itself: past [`CEILING`], by which the run's own watch has written its
+/// record, so that only a process that cannot, such as one hung in its
+/// output, reaches it.
+pub const RUN_LIMIT: Duration = Duration::from_secs(CEILING.as_secs() + 60);
 
 /// The most runs a campaign makes at once.
 pub const MOST_JOBS: usize = 1_024;
@@ -397,6 +423,120 @@ pub fn in_a_process(
     Ok(ended_as(sim.name, seed, options, ended, ms))
 }
 
+/// Why a run's watch stopped it: its simulated clock, `clock` ms into the
+/// run, stood still for [`STALL`], or the run reached [`CEILING`] with its
+/// clock there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stop {
+    /// Stuck: its clock stood still.
+    Stalled {
+        /// How far the run got, in its simulated ms.
+        clock: u64,
+    },
+    /// Too slow to end: it reached the ceiling.
+    Ceiling {
+        /// How far the run got, in its simulated ms.
+        clock: u64,
+    },
+}
+
+impl Stop {
+    /// The outcome of a run stopped so, after `ms` of wall time.
+    #[must_use]
+    pub fn outcome(self, sim: &str, seed: u64, ms: u64) -> Outcome {
+        let replay = format!("`dassie-sim run {sim} {seed}` replays it");
+        match self {
+            Self::Stalled { clock } => Outcome::liveness(
+                "stalled",
+                format!(
+                    "its simulated clock stood still at {} s into the run for {} s of wall \
+                     time, and it was stopped after {} s; {replay}",
+                    clock / 1_000,
+                    STALL.as_secs(),
+                    ms / 1_000
+                ),
+            ),
+            Self::Ceiling { clock } => Outcome::liveness(
+                "wall-time",
+                format!(
+                    "still running after {} s of wall time, {} s into its simulated time, and \
+                     stopped; {replay}",
+                    ms / 1_000,
+                    clock / 1_000
+                ),
+            ),
+        }
+    }
+}
+
+/// A run's watch: what it saw of the run's simulated clock, so far.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Watch {
+    /// The first clock the run published, its start.
+    first: Option<u64>,
+    /// The clock it saw last.
+    clock: u64,
+    /// When, in wall ms since the run started, it saw the clock move last.
+    moved_ms: u64,
+}
+
+impl Watch {
+    /// Looks at the run `elapsed_ms` of wall time after it started, its
+    /// simulated clock at `clock` (0 until it publishes one): whether to
+    /// stop it, and why.
+    #[must_use]
+    pub fn look(&mut self, clock: u64, elapsed_ms: u64) -> Option<Stop> {
+        if clock != self.clock {
+            self.clock = clock;
+            self.moved_ms = elapsed_ms;
+            if self.first.is_none() {
+                self.first = Some(clock);
+            }
+        }
+        let reached = self.clock.saturating_sub(self.first.unwrap_or(self.clock));
+        if elapsed_ms >= millis(CEILING) {
+            return Some(Stop::Ceiling { clock: reached });
+        }
+        (elapsed_ms.saturating_sub(self.moved_ms) >= millis(STALL))
+            .then_some(Stop::Stalled { clock: reached })
+    }
+}
+
+/// For `dassie-sim record`: watches the run this process makes, from a
+/// thread of its own, and when [`Watch`] says to stop it, writes its
+/// record to `out`, unless the run wrote its own first, and ends the
+/// process. The run's thread, stuck or slow, is not waited for.
+pub fn watch(sim: &'static Sim, seed: u64, written: Arc<std::sync::Mutex<bool>>) {
+    let since = Instant::now();
+    let mut watch = Watch::default();
+    let spawned = thread::Builder::new().name("watch".into()).spawn(move || {
+        loop {
+            thread::sleep(WATCH_LOOK);
+            let ms = millis(since.elapsed());
+            let Some(stop) = watch.look(dassie_kit::sim::published_clock(), ms) else {
+                continue;
+            };
+            let run = Run::new(stop.outcome(sim.name, seed, ms), Vec::new());
+            let line = record(sim.name, seed, &described(sim, seed), &run, ms);
+            let mut written = written
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !*written {
+                *written = true;
+                let mut out = io::stdout().lock();
+                let _ = writeln!(out, "{line}");
+                let _ = out.flush();
+            }
+            std::process::exit(0);
+        }
+    });
+    // Without its watch the run still ends at the campaign's limit.
+    drop(spawned);
+}
+
+/// How often a run's watch looks at its clock.
+const WATCH_LOOK: Duration = Duration::from_secs(1);
+
 /// The run whose process ended as `ended`, after `ms`.
 fn ended_as(sim: &str, seed: u64, options: &str, ended: Ended, ms: u64) -> Ran {
     let replay = format!("`dassie-sim run {sim} {seed}` replays it");
@@ -404,7 +544,8 @@ fn ended_as(sim: &str, seed: u64, options: &str, ended: Ended, ms: u64) -> Ran {
         Ended::Overdue => Outcome::liveness(
             "wall-time",
             format!(
-                "still running after {} s of wall time, and stopped; {replay}",
+                "still running after {} s of wall time, without a record of how far it got, \
+                 and stopped; {replay}",
                 ms / 1_000
             ),
         ),
@@ -906,6 +1047,96 @@ mod tests {
             message.starts_with("still running after 600 s"),
             "{message}"
         );
+    }
+
+    // A run whose simulated clock keeps moving is slow, not stuck: its
+    // watch lets it run, however slowly, up to the ceiling, and then says
+    // how far it got.
+    #[test]
+    fn a_run_whose_clock_moves_runs_up_to_the_ceiling() {
+        let start = 1_800_000_000_000;
+        let mut watch = Watch::default();
+        let ceiling = millis(CEILING);
+        let mut ms = 0;
+        while ms < ceiling {
+            assert_eq!(watch.look(start + ms / 1_000, ms), None, "at {ms}");
+            ms += millis(STALL) / 2;
+        }
+        assert_eq!(
+            watch.look(start + ceiling / 1_000, ceiling),
+            Some(Stop::Ceiling {
+                clock: ceiling / 1_000
+            })
+        );
+    }
+
+    // A run whose clock stands still, stuck at one instant, is stopped once
+    // it has stood still for the stall window, whenever that is, and the
+    // record says where it stood.
+    #[test]
+    fn a_run_whose_clock_stands_still_is_stopped_after_the_stall() {
+        let start = 1_800_000_000_000;
+        let mut watch = Watch::default();
+        let stall = millis(STALL);
+        assert_eq!(watch.look(start, 500), None);
+        assert_eq!(watch.look(start + 12_345, 40_000), None);
+        assert_eq!(watch.look(start + 12_345, 40_000 + stall - 1), None);
+        assert_eq!(
+            watch.look(start + 12_345, 40_000 + stall),
+            Some(Stop::Stalled { clock: 12_345 })
+        );
+        // One that never publishes a clock stands still from its start.
+        assert_eq!(
+            Watch::default().look(0, stall),
+            Some(Stop::Stalled { clock: 0 })
+        );
+    }
+
+    // The two stops have signatures of their own, and their messages say
+    // how far the run got in simulated time, and how to replay it.
+    #[test]
+    fn a_stopped_run_says_why_and_how_far_it_got() {
+        let stalled = Stop::Stalled { clock: 12_345 }.outcome("node", 42, 400_000);
+        let line = record(
+            "node",
+            42,
+            "3 nodes",
+            &Run::new(stalled, Vec::new()),
+            400_000,
+        );
+        assert_eq!(line["signature"], "node/liveness/stalled");
+        assert_eq!(line["options"], "3 nodes");
+        let message = line["message"].as_str().unwrap();
+        assert!(
+            message.contains("stood still at 12 s into the run"),
+            "{message}"
+        );
+        assert!(
+            message.ends_with("`dassie-sim run node 42` replays it"),
+            "{message}"
+        );
+        let slow = Stop::Ceiling { clock: 7_200_000 }.outcome("node", 42, 5_400_000);
+        let line = record(
+            "node",
+            42,
+            "3 nodes",
+            &Run::new(slow, Vec::new()),
+            5_400_000,
+        );
+        assert_eq!(line["signature"], "node/liveness/wall-time");
+        let message = line["message"].as_str().unwrap();
+        assert!(
+            message.starts_with("still running after 5400 s of wall time, 7200 s into"),
+            "{message}"
+        );
+    }
+
+    // The campaign waits for a run past the ceiling, by which the run's own
+    // watch has reported it.
+    #[test]
+    fn the_campaign_waits_past_the_ceiling() {
+        assert!(STALL < CEILING);
+        assert!(RUN_LIMIT > CEILING);
     }
 
     #[test]

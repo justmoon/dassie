@@ -12,12 +12,14 @@
 //! reported: a run that takes long holds the others back, rather than
 //! leaving them to pile up.
 //!
-//! As in a campaign, a run still going after [`RUN_LIMIT`] of wall time is
-//! stopped and is a liveness failure at `wall-time`, and a run whose
-//! process ends without its record a safety failure at `abort`, so that
-//! neither ends the range.
+//! As in a campaign, a run whose simulated clock stands still for
+//! [`STALL`] is stopped and is a liveness failure at `stalled`, one still
+//! going at [`CEILING`] one at `wall-time`, and a run whose process ends
+//! without its record a safety failure at `abort`, so that none ends the
+//! range.
 //!
-//! [`RUN_LIMIT`]: crate::campaign::RUN_LIMIT
+//! [`STALL`]: crate::campaign::STALL
+//! [`CEILING`]: crate::campaign::CEILING
 
 use std::collections::BTreeMap;
 use std::io;

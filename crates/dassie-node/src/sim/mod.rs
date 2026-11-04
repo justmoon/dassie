@@ -2725,6 +2725,7 @@ impl Sim {
                     .collect::<Vec<_>>()
             );
             self.finalise_sent();
+            dassie_kit::sim::publish_clock(self.now);
             if stop(self) {
                 return true;
             }

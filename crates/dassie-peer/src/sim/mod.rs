@@ -1509,6 +1509,7 @@ impl Network {
         loop {
             steps += 1;
             assert!(steps < 10_000_000, "the simulation made no progress");
+            dassie_kit::sim::publish_clock(self.now);
             let next_delivery = self.queue.keys().next().map(|(at, _)| *at);
             let next_timer = timers
                 .iter()

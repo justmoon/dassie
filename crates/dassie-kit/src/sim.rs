@@ -11,6 +11,7 @@ use alloc::vec::Vec;
 use core::cell::Cell;
 use core::convert::Infallible;
 use core::fmt;
+use core::sync::atomic::{AtomicU64, Ordering};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Once;
 
@@ -215,6 +216,28 @@ impl Run {
             counts: BTreeMap::new(),
         }
     }
+}
+
+/// The clock of the simulation running in this process, in its own
+/// milliseconds, as it last published it.
+static CLOCK: AtomicU64 = AtomicU64::new(0);
+
+/// Publishes the simulated clock of the run under way: each simulation
+/// calls it as its clock moves, so that the campaign tells a run whose
+/// clock stands still, stuck at one instant, from one that is only slow
+/// (spec/areas/testing.md#the-runner-dassie-sim). A campaign's run is a
+/// process of its own, so the clock is the process's; runs on several
+/// threads of one process overwrite each other's, and nothing reads it
+/// there.
+pub fn publish_clock(now_ms: u64) {
+    CLOCK.store(now_ms, Ordering::Relaxed);
+}
+
+/// The simulated clock the run under way last published
+/// ([`publish_clock`]): 0 before it published one.
+#[must_use]
+pub fn published_clock() -> u64 {
+    CLOCK.load(Ordering::Relaxed)
 }
 
 /// Runs `run`, and turns a panic into a safety failure with the panic's

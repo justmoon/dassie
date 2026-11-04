@@ -53,11 +53,13 @@
 //!     that failed or ruled the run out, words in lower case joined by
 //!     hyphens (`settle-down`), which changes only with the check's name
 //!     (`spec/areas/testing.md#outcomes`). A file holds slashes, so
-//!     `<where>` is everything after the second slash. A run still going
-//!     after the campaign's wall-time limit is stopped, and is a liveness
-//!     failure at `wall-time`; a run whose process ends without its
-//!     record, as one that overflows its stack does, is a safety failure
-//!     at `abort`. Neither has a trace.
+//!     `<where>` is everything after the second slash. A run whose
+//!     simulated clock stands still for the stall window is stopped, and is
+//!     a liveness failure at `stalled`; one still going at the ceiling of
+//!     wall time, its clock moving, is one at `wall-time`; their messages
+//!     say how far the run got in simulated time. A run whose process ends
+//!     without its record, as one that overflows its stack does, is a
+//!     safety failure at `abort`. None of them has a trace.
 //!   - A failure (`safety` or `liveness`) adds `message`, its message with
 //!     this run's numbers; `options`, what its seed drew, as `run` prints
 //!     it after the seed; and `trace_tail`, the last 40 lines of its trace
@@ -79,8 +81,9 @@
 //!   failed, and 64 for a usage error. Panic messages go to stderr.
 //!
 //! The campaign stops starting runs once its minutes are up, and ends when
-//! the runs under way have ended, or have been stopped at the wall-time
-//! limit.
+//! the runs under way have ended, or have been stopped, at the latest by
+//! the campaign's run limit, a little past the ceiling: a supervisor gives
+//! the campaign that much beyond its minutes.
 
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -276,6 +279,35 @@ fn one_seed(text: &str) -> Result<u64, String> {
     Ok(*seeds.start())
 }
 
+/// `dassie-sim record`: makes a campaign's run here, watched
+/// ([`campaign::watch`]), and writes its record. Stdout is taken only to
+/// write it, so that the watch can write the record of a run it stops
+/// instead; whichever writes first is the only one to.
+fn record(sim: &'static Sim, seed: u64) -> ExitCode {
+    if let Err(problem) = campaign::die_with_campaign() {
+        eprintln!("dassie-sim: {problem}");
+        return ExitCode::from(3);
+    }
+    let written = std::sync::Arc::new(std::sync::Mutex::new(false));
+    campaign::watch(sim, seed, std::sync::Arc::clone(&written));
+    let line = campaign::here(sim, seed);
+    let mut written = written
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if *written {
+        return ExitCode::SUCCESS;
+    }
+    *written = true;
+    let mut out = io::stdout().lock();
+    match writeln!(out, "{line}").and_then(|()| out.flush()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("dassie-sim: {error}");
+            ExitCode::from(3)
+        }
+    }
+}
+
 fn execute(command: Command) -> ExitCode {
     let mut out = io::stdout().lock();
     let mut tally = Tally::default();
@@ -307,11 +339,8 @@ fn execute(command: Command) -> ExitCode {
         // A campaign's run: its record says how it ended, as the
         // campaign's own status does not.
         Command::Record { sim, seed } => {
-            if let Err(problem) = campaign::die_with_campaign() {
-                eprintln!("dassie-sim: {problem}");
-                return ExitCode::from(3);
-            }
-            writeln!(out, "{}", campaign::here(sim, seed))
+            drop(out);
+            return record(sim, seed);
         }
         // A campaign's records say how its runs ended, and its status only
         // whether it ran to its end: a reader that stops reading leaves it

@@ -16,6 +16,7 @@ The simulations run continuously, outside CI, from random seeds; each seed draws
 - **Swarm testing:** each seed draws the whole configuration, and some seeds switch a fault off entirely, so rare combinations get their turn.
 - **Two phases:** chaos with every invariant checked, then healing, after which the network must converge within a time derived from the production rules. A run that cannot converge whatever the code does is unsupported, neither passed nor failed.
 - **Faults stay within what the node relies on:** the store commits durably, so the only store fault is a commit that fails.
+- **A run is stopped when it is stuck, not when it is slow.** Every simulation publishes its simulated clock as it moves, and a run whose clock stands still, stuck within a step, is stopped and reported as a liveness failure of its own, saying how far it got. A run whose clock keeps moving runs on, up to a ceiling of wall time above the longest a sound run takes on a loaded VM, which only guards against one too slow ever to end.
 - **Coverage counts:** each run counts what it reached, and the runner adds the counts up over a range of seeds, so whoever changes a generator can see whether it still reaches a case.
 - **A campaign on spot VMs** runs `main`, and pull requests that ask for it. It runs unreviewed code in the project that holds the bootstrap nodes' phrases, so its VMs run as a service account that can read only its GitHub credentials, and the code they build runs in a sandbox that cannot reach those ([Testing](../areas/testing.md#isolating-pull-requests)).
 - **Failures become issues,** one per signature; a failure on a pull request is a comment there instead. A tripwire simulation fails on purpose now and then, so a silent campaign shows. A fix comes with a targeted test, because a seed reproduces a failure only at the commit it ran on.
@@ -34,6 +35,7 @@ The simulations run continuously, outside CI, from random seeds; each seed draws
 
 ## Rejected
 
+- *A limit on each run's wall time, as the sign of a stuck run:* runs over settlement hubs, whose validators make a block every block interval, take tens of minutes on a campaign's loaded VM while their clocks move on, so a limit short enough to find a stuck run soon reported sound ones as stuck, and hid what they would have found; one long enough for them finds a stuck run only after as long.
 - *A random seed per commit in CI:* a pull request would fail on a bug it did not cause.
 - *Sweeps of fixed seeds in CI, with minimums on what they reach:* they made every pull request and merge wait for minutes of simulation that tests the same code over and over, and find what the campaign finds anyway, a while later.
 - *Fuzzing in CI,* in any form, including a nightly workflow.
