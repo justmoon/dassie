@@ -294,6 +294,10 @@
           <strong>Clawback.</strong> If the issuer claws back from the
           escrow, the hub shuts down. Withdrawals already on their way are
           paid in full, and every account gets its share of what is left.
+          A clawback that comes after the hub's last block, too late for its
+          validators to count it, is the exception: the escrow then holds
+          less than the payouts add up to, each payout is paid in full or
+          not at all, and the ones it no longer covers fail.
         </li>
       </ul>
 
