@@ -2118,6 +2118,13 @@ impl Sim {
             .push(format!("{} the faucet funds {index}", self.now));
     }
 
+    /// The issuer mints node `index` [`MINT_MICROS`] of its token once
+    /// more, in the next ledger, as its owner may buy it: funds of the
+    /// owner's on the token's ledger.
+    pub fn mint_again(&mut self, index: usize) {
+        self.to_mint.insert(index);
+    }
+
     /// The issuer mints [`MINT_MICROS`] of its token to each node it has
     /// not yet minted to whose line exists, in the ledger about to close.
     fn mint(&mut self) {

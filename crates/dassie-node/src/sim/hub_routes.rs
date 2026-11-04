@@ -56,7 +56,7 @@ use super::checks::{check_across, check_events, first_failure};
 use super::hub::{PREPARES_OVER_DSUSD, PREPARES_OVER_XRP};
 use super::hub_checks::{ledger_of, status_in};
 use super::hub_pairs::{
-    HUB_STAKE_XRP, JOINED_WITHIN_MS, check_hubs, join_hubs, settle_down_in, stake,
+    JOINED_WITHIN_MS, OWNER_DEPOSIT_XRP, check_hubs, join_hubs, owner_deposits, settle_down_in,
 };
 use super::hubbed::{paid, routed};
 use super::scripted::{READY_WITHIN_MS, ended};
@@ -122,8 +122,8 @@ const SHORT_WINDOW_MS: u64 =
 const _: () = assert!(SHORT_WINDOW_MS < Policies::DEFAULT.connector.earnings_half_life_ms);
 
 /// What an owner moves back into the XRP hub once it took its funds out,
-/// in XRP: half its stake.
-const BACK_IN_XRP: u64 = HUB_STAKE_XRP / 2;
+/// in XRP: half its deposit.
+const BACK_IN_XRP: u64 = OWNER_DEPOSIT_XRP / 2;
 
 /// What a run counts of the T04s a hop short of room answered itself.
 pub const SHORT_OF_ROOM: &str = "packets refused by a hop short of room (T04)";
@@ -514,7 +514,7 @@ fn moving(sim: &Sim, index: usize) -> bool {
 
 /// Node `index`'s owner takes out of the XRP hub all its account can
 /// spend, less the fees, once the hub pays it out: the node can then fund
-/// no hold there. The owner's automatic moves are off since its stake.
+/// no hold there. The owner's automatic moves are off since its deposit.
 fn take_out(sim: &mut Sim, index: usize) -> Result<(), Outcome> {
     let place = place_of(sim, HUB);
     let scheme = sim.hub_at(place).scheme();
@@ -606,7 +606,7 @@ fn bring_back(
 
 fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     join_hubs(sim)?;
-    stake(sim)?;
+    owner_deposits(sim)?;
     sim.step(RIGHT, |core| core.set_peer_settings(RIGHT_CHARGES).unwrap());
     take_out(sim, RIGHT)?;
     for (a, b) in BANS {

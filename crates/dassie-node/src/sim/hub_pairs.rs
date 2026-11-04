@@ -70,13 +70,31 @@ const SETTLED_WITHIN_MS: u64 =
 /// are in, once it is made: a request and its answer, retried a few times.
 const METHODS_WITHIN_MS: u64 = 5 * 60_000;
 
-/// What each member's owner moves into the DSUSD hub as its stake, in
-/// millionths of a dollar: half of what the issuer mints it, so that its
-/// DSUSD book keeps the other half.
-pub(super) const HUB_STAKE_MICROS: u64 = MINT_MICROS / 2;
+/// What each member's owner deposits into the DSUSD hub by hand, in
+/// millionths of a dollar: half of what the issuer mints it a second time,
+/// so that its DSUSD book keeps the other half. The first mint is the
+/// node's own to move: its target in the hub, a thousand of the largest
+/// packets, is as much (spec/decisions/generous-hub-target.md).
+pub(super) const OWNER_DEPOSIT_MICROS: u64 = MINT_MICROS / 2;
 
-/// What each member's owner moves into the XRP hub as its stake, in XRP.
-pub(super) const HUB_STAKE_XRP: u64 = super::hub_runs::HUB_STAKE_XRP;
+// The node's own moves leave the second mint on the DSUSD book, and it
+// covers the owner's deposit: the first mint fills the hub up to its floor
+// at least, so the node deposits nothing more once the second arrives,
+// and the book keeps whatever of the first the node did not take.
+const _: () = assert!(
+    MINT_MICROS * UNITS_PER_DROP
+        >= dassie_settlement::policy::hub_floor(
+            crate::node::Policies::DEFAULT.connector.max_packet_amount
+        ),
+    "the first mint fills the DSUSD hub to its floor"
+);
+const _: () = assert!(
+    OWNER_DEPOSIT_MICROS <= MINT_MICROS,
+    "the second mint covers the owner's deposit"
+);
+
+/// What each member's owner deposits into the XRP hub by hand, in XRP.
+pub(super) const OWNER_DEPOSIT_XRP: u64 = super::hub_runs::OWNER_DEPOSIT_XRP;
 
 /// The members join each hub, each from the owner book of its asset,
 /// within the wait of a move.
@@ -94,14 +112,14 @@ pub(super) fn join_hubs(sim: &mut Sim) -> Result<(), Outcome> {
     ))
 }
 
-/// Each member's owner moves its stake for the run into each of its hubs,
-/// [`HUB_STAKE_XRP`] into the XRP hub and [`HUB_STAKE_MICROS`] into the
-/// DSUSD hub, and turns that hub's automatic moves off, so that its node
-/// keeps it there past the ceiling: an owner who converts into a hub, or
-/// pays from it, keeps funds there as on a ledger it settles on, more than
-/// the automatic moves keep for settling alone
+/// Each member's owner turns the automatic moves of each of its hubs off
+/// and deposits into it by hand, [`OWNER_DEPOSIT_XRP`] into the XRP hub
+/// and [`OWNER_DEPOSIT_MICROS`] into the DSUSD hub, so that its node keeps
+/// more than its target there, past the ceiling: an owner who converts
+/// into a hub, or pays from it, keeps funds there as on a ledger it
+/// settles on, more than the automatic moves keep for settling alone
 /// (spec/areas/hubs.md#in-the-node).
-pub(super) fn stake(sim: &mut Sim) -> Result<(), Outcome> {
+pub(super) fn owner_deposits(sim: &mut Sim) -> Result<(), Outcome> {
     let idle = |sim: &Sim| {
         places(sim)
             .into_iter()
@@ -109,18 +127,27 @@ pub(super) fn stake(sim: &mut Sim) -> Result<(), Outcome> {
     };
     if !sim.run_until_or(sim.now + JOINED_WITHIN_MS, idle) {
         return Err(Outcome::liveness(
-            "staked",
+            "owner-deposit",
             format!(
                 "a member's first moves were not done in time: {}",
                 hub_standing(sim)
             ),
         ));
     }
-    // An owner whose node cannot take the move now, its ledger busy or its
-    // account not yet read again, tries again a ledger later, until the
-    // wait of a move is over.
+    // The node moved all of its first mint into the DSUSD hub, its target:
+    // the owner buys the dollars it deposits, minted in the next ledger.
+    for place in places(sim) {
+        if matches!(sim.hub_at(place).spec.asset, Asset::Token { .. }) {
+            for index in members_of(sim, place).collect::<Vec<_>>() {
+                sim.mint_again(index);
+            }
+        }
+    }
+    // An owner whose node cannot take the move now, its ledger busy, its
+    // account not yet read again or its dollars not yet minted, tries again
+    // a ledger later, until the wait of a move is over.
     let deadline = sim.now + JOINED_WITHIN_MS;
-    let mut staking: Vec<(usize, usize)> = places(sim)
+    let mut depositing: Vec<(usize, usize)> = places(sim)
         .into_iter()
         .flat_map(|place| {
             members_of(sim, place)
@@ -128,42 +155,42 @@ pub(super) fn stake(sim: &mut Sim) -> Result<(), Outcome> {
                 .collect::<Vec<_>>()
         })
         .collect();
-    while let Some(&(place, index)) = staking.first() {
+    while let Some(&(place, index)) = depositing.first() {
         let hub = sim.hub_at(place);
         let scheme = hub.scheme();
-        let stake = match hub.spec.asset {
-            Asset::Xrp => HUB_STAKE_XRP * DROPS_PER_XRP,
-            Asset::Token { .. } => HUB_STAKE_MICROS,
+        let deposit = match hub.spec.asset {
+            Asset::Xrp => OWNER_DEPOSIT_XRP * DROPS_PER_XRP,
+            Asset::Token { .. } => OWNER_DEPOSIT_MICROS,
         };
         let mut moved = Ok(());
         sim.step(index, |core| {
             moved = core
                 .set_hub_automatic(scheme, false)
-                .and_then(|_| core.hub_deposit_to(scheme, stake * UNITS_PER_DROP))
+                .and_then(|_| core.hub_deposit_to(scheme, deposit * UNITS_PER_DROP))
                 .map(|_| ());
         });
         match moved {
             Ok(()) => {
-                staking.remove(0);
+                depositing.remove(0);
             }
             Err(_) if sim.now < deadline => {
                 sim.run_until(sim.now + super::LEDGER_CLOSE_MS);
             }
             Err(error) => {
                 return Err(Outcome::liveness(
-                    "staked",
-                    format!("node {index}'s owner could not move its stake: {error:?}"),
+                    "owner-deposit",
+                    format!("node {index}'s owner could not make its deposit: {error:?}"),
                 ));
             }
         }
     }
     sim.trace
-        .push(format!("{} the owners move their stakes", sim.now));
+        .push(format!("{} the owners make their deposits", sim.now));
     if !sim.run_until_or(sim.now + JOINED_WITHIN_MS, idle) {
         return Err(Outcome::liveness(
-            "staked",
+            "owner-deposit",
             format!(
-                "a member's stake did not reach its hub in time: {}",
+                "a member's deposit did not reach its hub in time: {}",
                 hub_standing(sim)
             ),
         ));
@@ -269,7 +296,7 @@ fn place_of(sim: &Sim, ledger: LedgerId) -> usize {
 
 fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     join_hubs(sim)?;
-    stake(sim)?;
+    owner_deposits(sim)?;
     // Nodes 0 and 2 never peer, so what one pays the other crosses a hop.
     sim.step(0, |core| core.ban_node(key(2).node_id()).unwrap());
     sim.step(2, |core| core.ban_node(key(0).node_id()).unwrap());
