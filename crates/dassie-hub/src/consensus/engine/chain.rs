@@ -518,6 +518,7 @@ impl Engine {
         }
         let signers =
             Signers::from_bits(our_certificate.signers.bits() & certificate.signers.bits());
+        self.forked = true;
         self.evidence(Evidence::Finalizations {
             first: ours,
             second: Finalized::new(block.clone(), Some(certificate.clone())),

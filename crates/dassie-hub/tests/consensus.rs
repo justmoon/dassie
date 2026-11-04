@@ -312,6 +312,42 @@ fn colluders_that_fork_are_named() {
     assert_eq!(named, network.faulty());
 }
 
+// Seed 2574180273427673 of the `hub` simulation: cut off just after two
+// colluders forked the chain, validator 0 alone finalized their block for
+// it, and the others the one they signed for validator 1, which saw
+// nothing conflict. Catching up from them, validator 0 asks for the blocks
+// above its own height, which do not build on its block: the evidence is
+// the others' block at its height, with its finalization, which comes
+// with the delivery.
+#[test]
+fn a_validator_cut_off_on_a_colluders_fork_finds_the_evidence_on_catching_up() {
+    let mut network = Network::new(5, &roles(4, &[Role::Collude, Role::Collude]), CONFIG);
+    while !network.forked {
+        run_for(&mut network, 1);
+    }
+    network.partition(&[0]);
+    run_for(&mut network, 3_000);
+    assert!(
+        network.disagreement().is_some(),
+        "validator 0 finalized another block"
+    );
+    assert!(
+        !network.evidence_found(),
+        "no honest validator saw the fork"
+    );
+    network.heal();
+    run_for(&mut network, 3_000);
+    assert!(network.evidence_found(), "validator 0 found the evidence");
+    assert_eq!(network.blamed_honest(), None);
+    let named = network.validators[0]
+        .evidence
+        .iter()
+        .fold(dassie_hub::Signers::NONE, |named, evidence| {
+            dassie_hub::Signers::from_bits(named.bits() | evidence.culprits().bits())
+        });
+    assert_eq!(named, network.faulty());
+}
+
 #[test]
 fn conflicting_votes_are_evidence() {
     let mut network = honest(4);

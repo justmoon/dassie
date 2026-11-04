@@ -141,6 +141,10 @@ pub struct Engine {
     /// finalization its own set made, oldest first.
     boundaries: VecDeque<Finalized>,
     stalled: bool,
+    /// Whether a block of another chain was shown finalized at a height we
+    /// finalized: more than f validators are faulty, and we take no state
+    /// of that chain to load. Kept in memory only.
+    forked: bool,
     /// The last view each validator of the running set voted in.
     last_voted: [u64; MAX_VALIDATORS],
     /// What we lack, and whom to ask: set when a proposal or
@@ -218,6 +222,7 @@ impl Engine {
             settled_conflicts: BTreeSet::new(),
             boundaries: stored.boundaries.into_iter().collect(),
             stalled: stored.stalled,
+            forked: false,
             last_voted: [0; MAX_VALIDATORS],
             want: None,
             fetched_ms: None,

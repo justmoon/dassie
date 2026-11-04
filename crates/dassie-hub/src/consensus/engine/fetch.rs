@@ -116,9 +116,22 @@ impl Engine {
     /// Answers a request: the finalized blocks above its height, up to the
     /// last within bounds we hold a finalization of and never past the end
     /// of an epoch, and the certificates of its view and after, with their
-    /// blocks.
+    /// blocks. With blocks above its height comes, first among the
+    /// certificates, our block at its height with its own finalization, if
+    /// we hold one: an asker that finalized another block there sits on
+    /// another fork, and the two finalizations are the evidence
+    /// ([`Engine::check_finalized`]).
     pub(super) fn on_fetch(&mut self, from: PeerId, fetch: Fetch) {
-        let (mut delivery, bytes) = self.finalized_above(fetch.height.saturating_add(1));
+        let (mut delivery, mut bytes) = self.finalized_above(fetch.height.saturating_add(1));
+        if !delivery.finalized.is_empty()
+            && let Some(ours) = self.finalized_at(fetch.height)
+        {
+            let size = ours.encoded_len();
+            if bytes.saturating_add(size) <= DELIVERY_BYTES {
+                bytes = bytes.saturating_add(size);
+                delivery.certified.push(ours);
+            }
+        }
         if fetch.epoch == self.epoch() {
             self.add_certified(&mut delivery, fetch.view, bytes);
         }
@@ -195,6 +208,25 @@ impl Engine {
                 .map_or(0, Encode::encoded_len),
         );
         (delivery, bytes)
+    }
+
+    /// Our finalized block at `height`, as its own finalization names it (a
+    /// repeat, if that finalized it), with the finalization: none if we
+    /// keep no finalization of it.
+    fn finalized_at(&self, height: u64) -> Option<Certified> {
+        let (_, finalized) = self
+            .history
+            .iter()
+            .find(|(_, finalized)| finalized.block.height == height)?;
+        let certificate = finalized.finalization.clone()?;
+        let block = finalized
+            .chain()
+            .into_iter()
+            .find(|block| block.digest(&self.hub) == certificate.block)?;
+        Some(Certified {
+            certificate,
+            block: Some(block),
+        })
     }
 
     /// The first block from `start` on that we hold a finalization of, alone
@@ -303,18 +335,41 @@ impl Engine {
         })
     }
 
-    /// Takes in a delivery: its finalized blocks, then its certificates.
+    /// Takes in a delivery: first the finalizations of views we finalized,
+    /// which show whether the sender's chain is ours ([`Self::on_fetch`]);
+    /// then its finalized blocks, unless another chain was shown finalized
+    /// at a height we finalized, which we neither follow nor load; then its
+    /// other certificates.
     pub(super) fn on_delivery(&mut self, app: &mut dyn Application, delivery: Delivery) {
-        if let Some(finalization) = &delivery.finalization {
+        let (settled, mut certified): (Vec<Certified>, Vec<Certified>) = delivery
+            .certified
+            .into_iter()
+            .partition(|certified| self.settled_finalization(certified));
+        for certified in settled {
+            self.check_settled(&certified.certificate, certified.block.as_ref());
+        }
+        if let Some(finalization) = &delivery.finalization
+            && !self.forked
+        {
             self.take_finalized(app, &delivery.finalized, finalization);
         }
         // The highest view first: a block the chain lacks is taken below
         // the floor only once the block that builds on it is held.
-        let mut certified = delivery.certified;
         certified.sort_by_key(|certified| core::cmp::Reverse(certified.certificate.view));
         for certified in certified {
             self.on_certificate(certified.certificate, certified.block);
         }
+    }
+
+    /// Whether `certified` is a finalization, with its block, of a view at
+    /// or below our tip: one [`Self::on_certificate`] only checks against
+    /// what we finalized.
+    fn settled_finalization(&self, certified: &Certified) -> bool {
+        let certificate = &certified.certificate;
+        certificate.kind == VoteKind::Finalize
+            && certified.block.is_some()
+            && (certificate.epoch < self.epoch()
+                || certificate.epoch == self.epoch() && certificate.view <= self.tip_view())
     }
 
     /// Moves the tip to `finalized`, a block above it whose state the host
@@ -342,8 +397,9 @@ impl Engine {
     /// # Errors
     ///
     /// The finalization does not prove the block with a set we know, the
-    /// block is not above the tip, or the change does not fit: before
-    /// the block, or another one is waiting.
+    /// block is not above the tip, the change does not fit: before the
+    /// block, or another one is waiting; or another chain was shown
+    /// finalized at a height we finalized, so the block may be of it.
     pub fn jump(
         &mut self,
         now_ms: u64,
@@ -360,7 +416,7 @@ impl Engine {
             .ok_or(Invalid::Unproven)?;
         let digest = digests.first().copied().ok_or(Invalid::Unproven)?;
         let ahead = (block.epoch, block.view) > (self.tip.block.epoch, self.tip.block.view);
-        if block.height <= self.tip.block.height || !ahead {
+        if block.height <= self.tip.block.height || !ahead || self.forked {
             return Err(Invalid::Stale);
         }
         let height = block.height;
