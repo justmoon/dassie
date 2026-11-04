@@ -163,6 +163,11 @@ pub struct SimApp {
     last_final: Option<Digest>,
     /// How many times the engine had it verify a block, again or not.
     pub verifications: u64,
+    /// `None` to want a block every interval, as Simplex does; or the
+    /// height of the block that takes its work: a block is wanted on a
+    /// head below it, and `Some(0)` wants none
+    /// (spec/decisions/blocks-when-wanted.md).
+    pub work: Option<u64>,
 }
 
 /// Where a payload's state root starts, after its marker, height and
@@ -280,6 +285,15 @@ pub struct Schedule {
 }
 
 impl Application for SimApp {
+    fn wanted(&mut self, head: &Digest, _stamp_ms: u64, now_ms: u64) -> u64 {
+        let height = self.states.get(head).map(|(height, _)| *height);
+        match self.work {
+            None => 0,
+            Some(at) if height.is_some_and(|height| height < at) => now_ms,
+            Some(_) => u64::MAX,
+        }
+    }
+
     fn propose(
         &mut self,
         context: &ProposeContext<'_>,

@@ -92,6 +92,12 @@ impl Round {
         self.slots(kind).get(signer.get()).and_then(Option::as_ref)
     }
 
+    /// How many validators' votes of `kind` were taken.
+    #[must_use]
+    pub fn count(&self, kind: VoteKind) -> usize {
+        self.slots(kind).iter().flatten().count()
+    }
+
     /// Whether exactly this vote is held already: a copy needs no check.
     #[must_use]
     pub fn holds(&self, vote: &Vote) -> bool {
