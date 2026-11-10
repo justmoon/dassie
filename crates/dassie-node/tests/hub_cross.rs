@@ -72,7 +72,12 @@ const CROSSING: u64 = 1_000_000_000;
 // one member is in the XRP hub alone, one in the DSUSD hub alone, and two
 // in both. The two in both peer over both hubs, with a peer account on
 // each hub's ledger; the others over the one hub they share with each; the
-// two in one hub alone share none and do not peer. A client of the member
+// two in one hub alone share none and do not peer. Those two are periphery
+// nodes pinned to both members of both, so that the two of both, whose
+// downlinks they are, look for core peers and find only each other: core
+// nodes all, each would stop at the two peers it looks for
+// (`peer_target`), and the two of both might fill theirs with the others
+// before they ask each other. A client of the member
 // in the XRP hub alone pays a receiver in DSUSD of the member in the DSUSD
 // hub alone through a member of both, which converts: what arrived is what
 // was sent at the rate, moved by the member's inventory curve by at most
@@ -94,10 +99,10 @@ async fn a_payment_crosses_from_one_hub_to_another_through_a_member_of_both() {
     let members = net
         .members(
             &[
-                Joining::of(90, XRP),
+                Joining::of(90, XRP).pinned_to(&[91, 92]),
                 Joining::of(91, BOTH),
                 Joining::of(92, BOTH),
-                Joining::of(93, DSUSD),
+                Joining::of(93, DSUSD).pinned_to(&[91, 92]),
             ],
             &[],
         )
