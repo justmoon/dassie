@@ -452,7 +452,7 @@ impl Store {
             &batch.hub_funding,
         )?;
         #[cfg(feature = "testing")]
-        self.fail_if_aimed(&transaction, batch);
+        self.fail_if_aimed(batch);
         transaction.commit()?;
         Ok(())
     }

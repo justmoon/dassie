@@ -12,12 +12,11 @@
 //! steps of the hubs the node validates ([`Store::commit_hub_writes`]),
 //! which a validator must have on disk before it votes.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use dassie_ledger::{JournalEntry, Reference};
-use rusqlite::Connection;
-
 use super::{LedgerBatch, Store};
+use dassie_ledger::{JournalEntry, Reference};
 
 /// Which commit fails.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,18 +88,31 @@ pub(super) struct Failing {
     /// Commits it aims at that still go through first.
     skip: u32,
     failed: FailedCommit,
+    /// Read by the commit hook: whether it rolls back the next commit.
+    fail_next: Arc<AtomicBool>,
 }
 
 impl Store {
-    /// Makes the commit after the next `skip` that `aim` aims at fail.
+    /// Makes the commit after the next `skip` that `aim` aims at fail. It
+    /// arms SQLite's commit hook now, which needs the connection to itself,
+    /// and the hook turns a COMMIT into a ROLLBACK once a commit it aims at
+    /// says so ([`Self::fail_if_aimed`]).
     #[must_use]
     pub fn fail_commit(&self, aim: Aim, skip: u32) -> FailedCommit {
         self.let_commits_through();
         let failed = FailedCommit::default();
+        let fail_next = Arc::new(AtomicBool::new(false));
+        let hook = Arc::clone(&fail_next);
+        let hooked = self
+            .lock()
+            .commit_hook(Some(move || hook.swap(false, Ordering::SeqCst)))
+            .is_ok();
+        assert!(hooked, "the store's own connection takes a commit hook");
         *self.failing() = Some(Failing {
             aim,
             skip,
             failed: failed.clone(),
+            fail_next,
         });
         failed
     }
@@ -118,21 +130,21 @@ impl Store {
     }
 
     /// Before the engine's commit of `batch`: if it is the one to fail,
-    /// arms SQLite's commit hook to turn its COMMIT into a ROLLBACK.
-    pub(super) fn fail_if_aimed(&self, connection: &Connection, batch: &LedgerBatch) {
-        self.fail_if_holding(connection, Holds::of(batch));
+    /// has the commit hook turn its COMMIT into a ROLLBACK.
+    pub(super) fn fail_if_aimed(&self, batch: &LedgerBatch) {
+        self.fail_if_holding(Holds::of(batch));
     }
 
     /// Before a commit of hubs' steps: as [`Self::fail_if_aimed`].
-    pub(super) fn fail_if_aimed_at_hubs(&self, connection: &Connection) {
+    pub(super) fn fail_if_aimed_at_hubs(&self) {
         let holds = Holds {
             hub: true,
             ..Holds::default()
         };
-        self.fail_if_holding(connection, holds);
+        self.fail_if_holding(holds);
     }
 
-    fn fail_if_holding(&self, connection: &Connection, holds: Holds) {
+    fn fail_if_holding(&self, holds: Holds) {
         let mut failing = self.failing();
         let Some(aimed) = failing.as_mut().filter(|f| holds.aimed(f.aim)) else {
             return;
@@ -141,14 +153,13 @@ impl Store {
             aimed.skip -= 1;
             return;
         }
-        let Some(Failing { failed, .. }) = failing.take() else {
+        let Some(Failing {
+            failed, fail_next, ..
+        }) = failing.take()
+        else {
             return;
         };
         *failed.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(holds);
-        let mut once = true;
-        let hooked = connection
-            .commit_hook(Some(move || std::mem::take(&mut once)))
-            .is_ok();
-        assert!(hooked, "the store's own connection takes a commit hook");
+        fail_next.store(true, Ordering::SeqCst);
     }
 }

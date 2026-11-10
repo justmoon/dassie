@@ -10541,10 +10541,10 @@ rec {
       };
       "libsqlite3-sys" = rec {
         crateName = "libsqlite3-sys";
-        version = "0.38.2";
-        edition = "2021";
+        version = "0.39.1";
+        edition = "2024";
         links = "sqlite3";
-        sha256 = "1s01ckmldqx09m71z5whsxrd173nhwqj6cj502rvj4zm2zphplpi";
+        sha256 = "1cx2z7q7rqacffszy2qsv0vlcxmwdkwhcg23gg80a9xrhwdz198l";
         libName = "libsqlite3_sys";
         authors = [
           "The rusqlite developers"
@@ -10570,13 +10570,13 @@ rec {
           "bindgen" = [ "dep:bindgen" ];
           "buildtime_bindgen" = [ "bindgen" "pkg-config" "vcpkg" ];
           "bundled" = [ "cc" "bundled_bindings" ];
-          "bundled-sqlcipher" = [ "bundled" ];
+          "bundled-sqlcipher" = [ "bundled" "dep:sqlcipher-src" ];
           "bundled-sqlcipher-vendored-openssl" = [ "bundled-sqlcipher" "openssl-sys/vendored" ];
           "bundled-windows" = [ "cc" "bundled_bindings" ];
           "cc" = [ "dep:cc" ];
-          "default" = [ "min_sqlite_version_3_34_1" ];
+          "default" = [ "min_sqlite_version_3_45_3" ];
           "loadable_extension" = [ "prettyplease" "quote" "syn" ];
-          "min_sqlite_version_3_34_1" = [ "pkg-config" "vcpkg" ];
+          "min_sqlite_version_3_45_3" = [ "pkg-config" "vcpkg" ];
           "openssl-sys" = [ "dep:openssl-sys" ];
           "pkg-config" = [ "dep:pkg-config" ];
           "prettyplease" = [ "dep:prettyplease" ];
@@ -10586,7 +10586,7 @@ rec {
           "syn" = [ "dep:syn" ];
           "vcpkg" = [ "dep:vcpkg" ];
         };
-        resolvedDefaultFeatures = [ "bundled" "bundled_bindings" "cc" "default" "min_sqlite_version_3_34_1" "pkg-config" "vcpkg" ];
+        resolvedDefaultFeatures = [ "bundled" "bundled_bindings" "cc" "default" "min_sqlite_version_3_45_3" "pkg-config" "vcpkg" ];
       };
       "linux-raw-sys" = rec {
         crateName = "linux-raw-sys";
@@ -16099,9 +16099,9 @@ rec {
       };
       "rusqlite" = rec {
         crateName = "rusqlite";
-        version = "0.40.2";
-        edition = "2021";
-        sha256 = "1cxmqcl6k6j9v1r8vypfn7h9bzs0bjrp2biardrkr1z3ldyskwi3";
+        version = "0.41.1";
+        edition = "2024";
+        sha256 = "1555j4yrk3zc9dm68036i4c8vd0qpq2xz1k51895w4q66mpvm6ys";
         authors = [
           "The rusqlite developers"
         ];
@@ -16170,11 +16170,12 @@ rec {
           "default" = [ "cache" "ffi-sqlite-wasm-rs" ];
           "ffi-sqlite-wasm-rs" = [ "dep:sqlite-wasm-rs" ];
           "hashlink" = [ "dep:hashlink" ];
+          "hooks" = [ "wal" ];
           "in_gecko" = [ "modern_sqlite" "libsqlite3-sys?/in_gecko" ];
           "jiff" = [ "dep:jiff" ];
           "libsqlite3-sys" = [ "dep:libsqlite3-sys" ];
           "loadable_extension" = [ "libsqlite3-sys?/loadable_extension" ];
-          "modern-full" = [ "array" "backup" "blob" "modern_sqlite" "chrono" "collation" "column_metadata" "column_decltype" "csvtab" "extra_check" "functions" "hooks" "i128_blob" "jiff" "limits" "load_extension" "serde_json" "serialize" "series" "time" "trace" "unlock_notify" "url" "uuid" "vtab" "window" ];
+          "modern-full" = [ "array" "backup" "blob" "modern_sqlite" "chrono" "collation" "column_metadata" "column_decltype" "csvtab" "extra_check" "functions" "hooks" "i128_blob" "jiff" "limits" "load_extension" "serde_json" "serialize" "series" "time" "trace" "unlock_notify" "url" "uuid" "vtab" "wal" "window" ];
           "modern_sqlite" = [ "libsqlite3-sys?/bundled_bindings" ];
           "preupdate_hook" = [ "libsqlite3-sys?/preupdate_hook" "hooks" ];
           "rusqlite-macros" = [ "dep:rusqlite-macros" ];
@@ -16190,7 +16191,7 @@ rec {
           "window" = [ "functions" ];
           "with-asan" = [ "libsqlite3-sys?/with-asan" ];
         };
-        resolvedDefaultFeatures = [ "backup" "bundled" "cache" "default" "ffi-sqlite-wasm-rs" "hashlink" "hooks" "modern_sqlite" ];
+        resolvedDefaultFeatures = [ "backup" "bundled" "cache" "default" "ffi-sqlite-wasm-rs" "hashlink" "hooks" "modern_sqlite" "wal" ];
       };
       "rustc-hash" = rec {
         crateName = "rustc-hash";

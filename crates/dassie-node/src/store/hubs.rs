@@ -305,7 +305,7 @@ impl Store {
             }
         }
         #[cfg(feature = "testing")]
-        self.fail_if_aimed_at_hubs(&transaction);
+        self.fail_if_aimed_at_hubs();
         transaction.commit()?;
         Ok(())
     }
