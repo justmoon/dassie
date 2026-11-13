@@ -284,14 +284,9 @@ async fn the_default_relay_is_kept_only_while_the_node_has_no_hostname() {
         relay.id,
         relay.endpoint.clone(),
         client(),
-        KeepWhile::NoHostname(watched.clone()),
+        KeepWhile::Default(watched.clone()),
     );
-    keep_while(
-        &destination,
-        &relay,
-        KeepWhile::NoHostname(watched),
-        &shutdown,
-    );
+    keep_while(&destination, &relay, KeepWhile::Default(watched), &shutdown);
     assert_eq!(destination.quic.chosen_relay(), None);
     // Time to dial, were it to: the relay never gets a connection.
     tokio::time::sleep(Duration::from_millis(500)).await;

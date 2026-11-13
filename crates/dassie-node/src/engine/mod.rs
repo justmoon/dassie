@@ -862,7 +862,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         rng: node.shared_rng(),
         peer_rng: node.shared_rng(),
         own_info: own_info(&node),
-        bootstrap: node.bootstrap(),
+        bootstrap: bootstrap(&node),
         uplinks: node.pinned_uplinks(),
         dev_core: node.dev_core(),
     };
@@ -913,6 +913,18 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
     driver.run(receiver, config, &shutdown).await;
     // Without an engine, the node has no snapshot to answer with.
     node.set_snapshot(None);
+}
+
+/// The node's bootstrap nodes, saying when there are none. Here rather than
+/// at start, since a node of the live realm takes none of the test
+/// network's (spec/decisions/mainnet-schemes.md), and its realm is known
+/// once it has its key.
+fn bootstrap(node: &Node) -> Vec<dassie_peer::Bootstrap> {
+    let bootstrap = node.bootstrap();
+    if bootstrap.is_empty() {
+        tracing::warn!(target: target::PEER, "no bootstrap nodes: the node runs alone (set DASSIE_BOOTSTRAP_NODES)");
+    }
+    bootstrap
 }
 
 /// Has the event log record this engine's packet trace and hub events, if

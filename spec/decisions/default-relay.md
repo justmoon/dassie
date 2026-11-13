@@ -13,7 +13,7 @@
 
 ## Decision
 
-When `DASSIE_RELAY` is unset, a node's relay is the `dassiepay.net` front door (`DEFAULT_RELAY` in `crates/dassie-node/src/env.rs`, beside the default bootstrap nodes and checked as they are), and the node keeps it only while it has no hostname: it dials the front door once it has its key and no hostname, and closes the connection when a hostname is set. An entry the owner puts in `DASSIE_RELAY` is kept whether or not the node has a hostname. An empty `DASSIE_RELAY` keeps no relay, which is how an owner opts out.
+When `DASSIE_RELAY` is unset, a node's relay is the `dassiepay.net` front door (`DEFAULT_RELAY` in `crates/dassie-node/src/env.rs`, beside the default bootstrap nodes and checked as they are), and the node keeps it only while it has no hostname: it dials the front door once it has its key and no hostname, and closes the connection when a hostname is set. An entry the owner puts in `DASSIE_RELAY` is kept whether or not the node has a hostname. An empty `DASSIE_RELAY` keeps no relay, which is how an owner opts out. A node of the live realm keeps no default relay, as the front door is the test network's ([mainnet-schemes](mainnet-schemes.md)).
 
 Tests and the dev environment set `DASSIE_RELAY` empty, as they set their own bootstrap nodes, so that they never depend on the public front door.
 

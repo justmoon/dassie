@@ -31,7 +31,8 @@ use crate::quic::proxy::{NoProxy, Proxy};
 /// and boot4 in zone b, boot2 and boot5 in c, boot3 in d. Each entry names
 /// a node's ID, URL and its two keys, Ed25519 and SLH-DSA, and each ID is
 /// checked against its keys at startup, like any entry.
-/// `DASSIE_BOOTSTRAP_NODES=[]` makes a node run alone.
+/// `DASSIE_BOOTSTRAP_NODES=[]` makes a node run alone, as does the live
+/// realm while it has no list of its own (spec/decisions/mainnet-schemes.md).
 pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
   {"id":"32f6pclvm5p5xxdeqigvgxpjezayxacvmnnwgcy","url":"https://boot1.dassie.xyz","publicKey":"2DJ7XMcmzgUu-Ec50PSdPvNHL5_4PKo6WmYrP4nMHEU","slhDsaPublicKey":"4nvvGnn31qeJEYBdzzulzaDcIpFtdFq9HeNhA6fJNeg"},
   {"id":"wfubobuj5r7d7m4zkut4p2vvt5gd4szbif7czby","url":"https://boot2.dassie.xyz","publicKey":"FWAmSiJvL2c0c_6y4qdcWL3BVUF0j1AccrS7IrS4eRw","slhDsaPublicKey":"Usj-SMIJ2xBwIPIe5-TcOMH0sElKvDl344ut413AJj4"},
@@ -45,7 +46,9 @@ pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
 /// `<node ID>.dassiepay.net`, which reaches the node only over that
 /// connection (spec/decisions/default-relay.md,
 /// spec/areas/node.md#a-chosen-relay). Its ID is checked against its keys
-/// at startup, like any entry. `DASSIE_RELAY=` (empty) keeps no relay.
+/// at startup, like any entry. `DASSIE_RELAY=` (empty) keeps no relay, nor
+/// does a node of the live realm keep this one, the test network's
+/// (spec/decisions/mainnet-schemes.md).
 ///
 /// The entry is the one the front door logs (`relay_entry` in
 /// `front_door/key.rs`): its ID commits to both its keys, and the SLH-DSA
@@ -148,7 +151,8 @@ pub struct Relay {
     pub node: BootstrapNode,
     /// Whether it is [`DEFAULT_RELAY`], as `DASSIE_RELAY` is unset: the
     /// node keeps it only while it has no hostname
-    /// (spec/decisions/default-relay.md).
+    /// (spec/decisions/default-relay.md), and only in the test realm, as it
+    /// is the test network's (spec/decisions/mainnet-schemes.md).
     pub is_default: bool,
 }
 
@@ -166,6 +170,10 @@ pub struct Settings {
     pub dev_wallet_dir: Option<PathBuf>,
     /// The network's bootstrap nodes.
     pub bootstrap_nodes: Vec<BootstrapNode>,
+    /// Whether they are [`DEFAULT_BOOTSTRAP_NODES`], as
+    /// `DASSIE_BOOTSTRAP_NODES` is unset: the test network's, which a node
+    /// of the live realm does not take (spec/decisions/mainnet-schemes.md).
+    pub bootstrap_is_default: bool,
     /// The relay the node keeps a connection to, so that it can be reached
     /// through it (`DASSIE_RELAY`, an entry as in the bootstrap list):
     /// [`DEFAULT_RELAY`] when unset, none when empty.
@@ -235,6 +243,7 @@ impl Settings {
             log_filter: log_filter(env)?,
             dev_wallet_dir: dev_wallet_dir(env)?,
             bootstrap_nodes: bootstrap_nodes(env)?,
+            bootstrap_is_default: env.get("DASSIE_BOOTSTRAP_NODES")?.is_none(),
             relay: relay(env)?,
             acme_ca_file: env.path("DASSIE_ACME_CA_FILE"),
             extra_ca_file: env.path("DASSIE_EXTRA_CA_FILE"),
@@ -676,6 +685,8 @@ mod tests {
     // each passing the checks of a configured entry, its ID among them.
     #[test]
     fn the_default_bootstrap_nodes_are_the_testnet() {
+        let unset = settings(&[("HOME", "/h")]).map(|s| s.bootstrap_is_default);
+        assert_eq!(unset, Ok(true));
         let nodes = settings(&[("HOME", "/h")]).map(|s| {
             s.bootstrap_nodes
                 .iter()
@@ -699,8 +710,8 @@ mod tests {
     #[test]
     fn an_empty_list_runs_alone() {
         let nodes = settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", "[]")])
-            .map(|s| s.bootstrap_nodes.len());
-        assert_eq!(nodes, Ok(0));
+            .map(|s| (s.bootstrap_nodes.len(), s.bootstrap_is_default));
+        assert_eq!(nodes, Ok((0, false)));
     }
 
     #[test]

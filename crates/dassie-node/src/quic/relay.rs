@@ -27,7 +27,7 @@ use std::time::Duration;
 
 use dassie_identity::{NODE_ID_BYTES, NodeId};
 use dassie_kit::ClientKey;
-use dassie_node_core::config::NodeConfig;
+use dassie_node_core::config::{NodeConfig, Realm};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_peer::wire::Endpoint as PeerEndpoint;
 use quinn::{Connection, RecvStream, SendStream};
@@ -174,10 +174,18 @@ const _: () = assert!((MAX_SERVED_PER_RELAY as usize) < MAX_SERVED);
 pub enum KeepWhile {
     /// Always: the owner named it (`DASSIE_RELAY`).
     Always,
-    /// While the node's configuration has no hostname: the default relay
-    /// is the front door of the node's default name, which a node with a
-    /// hostname does not answer under (spec/decisions/default-relay.md).
-    NoHostname(watch::Receiver<NodeConfig>),
+    /// While the node's configuration has no hostname and is of the test
+    /// realm: the default relay is the front door of the node's default
+    /// name, which a node with a hostname does not answer under
+    /// (spec/decisions/default-relay.md), and the test network's, which a
+    /// node of the live realm takes none of
+    /// (spec/decisions/mainnet-schemes.md).
+    Default(watch::Receiver<NodeConfig>),
+}
+
+/// Whether a node with `config` keeps the default relay.
+fn keeps_default(config: &NodeConfig) -> bool {
+    config.hostname.is_none() && config.realm == Realm::Test
 }
 
 impl KeepWhile {
@@ -186,7 +194,7 @@ impl KeepWhile {
     pub fn holds(&self) -> bool {
         match self {
             Self::Always => true,
-            Self::NoHostname(config) => config.borrow().hostname.is_none(),
+            Self::Default(config) => keeps_default(&config.borrow()),
         }
     }
 
@@ -195,7 +203,7 @@ impl KeepWhile {
     fn holds_seen(&mut self) -> bool {
         match self {
             Self::Always => true,
-            Self::NoHostname(config) => config.borrow_and_update().hostname.is_none(),
+            Self::Default(config) => keeps_default(&config.borrow_and_update()),
         }
     }
 
@@ -204,7 +212,7 @@ impl KeepWhile {
     async fn changed(&mut self) {
         let changed = match self {
             Self::Always => false,
-            Self::NoHostname(config) => config.changed().await.is_ok(),
+            Self::Default(config) => config.changed().await.is_ok(),
         };
         if !changed {
             std::future::pending::<()>().await;
@@ -1195,6 +1203,29 @@ fn server_tls(
 mod tests {
     use super::*;
     use dassie_oer::Encode;
+
+    // spec/decisions/default-relay.md, spec/decisions/mainnet-schemes.md:
+    // the default relay is kept only without a hostname, and only in the
+    // test realm, as it is the test network's.
+    #[test]
+    fn the_default_relay_is_kept_only_by_a_test_node_without_a_hostname() {
+        let hostname = Some(dassie_node_core::config::Hostname::parse("node.example").unwrap());
+        for (realm, hostname, keeps) in [
+            (Realm::Test, None, true),
+            (Realm::Test, hostname.clone(), false),
+            (Realm::Live, None, false),
+            (Realm::Live, hostname, false),
+        ] {
+            let config = NodeConfig {
+                realm,
+                hostname,
+                ..NodeConfig::default()
+            };
+            assert_eq!(keeps_default(&config), keeps, "{realm:?}");
+            let (_writer, watched) = watch::channel(config);
+            assert_eq!(KeepWhile::Default(watched).holds(), keeps, "{realm:?}");
+        }
+    }
 
     #[test]
     fn node_ids_are_written_as_the_peer_protocol_writes_them() {

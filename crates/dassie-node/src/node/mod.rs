@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use dassie_identity::{IdentityKey, SlhDsaKeygen};
 use dassie_kit::ClientKey;
 use dassie_node_core::acme::{ChallengeTokens, Renewal, RenewalPolicy};
-use dassie_node_core::config::NodeConfig;
+use dassie_node_core::config::{NodeConfig, Realm};
 use dassie_node_core::connections::{ConnectionLimits, Refused};
 use dassie_node_core::rate_limit::{RateLimitPolicy, RateLimiter};
 use dassie_node_core::session::{SessionId, SessionPolicy};
@@ -241,6 +241,10 @@ pub struct NodeOptions {
 pub struct PeerOptions {
     /// The bootstrap nodes.
     pub bootstrap: Vec<dassie_peer::Bootstrap>,
+    /// Whether they are the built-in default, the test network's, which a
+    /// node of the live realm does not take
+    /// (spec/decisions/mainnet-schemes.md).
+    pub bootstrap_is_default: bool,
     /// Extra roots for the certificates of the servers the node reaches
     /// (dev and tests).
     pub ca_file: Option<PathBuf>,
@@ -252,6 +256,21 @@ pub struct PeerOptions {
     /// The nodes a dev network makes core outright; empty outside one
     /// (spec/decisions/promotion-to-core.md).
     pub dev_core: Vec<dassie_identity::NodeId>,
+}
+
+/// The bootstrap nodes a node of `realm` takes of those `configured`: none
+/// in the live realm when they are the built-in default, the test
+/// network's, since mainnet has no list yet and a live node runs alone
+/// until its owner names one (spec/decisions/mainnet-schemes.md).
+fn bootstrap_in(
+    realm: Realm,
+    configured: &[dassie_peer::Bootstrap],
+    is_default: bool,
+) -> Vec<dassie_peer::Bootstrap> {
+    match realm {
+        Realm::Live if is_default => Vec::new(),
+        Realm::Test | Realm::Live => configured.to_vec(),
+    }
 }
 
 /// Most inbound peer requests waiting on the engine at once.
@@ -299,6 +318,7 @@ const PEER_ANONYMOUS: RateLimitPolicy = RateLimitPolicy {
 /// The node's side of the peer protocol, beside the engine.
 struct PeerSide {
     bootstrap: Vec<dassie_peer::Bootstrap>,
+    bootstrap_is_default: bool,
     uplinks: Vec<dassie_identity::NodeId>,
     dev_core: Vec<dassie_identity::NodeId>,
     /// Made on first use, as the ACME client is: a machine without the
@@ -329,6 +349,7 @@ impl PeerSide {
         }
         Ok(Self {
             bootstrap: options.bootstrap,
+            bootstrap_is_default: options.bootstrap_is_default,
             uplinks: options.uplinks,
             dev_core: options.dev_core,
             client,
@@ -651,10 +672,16 @@ impl Node {
         &self.open_payments
     }
 
-    /// The bootstrap nodes.
+    /// The bootstrap nodes of the node's realm ([`bootstrap_in`]). The
+    /// realm is fixed at setup, before the node has its key, so it is known
+    /// once the engine reads this.
     #[must_use]
     pub fn bootstrap(&self) -> Vec<dassie_peer::Bootstrap> {
-        self.peer.bootstrap.clone()
+        bootstrap_in(
+            self.config().realm,
+            &self.peer.bootstrap,
+            self.peer.bootstrap_is_default,
+        )
     }
 
     /// The uplinks the node is pinned to while it runs as a periphery
@@ -1118,3 +1145,25 @@ impl rand_core::TryRng for LockedRng {
 }
 
 impl rand_core::TryCryptoRng for LockedRng {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // spec/decisions/mainnet-schemes.md: realm-dependent defaults are the
+    // test network's, so a live node takes no default bootstrap nodes and
+    // runs alone, but keeps those its owner named; a test node keeps both.
+    #[test]
+    fn a_live_node_takes_no_default_bootstrap_nodes() {
+        let key = dassie_identity::TableKeygen::identity_key(&[1; 32]);
+        let configured = [dassie_peer::Bootstrap {
+            id: key.node_id(),
+            endpoint: dassie_peer::wire::Endpoint::parse("boot.example").unwrap(),
+            key: key.public_key(),
+        }];
+        assert_eq!(bootstrap_in(Realm::Live, &configured, true), []);
+        assert_eq!(bootstrap_in(Realm::Live, &configured, false), configured);
+        assert_eq!(bootstrap_in(Realm::Test, &configured, true), configured);
+        assert_eq!(bootstrap_in(Realm::Test, &configured, false), configured);
+    }
+}
