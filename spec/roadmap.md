@@ -138,13 +138,6 @@ The XRPL account anchors on ledgers its own UNL validated, and proves at each an
 - **Later:** the negative UNL, so that a node rides out a fifth of the UNL offline as rippled does.
 - Hub validators prove what they attest under the UNL of the hub's network, through the same verifier as the account ([XRPL](areas/xrpl.md#the-verifier)); what is left for mainnet hubs is in [Mainnet hubs](#mainnet-hubs).
 
-### Mainnet schemes
-
-Settling with real money on the XRP Ledger's mainnet, in XRP and in RLUSD ([mainnet-schemes](decisions/mainnet-schemes.md)), with no DSUSD on mainnet, and DSUSD as the testnet's stand-in for RLUSD. A condition for [real money](#real-money); the `live` realm stays refused after it.
-
-- **Left to build:** a live node that takes none of the test network's defaults, its bootstrap nodes and its relay.
-- **Done when:** live-realm nodes against the mainnet fake settle in XRP and in RLUSD at addresses under `g.`, over mainnet hubs ([Mainnet hubs](#mainnet-hubs)); a test-realm node never activates a mainnet scheme, nor a live-realm node a testnet one; no node activates test RLUSD; a release binary refuses the dev switch; a pool moved off its peg pauses the token's scheme and its conversions, those of the token's hub ledger included, once the guard's hold has passed, on mainnet RLUSD and on testnet DSUSD, and they resume after recovery, with nothing converted at par meanwhile, while what arrives is still booked; the guard pauses the scheme when its reading is stale, until [Open rate sources](#open-rate-sources) turns the guard off.
-
 ### Open rate sources
 
 A node's default rate sources are exchanges whose terms license their market data for personal or internal use, and a node converts for its owner's fees. [open-rate-sources](decisions/open-rate-sources.md) replaces them with sources whose terms allow that use: XRP's rate from mainnet's XRP/RLUSD pool, proven at validated ledgers, and the fiat currencies' from four central banks. With XRP's rate from that pool, the peg guard could only read RLUSD as pegged, so it is turned off. DSUSD's keeper takes its target from the same pool.
@@ -177,14 +170,14 @@ The `live` realm is refused, so the XRP Ledger mainnet's scheme, `xrpl-xrp`, run
 - releases are signed ([Release](areas/release.md));
 - the node checks the XRP Ledger's validators itself, on both networks ([Checking XRP Ledger validators](#checking-xrp-ledger-validators));
 - a public proof server runs for each network, named in the node's defaults ([Proof servers](#proof-servers));
-- mainnet schemes in XRP and RLUSD, and the realm gate ([Mainnet schemes](#mainnet-schemes));
+- mainnet schemes in XRP and RLUSD, and the realm gate ([mainnet-schemes](decisions/mainnet-schemes.md));
 - settlement hubs on mainnet: a default mainnet hub for `hub-xrpl-xrp` and for `hub-xrpl-rlusd`, founded by the project's validators ([Mainnet hubs](#mainnet-hubs));
 - there has been an external review;
-- a mainnet bootstrap node list exists.
+- a mainnet bootstrap node list exists, built in as the live realm's default; until then a live node runs alone, unless its owner names one ([mainnet-schemes](decisions/mainnet-schemes.md)).
 
 Names are not among these: the live realm runs without them until registrations pay fees ([Names](#names)).
 
-The first four are on `main`, and so are each network's proof server, named in the node's defaults, the mainnet hub schemes and validators that observe the escrow through proofs. Until the rest are, the testnet account stops unless its server reports the testnet's network ID, so a mainnet server never gets XRP booked or signed for with a testnet wallet; and the account proves what it reads against ledgers its UNL validated, from the project's proof servers by default ([Proof servers](#proof-servers)). The issuer's conditions for a dollar token are decided ([issued-assets](decisions/issued-assets.md)): the issuer is the owner's counterparty, its freezes and clawbacks are booked as built, and the scheme pauses while its pool prices it off its peg, until [open-rate-sources](decisions/open-rate-sources.md) turns the guard off.
+The first four are on `main`, and so are each network's proof server, named in the node's defaults, the mainnet schemes and the realm gate, the mainnet hub schemes and validators that observe the escrow through proofs. Until the rest are, the testnet account stops unless its server reports the testnet's network ID, so a mainnet server never gets XRP booked or signed for with a testnet wallet; and the account proves what it reads against ledgers its UNL validated, from the project's proof servers by default ([Proof servers](#proof-servers)). The issuer's conditions for a dollar token are decided ([issued-assets](decisions/issued-assets.md)): the issuer is the owner's counterparty, its freezes and clawbacks are booked as built, and the scheme pauses while its pool prices it off its peg, until [open-rate-sources](decisions/open-rate-sources.md) turns the guard off.
 
 ## Smaller open points
 

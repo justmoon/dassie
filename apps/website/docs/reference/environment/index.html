@@ -144,7 +144,11 @@ Environment=DASSIE_LOG=info,dassie::peer=debug</code></pre>
           <p>
             Default: the public testnet's five bootstrap nodes,
             <code>boot1.dassie.xyz</code> to <code>boot5.dassie.xyz</code>,
-            built into the binary. Leave it unset to join the testnet.
+            built into the binary. Leave it unset to join the testnet. A
+            node of the live realm, which only a development build runs,
+            takes none of them: it runs alone unless you name a list, since
+            mainnet has no bootstrap nodes yet
+            (<a href="/docs/project/roadmap/#real-money">not there yet</a>).
           </p>
         </dd>
 
@@ -168,7 +172,8 @@ Environment=DASSIE_LOG=info,dassie::peer=debug</code></pre>
               and at its names there. The desktop app's node and a server
               without a public IP keep it. A node you give a hostname with
               <code>dassie init</code> closes the connection, and dials again
-              if the hostname is cleared.
+              if the hostname is cleared. A node of the live realm keeps no
+              default relay, as this one serves the testnet.
             </li>
             <li>
               <strong>An entry:</strong> that relay, kept whether or not the

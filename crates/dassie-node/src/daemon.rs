@@ -600,9 +600,6 @@ fn make_node(
     for flag in exposed_dev_flags(settings, &bound) {
         tracing::warn!(target: target::DAEMON, "{} is set: {}. It is for development; unset it on a public node", flag.variable, flag.effect);
     }
-    if settings.bootstrap_nodes.is_empty() {
-        tracing::warn!(target: target::PEER, "no bootstrap nodes: the node runs alone (set DASSIE_BOOTSTRAP_NODES)");
-    }
     let tls = tls::server_config(Arc::clone(node.certificate())).map_err(DaemonError::Tls)?;
     Ok((node, listeners, tls))
 }
@@ -666,7 +663,7 @@ fn attach_quic(
     let quic = Arc::new(quic);
     if let Some(relay) = &settings.relay {
         let keep = if relay.is_default {
-            KeepWhile::NoHostname(node.subscribe_config())
+            KeepWhile::Default(node.subscribe_config())
         } else {
             KeepWhile::Always
         };
@@ -764,6 +761,7 @@ fn peer_options(settings: &Settings) -> PeerOptions {
                 key: node.identity.key(),
             })
             .collect(),
+        bootstrap_is_default: settings.bootstrap_is_default,
         ca_file: settings.extra_ca_file.clone(),
         allow_private: settings.peer_allow_private,
         uplinks: settings.uplinks.clone(),
