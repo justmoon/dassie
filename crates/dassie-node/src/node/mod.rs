@@ -430,6 +430,9 @@ pub struct Stopping {
     /// When the last of them is answered at the latest, on the node's
     /// clock.
     pub until_ms: u64,
+    /// Whether the node stops once drained, which no one can take back,
+    /// rather than drains because the owner asked.
+    pub shutdown: bool,
 }
 
 /// The engine's drain (spec/areas/node.md#shutdown).
@@ -983,6 +986,15 @@ impl Node {
     #[must_use]
     pub fn is_stopping(&self) -> bool {
         self.drain.stopping.borrow().is_some()
+    }
+
+    /// Whether the engine drains, or drained, because the node stops.
+    #[must_use]
+    pub fn is_shutting_down(&self) -> bool {
+        self.drain
+            .stopping
+            .borrow()
+            .is_some_and(|stopping| stopping.shutdown)
     }
 
     pub(crate) fn set_stopping(&self, stopping: Option<Stopping>) {

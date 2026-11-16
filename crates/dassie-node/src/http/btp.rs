@@ -121,7 +121,9 @@ async fn serve(
             biased;
             () = shutdown.cancelled() => break going_away(&mut socket, &mut queue).await,
             () = engine.generation().cancelled() => {
-                if !node.is_stopping() {
+                // An engine that ended in a drain the owner asked for, not
+                // at shutdown, failed, and the next one starts.
+                if !node.is_shutting_down() {
                     break Some((CloseCode::Error, "ledger restarting"));
                 }
                 break going_away(&mut socket, &mut queue).await;

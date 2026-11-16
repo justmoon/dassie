@@ -1049,11 +1049,14 @@ impl Driver<'_> {
                     break;
                 }
             }
+            // The drain's bound wakes the engine until it passes: a drain the
+            // owner asked for may hold past it, with nothing left to wait for.
+            let bound = until_ms.filter(|&until| until > self.node.now_ms());
             let delay = self
                 .core
                 .deadline()
                 .into_iter()
-                .chain(until_ms)
+                .chain(bound)
                 .min()
                 .map(|deadline| deadline.saturating_sub(self.node.now_ms()).max(1));
             let sleep = async {
@@ -1091,6 +1094,16 @@ impl Driver<'_> {
             }
             self.finish();
         }
+        // Stopped by a shutdown, at once or drained, even one that cut short
+        // a drain the owner asked for: what serves the node's clients says
+        // why it went (spec/areas/node.md#shutdown).
+        if shutdown.is_cancelled() || now.is_cancelled() {
+            self.node.set_stopping(Some(crate::node::Stopping {
+                in_flight: self.core.in_flight(),
+                until_ms: until_ms.unwrap_or_else(|| self.node.now_ms()),
+                shutdown: true,
+            }));
+        }
     }
 
     /// Begins a drain when `wanted`, or ends one that no longer is, in a
@@ -1124,6 +1137,7 @@ impl Driver<'_> {
             .set_stopping(until_ms.map(|until_ms| crate::node::Stopping {
                 in_flight: self.core.in_flight(),
                 until_ms,
+                shutdown: stopping,
             }));
         until_ms
     }
