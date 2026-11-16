@@ -7406,6 +7406,10 @@ mod leaving;
 // counts.
 mod assets;
 
+// Draining before the node stops: no new packet, and those in flight
+// answered.
+mod drain;
+
 /// The package's directory, as cargo and nextest name it to a test they
 /// run, never `env!`'s from when the test compiled: a build is reused in
 /// other checkouts of the repository, whose files are their own.

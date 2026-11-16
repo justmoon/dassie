@@ -170,6 +170,8 @@ A limit refusal becomes T04, a full table T03. So a peer can push packets to us 
 
 **Draining.** While a peering ends, its endpoint is draining: no new Prepare goes to it or is taken from it, but packets in flight finish. The peering ends once nothing is in flight to or from it ([Network](network.md#termination)). Before that, while the node collects from a peer it decided to end and has not told, the peer's endpoint is refusing: its new Prepares get T04 "insufficient liquidity" before any other check, so a peer that probes with a packet another check would answer can tell, and ours still go to it ([ending-a-peering](../decisions/ending-a-peering.md)).
 
+**A node that stops** closes its connector before it does: no new packet goes in flight, from any source, the node's own endpoints and swaps included, while those in flight finish. Each new Prepare gets T03 "the node is stopping": the code says, as for a full table, that this node refuses for now, so that senders try again later or elsewhere; ILDCP, which puts nothing in flight, is still answered ([Node](node.md#shutdown), [drain-on-shutdown](../decisions/drain-on-shutdown.md)).
+
 **Unreached peers.** A peer our messages surely do not reach is refused the same way, on its own: once an ILP packet of ours to it surely did not arrive, its new Prepares get T04 before any other check, until it answers a request of ours, while ours still go to it. Across a link cut one way, a Fulfill of ours would never arrive and count only in our books, so each try of the sender's would drift the books apart by a packet; refused, they drift by at most what was in flight ([unreachable-peers](../decisions/unreachable-peers.md)).
 
 ## Money in flight with a peer
@@ -214,6 +216,7 @@ ILP clients such as `ilp-plugin-btp` connect with `btp+wss://:<token>@<host>/btp
 - **The token is the authentication.** Clients are not browsers, so there is no Origin check. Failed logins are rate-limited per client address; only failed ones count, so honest clients may reconnect as often as they need.
 - **Money moves only in ILP packets:** a BTP Transfer is refused.
 - **A client that goes away** has the packets in flight to it failed upstream; packets it sent keep running, and their responses are dropped. Revoking a token closes its connections, and from that moment they take no new Prepares, so none passes without the token's cap while they close.
+- **A node that stops keeps its clients connected** while it drains, since their connections carry the answers to the packets in flight both ways; new clients are refused (503) and new Prepares get T03. Once the engine stopped, each client is sent what it answered, then 1001 "node shutting down" ([Node](node.md#shutdown)).
 
 ### BTP tokens
 
@@ -247,6 +250,7 @@ ILP-over-HTTP (RFC 35) is not built: the connector has no HTTP endpoint ([roadma
 - [secrets-at-rest](../decisions/secrets-at-rest.md): BTP tokens are kept hashed.
 - [connector-timing](../decisions/connector-timing.md): timing at the packet's expiry, F05 at once, F08 data, F01 and F02, segment-aware prefixes, unique request IDs.
 - [own-fulfills](../decisions/own-fulfills.md): Fulfills booked as final; a stale resend from a peer is dropped.
+- [drain-on-shutdown](../decisions/drain-on-shutdown.md): a node that stops takes no new packet, with T03, and waits for those in flight.
 - [packets-in-flight](../decisions/packets-in-flight.md): the cap on money in flight with a peer.
 - [thresholds-in-packets](../decisions/thresholds-in-packets.md): the cap counted in the largest packet.
 - [unreachable-peers](../decisions/unreachable-peers.md): no Prepare taken from a peer our messages surely do not reach.

@@ -835,10 +835,14 @@ fn own_info(node: &Node) -> dassie_peer::OwnInfo {
 /// runs until shutdown. A panic or error ends the generation; the
 /// supervisor starts the next.
 ///
+/// At `shutdown` it drains first: it takes no new packet, and stops once
+/// those in flight are answered or expired; `now` stops it at once, losing
+/// their answers as a crash does (spec/areas/node.md#shutdown).
+///
 /// The node is up once the engine's first step is on disk, or, on a node
 /// without an identity, at once, since nothing starts until the owner sets
 /// it up (spec/areas/node.md#readiness).
-pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
+pub async fn run(node: Arc<Node>, shutdown: CancellationToken, now: CancellationToken) {
     let mut identity = node.identity();
     if identity.borrow().is_none() {
         node.services().up();
@@ -910,7 +914,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         versions,
         https_checks: Arc::new(tokio::sync::Semaphore::new(links::MAX_HTTPS_CHECKS)),
     };
-    driver.run(receiver, config, &shutdown).await;
+    driver.run(receiver, config, (&shutdown, &now)).await;
     // Without an engine, the node has no snapshot to answer with.
     node.set_snapshot(None);
 }
@@ -1018,18 +1022,39 @@ impl Driver<'_> {
         &mut self,
         mut receiver: mpsc::Receiver<Command>,
         mut config: watch::Receiver<dassie_node_core::config::NodeConfig>,
-        shutdown: &CancellationToken,
+        (shutdown, now): (&CancellationToken, &CancellationToken),
     ) {
         let mut wake = self.node.clock().subscribe();
+        let mut drain_requests = self.node.drain_requests();
+        // The drain's bound while the engine drains.
+        let mut until_ms = None;
+        // Nothing of an engine before this one's drain holds: a drain still
+        // asked for begins again below.
+        self.node.set_stopping(None);
         // What starting the core asked for, such as the schemes'
         // connections, goes out now. With this first step on disk, the
         // engine works.
         self.finish();
         self.node.services().up();
         loop {
+            let stopping = shutdown.is_cancelled();
+            let wanted = stopping || *drain_requests.borrow_and_update();
+            until_ms = self.drain(wanted, stopping, until_ms);
+            if let Some(until_ms) = until_ms {
+                // Once nothing is in flight, or the last of it expired, the
+                // engine stops at shutdown; a drain the owner asked for
+                // holds until it is taken back or the shutdown comes.
+                let done = self.core.drained() || self.node.now_ms() >= until_ms;
+                if stopping && done {
+                    break;
+                }
+            }
             let delay = self
                 .core
                 .deadline()
+                .into_iter()
+                .chain(until_ms)
+                .min()
                 .map(|deadline| deadline.saturating_sub(self.node.now_ms()).max(1));
             let sleep = async {
                 match delay {
@@ -1039,7 +1064,10 @@ impl Driver<'_> {
             };
             tokio::select! {
                 biased;
-                () = shutdown.cancelled() => break,
+                () = now.cancelled() => break,
+                // The loop begins the drain.
+                () = shutdown.cancelled(), if !stopping => continue,
+                Ok(()) = drain_requests.changed() => continue,
                 command = receiver.recv() => {
                     let Some(command) = command else { break };
                     self.begin_step();
@@ -1063,6 +1091,41 @@ impl Driver<'_> {
             }
             self.finish();
         }
+    }
+
+    /// Begins a drain when `wanted`, or ends one that no longer is, in a
+    /// step of its own, and says how it stands: returns the drain's bound
+    /// while it drains (spec/areas/node.md#shutdown).
+    fn drain(&mut self, wanted: bool, stopping: bool, until_ms: Option<u64>) -> Option<u64> {
+        let until_ms = match (wanted, until_ms) {
+            (true, None) => {
+                self.begin_step();
+                let until_ms = self.core.begin_drain();
+                let in_flight = self.core.in_flight();
+                let seconds = until_ms.saturating_sub(self.node.now_ms()).div_ceil(1_000);
+                if stopping && in_flight > 0 {
+                    tracing::warn!(target: target::ENGINE, in_flight, seconds, "waiting for the packets in flight before stopping; a second SIGTERM stops at once and loses their answers");
+                } else if !stopping {
+                    tracing::info!(target: target::ENGINE, in_flight, seconds, "taking no new packets while those in flight finish");
+                }
+                self.finish();
+                Some(until_ms)
+            }
+            (false, Some(_)) => {
+                self.begin_step();
+                self.core.end_drain();
+                tracing::info!(target: target::ENGINE, "taking packets again");
+                self.finish();
+                None
+            }
+            (_, until_ms) => until_ms,
+        };
+        self.node
+            .set_stopping(until_ms.map(|until_ms| crate::node::Stopping {
+                in_flight: self.core.in_flight(),
+                until_ms,
+            }));
+        until_ms
     }
 
     /// Starts a swap the owner asks for; `reply` hears what it moved once

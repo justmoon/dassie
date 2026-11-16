@@ -421,6 +421,27 @@ impl Revocation {
     }
 }
 
+/// The engine's drain before the node stops, or before the desktop app
+/// quits (spec/areas/node.md#shutdown).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stopping {
+    /// The packets still in flight.
+    pub in_flight: usize,
+    /// When the last of them is answered at the latest, on the node's
+    /// clock.
+    pub until_ms: u64,
+}
+
+/// The engine's drain (spec/areas/node.md#shutdown).
+#[derive(Default)]
+struct Drain {
+    /// Whether the owner asked the engine to drain, as the desktop app's
+    /// Quit does, which the owner may take back.
+    requested: watch::Sender<bool>,
+    /// How the drain goes, while the engine drains.
+    stopping: watch::Sender<Option<Stopping>>,
+}
+
 /// The node.
 pub struct Node {
     store: Arc<Store>,
@@ -434,6 +455,7 @@ pub struct Node {
     /// How the node's SLH-DSA key is made, at its start and at setup.
     keygen: Arc<dyn SlhDsaKeygen>,
     engine: watch::Sender<Option<Engine>>,
+    drain: Drain,
     btp_connections: Arc<Semaphore>,
     btp_auth_limiter: Mutex<RateLimiter>,
     setup_token: SetupToken,
@@ -595,6 +617,7 @@ impl Node {
             config_writer: Mutex::new(()),
             node_key: watch::Sender::new(node_key),
             engine: watch::Sender::new(None),
+            drain: Drain::default(),
             btp_connections: Arc::new(Semaphore::new(policies.max_btp_connections)),
             btp_auth_limiter: Mutex::new(RateLimiter::new(policies.btp_auth_attempts)),
             setup_token,
@@ -932,6 +955,40 @@ impl Node {
 
     pub(crate) fn publish_engine(&self, engine: Option<Engine>) {
         self.engine.send_replace(engine);
+    }
+
+    /// Asks the engine to drain, or takes the request back: it takes no
+    /// new packet, and its packets in flight are answered or expire, so
+    /// that the node then stops losing none (spec/areas/node.md#shutdown).
+    /// Unlike a shutdown, which drains too, a drain asked for here can be
+    /// taken back, as the desktop app's Cancel does.
+    pub fn request_drain(&self, drain: bool) {
+        self.drain
+            .requested
+            .send_if_modified(|held| std::mem::replace(held, drain) != drain);
+    }
+
+    /// The owner's requests to drain, as they change.
+    pub(crate) fn drain_requests(&self) -> watch::Receiver<bool> {
+        self.drain.requested.subscribe()
+    }
+
+    /// The engine's drain as it goes: `None` while it takes packets.
+    #[must_use]
+    pub fn stopping(&self) -> watch::Receiver<Option<Stopping>> {
+        self.drain.stopping.subscribe()
+    }
+
+    /// Whether the engine drains, or drained before it stopped.
+    #[must_use]
+    pub fn is_stopping(&self) -> bool {
+        self.drain.stopping.borrow().is_some()
+    }
+
+    pub(crate) fn set_stopping(&self, stopping: Option<Stopping>) {
+        self.drain
+            .stopping
+            .send_if_modified(|held| std::mem::replace(held, stopping) != stopping);
     }
 
     /// The node's clock.

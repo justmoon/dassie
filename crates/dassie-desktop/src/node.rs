@@ -14,12 +14,11 @@ use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 
 use dassie_node::clock::{SystemClock, os_rng};
-use dassie_node::daemon::{self, DaemonOptions, FeedSocket, Prepared, TcpPorts};
+use dassie_node::daemon::{self, DaemonOptions, FeedSocket, Prepared, Shutdown, TcpPorts};
 use dassie_node::env::Env;
 use dassie_node::node::{Node, Policies, Runtime};
 use dassie_node::quic::relay::RelayLink;
 use tauri::Url;
-use tokio_util::sync::CancellationToken;
 
 /// The node, while it runs.
 #[derive(Debug)]
@@ -27,7 +26,7 @@ pub struct RunningNode {
     /// The port of its HTTPS listener on loopback, the wallet's.
     pub https_port: u16,
     node: Weak<Node>,
-    shutdown: CancellationToken,
+    shutdown: Shutdown,
     thread: std::sync::Mutex<Option<JoinHandle<Result<(), String>>>>,
 }
 
@@ -82,7 +81,7 @@ pub fn start(
         .map_err(|error| error.to_string())?
         .with_wallet(dassie_wallet_assets::WALLET)
         .handing_out_node(to);
-    let shutdown = CancellationToken::new();
+    let shutdown = Shutdown::new();
     let token = shutdown.clone();
     // `on_end` is for a node that started; one that did not is this
     // function's error.
@@ -116,7 +115,7 @@ pub fn start(
 }
 
 /// Runs the daemon to its end on a runtime of its own.
-fn run(prepared: Prepared, shutdown: CancellationToken) -> Result<(), String> {
+fn run(prepared: Prepared, shutdown: Shutdown) -> Result<(), String> {
     let runtime = tokio::runtime::Runtime::new().map_err(|error| error.to_string())?;
     let clock = Arc::new(SystemClock);
     runtime
@@ -186,13 +185,13 @@ impl RunningNode {
     /// Whether it was asked to stop.
     #[must_use]
     pub fn stopping(&self) -> bool {
-        self.shutdown.is_cancelled()
+        self.shutdown.drain.is_cancelled()
     }
 
     /// Stops the node and waits for it: the daemon bounds how long its
     /// services get.
     pub fn stop(&self) {
-        self.shutdown.cancel();
+        self.shutdown.drain.cancel();
         let thread = self
             .thread
             .lock()

@@ -103,7 +103,20 @@
         <code>dassie daemon --runtime=systemd</code>. It reads its settings
         from the <a href="/docs/reference/environment/">environment</a>, and
         stops at once, naming the variable, if one has a value it cannot use.
-        SIGTERM or SIGINT stops it cleanly.
+      </p>
+      <p>
+        SIGTERM or SIGINT stops it cleanly. It first takes no new payments
+        and waits for the packets on their way through it to be answered, so
+        that none is lost: usually a moment, at most about 32 seconds, when a
+        packet is never answered and has to expire. Then it stops. A second
+        SIGTERM or SIGINT stops it at once; the answers to packets still on
+        their way are lost then, as in a crash. With packets on their way,
+        the log says how long it waits. <code>systemctl stop dassie</code>
+        allows it 90 seconds.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/drain-on-shutdown.md">Why it waits</a>
       </p>
       <dl class="ref">
         <dt><code>--runtime standalone|systemd</code></dt>

@@ -30,7 +30,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 // The library's, under the names the commands use.
-use dassie_cli::signals::{listen_for_signals, stop_on_signal};
+use dassie_cli::signals::{drain_on_signal, listen_for_signals, stop_on_signal};
 use dassie_cli::{client, market_maker, passphrase};
 use dassie_node::clock::{SystemClock, os_rng};
 use dassie_node::daemon::{self, DaemonOptions, FeedSocket, Prepared, TcpPorts};
@@ -41,7 +41,6 @@ use dassie_node::{log, tls};
 use dassie_node_core::certificate;
 use dassie_node_core::config::Ports;
 use lexopt::prelude::*;
-use tokio_util::sync::CancellationToken;
 
 const USAGE: &str = "\
 Usage: dassie <command> [options]
@@ -364,13 +363,13 @@ fn daemon(options: DaemonOptions) -> ExitCode {
         return ExitCode::from(START_FAILED);
     };
     let result = runtime.block_on(async {
-        let shutdown = CancellationToken::new();
+        let shutdown = daemon::Shutdown::new();
         // The handlers exist before the daemon publishes its socket or
         // reports readiness, so no SIGTERM finds the process without one.
         let Some(signals) = listen_for_signals() else {
             return Err(daemon::DaemonError::Signals);
         };
-        tokio::spawn(stop_on_signal(signals, shutdown.clone()));
+        tokio::spawn(drain_on_signal(signals, shutdown.clone()));
         daemon::run(
             prepared,
             Arc::new(SystemClock),

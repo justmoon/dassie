@@ -446,6 +446,9 @@ async fn btp_transfers_and_duplicates_get_errors() {
     client.send(40, &packet, false).await;
     let duplicate = client.receive().await.unwrap();
     assert!(duplicate.error && duplicate.request_id == 40);
+    // The packet is still in flight, unanswered: a drain would wait for its
+    // expiry, which the clock never reaches.
+    node.stop_now();
     node.stop().await;
 }
 

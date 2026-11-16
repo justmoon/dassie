@@ -34,6 +34,10 @@ RestartSec=1
 LimitNOFILE=16384
 # Bounded, so that an update whose node never comes up is rolled back.
 TimeoutStartSec=5min
+# Room for the node to wait for its packets in flight before it stops, at
+# most the longest a packet is held and a message window (31.6 s), and then
+# for its services (15 s), whatever the host's DefaultTimeoutStopSec.
+TimeoutStopSec=90s
 
 # Nothing the node does needs more than this.
 NoNewPrivileges=yes

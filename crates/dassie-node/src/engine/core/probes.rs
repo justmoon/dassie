@@ -127,6 +127,7 @@ impl Core {
         shared_secret: &[u8; 32],
         by: Prober,
     ) -> Result<(), EngineError> {
+        self.refuse_while_draining()?;
         if !self.spending.payers.contains_key(&ledger) {
             return Err(EngineError::Precondition("the ledger is not active".into()));
         }

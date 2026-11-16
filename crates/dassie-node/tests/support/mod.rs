@@ -48,7 +48,6 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
-use tokio_util::sync::CancellationToken;
 
 /// 2027-01-15, a plausible now.
 pub const START_MS: u64 = 1_800_000_000_000;
@@ -370,7 +369,7 @@ impl Bound {
         if let Some(path) = notify {
             prepared = prepared.notifying(Notifier::Path(path));
         }
-        let shutdown = CancellationToken::new();
+        let shutdown = daemon::Shutdown::new();
         let handle = tokio::spawn(daemon::run(
             prepared,
             daemon_clock,
@@ -417,7 +416,7 @@ pub struct TestNode {
     /// test that reaches what no RPC does.
     #[allow(clippy::disallowed_types)]
     pub node: std::sync::Weak<dassie_node::node::Node>,
-    shutdown: CancellationToken,
+    shutdown: daemon::Shutdown,
     handle: Option<JoinHandle<Result<(), DaemonError>>>,
     _blackhole: Option<std::net::UdpSocket>,
 }
@@ -481,6 +480,36 @@ impl TestNode {
             .expect("the daemon ended");
     }
 
+    /// Tells the daemon to stop, as SIGTERM does: its engine drains its
+    /// packets in flight first (spec/areas/node.md#shutdown).
+    pub fn begin_stop(&self) {
+        self.shutdown.drain.cancel();
+    }
+
+    /// Tells the daemon to stop at once, as a second SIGTERM does.
+    pub fn stop_now(&self) {
+        self.shutdown.stop_now();
+    }
+
+    /// Whether the daemon still runs.
+    pub fn running(&self) -> bool {
+        self.handle
+            .as_ref()
+            .is_some_and(|handle| !handle.is_finished())
+    }
+
+    /// Waits until the daemon's engine drains, giving up only on a hang
+    /// ([`HANG`]).
+    pub async fn draining(&self) {
+        let node = self.node.upgrade().expect("the daemon made no node");
+        let mut stopping = node.stopping();
+        drop(node);
+        tokio::time::timeout(HANG, stopping.wait_for(Option::is_some))
+            .await
+            .expect("the engine did not drain")
+            .expect("the node is gone");
+    }
+
     /// Waits for the daemon to end by itself, and returns how it ended and
     /// its directory. A daemon ends by itself when a service fails its
     /// start, after the supervisor's backoffs between its attempts, which
@@ -497,11 +526,14 @@ impl TestNode {
     }
 
     /// Stops the daemon and returns its directory and clock, to start again.
+    /// It drains first: a test that leaves a packet in flight answers it,
+    /// moves the clock past its expiry, or calls [`Self::stop_now`] before,
+    /// or the drain waits for its backstop in real time.
     /// A daemon that returned has let go of its node and closed its
     /// database, so the directory is free at once: a restart in the same
     /// process, as here, relies on it (spec/areas/node.md#shutdown).
     pub async fn stop(mut self) -> (tempfile::TempDir, ManualClock) {
-        self.shutdown.cancel();
+        self.shutdown.drain.cancel();
         self.handle.take().unwrap().await.unwrap().unwrap();
         assert_eq!(self.node.strong_count(), 0, "the node outlived the daemon");
         if let Err(error) = Store::open(&self.dir.path().join("state")) {
