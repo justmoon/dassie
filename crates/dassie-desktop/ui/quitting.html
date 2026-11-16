@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Quitting Dassie</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="quitting.js" defer></script>
+  </head>
+  <body>
+    <main class="quitting">
+      <h1>Finishing up</h1>
+      <p id="waiting">
+        Your node is waiting for the answers to packets still on their way.
+        Dassie quits as soon as they arrive.
+      </p>
+      <div class="warning" role="note">
+        <strong>If you quit now,</strong> your node never hears how these
+        packets ended, as after a crash. Its books can then differ from a
+        neighbor's, by up to what it lets be on its way to that neighbor.
+      </div>
+      <div class="actions">
+        <a class="button" id="cancel" href="action/cancel">Cancel</a>
+        <a class="button danger" href="action/now">Quit now</a>
+      </div>
+    </main>
+  </body>
+</html>

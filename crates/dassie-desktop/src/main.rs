@@ -10,6 +10,7 @@ mod autostart;
 mod node;
 mod ports;
 mod private;
+mod quitting;
 mod signals;
 mod tray;
 mod trust;
@@ -91,6 +92,7 @@ fn setup(app: &AppHandle, env: &Env, hidden: bool) {
     app.manage(Desktop {
         node: Arc::clone(&node),
     });
+    app.manage(quitting::Quitting::default());
     if let Err(error) = autostart::refresh(&dir) {
         tracing::warn!(target: dassie_node::log::target::DESKTOP, %error, "could not update starting at login");
     }

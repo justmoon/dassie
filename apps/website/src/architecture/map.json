@@ -433,6 +433,7 @@
         "Loads the wallet from the node's own `https://localhost` origin, and trusts exactly the certificate its node serves there",
         "Opens links to public pages in the browser, and loads nothing else",
         "Starts at login in the tray, unless its owner turns that off",
+        "Quits once its node has answered the packets in flight, showing a wait that lasts, which the owner may cancel or cut short",
         "`nix run .#desktop` runs it"
       ]
     },

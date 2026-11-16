@@ -7,12 +7,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tauri::AppHandle;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager};
 
 use crate::node::RunningNode;
-use crate::{autostart, window};
+use crate::{autostart, quitting, window};
 
 /// How often the tray's status line is brought up to date.
 const STATUS_EVERY: Duration = Duration::from_secs(2);
@@ -57,7 +57,7 @@ pub fn build(app: &AppHandle, node: &Arc<RunningNode>, data_dir: PathBuf) -> tau
                 tracing::warn!(target: dassie_node::log::target::DESKTOP, %error, "could not change starting at login");
             }
         }
-        "quit" => quit_app(app, &for_menu),
+        "quit" => quitting::quit(app, &for_menu, false),
         _ => {}
     })
     .build(app)?;
@@ -81,26 +81,5 @@ fn keep_current(status: MenuItem<tauri::Wry>, node: Arc<RunningNode>) {
         });
     if let Err(error) = spawned {
         tracing::warn!(target: dassie_node::log::target::DESKTOP, %error, "the tray's status stays as it is");
-    }
-}
-
-/// Closes the window, stops the node and then the app, off the main thread
-/// so that the desktop does not see the app hang while the node stops.
-pub fn quit_app(app: &AppHandle, node: &Arc<RunningNode>) {
-    if let Some(window) = app.get_webview_window(window::MAIN) {
-        let _ = window.destroy();
-    }
-    let stopping = std::thread::Builder::new()
-        .name("dassie-quit".into())
-        .spawn({
-            let (app, node) = (app.clone(), Arc::clone(node));
-            move || {
-                node.stop();
-                app.exit(0);
-            }
-        });
-    if stopping.is_err() {
-        node.stop();
-        app.exit(0);
     }
 }

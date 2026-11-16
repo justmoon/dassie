@@ -1,11 +1,12 @@
 /*
- * The page the window shows while the node starts, in Kopje, Dassie's
- * visual identity (apps/website/brand/index.html): the mark above the
- * words, Fraunces for the heading and Figtree for the rest, on Sandstone,
- * or at dusk on the night, as the system has it. The page has no build
- * step, so the colors are Kopje's (packages/ui/kopje.css) written out, and
- * the fonts are copies of its files, which packages/ui/kopje_test.ts keeps
- * identical.
+ * The app's own pages, in Kopje, Dassie's visual identity
+ * (apps/website/brand/index.html): the page the window shows while the
+ * node starts, the mark above the words, and the one a quit shows while
+ * the node finishes. Fraunces for the headings and Figtree for the rest, on
+ * Sandstone, or at dusk on the night, as the system has it. The pages have
+ * no build step, so the colors are Kopje's (packages/ui/kopje.css,
+ * packages/ui/ui.css) written out, and the fonts are copies of its files,
+ * which packages/ui/kopje_test.ts keeps identical.
  */
 
 @font-face {
@@ -29,6 +30,11 @@
   --sand: light-dark(#EFE3CF, #1E1814);
   --ink: light-dark(#2B2420, #F0E5D3);
   --ink-2: light-dark(#5E524A, #B8AA97);
+  --stone-3: light-dark(#E6D8C1, #332922);
+  --ember-text: light-dark(#A94E2A, #E58A57);
+  --danger: light-dark(#B3261E, #F08A7E);
+  --warning-bg: light-dark(#FBEBD6, #33251A);
+  --warning-line: #F4A259;
 }
 
 body {
@@ -67,4 +73,61 @@ p {
   margin: 0;
   color: var(--ink-2);
   overflow-wrap: anywhere;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Quitting: what the wait is for, a warning of what quitting at once
+   costs, and the two ways out, side by side. */
+.quitting {
+  max-width: 26rem;
+  text-align: left;
+}
+
+.quitting h1 {
+  margin-top: 0;
+}
+
+.warning {
+  margin: 20px 0;
+  padding: 12px 16px;
+  color: var(--ink);
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-line);
+  border-radius: 14px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Buttons are pebbles: an ink outline, and the danger color for the one
+   that costs something. */
+a.button {
+  display: inline-block;
+  padding: 9px 19px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+}
+
+a.button:hover {
+  background: var(--stone-3);
+}
+
+a.button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+a.button:focus-visible {
+  outline: 2px solid var(--ember-text);
+  outline-offset: 2px;
 }

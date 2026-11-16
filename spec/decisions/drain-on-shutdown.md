@@ -1,6 +1,6 @@
 # A node that stops waits for its packets in flight, until the latest of them is due
 
-**Areas:** [Node](../areas/node.md#shutdown), [Connector](../areas/connector.md#responses-and-expiry)
+**Areas:** [Node](../areas/node.md#shutdown), [Connector](../areas/connector.md#responses-and-expiry), [Desktop](../areas/desktop.md#lifecycle)
 
 ## Facts
 
@@ -17,6 +17,7 @@ At SIGTERM the node drains before it stops.
 - **It waits until the latest deadline among the packets in flight** at the moment it began, which no packet can pass since none can join. Each is answered or expires by then, and it stops as soon as none is left, at once when none was there.
 - **Everything that carries an answer stays up** until the engine has stopped: QUIC, the HTTP listeners with their BTP connections, the ledger connections and settlements.
 - **A second SIGTERM stops it at once,** with the loss of a crash. The first one warns, when packets are in flight, that a second skips the wait.
+- **The desktop app drains when its owner quits,** and shows the wait only when it lasts more than a second, with a warning of what quitting at once costs, and a way to cancel the quit or to quit at once.
 
 ## Accepted
 
@@ -31,3 +32,5 @@ At SIGTERM the node drains before it stops.
 - *Closing the BTP clients at once,* as before: a client's connection carries the answers both ways. Closing it fails the packets sent to the client, though it may have fulfilled them already, so it loses what it paid out; and it drops the answers to the client's own packets, so a Fulfill the node booked never reaches the sender, which counts that money unpaid. Their new Prepares are refused anyway, so keeping them costs nothing.
 - *T01 for the refusal,* as a peering that ends answers: T01 says a hop beyond the node cannot be reached, which is not so. *T00* says something failed, *T04* that liquidity ran out, and a final code would end payments that can go through after the restart.
 - *Persisting the packets in flight,* so that a restart picks them up: [own-fulfills](own-fulfills.md) rejects it, and a drain makes it needless for an orderly stop.
+- *A confirmation each time the desktop app quits:* in most quits nothing is in flight, so it would ask about nothing and teach the owner to click through it, and a session that ends sends SIGTERM, which no dialog can stop, so the drain has to work without one anyway. The window that shows a lasting wait asks only when there is something to lose.
+- *A shorter wait for the desktop app:* a periphery node forwards nobody's packets, so its packets in flight are its own payments' and swaps', usually answered within a second; the wait ends as soon as they are, and **Quit now** is there for the rest.

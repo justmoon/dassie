@@ -16,7 +16,7 @@ use std::thread::JoinHandle;
 use dassie_node::clock::{SystemClock, os_rng};
 use dassie_node::daemon::{self, DaemonOptions, FeedSocket, Prepared, Shutdown, TcpPorts};
 use dassie_node::env::Env;
-use dassie_node::node::{Node, Policies, Runtime};
+use dassie_node::node::{Node, Policies, Runtime, Stopping};
 use dassie_node::quic::relay::RelayLink;
 use tauri::Url;
 
@@ -188,8 +188,61 @@ impl RunningNode {
         self.shutdown.drain.is_cancelled()
     }
 
-    /// Stops the node and waits for it: the daemon bounds how long its
-    /// services get.
+    /// Asks the node to drain, or takes the request back: it takes no new
+    /// packet, and its packets in flight are answered or expire
+    /// (spec/areas/node.md#shutdown).
+    pub fn request_drain(&self, drain: bool) {
+        if let Some(node) = self.node.upgrade() {
+            node.request_drain(drain);
+        }
+    }
+
+    /// Whether nothing holds a quit any more: the node stopped, runs no
+    /// engine, or drained.
+    #[must_use]
+    pub fn drained(&self) -> bool {
+        let Some(node) = self.node.upgrade() else {
+            return true;
+        };
+        if node.engine().is_none() {
+            return true;
+        }
+        let stopping = *node.stopping().borrow();
+        stopping
+            .is_some_and(|stopping| stopping.in_flight == 0 || node.now_ms() >= stopping.until_ms)
+    }
+
+    /// The packets the node still waits for while it drains.
+    #[must_use]
+    pub fn in_flight(&self) -> usize {
+        self.draining().map_or(0, |stopping| stopping.in_flight)
+    }
+
+    /// When the last packet the node waits for is answered at the latest,
+    /// in ms since the epoch, while it drains.
+    #[must_use]
+    pub fn drain_until(&self) -> Option<u64> {
+        self.draining().map(|stopping| stopping.until_ms)
+    }
+
+    fn draining(&self) -> Option<Stopping> {
+        *self.node.upgrade()?.stopping().borrow()
+    }
+
+    /// Tells the node to stop once it drained, as SIGTERM tells the daemon,
+    /// without waiting for it: what cannot be taken back.
+    pub fn begin_stop(&self) {
+        self.shutdown.drain.cancel();
+    }
+
+    /// Tells the node to stop at once, cutting its drain short, without
+    /// waiting for it: the answers to packets still in flight are lost.
+    pub fn stop_now(&self) {
+        self.shutdown.stop_now();
+    }
+
+    /// Stops the node and waits for it: it drains first, and the daemon
+    /// bounds how long its services get.
     pub fn stop(&self) {
         self.shutdown.drain.cancel();
         let thread = self
