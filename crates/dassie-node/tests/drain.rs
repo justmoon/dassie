@@ -173,6 +173,23 @@ async fn stopping_at_once_cuts_the_drain_short() {
     node.stop().await;
 }
 
+// Stopping at once after a drain the owner asked for, as the desktop app's
+// Quit now does, still tells the clients the node went away.
+#[tokio::test]
+async fn stopping_at_once_after_an_asked_drain_says_the_node_went() {
+    let node = TestNode::start().await;
+    let secret = ready(&node).await;
+    let mut paying = paying(&node, &secret).await;
+    let held = node.node.upgrade().unwrap();
+    held.request_drain(true);
+    drop(held);
+    node.draining().await;
+    node.stop_now();
+    assert_eq!(paying.bob.closed().await, Some(1001));
+    assert_eq!(paying.alice.closed().await, Some(1001));
+    node.stop().await;
+}
+
 // A drain the owner asked for, as the desktop app's Quit does, can be
 // taken back: the node takes packets again, and never stopped.
 #[tokio::test]
