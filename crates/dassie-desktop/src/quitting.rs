@@ -114,7 +114,10 @@ fn run(app: &AppHandle, node: &RunningNode, asked: &mpsc::Receiver<Ask>, signall
     let mut cancellable = !signalled;
     let mut shown = None;
     while !node.drained() {
-        if started.elapsed() >= SHOW_AFTER {
+        // A window the owner closed in a quit that cannot be cancelled
+        // stays closed: the quit goes on without it.
+        let dismissed = shown.is_some() && app.get_webview_window(WINDOW).is_none();
+        if started.elapsed() >= SHOW_AFTER && !dismissed {
             let view = View {
                 in_flight: node.in_flight(),
                 until_ms: node.drain_until(),
