@@ -1049,11 +1049,14 @@ impl Driver<'_> {
                     break;
                 }
             }
+            // The drain's bound wakes the engine until it passes: a drain the
+            // owner asked for may hold past it, with nothing left to wait for.
+            let bound = until_ms.filter(|&until| until > self.node.now_ms());
             let delay = self
                 .core
                 .deadline()
                 .into_iter()
-                .chain(until_ms)
+                .chain(bound)
                 .min()
                 .map(|deadline| deadline.saturating_sub(self.node.now_ms()).max(1));
             let sleep = async {
@@ -1124,6 +1127,7 @@ impl Driver<'_> {
             .set_stopping(until_ms.map(|until_ms| crate::node::Stopping {
                 in_flight: self.core.in_flight(),
                 until_ms,
+                shutdown: stopping,
             }));
         until_ms
     }
