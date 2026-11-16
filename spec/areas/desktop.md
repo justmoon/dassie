@@ -11,7 +11,7 @@ It is not the paired owner app of the [periphery design](../designs/periphery.md
 
 The app runs the daemon as `dassie daemon` does (`daemon::run`), on an async runtime and a thread of its own, so the node never shares the window's event loop or its runtime. It reads the same environment, with the same defaults: the data directory, the IPC socket, the bootstrap nodes and the default relay are a server node's, so `dassie status` reports on the desktop node too. The app sets no dev switch.
 
-The node is the same code as the server's, and stops the same way: quitting the app cancels the daemon and waits for it to [shut down](node.md#shutdown). A node that stops on its own, or does not start, is shown in the window with why, and closing that window quits the app.
+The node is the same code as the server's, and stops the same way: quitting the app waits for its packets in flight and then for the daemon to [shut down](node.md#shutdown) ([Lifecycle](#lifecycle)). A node that stops on its own, or does not start, is shown in the window with why, and closing that window quits the app.
 
 ## Sockets
 
@@ -35,7 +35,10 @@ A periphery node is reachable only while it runs, so the app keeps running when 
 
 - **Starting at login:** an XDG autostart entry starts the app with `--hidden`, in the tray without a window. It is on by default where `PATH` finds the binary by its name, as it does for an installed app; an entry naming a path that an upgrade or a garbage collection removes, as a one-off `nix run` gives, would only go stale. The owner's choice is kept in the app's data directory, whether made in the tray or in the desktop's own settings, which remove the entry or turn it off in place, so an entry the owner removed or turned off stays so, and one turned on again there counts as on. While it is wanted, the entry is written again at every start, so that it names the binary as it is now.
 - **Closing the window** destroys it, which frees its web process; the node and the tray stay. Once the node has stopped, closing the window, which then says why, quits the app.
-- **SIGTERM and SIGINT,** which a session sends when it ends, quit the app, which stops the node as they stop `dassie daemon`; a second one, while the node still stops, ends the process at once. They are handled for as long as the app runs, not only while its node does.
+- **Quitting drains first** ([drain-on-shutdown](../decisions/drain-on-shutdown.md)): the node takes no new packet and waits for the ones in flight, then stops, and the app exits. There is no confirmation: in most quits nothing is in flight and the app exits at once. Only a wait that lasts more than a second opens a small window, the app's own page (`ui/quitting.html`), with the packets left and a countdown to the drain's bound, a warning of what quitting at once costs, and **Cancel** and **Quit now** side by side. The page gets no Tauri API: its buttons are links the window takes and never loads.
+  - **Quit from the tray** drains in a way the owner can take back (`Node::request_drain`): **Cancel**, closing the window or Escape ends the drain, and the node takes packets again and runs on in the tray. Quitting again while the window is open brings it forward.
+  - **Quit now** stops the node at once, and the answers to the packets still in flight are lost, as in a crash.
+- **SIGTERM and SIGINT,** which a session sends when it ends, quit the app the same way, but as a shutdown no one can cancel: the window, if it opens, has no **Cancel**. A second one stops the node at once, as **Quit now** does, and a third ends the process. They are handled for as long as the app runs, not only while its node does.
 
 ## Private files
 

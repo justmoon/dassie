@@ -61,6 +61,10 @@ pub fn upgrade(
     let Some(engine) = node.engine() else {
         return response::text(StatusCode::SERVICE_UNAVAILABLE, "The ledger is not running");
     };
+    // A node that drains takes no new client: it takes no new packet.
+    if node.is_stopping() {
+        return response::text(StatusCode::SERVICE_UNAVAILABLE, "The node is stopping");
+    }
     if node.btp_auth_blocked(peer.ip()) {
         return response::text(StatusCode::TOO_MANY_REQUESTS, "Too many failed attempts");
     }
@@ -111,10 +115,17 @@ async fn serve(
     };
     let end = loop {
         tokio::select! {
-            // At shutdown the engine stops too: say why the node went.
+            // At shutdown the engine stops first, once it drained: what it
+            // answered goes out before the client hears why the node went
+            // (spec/areas/node.md#shutdown).
             biased;
-            () = shutdown.cancelled() => break Some((CloseCode::Away, "node shutting down")),
-            () = engine.generation().cancelled() => break Some((CloseCode::Error, "ledger restarting")),
+            () = shutdown.cancelled() => break going_away(&mut socket, &mut queue).await,
+            () = engine.generation().cancelled() => {
+                if !node.is_stopping() {
+                    break Some((CloseCode::Error, "ledger restarting"));
+                }
+                break going_away(&mut socket, &mut queue).await;
+            }
             message = queue.recv() => match message {
                 Some(Outbound::Close) | None => break Some((CloseCode::Policy, "disconnected")),
                 Some(message) => {
@@ -139,6 +150,24 @@ async fn serve(
     if let Some((code, reason)) = end {
         close(&mut socket, code, reason).await;
     }
+}
+
+/// Sends the client what the engine queued for it before it stopped, and
+/// then says why the node went, if the client is still there.
+async fn going_away(
+    socket: &mut Socket,
+    queue: &mut mpsc::Receiver<Outbound>,
+) -> Option<(CloseCode, &'static str)> {
+    while let Ok(message) = queue.try_recv() {
+        if matches!(message, Outbound::Close) {
+            break;
+        }
+        socket
+            .send(Message::Binary(encode(&message).into()))
+            .await
+            .ok()?;
+    }
+    Some((CloseCode::Away, "node shutting down"))
 }
 
 /// Why a client was not let in.

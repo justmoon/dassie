@@ -228,6 +228,9 @@ pub struct Connector {
     /// The node's swap endpoints, one per ledger at most: what its own
     /// swaps are sent from, and what they reach when they come back.
     swap_endpoints: BTreeMap<LedgerId, EndpointId>,
+    /// The node is stopping: no new packet goes in flight, from any
+    /// source, while those in flight finish (spec/areas/node.md#shutdown).
+    closed: bool,
 }
 
 /// A packet to a peer over a hub that expired without a response. Its
@@ -280,6 +283,7 @@ impl Connector {
             hub_waits: alloc::collections::VecDeque::new(),
             offer_swaps: true,
             swap_endpoints: BTreeMap::new(),
+            closed: false,
         }
     }
 
@@ -679,6 +683,22 @@ impl Connector {
             .is_some()
     }
 
+    /// Stops, or resumes, every new packet, from every source, the node's
+    /// own endpoints and its swaps included, while the node drains before it
+    /// stops (spec/areas/node.md#shutdown): packets in flight finish, and
+    /// their responses still flow. A refused Prepare gets T03, which every
+    /// sender takes as temporary (spec/decisions/drain-on-shutdown.md).
+    pub fn set_closed(&mut self, closed: bool) {
+        self.closed = closed;
+    }
+
+    /// Whether the connector takes no new packets
+    /// ([`set_closed`](Self::set_closed)).
+    #[must_use]
+    pub const fn is_closed(&self) -> bool {
+        self.closed
+    }
+
     /// Stops, or resumes, new Prepares from a peer that our messages
     /// surely do not reach, while Prepares to it still go
     /// (spec/decisions/unreachable-peers.md): a Fulfill of ours could not
@@ -900,6 +920,30 @@ impl Connector {
     #[must_use]
     pub fn poll_timeout(&self) -> Option<u64> {
         self.deadlines.first().map(|&(at, _, _)| at)
+    }
+
+    /// The latest a packet in flight is answered by: its expiry, or, for a
+    /// packet over a hub, the backstop it may wait for the hub until, which
+    /// it moves to only once it expires. While the connector is
+    /// [closed](Self::set_closed), no packet joins, so this bounds how long
+    /// those in flight take, at most the longest hold time and a message
+    /// window from now.
+    ///
+    /// # Panics
+    ///
+    /// If a packet in flight is answered later than that bound.
+    #[must_use]
+    pub fn latest_deadline(&self, now_ms: u64) -> Option<u64> {
+        let latest = self
+            .pending
+            .values()
+            .map(|entry| entry.expires_at_ms.max(entry.backstop_ms.unwrap_or(0)))
+            .max()?;
+        let bound = now_ms
+            .saturating_add(self.config.max_hold_ms)
+            .saturating_add(self.config.message_window_ms);
+        assert!(latest <= bound, "a packet in flight past the longest hold");
+        Some(latest)
     }
 
     /// Packets in flight.

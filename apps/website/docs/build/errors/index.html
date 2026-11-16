@@ -170,11 +170,29 @@
       </p>
 
       <h3 id="T03">T03 Connector Busy</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Message</th>
+              <th>What happened</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>connector busy</code></td>
+              <td>The node is holding as many packets as it allows, or its books have no room for another pending transfer.</td>
+            </tr>
+            <tr>
+              <td><code>the node is stopping</code></td>
+              <td>The node is about to stop, and waits for the packets already on their way through it. It takes new ones again once it is back.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <p>
-        The node is holding as many packets as it allows, or its books have no
-        room for another pending transfer (<code>connector busy</code>). A
-        node's STREAM receiver sends T03 too, with no message, when its table
-        of connections is full and it cannot make room.
+        A node's STREAM receiver sends T03 too, with no message, when its
+        table of connections is full and it cannot make room.
       </p>
       <p><strong>Your client:</strong> back off and try again.</p>
 

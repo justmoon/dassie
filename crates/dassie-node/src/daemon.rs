@@ -9,9 +9,10 @@
 //! and in its standalone runtime ran that check before anything listened on
 //! port 80. An engine that fails [`supervisor::START_ATTEMPTS`] times
 //! before that ends the daemon with an error, so a release that cannot run
-//! its engine fails its start (spec/areas/node.md#readiness). On SIGTERM it
-//! stops accepting, lets requests finish, closes the database and removes
-//! the socket it made.
+//! its engine fails its start (spec/areas/node.md#readiness). On SIGTERM the
+//! engine drains its packets in flight while the other services still
+//! carry their answers; then the daemon stops accepting, lets requests
+//! finish, closes the database and removes the socket it made.
 //!
 //! The steps that adopt sockets run before the tokio runtime exists
 //! ([`Prepared::new`]); the rest runs inside it ([`run`]).
@@ -41,8 +42,36 @@ use crate::{http, ipc, supervisor, tls};
 /// How often expired sessions are deleted, in ms: of real time on the
 /// system clock, and of the node's clock on one moved by hand.
 const PRUNE_INTERVAL_MS: u64 = 3_600_000;
-/// Time services get to stop at shutdown.
+/// Time services get to stop at shutdown, once the engine has.
 const STOP_TIMEOUT: Duration = Duration::from_secs(15);
+/// What the engine's drain may take beyond its own bound, which it counts
+/// on the node's clock: a backstop on real time.
+const DRAIN_MARGIN: Duration = Duration::from_secs(1);
+
+/// How the daemon is told to stop (spec/areas/node.md#shutdown).
+#[derive(Clone, Debug, Default)]
+pub struct Shutdown {
+    /// Stops it once its engine drained: what SIGTERM does.
+    pub drain: CancellationToken,
+    /// Stops it at once, cutting a drain short: what a second SIGTERM
+    /// does. The answers to packets still in flight are lost, as in a
+    /// crash.
+    pub now: CancellationToken,
+}
+
+impl Shutdown {
+    /// Not told yet.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Stops the daemon at once.
+    pub fn stop_now(&self) {
+        self.now.cancel();
+        self.drain.cancel();
+    }
+}
 
 /// The daemon could not start.
 #[derive(Debug)]
@@ -414,7 +443,7 @@ pub async fn run(
     clock: Arc<dyn Clock>,
     rng: Box<dyn SharedRng>,
     policies: Policies,
-    shutdown: CancellationToken,
+    shutdown: Shutdown,
 ) -> Result<(), DaemonError> {
     let Prepared {
         settings,
@@ -447,40 +476,63 @@ pub async fn run(
             return Err(error);
         }
     };
-    let services = TaskTracker::new();
-    start_services(&node, &services, &shutdown, listeners, tls, validator);
+    // The engine runs apart from the services that carry its packets'
+    // answers, which stop only once it has: a drain needs them.
+    let running = Running {
+        engine: TaskTracker::new(),
+        services: TaskTracker::new(),
+        stop: CancellationToken::new(),
+    };
+    start_services(&node, &running, &shutdown, listeners, tls, validator);
     // Clients find the socket only now, when the daemon answers them and
     // handles signals; before, a CLI would hang or a SIGTERM go unhandled.
     let ipc_path = match ipc_socket.map(ipc::Unpublished::publish).transpose() {
         Ok(path) => path,
         Err(error) => {
-            shutdown.cancel();
-            services.close();
-            services.wait().await;
+            shutdown.stop_now();
+            running.stop.cancel();
+            running.close();
+            running.engine.wait().await;
+            running.services.wait().await;
             return Err(DaemonError::Bind("the IPC socket".into(), error));
         }
     };
-    let outcome = match until_up(&node, &shutdown).await {
+    let outcome = match until_up(&node, &shutdown.drain).await {
         Some(Start::Up) => {
             report_ready(&node, notifier.as_ref());
-            shutdown.cancelled().await;
+            shutdown.drain.cancelled().await;
             Ok(())
         }
         Some(Start::Failed { service, error }) => {
-            shutdown.cancel();
+            shutdown.stop_now();
             Err(DaemonError::StartFailed { service, error })
         }
         Some(Start::Starting) | None => Ok(()),
     };
-    stop(node, &services, notifier.as_ref(), ipc_path).await;
+    stop(node, &running, &shutdown, notifier.as_ref(), ipc_path).await;
     outcome
 }
 
-/// Stops the services, within a bounded time, closes the database and
-/// removes the IPC socket the daemon made.
+/// What the daemon runs: its engine, and the services, which `stop` ends.
+struct Running {
+    engine: TaskTracker,
+    services: TaskTracker,
+    stop: CancellationToken,
+}
+
+impl Running {
+    fn close(&self) {
+        self.engine.close();
+        self.services.close();
+    }
+}
+
+/// Lets the engine drain, then stops the services, within a bounded time,
+/// closes the database and removes the IPC socket the daemon made.
 async fn stop(
     node: Arc<Node>,
-    services: &TaskTracker,
+    running: &Running,
+    shutdown: &Shutdown,
     notifier: Option<&Notifier>,
     ipc_path: Option<PathBuf>,
 ) {
@@ -488,10 +540,25 @@ async fn stop(
     if let Some(notifier) = notifier {
         let _ = notifier.notify("STOPPING=1");
     }
-    services.close();
-    let stopped = tokio::time::timeout(STOP_TIMEOUT, services.wait())
+    running.close();
+    // The engine bounds its drain by the latest expiry among its packets
+    // in flight, on the node's clock; real time backs that up.
+    let config = node.policies().connector;
+    let drain = Duration::from_millis(config.max_hold_ms + config.message_window_ms) + DRAIN_MARGIN;
+    if tokio::time::timeout(drain, running.engine.wait())
         .await
-        .is_ok();
+        .is_err()
+    {
+        tracing::warn!(target: target::DAEMON, "the engine did not drain in time");
+        shutdown.now.cancel();
+    }
+    running.stop.cancel();
+    let stopped = tokio::time::timeout(STOP_TIMEOUT, async {
+        running.engine.wait().await;
+        running.services.wait().await;
+    })
+    .await
+    .is_ok();
     if !stopped {
         tracing::warn!(target: target::DAEMON, "services did not stop in time");
     }
@@ -794,12 +861,13 @@ fn adopt(
 
 fn start_services(
     node: &Arc<Node>,
-    services: &TaskTracker,
-    shutdown: &CancellationToken,
+    running: &Running,
+    shutdown: &Shutdown,
     listeners: Listeners,
     tls: Arc<rustls::ServerConfig>,
     validator: Option<crate::hub::config::ValidatorConfig>,
 ) {
+    let (services, stop) = (&running.services, &running.stop);
     // A listener cannot be cloned for a restart, so the accept loops share
     // theirs; they only return at shutdown anyway.
     let (http, https, ipc) = (
@@ -807,8 +875,7 @@ fn start_services(
         Arc::new(listeners.1),
         Arc::new(listeners.2),
     );
-    let spawn =
-        |name, service| supervise(node, services, shutdown, name, BeforeUp::Restart, service);
+    let spawn = |name, service| supervise(node, services, stop, name, BeforeUp::Restart, service);
     if let Some(http) = http {
         spawn(
             "http",
@@ -853,20 +920,22 @@ fn start_services(
         "sessions",
         Box::new(|node, shutdown| Box::pin(prune_sessions(node, shutdown))),
     );
-    // The node is up once the engine works.
+    // The node is up once the engine works. It drains at `shutdown`, the
+    // other services stopping once it has.
+    let now = shutdown.now.clone();
     supervise(
         node,
-        services,
-        shutdown,
+        &running.engine,
+        &shutdown.drain,
         "engine",
         BeforeUp::FailStart,
-        Box::new(|node, shutdown| Box::pin(crate::engine::run(node, shutdown))),
+        Box::new(move |node, shutdown| Box::pin(crate::engine::run(node, shutdown, now.clone()))),
     );
     spawn(
         "rates",
         Box::new(|node, shutdown| Box::pin(node.run_rates(shutdown))),
     );
-    start_optional(node, services, shutdown, validator);
+    start_optional(node, services, stop, validator);
 }
 
 /// The services a node runs only when it has their socket or its owner

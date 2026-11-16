@@ -567,6 +567,7 @@ impl Core {
     /// snapshot of the peer prices the pair, or too many of the owner's
     /// swaps run.
     pub fn start_owner_swap(&mut self, id: u64, swap: OwnerSwap) -> Result<(), EngineError> {
+        self.refuse_while_draining()?;
         // A rate of nothing would take whatever the peer's snapshot says,
         // which the peer alone makes: refused, as a missing one is.
         let (numerator, denominator) = swap.rate;
@@ -663,7 +664,9 @@ impl Core {
             || swapping.wake_ms.is_some_and(|wake| wake <= now)
             || !self.batch.is_empty();
         swapping.seen = Some(seen);
-        if swapping.dirty {
+        // While the node drains, the service sends no swap: it looks again
+        // once the drain is taken back.
+        if swapping.dirty && !self.connector.is_closed() {
             swapping.dirty = false;
             swapping.rounds += 1;
             self.owner_swaps();
@@ -676,6 +679,12 @@ impl Core {
             self.swapping.wake_ms = self.swap_deadline();
         }
         self.end_owner_swaps();
+    }
+
+    /// Has the service look at its peers and pairs again in this step, as
+    /// once a drain is taken back.
+    pub(super) const fn swaps_look_again(&mut self) {
+        self.swapping.dirty = true;
     }
 
     /// How many times the service looked at its peers and pairs.

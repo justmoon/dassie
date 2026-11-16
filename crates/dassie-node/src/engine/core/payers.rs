@@ -328,6 +328,7 @@ impl Core {
         new: NewOutgoing,
     ) -> Result<CreatedOutgoing, EngineError> {
         let now = self.now_ms();
+        self.refuse_while_draining()?;
         self.check_creatable(&new)?;
         let grant = match &new.grant {
             Some((grant, limits)) => Some(self.reserve(*grant, limits, &new, now)?),
@@ -569,8 +570,12 @@ impl Core {
     }
 
     /// Starts waiting payments while there is room, sends what their
-    /// connections have to send, and ends those that are done.
+    /// connections have to send, and ends those that are done. While the
+    /// node drains, none starts and none sends: they take the answers to
+    /// what they sent, and go on after a restart, from what was posted
+    /// (spec/areas/payments.md#outgoing-payments).
     pub(super) fn pump_outgoing(&mut self, now: u64) {
+        let draining = self.is_draining();
         let mut sending = self
             .spending
             .outgoing
@@ -586,7 +591,7 @@ impl Core {
             }
         }
         let mut short = Vec::new();
-        while sending < MAX_SENDING {
+        while sending < MAX_SENDING && !draining {
             let Some(&(at, id)) = self.spending.waiting.first().filter(|(at, _)| *at <= now) else {
                 break;
             };
@@ -639,7 +644,9 @@ impl Core {
             .map(|(id, _)| *id)
             .collect();
         for id in active {
-            self.transmit_outgoing(id, now);
+            if !draining {
+                self.transmit_outgoing(id, now);
+            }
             self.settle_outgoing(id, now);
         }
     }
@@ -1074,13 +1081,17 @@ impl Core {
         if !self.spending.local_queue.is_empty() {
             return Some(self.now_ms);
         }
-        let room = self
-            .spending
-            .outgoing
-            .values()
-            .filter(|p| p.connection.is_some())
-            .count()
-            < MAX_SENDING;
+        // While the node drains, nothing starts or sends: only a payment's
+        // deadline is due.
+        let draining = self.is_draining();
+        let room = !draining
+            && self
+                .spending
+                .outgoing
+                .values()
+                .filter(|p| p.connection.is_some())
+                .count()
+                < MAX_SENDING;
         let waiting = self
             .spending
             .waiting
@@ -1094,6 +1105,7 @@ impl Core {
                 let timer = payment
                     .connection
                     .as_ref()
+                    .filter(|_| !draining)
                     .and_then(|connection| connection.poll_timeout())
                     .map(|at| at.unix_ms);
                 let deadline = payment

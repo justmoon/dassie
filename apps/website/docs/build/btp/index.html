@@ -319,6 +319,13 @@ await plugin.disconnect();</code></pre>
             </tr>
             <tr>
               <td>
+                HTTP <code>503</code>, <code>The node is stopping</code>
+              </td>
+              <td>The node is about to stop or restart.</td>
+              <td>Try again once it is back.</td>
+            </tr>
+            <tr>
+              <td>
                 The WebSocket closes with <code>no authentication</code>
               </td>
               <td>The client sent no token within ten seconds.</td>
@@ -333,6 +340,15 @@ await plugin.disconnect();</code></pre>
       <p>
         When the owner revokes a key, its connections close, and from that
         moment they take no new packets.
+      </p>
+      <p>
+        When the node stops, as for an update, your client stays connected
+        while the node waits for the packets already on their way, so their
+        answers still reach you; new packets get
+        <a href="/docs/build/errors/#T03">T03</a> <code>the node is
+        stopping</code> meanwhile. Then the WebSocket closes with
+        <code>1001</code>, <code>node shutting down</code>. Connect again
+        once the node is back.
       </p>
       <p class="why">
         <a

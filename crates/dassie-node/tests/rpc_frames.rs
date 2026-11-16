@@ -224,6 +224,7 @@ fn running_node(
     let engine = runtime.spawn(dassie_node::engine::run(
         Arc::clone(&node),
         shutdown.clone(),
+        CancellationToken::new(),
     ));
     runtime.block_on(async {
         // Starting it is work that no clock paces: this waits for it until

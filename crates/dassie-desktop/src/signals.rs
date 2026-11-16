@@ -1,17 +1,20 @@
 //! SIGTERM and SIGINT (spec/areas/desktop.md#lifecycle).
 //!
 //! A session that ends sends the app SIGTERM. The first one quits the app,
-//! which stops its node as SIGTERM stops `dassie daemon`; a second one,
-//! while the node still stops, ends the process at once. The handlers live
-//! on a thread of their own for as long as the app does, so they outlast a
-//! node that stopped.
+//! which stops its node as SIGTERM stops `dassie daemon`, once its packets
+//! in flight are answered, and no one can cancel that quit; a second one
+//! cuts that wait short, and a third ends the process at once. The handlers
+//! live on a thread of their own for as long as the app does, so they
+//! outlast a node that stopped.
 
 use std::process;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::signal::unix::{Signal, SignalKind, signal};
 
-/// The exit code for a second signal, as a shell reports SIGTERM.
+use crate::{Desktop, quitting};
+
+/// The exit code for a third signal, as a shell reports SIGTERM.
 const FORCED_EXIT: i32 = 143;
 
 /// Handles SIGTERM and SIGINT from now on.
@@ -34,7 +37,14 @@ pub fn watch(app: &AppHandle) {
                 };
                 next(&mut terminate, &mut interrupt).await;
                 tracing::info!(target: dassie_node::log::target::DESKTOP, "quitting on a signal");
-                app.exit(0);
+                match app.try_state::<Desktop>() {
+                    Some(desktop) => quitting::quit(&app, &desktop.node, true),
+                    None => app.exit(0),
+                }
+                next(&mut terminate, &mut interrupt).await;
+                if !quitting::now(&app) {
+                    process::exit(FORCED_EXIT);
+                }
                 next(&mut terminate, &mut interrupt).await;
                 process::exit(FORCED_EXIT);
             });

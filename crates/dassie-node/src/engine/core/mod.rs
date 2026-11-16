@@ -13,6 +13,7 @@
 )]
 
 mod downlinks;
+mod drain;
 mod events;
 mod hub_allotment;
 mod hub_events;
@@ -744,7 +745,8 @@ impl Core {
             self.funding_deadline(),
             self.liquidity_deadline(),
             self.snapshot_deadline(),
-            self.swap_deadline(),
+            // The swap service waits out a drain (`run_swaps`).
+            self.swap_deadline().filter(|_| !self.is_draining()),
             self.work_left(),
         ]
         .into_iter()

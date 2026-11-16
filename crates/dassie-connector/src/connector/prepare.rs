@@ -339,12 +339,20 @@ impl Connector {
     }
 
     /// Whether the connector, and `source`'s share of it, has room for
-    /// another packet in flight: T03, or T05 for the source.
+    /// another packet in flight: T03, or T05 for the source. A closed
+    /// connector has none (T03): the node is stopping, which a sender may
+    /// try again after, as it may a full one.
     pub(super) fn has_room(&self, source: EndpointId) -> Result<(), Refusal> {
         let from = self
             .endpoints
             .get(source)
             .ok_or(refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error"))?;
+        if self.closed {
+            return Err(refuse(
+                ErrorCode::T03_CONNECTOR_BUSY,
+                "the node is stopping",
+            ));
+        }
         if self.pending.len() >= self.config.max_pending {
             return Err(refuse(ErrorCode::T03_CONNECTOR_BUSY, "connector busy"));
         }

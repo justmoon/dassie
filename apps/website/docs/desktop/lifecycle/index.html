@@ -156,14 +156,37 @@
       <h2 id="quitting">Quitting</h2>
       <p>
         <em>Quit Dassie</em> closes the window and stops your node the same
-        way <code>dassie daemon</code> stops on a server: it finishes what it
-        is doing, within a bound, and then the app exits. That can take a
-        few seconds.
+        way <code>dassie daemon</code> stops on a server: it takes no new
+        payments, waits for the packets already on their way to be answered,
+        and then the app exits. Usually that takes a moment.
       </p>
       <p>
+        When the wait lasts longer than a second, a small window shows how
+        many packets are still on their way, and how long it waits at most:
+        about half a minute, for a packet that is never answered. There you
+        can:
+      </p>
+      <ul>
+        <li>
+          <strong>Cancel</strong> the quit. Your node takes payments again and
+          keeps running in the tray. Closing the window or pressing Escape
+          does the same.
+        </li>
+        <li>
+          <strong>Quit now.</strong> Your node then never hears how those
+          packets ended, as after a crash, and its books can differ from a
+          neighbor's by up to what it lets be on its way to that neighbor.
+        </li>
+      </ul>
+      <p>
         Logging out or shutting down quits the app the same way, since your
-        session sends it the signal to end. If the session sends a second one
-        while the node is still stopping, the app ends at once.
+        session sends it the signal to end, but that quit cannot be
+        cancelled. If the session sends a second signal while the node still
+        waits, it quits at once; a third ends the app.
+      </p>
+      <p class="why">
+        <a
+          href="https://github.com/justmoon/dassie/blob/main/spec/decisions/drain-on-shutdown.md">Why it waits</a>
       </p>
       <p>While the app is not running, your node is offline:</p>
       <ul>
