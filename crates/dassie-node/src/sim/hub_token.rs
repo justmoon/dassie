@@ -76,6 +76,7 @@ use super::{
     DSUSD, Delivery, HUB_DSUSD, POOL_TOKENS, START, Settling, Sim, XRP, key, xrpl_account,
 };
 use crate::engine::EngineError;
+use crate::engine::core::Gas;
 use crate::hub::escrow::ISSUER_CHECK_EVERY_MS;
 
 /// How long a move may be on its way before it is late
@@ -111,6 +112,25 @@ const SETTLED_WITHIN_MS: u64 =
 /// each a few seconds; a top-up that waits for another payment of the XRP
 /// book to apply first; and the check's first backoff once if one failed.
 const GAS_WITHIN_MS: u64 = 5 * 60_000;
+
+/// How long after the escrow's XRP falls the withdrawing node may take, by
+/// production timings, until no read from before the fall can still make
+/// its gas ready: the ledger that holds the fall; then the heartbeat of its
+/// XRP book's account (`HEARTBEAT_MS`), counted from its last anchor
+/// before that ledger, the longest an idle account goes without anchoring;
+/// one request of the round the run loses: its timeout, the connection made
+/// anew and the ledger it syncs on; and the funding check that next steps a
+/// check of the gas from what the account proved. A check under way keeps
+/// the account anchoring sooner: a read asks for an anchor fresher than
+/// `FRESH_ANCHOR_MS` at every funding check, and a top-up anchors it on
+/// every ledger until its last one, twenty ledgers on (`LEDGER_WINDOW`,
+/// `dassie-xrpl/src/account.rs`), both well within the heartbeat.
+const PAST_FALL_WITHIN_MS: u64 = super::LEDGER_CLOSE_MS
+    + dassie_xrpl::account::HEARTBEAT_MS
+    + REQUEST_TIMEOUT_MS
+    + super::LEDGER_RECONNECT_MS
+    + super::LEDGER_CLOSE_MS
+    + crate::node::Policies::DEFAULT.settlement_interval_ms;
 
 /// What someone sends the escrow, in drops: gas, never a deposit.
 const GIFT_DROPS: u64 = 5_000_000;
@@ -808,11 +828,33 @@ fn withdraw_low(sim: &mut Sim, setup: &Setup) -> Result<Asked, Outcome> {
     let read = |problem| Outcome::safety("gas", problem);
     let fell_after = last_ledger(&escrow_transactions(sim, 0, 1, u32::MAX).map_err(read)?);
     let held = sim.ledger.balance(escrow).unwrap_or(0);
+    // The first ledger that holds the fall.
+    let fell_in = sim.ledger.ledger().saturating_add(1);
     sim.ledger.take_unrecorded(escrow, held.saturating_sub(low));
     sim.trace
         .push(format!("{} the escrow's XRP falls to {low} drops", sim.now));
     // It fell over a long life, in truth: no check a node made before it
-    // fell still holds when the owner asks.
+    // fell still holds when the owner asks. A read the node asked for
+    // before the fall may yet be answered after it, at its older anchor,
+    // and make the gas ready then, which holds for a check's lease: so the
+    // lease runs only once the node can no longer get ready from such a
+    // read.
+    if !sim.run_until_or(sim.now + PAST_FALL_WITHIN_MS, |sim| {
+        past_the_fall(sim, index, fell_in)
+    }) {
+        return Err(Outcome::liveness(
+            "gas",
+            format!(
+                "node {index}'s XRP account did not anchor past the escrow's fall, or its check \
+                 of the gas from before it did not end: {:?}",
+                sim.core(index).hub_gas()
+            ),
+        ));
+    }
+    sim.trace.push(format!(
+        "{} node {index}'s gas can no longer be made ready from a read from before the fall",
+        sim.now
+    ));
     sim.run_until(sim.now + GAS_CHECK_LASTS_MS);
     // Enough in the hub for the least payout, whatever the node's own
     // moves keep there and its settlements take meanwhile: the owner
@@ -903,6 +945,32 @@ fn withdraw_low(sim: &mut Sim, setup: &Setup) -> Result<Asked, Outcome> {
         ));
     }
     Ok(Asked { asked_after })
+}
+
+/// Whether node `index` can no longer make its gas ready from a read of a
+/// ledger before `fell_in`, the first that holds the escrow's fall: its
+/// XRP book's account runs synced at an anchor at or past it, so it takes
+/// no answer at an older anchor, and every later check reads at its anchor
+/// or later; and its check of the gas rests on no read from before it,
+/// neither one it waits for nor a top-up of a shortfall such a read showed.
+/// Only this node's gas lets its owner's withdrawal through, so no other
+/// member's check, nor anything else the node settles, holds the run
+/// back.
+fn past_the_fall(sim: &Sim, index: usize, fell_in: u32) -> bool {
+    let core = sim.core(index);
+    let anchored = core.xrpl_accounts().any(|account| {
+        account.account() == sim.xrpl_account(index)
+            && account.is_synced()
+            && account
+                .anchor()
+                .is_some_and(|anchor| anchor.index >= fell_in)
+    });
+    anchored
+        && core.hub_gas().is_some_and(|gas| match gas {
+            Gas::Reading { after } => after >= fell_in,
+            Gas::ToppingUp { short_at, .. } => short_at >= fell_in,
+            Gas::Unchecked | Gas::Waiting | Gas::Ready { .. } => true,
+        })
 }
 
 /// The newest ledger of `records`, or 0 for none.

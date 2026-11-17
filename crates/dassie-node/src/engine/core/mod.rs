@@ -64,7 +64,7 @@ pub use hub_events::{
     HubAccountState, HubEvent, HubEventKind, HubMoveEvent, HubOperation, HubPromise,
     HubStreamEvent, MoveStage, Role,
 };
-pub use hub_funding::{Direction, Move};
+pub use hub_funding::{Direction, Gas, Move};
 /// The simulation's oracle prices each asset whole by the node's own
 /// mapping from a hub to its owner book.
 #[cfg(feature = "testing")]

@@ -1512,6 +1512,17 @@ impl Core {
         self.hub_statuses().into_iter().next()
     }
 
+    /// Where the check of the gas of the hub of
+    /// [`hub_status`](Self::hub_status) stands, for a simulation to tell a
+    /// check that rests on a read from before the escrow's XRP fell from
+    /// one after it.
+    #[cfg(any(test, feature = "testing"))]
+    #[must_use]
+    pub fn hub_gas(&self) -> Option<Gas> {
+        let scheme = self.hub_status()?.scheme;
+        self.funding.get(&scheme).map(|funding| funding.gas)
+    }
+
     /// The node's account in the hub of `scheme` and its funding, while
     /// the scheme runs.
     fn hub_status_of(&self, scheme: Name) -> Option<HubStatus> {
