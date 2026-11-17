@@ -510,6 +510,33 @@ impl Core {
         Some((self.book_on(ledger)?, ledger))
     }
 
+    /// Why an owner's move into or out of the hub of `scheme` is refused
+    /// while the node has no agreed view of its account there that it read
+    /// up to ([`Core::held`]) (spec/areas/hubs.md#in-the-node): an account
+    /// that failed reads nothing more, and says why; one the hub numbered,
+    /// whose newest agreed state the node is still reading, waits only a
+    /// while, to try again shortly; before the hub numbered one, the reason
+    /// is `otherwise`. The account keeps the number the hub gave it, so the
+    /// number shows the account exists while its view is behind.
+    fn no_agreed_view(&self, scheme: Name, otherwise: &str) -> EngineError {
+        let Some(account) = self.hub_account(scheme) else {
+            return EngineError::Precondition(otherwise.into());
+        };
+        if let LedgerStatus::Failed(why) = account.status() {
+            return EngineError::Precondition(format!(
+                "the node's account in the hub failed: {why}"
+            ));
+        }
+        if account.number().is_none() {
+            return EngineError::Precondition(otherwise.into());
+        }
+        EngineError::Exhausted(
+            "the node is still reading its account in the hub up to what the hub's validators \
+             last agreed: try again shortly"
+                .into(),
+        )
+    }
+
     /// The node's account in the hub of `scheme`, while the scheme runs.
     pub(super) fn hub_account(&self, scheme: Name) -> Option<&HubAccount> {
         let active = self.schemes.get(&scheme)?;
@@ -1628,8 +1655,9 @@ impl Core {
     /// # Errors
     ///
     /// No such hub, the hub unavailable, no owner book synced, a move on
-    /// its way, too little to open the account, or more than the owner's
-    /// funds there.
+    /// its way, too little to open the account, more than the owner's
+    /// funds there, or the account not read up to its agreed state, or
+    /// failed.
     pub fn hub_deposit_to(&mut self, scheme: &str, amount: u64) -> Result<HubStatus, EngineError> {
         let scheme = self.chosen_hub(scheme)?;
         let standing = self.owner_standing(scheme)?;
@@ -1668,8 +1696,9 @@ impl Core {
                 )));
             }
             None => {
-                return Err(EngineError::Precondition(
-                    "the hub's validators have not said yet whether the account exists".into(),
+                return Err(self.no_agreed_view(
+                    scheme,
+                    "the hub's validators have not said yet whether the account exists",
                 ));
             }
         };
@@ -1698,9 +1727,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// No such hub, the hub unavailable, no account in it, a move on its
-    /// way, less than the hub pays out, more than the account can spend
-    /// with the fees, or a token hub's gas not yet checked.
+    /// No such hub, the hub unavailable, no account in it, or one not read
+    /// up to its agreed state, or failed, a move on its way, less than the
+    /// hub pays out, more than the account can spend with the fees, or a
+    /// token hub's gas not yet checked.
     pub fn hub_withdraw_from(
         &mut self,
         scheme: &str,
@@ -1708,9 +1738,9 @@ impl Core {
     ) -> Result<HubStatus, EngineError> {
         let scheme = self.chosen_hub(scheme)?;
         let standing = self.owner_standing(scheme)?;
-        let held = standing.held.ok_or_else(|| {
-            EngineError::Precondition("the node has no account in the hub yet".into())
-        })?;
+        let held = standing
+            .held
+            .ok_or_else(|| self.no_agreed_view(scheme, "the node has no account in the hub yet"))?;
         let drops = amount / UNITS_PER_DROP;
         if drops < standing.least_payout {
             return Err(EngineError::Invalid(format!(
