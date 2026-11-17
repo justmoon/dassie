@@ -65,11 +65,13 @@ use dassie_xrpl::api;
 use dassie_xrpl::codec::{Amount, TokenValue};
 use dassie_xrpl::peg::{READ_EVERY_MS, TRIP_HOLD_MS};
 
-use super::checks::{check_events, check_funded, check_held, check_incoming, first_failure};
+use super::checks::{
+    check_events, check_funded, check_held, check_incoming, check_true, first_failure,
+};
 use super::hub::owed;
 use super::hub_checks::{
-    check_each, check_payout, escrow_holds, escrow_transactions, hub_standing, idle_in, in_step_in,
-    joined, transaction_record,
+    books_caught_up, check_each, check_payout, escrow_holds, escrow_transactions, hub_standing,
+    idle_in, in_step_in, joined, transaction_record,
 };
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{
@@ -106,6 +108,20 @@ const CALM_MS: u64 = 60_000;
 /// before it can settle, which is late only after `CREDIT_WAIT_MS`.
 const SETTLED_WITHIN_MS: u64 =
     crate::node::Policies::DEFAULT.settlement_request_every_ms + CREDIT_WAIT_MS;
+
+/// How long a member's owner books may take to book what the payout paid
+/// them, once the run loses no more requests to the ledger, by the
+/// account's rules at production timings (spec/areas/xrpl.md#anchors): the
+/// payout's hint starts a round at once, or, with one in flight, on the
+/// next ledger to close; and a request lost before may still go unanswered,
+/// so the account waits for its timeout, connects anew and syncs on the
+/// ledger after, from whose anchor it walks back to the payout. Each
+/// request the run loses costs that again, so no bound holds while it
+/// still loses them: losing none past the payout is what makes this one.
+const PAID_OUT_WITHIN_MS: u64 = super::LEDGER_CLOSE_MS
+    + REQUEST_TIMEOUT_MS
+    + super::LEDGER_RECONNECT_MS
+    + super::LEDGER_CLOSE_MS;
 
 /// How long an owner's withdrawal may wait for the escrow's gas: a read at
 /// the XRP account's anchor, a top-up, and the ledger that applies it,
@@ -1139,12 +1155,12 @@ fn stall(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     check_payout(sim, 0).map_err(|problem| Outcome::safety("payout", problem))?;
     // Each member's DSUSD book reads what the payout paid it as its
     // owner's deposit, and holds its line.
-    sim.run_until(sim.now + CALM_MS);
+    let caught_up = owner_books_settle(sim);
     for index in 0..sim.nodes.len() {
         check_held(sim, index, DSUSD).map_err(|problem| Outcome::safety("paid-out", problem))?;
         check_held(sim, index, XRP).map_err(|problem| Outcome::safety("paid-out", problem))?;
     }
-    Ok(())
+    check_settled_out(sim, caught_up)
 }
 
 /// The issuer claws back part of what the escrow holds, a quarter to a
@@ -1204,12 +1220,47 @@ fn claw_back(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
         ));
     }
     check_pro_rata(sim, part, before).map_err(|problem| Outcome::safety("payout", problem))?;
-    sim.run_until(sim.now + CALM_MS);
+    let caught_up = owner_books_settle(sim);
     for index in 0..sim.nodes.len() {
         check_held(sim, index, DSUSD).map_err(|problem| Outcome::safety("paid-out", problem))?;
         check_held(sim, index, XRP).map_err(|problem| Outcome::safety("paid-out", problem))?;
     }
-    Ok(())
+    check_settled_out(sim, caught_up)
+}
+
+/// Once the payout set applied, the run stops losing requests to the
+/// ledger, as a run heals before it judges what must happen
+/// (spec/areas/testing.md#simulation-time-follows-production), and waits,
+/// for at most [`PAID_OUT_WITHIN_MS`], for every member's owner books to
+/// catch up with their accounts ([`books_caught_up`]). Returns whether they
+/// did: books that never do still fail ([`check_settled_out`]).
+fn owner_books_settle(sim: &mut Sim) -> bool {
+    sim.loss_per_mille = 0;
+    let caught_up = |sim: &Sim| (0..sim.nodes.len()).all(|index| books_caught_up(sim, index));
+    sim.run_until_or(sim.now + PAID_OUT_WITHIN_MS, caught_up)
+}
+
+/// Once each member's books were judged after the payout: none left its
+/// ledger unexplained ([`check_true`]), since a scheme that reconciles to
+/// what it reads would match its line during the wait whatever it failed
+/// to book; and every member's owner books caught up within the wait
+/// (`caught_up`), with no payment of its owner's still on its way, which
+/// the balances alone do not show.
+fn check_settled_out(sim: &Sim, caught_up: bool) -> Result<(), Outcome> {
+    check_true(sim).map_err(|problem| Outcome::safety("proven", problem))?;
+    if caught_up {
+        return Ok(());
+    }
+    let behind: Vec<usize> = (0..sim.nodes.len())
+        .filter(|&index| !books_caught_up(sim, index))
+        .collect();
+    Err(Outcome::liveness(
+        "paid-out",
+        format!(
+            "the owner books of nodes {behind:?} did not catch up with their accounts after \
+             the payout, a payment of their owner's on its way"
+        ),
+    ))
 }
 
 /// After a clawback of `part`, the escrow paid out what the hub's books and
