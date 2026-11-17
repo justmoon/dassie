@@ -11,22 +11,25 @@
 //!   we owed it and it had not taken is what the hub paid with claims we
 //!   never read. It is a loss on the peer ([`LossCause::PaidLate`]), and
 //!   counts in T from now on, since the hub overrules our books.
-//! - **Our settlement on its way** whose sequence was used: applied if the
-//!   hold shows its funds, cancelled otherwise; its fee, and anything else
-//!   unexplained, the account's state reconciles through suspense. A `pay`
-//!   that would open a peer's account stays on its way until f + 1
-//!   validators say whether the hub has an account for its key, as of a
-//!   block it had executed by: applied if it has, failed if not. Never
-//!   cancelled on a guess: the node would pay the peer in again.
+//! - **Our operation on its way** whose sequence was used: that sequence
+//!   paid the operation fee the rules name, whichever operation used it,
+//!   and ours go with one sequence at a time, so it is the only one of ours
+//!   in between. Its fee is booked as reading it in order books it. A
+//!   settlement is applied if the hold shows its funds, cancelled
+//!   otherwise. A `pay` that would open a peer's account stays on its way
+//!   until f + 1 validators say whether the hub has an account for its key,
+//!   as of a block it had executed by: applied if it has, failed if not.
+//!   Never cancelled on a guess: the node would pay the peer in again.
 //! - **Waiting packets** are decided by the block read anew as by any final
 //!   block: without a fulfillment once it is stamped at or after their
 //!   commitment's expiry, since a claim the account never read is not one
 //!   it can fulfill upstream with. What the hub paid for them is in the loss
 //!   above.
 //!
-//! What a take moved in between that the view does not show (`claim`s above
-//! the redeemed W) makes these differences err on the side of booking less
-//! as a settlement or a loss, and more through suspense.
+//! The account's state reconciles the rest through suspense. What a take
+//! moved in between that the view does not show (`claim`s above the
+//! redeemed W) makes these differences err on the side of booking less as
+//! a settlement or a loss, and more through suspense.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -37,10 +40,10 @@ use dassie_settlement::{Effect, LossCause, ReconcileCause};
 use super::account::{HubAccount, Purpose};
 use super::mirror::HoldMirror;
 use super::payer::Loss;
-use super::scheme::{HubScheme, UnreadPay};
+use super::scheme::{HubScheme, UnreadPay, operation_hash};
 use super::{UNITS_PER_DROP, units};
 use crate::digest::Digest;
-use crate::operation::MemberOperation;
+use crate::operation::{MemberOperation, SignedMemberOperation};
 use crate::promise::HoldNumber;
 use crate::rules::Amount;
 use dassie_settlement::OwnerPaymentState;
@@ -70,36 +73,43 @@ impl HubScheme {
         account: &mut HubAccount,
         height: u64,
         before: &[(HoldNumber, HoldMirror)],
-        unread: Option<&(Purpose, MemberOperation)>,
+        unread: Option<&(Purpose, SignedMemberOperation)>,
         effects: &mut Vec<Effect>,
     ) {
         let before: BTreeMap<HoldNumber, &HoldMirror> = before
             .iter()
             .map(|(number, hold)| (*number, hold))
             .collect();
+        let unread = unread.map(|(purpose, signed)| (purpose, &signed.operation, signed));
         let funds = match unread {
-            Some((Purpose::Settle(settlement), MemberOperation::Pay { key, .. })) => {
+            Some((Purpose::Settle(settlement), MemberOperation::Pay { key, .. }, _)) => {
                 if self.settling.contains_key(settlement) {
                     self.unread_pays
                         .insert(*settlement, UnreadPay { key: *key, height });
                 }
                 None
             }
-            Some((Purpose::Settle(settlement), operation)) => {
+            Some((Purpose::Settle(settlement), operation, _)) => {
                 self.settled_unread(account, &before, *settlement, operation, effects)
             }
-            Some((purpose @ Purpose::Claim(_), _)) => {
+            Some((purpose @ Purpose::Claim(_), _, _)) => {
                 self.dropped(*purpose, effects);
                 None
             }
             // Whether it applied, only the account's counters say, and
             // they book it, its ledger fee with it.
-            Some((Purpose::Withdraw, _)) => {
+            Some((Purpose::Withdraw, _, _)) => {
                 self.withdrawal_done(OwnerPaymentState::Unknown, effects);
                 None
             }
             _ => None,
         };
+        // Its sequence was used, so it paid the operation fee: the hub's
+        // terms name it, and we signed for no more.
+        if let Some((purpose, _, signed)) = unread {
+            let fee = self.terms.fees.operation;
+            self.own_fee(*purpose, fee, operation_hash(signed), effects);
+        }
         let names: Vec<Name> = self.peers.keys().copied().collect();
         for name in names {
             self.resync_payee(account, name, height, &before, effects);

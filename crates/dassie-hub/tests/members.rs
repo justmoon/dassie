@@ -2264,8 +2264,9 @@ fn fresh_keys_cost_the_payer_nothing() {
 /// A payer whose `pay` executed while it could not read its history books
 /// it once the hub says it has an account for the key it paid in, f + 1
 /// agreeing: as made, never cancelled, so the newcomer is paid in once and
-/// the next settlement funds a hold toward it. The `pay`'s fee goes
-/// through suspense, as any unread operation's.
+/// the next settlement funds a hold toward it. The `pay`'s fee is booked
+/// as a fee, as reading it in order books it: nothing goes through
+/// suspense.
 #[test]
 fn a_pay_the_payer_never_read_is_booked_as_made() {
     let mut world = World::new([Fault::Honest; 4]);
@@ -2275,6 +2276,7 @@ fn a_pay_the_payer_never_read_is_booked_as_made() {
     world.peer(a, c);
     let (name_a, name_c) = (world.members[a].name, world.members[c].name);
     let before = world.balance(a);
+    let fees = world.members[a].books.fees;
     let settlement = world.settle(a, c, units(MINIMUM)).unwrap();
     world.members[a].offline = true;
     world.run(5_000);
@@ -2287,7 +2289,8 @@ fn a_pay_the_payer_never_read_is_booked_as_made() {
     assert_eq!(books.finalized, [settlement]);
     assert!(books.cancelled.is_empty());
     assert_eq!(books.peers[&name_c], -i128::from(units(MINIMUM)));
-    assert_eq!(books.suspense, -i128::from(units(FEE)));
+    assert_eq!(books.fees - fees, i128::from(units(FEE)));
+    assert_eq!(books.suspense, 0);
     assert_eq!(
         world.members[a].scheme.peer_account(name_c),
         Some(world.number(c))
@@ -2316,7 +2319,8 @@ fn a_pay_the_payer_never_read_is_booked_as_made() {
 /// of a block at or after the one the payer read anew at, that the key has
 /// no account, and the settlement is cancelled; what the payer's books
 /// counted of it meanwhile comes back out of suspense. Paid in later, the
-/// newcomer is paid in once.
+/// newcomer is paid in once. The sequence they shared paid one fee,
+/// which is booked as one.
 #[test]
 fn a_pay_the_payer_never_read_that_failed_is_cancelled() {
     let mut world = World::new([Fault::Honest; 4]);
@@ -2327,6 +2331,7 @@ fn a_pay_the_payer_never_read_that_failed_is_cancelled() {
     world.peer(a, c);
     let name_c = world.members[c].name;
     let before = world.balance(a);
+    let fees = world.members[a].books.fees;
     let to = world.number(b);
     world.raw(a, MemberOperation::Transfer { to, amount: 1 });
     let settlement = world.settle(a, c, units(MINIMUM)).unwrap();
@@ -2341,10 +2346,11 @@ fn a_pay_the_payer_never_read_that_failed_is_cancelled() {
     assert_eq!(books.cancelled, [settlement]);
     assert!(books.finalized.is_empty());
     assert!(!books.peers.contains_key(&name_c));
+    assert_eq!(books.fees - fees, i128::from(units(FEE)));
     assert_eq!(
         books.suspense,
-        -i128::from(units(1 + FEE)),
-        "only the transfer it never read"
+        -i128::from(units(1)),
+        "only what the transfer it never read moved"
     );
     assert_eq!(world.members[a].scheme.balance(), world.truth(a));
     assert_eq!(world.opening_minimum(a, c), Some(units(MINIMUM)));
