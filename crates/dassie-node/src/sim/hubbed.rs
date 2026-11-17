@@ -26,7 +26,7 @@ use dassie_hub::consensus::MAX_VIEW_TIMEOUT_MS;
 use dassie_hub::sim::Role;
 use dassie_kit::sim::{Outcome, Run, SeededRng};
 
-use super::checks::{check_events, check_incoming, first_failure};
+use super::checks::{check_events, check_incoming, check_true, first_failure};
 use super::hub::{MemberLie, terms};
 use super::hub_checks::{
     check_each, check_losses, check_payout, check_settled_with_honest, check_validators_in,
@@ -332,6 +332,7 @@ fn check_calm_with(
     first_failure(
         [
             check_events(sim).map_err(|problem| Outcome::safety("events", problem)),
+            check_true(sim).map_err(|problem| Outcome::safety("proven", problem)),
             super::checks::check_hub_packets(sim)
                 .map_err(|problem| Outcome::safety("hub-packets", problem)),
             super::checks::check_hub_credit(sim)
@@ -355,7 +356,8 @@ fn check_calm_with(
 /// signs the payout set of its last final block. The honest ones lost come
 /// back one by one, a while apart, and sign too, so the signatures of one
 /// set are gathered over time; once a quorum signed one, it is submitted,
-/// and the escrow pays out exactly the final balances.
+/// and the escrow pays out exactly the final balances. No node reconciled
+/// its books for a reason it cannot name meanwhile ([`check_true`]).
 fn stall(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     let hub = sim.hub.as_deref().unwrap();
     let count = hub.validators.len();
@@ -437,7 +439,10 @@ fn stall(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
             "the payout set was not applied in time",
         ));
     }
-    check_payout(sim, 0).map_err(|problem| Outcome::safety("payout", problem))
+    check_payout(sim, 0).map_err(|problem| Outcome::safety("payout", problem))?;
+    // Through the stall and the payout too, no node's books left its
+    // ledger unexplained.
+    check_true(sim).map_err(|problem| Outcome::safety("proven", problem))
 }
 
 /// f + 1 validators, the faulty ones among them, collude: the first of

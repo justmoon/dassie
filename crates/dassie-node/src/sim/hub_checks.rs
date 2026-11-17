@@ -121,17 +121,41 @@ pub fn joined(sim: &Sim) -> bool {
 }
 
 /// Whether every member of the hubs at `places` but the `liar` has its
-/// account there in step with it, and no move into or out of it on its
-/// way; and every member, the liar too, booked in its owner books what
-/// their accounts hold ([`books_caught_up`]).
+/// account there in step with it, read up to the hub's newest block if it
+/// is the member's first ([`read_to_tip_in`]), and no move into or out of
+/// it on its way; and every member, the liar too, booked in its owner books
+/// what their accounts hold ([`books_caught_up`]).
 #[must_use]
 pub fn idle_in(sim: &Sim, places: &[usize], liar: Option<usize>) -> bool {
     places.iter().all(|&place| {
         members_of(sim, place)
             .filter(|index| Some(*index) != liar)
-            .all(|index| in_step_in(sim, index, place) && !moving_in(sim, index, place))
+            .all(|index| {
+                in_step_in(sim, index, place)
+                    && read_to_tip_in(sim, index, place)
+                    && !moving_in(sim, index, place)
+            })
             && members_of(sim, place).all(|index| books_caught_up(sim, index))
     })
+}
+
+/// Whether node `index` read the hub at `place` up to the newest block its
+/// honest validators finalized. A peer's operation that funds a hold toward
+/// the member moves no sequence of the member's own, so a member that read
+/// every operation of its own may still be a block short of what its books
+/// in the hub hold ([`check_books_in`]). A simulation sees how far a node
+/// read its first hub only (`Core::hub_reading`, [`first_of`]); of another
+/// hub, or with no honest validator running, there is no telling: yes.
+fn read_to_tip_in(sim: &Sim, index: usize, place: usize) -> bool {
+    let Some(ledger) = sim.hub_at(place).ledger() else {
+        return true;
+    };
+    !first_of(sim, index, place)
+        || sim.nodes[index]
+            .core
+            .as_ref()
+            .and_then(crate::engine::Core::hub_reading)
+            .is_some_and(|(cursor, _, _)| cursor >= ledger.height())
 }
 
 /// Whether node `index`'s owner books caught up with their accounts on
@@ -142,7 +166,7 @@ pub fn idle_in(sim: &Sim, places: &[usize], liar: Option<usize>) -> bool {
 /// while the ledger already applied a payment the owner book has yet to
 /// book: a run waits for that, within its deadline, before it judges the
 /// books, which still fail if they never catch up.
-fn books_caught_up(sim: &Sim, index: usize) -> bool {
+pub(super) fn books_caught_up(sim: &Sim, index: usize) -> bool {
     sim.nodes[index].core.as_ref().is_some_and(|core| {
         sim.settling.owner_books(index).iter().all(|&book| {
             !core.owner_payments_in_flight(book) && check_held(sim, index, book).is_ok()
@@ -452,7 +476,10 @@ pub(super) fn check_losses(sim: &Sim) -> Result<(), String> {
 /// Once the network is calm and an honest node read up to the hub's newest
 /// block, it has read every operation of its own the hub applied; only a
 /// liar's claims, held back to just before their commitments expire, may
-/// land after, and its books are checked once it read them. How far it
+/// land after, and its books are checked once it read them. A sequence of
+/// its own that matches the hub's does not show it read up to the newest
+/// block, since a peer's funding of a hold toward it moves none: a
+/// scripted run waits for that before it judges ([`idle_in`]). How far it
 /// read, the node shows a simulation of its first hub only; in another,
 /// its books are checked once its account is in step, so a run first leaves
 /// the network calm long enough for it to read the hub, as the scripted
