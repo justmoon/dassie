@@ -190,6 +190,79 @@ impl Hub {
         self.say(core, &statements);
     }
 
+    /// The validators agree on the node's account 5 at a new height, with
+    /// no final block the node reads up to: the account exists, and the
+    /// node has yet to read its newest state.
+    fn account_ahead(&mut self, core: &mut Core, balance: u64, deposited: u64) {
+        use dassie_hub::client::{AccountView, Statement};
+        use dassie_hub::operation::AccountNumber;
+
+        self.height += 1;
+        let view = AccountView {
+            key: self.member,
+            balance,
+            reserve: self.rules.terms.fees.account_reserve,
+            sequence: 1,
+            disbursal: true,
+            closing: false,
+            deposited,
+            withdrawn: 0,
+            returned: 0,
+        };
+        let statements = [Statement::Account {
+            height: self.height,
+            key: self.member,
+            account: Some((AccountNumber(5), view)),
+        }];
+        self.say(core, &statements);
+    }
+
+    /// The validators name another account, 6, for the node's key at a new
+    /// final block: the node's account in the hub fails.
+    fn account_renumbered(&mut self, core: &mut Core) {
+        use dassie_hub::client::{AccountView, Statement};
+        use dassie_hub::operation::AccountNumber;
+
+        self.height += 1;
+        let view = AccountView {
+            key: self.member,
+            balance: 0,
+            reserve: self.rules.terms.fees.account_reserve,
+            sequence: 1,
+            disbursal: true,
+            closing: false,
+            deposited: 0,
+            withdrawn: 0,
+            returned: 0,
+        };
+        let statements = [
+            Statement::Account {
+                height: self.height,
+                key: self.member,
+                account: Some((AccountNumber(6), view)),
+            },
+            Statement::Final {
+                height: self.height,
+                timestamp: self.stamp(),
+            },
+        ];
+        self.say(core, &statements);
+    }
+
+    /// The validators agree the hub runs `version` of its protocol after a
+    /// new block.
+    fn protocol(&mut self, core: &mut Core, version: u16) {
+        use dassie_hub::client::Statement;
+
+        self.height += 1;
+        let statements = [Statement::Protocol {
+            height: self.height,
+            timestamp: self.stamp(),
+            version,
+        }];
+        self.say(core, &statements);
+    }
+
     /// The issuer's hold on the escrow after a new block: frozen since the
     /// block stamped `frozen`, or not.
     fn issuer(&mut self, core: &mut Core, frozen: Option<Millis>) {
@@ -335,6 +408,138 @@ fn a_frozen_token_hub_moves_nothing_until_the_thaw() {
         matches!(&gas, Err(EngineError::Exhausted(why)) if why.contains("XRP")),
         "{gas:?}"
     );
+}
+
+// spec/areas/hubs.md#in-the-node: an owner's move waits while the node
+// reads its account in the hub up to a newer state the validators agreed,
+// and says the account is there and to try again shortly, not that it has
+// none; once the node read up, the withdrawal goes.
+#[test]
+fn an_owners_move_waits_while_the_node_reads_its_account_up() {
+    let (mut ledger, _) = super::funded_ledger();
+    let mut hub = Hub::new(SCHEME_ID, TESTNET.id, Asset::Xrp);
+    let balance = 5_000_000;
+    let mut core = super::core(9);
+    super::add_xrpl(&mut core, "xrpl-testnet-xrp", super::SHARED_CONFIG).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    core.add_scheme(SCHEME_ID, hub.config()).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    core.set_hub_automatic(SCHEME_ID, false).unwrap();
+    hub.account(&mut core, balance, balance);
+    assert_eq!(core.hub_status().unwrap().status, LedgerStatus::Synced);
+    let units = UNITS_PER_DROP;
+
+    hub.account_ahead(&mut core, balance, balance);
+    let status = core.hub_status().unwrap();
+    assert_eq!(status.account, Some(5), "the account is there");
+    assert_ne!(status.status, LedgerStatus::Synced, "reading up");
+    for refused in [
+        core.hub_withdraw(1_000_000 * units),
+        core.hub_deposit(1_000_000 * units),
+    ] {
+        assert!(
+            matches!(&refused, Err(EngineError::Exhausted(why))
+                if why.contains("still reading its account") && why.contains("try again shortly")),
+            "{refused:?}"
+        );
+    }
+
+    hub.account_once(&mut core, balance, balance);
+    assert_eq!(core.hub_status().unwrap().status, LedgerStatus::Synced);
+    let taken = core.hub_withdraw(1_000_000 * units);
+    assert!(taken.is_ok(), "{taken:?}");
+}
+
+// An account the hub named that has since failed reads nothing more:
+// the owner is told it failed, and why, not to try again.
+#[test]
+fn an_owners_move_from_a_failed_account_says_it_failed() {
+    let (mut ledger, _) = super::funded_ledger();
+    let mut hub = Hub::new(SCHEME_ID, TESTNET.id, Asset::Xrp);
+    let mut core = super::core(9);
+    super::add_xrpl(&mut core, "xrpl-testnet-xrp", super::SHARED_CONFIG).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    core.add_scheme(SCHEME_ID, hub.config()).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    core.set_hub_automatic(SCHEME_ID, false).unwrap();
+    hub.account(&mut core, 5_000_000, 5_000_000);
+    hub.account_ahead(&mut core, 5_000_000, 5_000_000);
+    hub.account_renumbered(&mut core);
+    let status = core.hub_status().unwrap();
+    assert_eq!(status.account, Some(5));
+    assert!(
+        matches!(status.status, LedgerStatus::Failed(_)),
+        "{:?}",
+        status.status
+    );
+    for refused in [
+        core.hub_withdraw(1_000_000 * UNITS_PER_DROP),
+        core.hub_deposit(1_000_000 * UNITS_PER_DROP),
+    ] {
+        assert!(
+            matches!(&refused, Err(EngineError::Precondition(why))
+                if why.contains("failed") && why.contains("another account")),
+            "{refused:?}"
+        );
+    }
+}
+
+// The same refusal where the hub said the node has no account: that is
+// what the owner is told.
+#[test]
+fn an_owners_withdrawal_with_no_account_in_the_hub_says_so() {
+    let (mut ledger, _) = super::funded_ledger();
+    let mut hub = Hub::new(DSUSD_SCHEME_ID, TESTNET.id, DSUSD);
+    let mut core = super::core(9);
+    super::add_xrpl(&mut core, "xrpl-testnet-xrp", super::SHARED_CONFIG).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    core.add_scheme(DSUSD_SCHEME_ID, hub.config()).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    core.set_hub_automatic(DSUSD_SCHEME_ID, false).unwrap();
+    hub.no_account(&mut core);
+    assert_eq!(core.hub_status().unwrap().account, None);
+
+    let refused = core.hub_withdraw(1_000_000 * UNITS_PER_DROP);
+    assert!(
+        matches!(&refused, Err(EngineError::Precondition(why))
+            if why == "the node has no account in the hub yet"),
+        "{refused:?}"
+    );
+}
+
+// An account that failed before the hub numbered it, the hub having moved
+// to a version of its protocol this release does not run, reads nothing
+// more either: the owner is told it failed, and why, not that the
+// validators have yet to say whether it exists, nor that it is yet to come.
+#[test]
+fn an_owners_move_from_an_account_failed_before_its_number_says_it_failed() {
+    let (mut ledger, _) = super::funded_ledger();
+    let mut hub = Hub::new(SCHEME_ID, TESTNET.id, Asset::Xrp);
+    let mut core = super::core(9);
+    super::add_xrpl(&mut core, "xrpl-testnet-xrp", super::SHARED_CONFIG).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    core.add_scheme(SCHEME_ID, hub.config()).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    core.set_hub_automatic(SCHEME_ID, false).unwrap();
+    hub.no_account(&mut core);
+    hub.protocol(&mut core, dassie_hub::rules::HUB_VERSION + 1);
+    let status = core.hub_status().unwrap();
+    assert_eq!(status.account, None);
+    assert!(
+        matches!(status.status, LedgerStatus::Failed(_)),
+        "{:?}",
+        status.status
+    );
+    for refused in [
+        core.hub_withdraw(1_000_000 * UNITS_PER_DROP),
+        core.hub_deposit(1_000_000 * UNITS_PER_DROP),
+    ] {
+        assert!(
+            matches!(&refused, Err(EngineError::Precondition(why))
+                if why.contains("failed") && why.contains("version of its protocol")),
+            "{refused:?}"
+        );
+    }
 }
 
 /// Brings the escrow of `hub` on `ledger` into being, then low: its fees

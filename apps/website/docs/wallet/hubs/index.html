@@ -261,6 +261,13 @@
         node's own moves for an hour, so that they don't undo it.
       </p>
       <p>
+        Your node moves funds only from what the hub's validators last agreed
+        your account holds. When they agree on a newer state, or after your
+        node restarts, it first reads the account up to it, usually within a
+        few seconds. A move you ask for meanwhile is refused, and the page
+        says to try again shortly.
+      </p>
+      <p>
         A withdrawal from a token hub, such as a DSUSD hub, can take a moment
         longer. The hub's escrow pays the XRP Ledger's fees in XRP, so your
         node first checks that it holds enough and tops it up from your XRP if

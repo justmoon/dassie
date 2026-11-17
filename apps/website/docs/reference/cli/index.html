@@ -416,7 +416,9 @@
         Moves the hub's asset from the node's XRP Ledger account into the
         hub. If the node has no account in the hub yet, this deposit opens
         one. Moving funds by hand pauses the node's own moves for that hub
-        for an hour, so they do not undo yours.
+        for an hour, so they do not undo yours. While the node reads its
+        account up to a newer state the hub's validators agreed on, or after
+        it restarts, it refuses the deposit and says to try again shortly.
       </p>
       <pre><code><span class="prompt">$</span>dassie hub deposit hub-xrpl-testnet-xrp 2.5</code></pre>
 
@@ -425,8 +427,9 @@
         Moves the hub's asset from the hub back to the node's XRP Ledger
         account. From a DSUSD hub, the node first checks that the hub's
         escrow has the XRP it pays its fees with, and tops it up if not; if it
-        asks you to, try again shortly. This pauses the node's own moves for
-        an hour too.
+        asks you to, try again shortly. Like a deposit, a withdrawal waits
+        while the node reads its account up. This pauses the node's own moves
+        for an hour too.
       </p>
 
       <h3 id="dassie-hub-auto"><code>dassie hub auto &lt;scheme&gt; on|off</code></h3>
