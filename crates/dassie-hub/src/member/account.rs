@@ -415,9 +415,14 @@ pub struct HubAccount {
     pub(super) number: Option<AccountNumber>,
     /// Every operation touching the account up to this height was read.
     pub(super) cursor: u64,
-    /// The height of the last one that may have changed its balance or a
-    /// hold toward it.
-    pub(super) last_touch: u64,
+    /// No state of the account as of a lower height is told
+    /// ([`Self::tell_view`]): the height of the last operation or payout
+    /// out of a hold that may have changed its balance or a hold toward
+    /// it, or of the last state told, whichever is higher. A deposit
+    /// changes the balance with no operation the account reads, so only
+    /// the state told keeps an older one from undoing it. Kept with the
+    /// books, so states told never go back across a restart either.
+    pub(super) state_floor: u64,
     pub(super) holds: BTreeMap<HoldNumber, HoldMirror>,
     /// Those of `holds` toward us from accounts the scheme does not follow.
     pub(super) strangers: BTreeSet<HoldNumber>,
@@ -446,8 +451,11 @@ pub struct HubAccount {
     /// freeze the account missed whole.
     thawed: Option<(Millis, Millis)>,
     view: Option<(u64, AccountView)>,
-    /// An agreed state of the account above the cursor, told once read up
-    /// to it.
+    /// The newest agreed state of the account not yet told, told once read
+    /// up to it. One agreed later as of a lower height does not take its
+    /// place: nothing bounds a statement's height from below, and once
+    /// the newer one was told, the floor ([`Self::state_floor`]) would
+    /// drop the older one anyway.
     waiting_view: Option<(u64, AccountView)>,
     unfunded: bool,
     heard: bool,
@@ -552,7 +560,7 @@ impl HubAccount {
             scheme,
             number: None,
             cursor: 0,
-            last_touch: 0,
+            state_floor: 0,
             holds: BTreeMap::new(),
             strangers: BTreeSet::new(),
             followed: BTreeSet::new(),
@@ -1284,7 +1292,7 @@ impl HubAccount {
         if self.has_disbursal() || self.has(Purpose::Disbursal) {
             return;
         }
-        if self.view.is_none_or(|(at, _)| at < self.last_touch) {
+        if self.view.is_none_or(|(at, _)| at < self.state_floor) {
             return;
         }
         if self.queue.len() >= MAX_QUEUED {
@@ -1626,7 +1634,7 @@ impl HubAccount {
                 self.unfunded = false;
                 // Everything before is in the account's state.
                 self.cursor = self.cursor.max(height);
-                self.last_touch = self.last_touch.max(height);
+                self.state_floor = self.state_floor.max(height);
             }
             Some(known) if known != number => {
                 self.failed = Some("the hub names another account for the key");
@@ -1650,13 +1658,17 @@ impl HubAccount {
         } else {
             self.sequence = Some(self.sequence.unwrap_or(0).max(view.sequence));
         }
-        self.waiting_view = Some((height, view));
+        if self.waiting_view.is_none_or(|(at, _)| at <= height) {
+            self.waiting_view = Some((height, view));
+        }
         self.tell_view();
         self.try_resync();
     }
 
     /// Tells the account's state once everything up to it was read, and
-    /// nothing touching it since.
+    /// only at or above the floor ([`Self::state_floor`]), which it then
+    /// raises to it: states told never go back, and none misses what was
+    /// read before it.
     fn tell_view(&mut self) {
         let Some((height, view)) = self.waiting_view else {
             return;
@@ -1675,7 +1687,8 @@ impl HubAccount {
             return;
         }
         self.waiting_view = None;
-        if height >= self.last_touch {
+        if height >= self.state_floor {
+            self.state_floor = height;
             self.push_news(News::Account { height, view });
         }
     }
@@ -1766,7 +1779,7 @@ impl HubAccount {
             // What claims took is paid before any reduction, as the
             // ledger pays it (spec/decisions/signed-rejects.md).
             if let Some((sequences, unlisted)) = mirror.pay_due(timestamp) {
-                self.last_touch = self.last_touch.max(height);
+                self.state_floor = self.state_floor.max(height);
                 self.push_news(News::ClaimsPaid {
                     hold,
                     sequences,
@@ -1782,7 +1795,7 @@ impl HubAccount {
             if mirror.amount == 0 {
                 self.drop_hold(hold);
             }
-            self.last_touch = self.last_touch.max(height);
+            self.state_floor = self.state_floor.max(height);
             self.push_news(News::Reduced { hold, amount });
         }
     }
@@ -1802,7 +1815,7 @@ impl HubAccount {
         if matches!(outcome, Outcome::Applied { .. }) {
             self.mirror(&operation, outcome, timestamp);
         }
-        self.last_touch = self.last_touch.max(height);
+        self.state_floor = self.state_floor.max(height);
         if ours.is_some() || !matches!(outcome, Outcome::Refused(_)) {
             self.push_news(News::Executed {
                 height,
@@ -2090,7 +2103,7 @@ impl HubAccount {
         self.view = Some((height, view));
         self.cursor = height;
         self.trimmed_since = None;
-        self.last_touch = height;
+        self.state_floor = height;
         self.buffer = self.buffer.split_off(&(height.saturating_add(1), 0));
         self.agreement.forget_below(height.saturating_add(1));
         self.resync = false;
@@ -2330,8 +2343,8 @@ impl ExternalAsset for HubAccount {
             "what is held is above the cursor"
         );
         assert!(
-            self.last_touch <= self.cursor,
-            "nothing touched beyond what was read"
+            self.state_floor <= self.cursor,
+            "no floor above what was read"
         );
         if let Some(number) = self.number {
             for hold in self.holds.values() {

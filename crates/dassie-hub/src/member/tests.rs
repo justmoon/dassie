@@ -9,7 +9,8 @@ use dassie_identity::NodeKey;
 use dassie_ledger::Name;
 use dassie_oer::Encode;
 use dassie_settlement::{
-    AssetEffect, ExternalAsset, LedgerInput, LedgerStatus, LossCause, SchemeError, SettlementScheme,
+    AssetEffect, Effect, ExternalAsset, LedgerInput, LedgerStatus, LossCause, SchemeError,
+    SettlementScheme,
 };
 
 use super::*;
@@ -39,6 +40,11 @@ impl Hub {
     }
 
     fn account(&self) -> HubAccount {
+        self.restored(&[])
+    }
+
+    /// The account, restored from `state`.
+    fn restored(&self, state: &[u8]) -> HubAccount {
         HubAccount::new(
             ACCOUNT_ID,
             self.rules.clone(),
@@ -48,7 +54,7 @@ impl Hub {
                 tag: None,
             },
             Name::new(SCHEME_ID).unwrap(),
-            &[],
+            state,
         )
         .unwrap()
     }
@@ -2711,4 +2717,202 @@ fn a_state_waits_for_the_final_block_that_pays_what_waits() {
     }
     assert!(matches!(account.news(), [News::Account { height: 52, .. }]));
     account.check_invariants();
+}
+
+/// The account as of `height`, an owner's deposit of 87 XRP after block 5.
+fn deposited(hub: &Hub, height: u64) -> Statement {
+    let mut statement = hub.account_statement(height, true);
+    if let Statement::Account {
+        account: Some((_, view)),
+        ..
+    } = &mut statement
+    {
+        view.balance += 87_000_000;
+        view.deposited += 87_000_000;
+    }
+    statement
+}
+
+/// Validator `v` says `statements`, and the scheme takes what the account
+/// tells of them.
+fn scheme_hears(
+    hub: &Hub,
+    account: &mut HubAccount,
+    scheme: &mut HubScheme,
+    v: usize,
+    statements: &[Statement],
+    effects: &mut Vec<Effect>,
+) {
+    from(account, v, &hub.says(v, statements));
+    scheme.on_asset(0, account, effects);
+    account.told();
+}
+
+/// An account and its scheme, which booked its balance of 5 XRP as of
+/// block 5.
+fn booked_at_5(hub: &Hub) -> (HubAccount, HubScheme) {
+    let mut account = hub.account();
+    let mut scheme = HubScheme::new(&account, 100_000_000, None, &[]).unwrap();
+    let mut effects = Vec::new();
+    for v in 0..3 {
+        let statements = [hub.account_statement(5, true), final_at(5)];
+        scheme_hears(hub, &mut account, &mut scheme, v, &statements, &mut effects);
+    }
+    assert_eq!(scheme.balance(), units(5_000_000));
+    (account, scheme)
+}
+
+// A deposit changes the account's balance with no operation the account
+// reads, so only the floor of the states it told keeps an older state from
+// undoing it once booked. Nothing bounds a statement's height from below,
+// and f + 1 agree: two validators a block behind, whose states arrive after
+// the account read past them, are enough. The floor is kept with the
+// books, so a restart in between changes nothing.
+#[test]
+fn an_older_account_state_does_not_undo_a_booked_deposit() {
+    for restart in [false, true] {
+        let hub = Hub::new();
+        let (mut account, mut scheme) = booked_at_5(&hub);
+        let mut effects = Vec::new();
+        // f + 1 agree on the deposit as of block 7, and a quorum covers it.
+        for v in 0..3 {
+            let statements = if v < 2 {
+                alloc::vec![deposited(&hub, 7), final_at(7)]
+            } else {
+                alloc::vec![final_at(7)]
+            };
+            scheme_hears(
+                &hub,
+                &mut account,
+                &mut scheme,
+                v,
+                &statements,
+                &mut effects,
+            );
+        }
+        assert_eq!(scheme.balance(), units(92_000_000));
+        assert_eq!(scheme.deposits_booked(), Some(94_000_000));
+        assert!(effects.iter().any(
+            |effect| matches!(effect, Effect::Deposit { amount } if *amount == units(87_000_000))
+        ));
+        if restart {
+            let balance = scheme.balance();
+            let state = scheme.state();
+            account = hub.restored(&account.state());
+            scheme = HubScheme::new(&account, 100_000_000, Some(balance), &state).unwrap();
+        }
+        effects.clear();
+        // Validators 2 and 3 state the account as of block 6, before the
+        // deposit, and their statements arrive only now.
+        for v in [2, 3] {
+            let statements = [hub.account_statement(6, true)];
+            scheme_hears(
+                &hub,
+                &mut account,
+                &mut scheme,
+                v,
+                &statements,
+                &mut effects,
+            );
+        }
+        assert_eq!(
+            scheme.balance(),
+            units(92_000_000),
+            "an older state undid the deposit (restart: {restart})"
+        );
+        // Nor does the next state book anything.
+        for v in 0..3 {
+            let statements = [deposited(&hub, 8), final_at(8)];
+            scheme_hears(
+                &hub,
+                &mut account,
+                &mut scheme,
+                v,
+                &statements,
+                &mut effects,
+            );
+        }
+        assert_eq!(account.view().map(|(height, _)| *height), Some(8));
+        assert_eq!(scheme.balance(), units(92_000_000));
+        assert!(
+            effects
+                .iter()
+                .all(|effect| !matches!(effect, Effect::Deposit { .. } | Effect::Reconcile { .. })),
+            "{effects:?}"
+        );
+        account.check_invariants();
+        scheme.check_invariants();
+    }
+}
+
+// The newest agreed state waits until the account read up to it, even if
+// f + 1 then agree on an older one; told in its place, the older one would
+// leave the deposit unbooked while the account says it is in step.
+#[test]
+fn the_newest_waiting_account_state_outlasts_an_older_one() {
+    for older in [false, true] {
+        let hub = Hub::new();
+        let (mut account, mut scheme) = booked_at_5(&hub);
+        let mut effects = Vec::new();
+        for v in 0..2 {
+            let statements = [deposited(&hub, 7)];
+            scheme_hears(
+                &hub,
+                &mut account,
+                &mut scheme,
+                v,
+                &statements,
+                &mut effects,
+            );
+        }
+        assert_eq!(account.cursor(), 5);
+        assert!(!account.is_synced(), "the newest state is past the cursor");
+        if older {
+            for v in [2, 3] {
+                let statements = [hub.account_statement(6, true)];
+                scheme_hears(
+                    &hub,
+                    &mut account,
+                    &mut scheme,
+                    v,
+                    &statements,
+                    &mut effects,
+                );
+            }
+        }
+        assert_eq!(account.view().map(|(height, _)| *height), Some(7));
+        assert!(
+            effects.is_empty(),
+            "nothing told before the cursor reached it"
+        );
+        for v in 0..3 {
+            scheme_hears(
+                &hub,
+                &mut account,
+                &mut scheme,
+                v,
+                &[final_at(7)],
+                &mut effects,
+            );
+        }
+        assert_eq!(account.cursor(), 7);
+        assert!(account.is_synced());
+        assert_eq!(
+            scheme.balance(),
+            units(92_000_000),
+            "older state agreed: {older}"
+        );
+        assert_eq!(scheme.deposits_booked(), Some(94_000_000));
+        assert!(effects.iter().any(
+            |effect| matches!(effect, Effect::Deposit { amount } if *amount == units(87_000_000))
+        ));
+        assert!(
+            !effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Reconcile { .. })),
+            "{effects:?}"
+        );
+        account.check_invariants();
+        scheme.check_invariants();
+    }
 }

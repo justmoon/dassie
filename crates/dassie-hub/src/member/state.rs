@@ -155,7 +155,7 @@ pub(super) fn account_state(account: &HubAccount) -> Vec<u8> {
     out.bytes(&account.hub.0.0);
     out.option(account.number.as_ref(), |out, number| out.u32(number.0));
     out.u64(account.cursor);
-    out.u64(account.last_touch);
+    out.u64(account.state_floor);
     out.count(account.holds.len());
     for (number, hold) in &account.holds {
         out.u64(number.0);
@@ -304,7 +304,7 @@ pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<
     }
     account.number = read_option(&mut reader, |r| Some(AccountNumber(r.read_u32().ok()?)))?;
     account.cursor = reader.read_u64().ok()?;
-    account.last_touch = reader.read_u64().ok()?;
+    account.state_floor = reader.read_u64().ok()?;
     let most = super::account::MAX_HOLDS + super::account::MAX_STRANGER_HOLDS;
     let holds = read_count(&mut reader, 8, most)?;
     for _ in 0..holds {
@@ -343,7 +343,7 @@ pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<
     let bounded = account.strangers.len() <= super::account::MAX_STRANGER_HOLDS
         && account.holds.len().saturating_sub(account.strangers.len()) <= super::account::MAX_HOLDS;
     let on_their_way = super::account::on_their_way_hold(&account.queue);
-    (on_their_way && bounded && account.last_touch <= account.cursor).then_some(())
+    (on_their_way && bounded && account.state_floor <= account.cursor).then_some(())
 }
 
 fn read_queued(account: &HubAccount, reader: &mut Reader<'_>) -> Option<Queued> {
