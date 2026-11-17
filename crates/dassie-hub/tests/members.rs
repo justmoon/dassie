@@ -1310,6 +1310,33 @@ fn a_payee_claims_on_the_hub_what_claims_left_out() {
     );
 }
 
+/// A packet of no money, such as one that carries only STREAM frames,
+/// that the payer's claims leave out costs the payee nothing: the hub would
+/// pay nothing for it, so the payee claims nothing on the hub, pays no fee
+/// and books no loss, and nothing is left unsettled for it.
+#[test]
+fn a_packet_of_nothing_is_never_claimed_on_the_hub() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    let hold = world.hold(a, b).unwrap();
+    let before = world.balance(b);
+    world.prepare((a, b), 1, 0, 10_000).unwrap();
+    world.fulfill((a, b), 1, true, false);
+    for i in [a, b] {
+        assert!(!world.members[i].scheme.packets_unsettled(), "{i} settled");
+    }
+    // Past the commitment's expiry, by which its claim was due.
+    world.run(12_000);
+    let ledger_hold = world.validators.ledger.hold(hold).unwrap();
+    assert!(ledger_hold.claimed.is_empty(), "nothing claimed on the hub");
+    assert_eq!(world.members[b].books.lost(LossCause::ClaimFee), 0);
+    assert_eq!(world.balance(b), before, "no fee paid");
+    for i in [a, b] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+        assert_eq!(world.members[i].books.suspense, 0);
+        assert!(world.members[i].books.losses.is_empty());
+    }
+}
+
 /// spec/designs/settlement-hubs.md#4-peering-over-a-hub: the payer's
 /// Reject of a packet that timed out waits for the hub, which decides it:
 /// with the fulfillment of a claim the payee won, or without, once a final

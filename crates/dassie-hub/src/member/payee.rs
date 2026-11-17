@@ -25,6 +25,8 @@
 //!   leg's allowance after every packet below it was resolved, so that the
 //!   payer could have covered it, and in any case a margin before its
 //!   commitment expires, so the claim lands in a block stamped before.
+//!   A packet whose commitment promises nothing is never claimed: the hub
+//!   would pay nothing for it, and the claim would cost a fee.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -70,7 +72,7 @@ pub(super) enum Claiming {
     No,
     /// In a claim on its way.
     Submitted,
-    /// The hub paid it.
+    /// The hub paid it, or it promised nothing, which needs no claim.
     Paid,
     /// Its commitment expired unpaid: only the payer can pay it now.
     Lost,
@@ -250,7 +252,12 @@ impl Payee {
         Ok(())
     }
 
-    /// We fulfilled its Prepare `request_id` with `fulfillment`.
+    /// We fulfilled its Prepare `request_id` with `fulfillment`. One whose
+    /// commitment promises nothing, as a Prepare of no money that carries
+    /// only data does, is settled at once: a claim of it on the hub would
+    /// pay nothing, and cost a fee that a member short of funds needs to
+    /// redeem with. It stays among what the payer's claims left uncovered
+    /// until one covers it, as a packet the hub paid does.
     pub(super) fn fulfilled(&mut self, now_ms: u64, request_id: u32, fulfillment: [u8; 32]) {
         let Some(sequence) = self.requests.remove(&request_id) else {
             return;
@@ -258,10 +265,15 @@ impl Payee {
         if let Some(taken) = self.taken.get_mut(&sequence) {
             taken.request_id = None;
             if taken.commitment.value.fulfilled_by(&fulfillment) {
+                let claiming = if taken.commitment.value.amount == 0 {
+                    Claiming::Paid
+                } else {
+                    Claiming::No
+                };
                 taken.done = Some(Done {
                     fulfillment,
                     ready_ms: None,
-                    claiming: Claiming::No,
+                    claiming,
                     tries: 0,
                 });
             } else {
@@ -827,6 +839,49 @@ mod tests {
         assert_eq!(due[0].commitment.value.sequence, 2);
         payee.set_claiming(&[2], Claiming::Submitted);
         assert!(payee.due(3_000, context, 8).is_empty());
+        payee.check_invariants();
+    }
+
+    // A packet whose commitment promises nothing is settled once fulfilled:
+    // a claim of it on the hub would pay nothing and cost a fee, so it is
+    // never due, and nothing waits for it. Its sequence stays until the
+    // payer's claim covers it.
+    #[test]
+    fn a_packet_of_nothing_is_never_claimed_on_the_hub() {
+        let mut payee = payee(1_000);
+        take(&mut payee, 1, 1, 0).unwrap();
+        assert!(payee.has_unclaimed(), "in flight");
+        payee.fulfilled(1_000, 1, [1; 32]);
+        assert!(!payee.has_unclaimed());
+        let timing = (ALLOWANCE, MARGIN);
+        assert_eq!(payee.next_due(1_000, timing), None);
+        assert!(payee.due(1_000 + ALLOWANCE, timing, 8).is_empty());
+        // The last moment its claim would have been due.
+        assert!(payee.due(10_000 - 2 * MARGIN, timing, 8).is_empty());
+        assert_eq!(payee.missing(), 1, "until the payer's claim covers it");
+        assert!(payee.claim(claim(0, 1), &hub(), &key().public_key()));
+        assert!(payee.taken.is_empty());
+        payee.check_invariants();
+    }
+
+    // A packet of nothing takes no place in a claim before one of a single
+    // unit, which the hub pays a drop for: that one is still due a reply
+    // leg after it could be claimed, alone in a claim of one.
+    #[test]
+    fn a_packet_of_nothing_leaves_the_next_one_due() {
+        let mut payee = payee(1_000);
+        take(&mut payee, 1, 1, 0).unwrap();
+        take(&mut payee, 2, 2, 1).unwrap();
+        payee.fulfilled(1_000, 1, [1; 32]);
+        payee.fulfilled(2_000, 2, [2; 32]);
+        assert!(payee.has_unclaimed());
+        let timing = (ALLOWANCE, MARGIN);
+        assert_eq!(payee.next_due(2_000, timing), Some(2_000 + ALLOWANCE));
+        assert!(payee.due(2_000 + ALLOWANCE - 1, timing, 1).is_empty());
+        let due = payee.due(2_000 + ALLOWANCE, timing, 1);
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].commitment.value.sequence, 2);
+        assert_eq!(due[0].commitment.value.amount, 1);
         payee.check_invariants();
     }
 }
