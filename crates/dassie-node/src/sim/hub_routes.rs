@@ -9,15 +9,26 @@
 //! packet, weighted by the fees each earned it. Nodes 1 and 3 charge for
 //! what passes, node 2 passes it for free.
 //!
-//! - **Methods, and a hop that refuses.** Before the network forms, node
-//!   3's owner takes out of the XRP hub all its account can spend, so that
-//!   node 3 can fund no hold there. Node 0 pays node 4 in XRP and node 4
-//!   pays node 0 in dollars, each payment's two ends on one ledger: no node
-//!   on the way converts, though every one is in both hubs, which each
-//!   one's books show (no FX booked anywhere, node 1's fees booked on each
-//!   payment's ledger). Node 1 draws node 3 for some packets in XRP, which
-//!   node 3 refuses (T04); the XRP payment completes through node 2, and
-//!   node 3 earns nothing in XRP:
+//! - **No swaps.** Every owner turns peer swaps off: a swap converts on
+//!   purpose (spec/decisions/peer-swaps.md), and its packets cross the
+//!   DSUSD hub, so that it would fail the checks that routed packets keep
+//!   their ledger. No simulation checks a swap, nor that swaps refill a hop
+//!   short of room: `node-hubs` and `node-hub-currencies` leave them on but
+//!   script none and check none. The core's tests
+//!   (`engine/core/tests/swapping.rs`) and the daemons'
+//!   (`tests/peer_swaps.rs`) test them.
+//! - **Methods, and a hop that refuses.** Node 3 first peers with node 1
+//!   alone and funds its hold toward it in the XRP hub; then its owner
+//!   takes out of the XRP hub all its account can spend, so that node 3 can
+//!   fund no hold toward node 4, and only then may node 3 peer with node
+//!   4. What node 3 holds toward node 1 keeps node 4 a slot in the XRP hub
+//!   (spec/decisions/slots-by-liquidity.md). Node 0 pays node 4 in XRP and
+//!   node 4 pays node 0 in dollars, each payment's two ends on one ledger:
+//!   no node on the way converts, though every one is in both hubs, which
+//!   each one's books show (no FX booked anywhere, node 1's fees booked on
+//!   each payment's ledger). Node 1 draws node 3 for some packets in XRP,
+//!   which node 3 refuses (T04), node 0 paying again until it has; the XRP
+//!   payments complete through node 2, and node 3 earns nothing in XRP:
 //!   neither a fee of its own nor any weight in node 1's draws.
 //! - **Weight costs fees.** Whatever the payments, the weight a node gives
 //!   its next hops on a ledger never exceeds the fees it earned there: so
@@ -29,13 +40,15 @@
 //!   their decay alone makes of them.
 //! - **A hop short of room keeps its weight.** Node 2's owner takes out of
 //!   the XRP hub all its account can spend, so that node 2 cannot fund its
-//!   hold toward node 4 again: node 1 still draws it by its weight, and it
-//!   answers T04, its packets moving neither to its DSUSD method nor
-//!   anywhere else. Its owner moves funds back in, and the payment
-//!   completes once node 2's hold is funded again, or through node 3 on an
-//!   exploring draw; at every step of a window longer than that
-//!   settlement takes, node 2's weight has lost only what decay takes.
-//!   Then it carries packets again.
+//!   hold toward node 4 again: node 1 still draws it by its weight, and,
+//!   once node 0 has paid past what that hold had left, it answers T04,
+//!   its packets moving neither to its DSUSD method nor anywhere else. Its
+//!   owner moves funds back in, and the payments complete once node 2's
+//!   hold is funded again, or through node 3 on an exploring draw; at
+//!   every step of a window longer than that settlement takes, node 2's
+//!   weight has lost only what decay takes: until its first T04, of what
+//!   it had earned when its owner took the funds out, and from then on, of
+//!   what it had earned by then. Then it carries packets again.
 //!
 //! Once the network is calm, every check of `node-hubs` holds: each node
 //! by its own books in each hub, and what each peer can cost bounded on
@@ -60,7 +73,9 @@ use super::hub_pairs::{
 };
 use super::hubbed::{paid, routed};
 use super::scripted::{READY_WITHIN_MS, ended};
-use super::{Delivery, HUB, HUB_DSUSD, LEDGER_CLOSE_MS, Settling, Sim, ilp_packet, key};
+use super::{
+    Delivery, HUB, HUB_DSUSD, LEDGER_CLOSE_MS, LOSS_PER_MILLE, Settling, Sim, ilp_packet, key,
+};
 use crate::node::Policies;
 use crate::store::PeerSettings;
 
@@ -88,11 +103,41 @@ const BANS: [(usize, usize); 5] = [
     (LEFT, RIGHT),
 ];
 
+/// The pair that may peer only once [`RIGHT`] holds toward [`HOP`] and its
+/// owner took its funds out of the XRP hub.
+const LATE: (usize, usize) = (RIGHT, PAYEE);
+
 /// What node 3 charges for what passes, as node 1 does: a 1% fee.
 const RIGHT_CHARGES: PeerSettings = PeerSettings {
     connector_fee_ppm: 10_000,
     ..PeerSettings::DEFAULT
 };
+
+/// How many more payments node 0 makes, at most, for node 1 to draw node
+/// 3, which it draws only when exploring once node 2 earned it a fee, and
+/// see its T04. A tenth of node 1's draws explore, split evenly over its
+/// two XRP hops, one fresh draw per Prepare (`explore_ppm`). A Prepare to
+/// node 3 lost on its way fails as T01, and a T04 lost on its way back
+/// shows nothing either, each one message in a hundred
+/// ([`LOSS_PER_MILLE`]). Each packet then shows a T04 with a chance of
+/// 0.05 × 0.99², and the at least 280 packets of 28 payments all miss in
+/// fewer than one run in a million (0.951^280 ≈ 7.8 × 10⁻⁷). A model:
+/// node 3's weight stays nothing while it refuses, and losses are
+/// independent.
+const AGAIN: u64 = 28;
+
+// The bound holds as long as node 1 explores at least as often, the run
+// loses at least as few messages, and a payment sends at least as many
+// packets: each of those only makes a T04 from node 3 likelier.
+const _: () = assert!(
+    Policies::DEFAULT.connector.explore_ppm >= 100_000
+        && LOSS_PER_MILLE <= 10
+        && AGAIN * LEAST_PACKETS >= 280
+);
+
+/// The fewest packets of the largest a payment of the run sends: each
+/// sends from this many to twice as many, less one.
+const LEAST_PACKETS: u64 = 10;
 
 /// How long a peering may take to gain the method of every hub both nodes
 /// are in, once it is made: a request and its answer, retried a few times.
@@ -519,26 +564,31 @@ fn take_out(sim: &mut Sim, index: usize) -> Result<(), Outcome> {
     let place = place_of(sim, HUB);
     let scheme = sim.hub_at(place).scheme();
     let fees = sim.hub_at(place).rules.terms.fees;
-    let spendable = status_in(sim, index, place)
-        .map_or(0, |status| status.balance / UNITS_PER_DROP)
-        .saturating_sub(fees.operation + fees.ledger);
-    let mut taken: Result<(), String> = Err("too little to take".into());
-    // Of what the account holds, part may be owed to peers, which the owner
-    // cannot take: less, then.
-    for tenths in (5..=10).rev() {
-        let drops = spendable * tenths / 10;
-        if drops < fees.least_payout {
+    let deadline = sim.now + JOINED_WITHIN_MS;
+    let mut taken: Result<(), String>;
+    loop {
+        let drops = status_in(sim, index, place)
+            .map_or(0, |status| status.balance / UNITS_PER_DROP)
+            .saturating_sub(fees.operation + fees.ledger);
+        taken = Err("too little to take".into());
+        if drops >= fees.least_payout {
+            sim.step(index, |core| {
+                taken = core
+                    .hub_withdraw_from(scheme, drops * UNITS_PER_DROP)
+                    .map(|_| ())
+                    .map_err(|error| format!("{error:?}"));
+            });
+        }
+        if taken.is_ok() || sim.now >= deadline {
             break;
         }
-        sim.step(index, |core| {
-            taken = core
-                .hub_withdraw_from(scheme, drops * UNITS_PER_DROP)
-                .map(|_| ())
-                .map_err(|error| format!("{error:?}"));
-        });
-        if taken.is_ok() {
-            break;
-        }
+        // All of it, never less: what a withdrawal leaves, at least the
+        // hub's least payout, funds holds of many packets. An owner whose
+        // node cannot take it now, its account reading up to a newer state
+        // of the hub, or a settlement of its own on its way that the agreed
+        // balance does not show yet, tries again a ledger later, until the
+        // wait of a move is over, as in `owner_deposits`.
+        run_sliced(sim, sim.now + LEDGER_CLOSE_MS, |_| false);
     }
     if let Err(error) = taken {
         return Err(Outcome::liveness(
@@ -552,6 +602,27 @@ fn take_out(sim: &mut Sim, index: usize) -> Result<(), Outcome> {
         return Err(Outcome::liveness(
             "taken-out",
             format!("node {index}'s owner's withdrawal from the XRP hub was not done in time"),
+        ));
+    }
+    // Less than an operation's fee left: the node can make no operation of
+    // its own in the hub, so it neither funds a hold nor takes what its
+    // peers' holds toward it owe it into its balance
+    // (`dassie_hub::ledger::Ledger::apply_member`). An honest run leaves
+    // nothing: the node takes a withdrawal of the whole balance only with
+    // no operation of its own waiting or on its way, which would execute
+    // first, so it executes on the balance it was sized from; after it,
+    // only the node's own operations credit the account, a redeem of a
+    // peer's claim among them, and the hub refuses each for its fee. No
+    // node moves funds into another's account, and the owner's moves are
+    // off.
+    let left = status_in(sim, index, place).map_or(0, |status| status.balance / UNITS_PER_DROP);
+    if left >= fees.operation {
+        return Err(Outcome::liveness(
+            "taken-out",
+            format!(
+                "node {index} kept {left} drops in the XRP hub once its owner took its funds \
+                 out, enough to operate there"
+            ),
         ));
     }
     sim.trace.push(format!(
@@ -604,16 +675,60 @@ fn bring_back(
     Ok(())
 }
 
+/// What node `from` holds toward node `to` in the XRP hub.
+fn holding(sim: &Sim, from: usize, to: usize) -> u64 {
+    let to = key(to).node_id();
+    status_in(sim, from, place_of(sim, HUB)).map_or(0, |status| {
+        status
+            .paying
+            .iter()
+            .filter(|hold| hold.peer == Some(to))
+            .map(|hold| hold.amount)
+            .sum()
+    })
+}
+
 fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     join_hubs(sim)?;
     owner_deposits(sim)?;
-    sim.step(RIGHT, |core| core.set_peer_settings(RIGHT_CHARGES).unwrap());
-    take_out(sim, RIGHT)?;
-    for (a, b) in BANS {
+    for index in 0..NODES {
+        let settings = if index == RIGHT {
+            RIGHT_CHARGES
+        } else {
+            sim.nodes[index].store.peer_settings().unwrap()
+        };
+        let settings = PeerSettings {
+            offer_swaps: false,
+            swapping: false,
+            ..settings
+        };
+        sim.step(index, |core| core.set_peer_settings(settings).unwrap());
+    }
+    for (a, b) in BANS.into_iter().chain([LATE]) {
         sim.step(a, |core| core.ban_node(key(b).node_id()).unwrap());
         sim.step(b, |core| core.ban_node(key(a).node_id()).unwrap());
     }
     sim.join_network(1);
+    // Node 3 holds toward node 1 at least a packet for each of its two
+    // peerings over the XRP hub, which its owner cannot take out: with
+    // nothing left to spend, it still has the liquidity to take node 4
+    // over the hub, and none to fund a hold toward it.
+    let least = 2 * Policies::DEFAULT.connector.max_packet_amount;
+    if !run_sliced(sim, sim.now + READY_WITHIN_MS + METHODS_WITHIN_MS, |sim| {
+        holding(sim, RIGHT, HOP) >= least
+    }) {
+        return Err(Outcome::liveness(
+            "holding",
+            format!(
+                "node 3 held {} toward node 1 in the XRP hub, less than {least}",
+                holding(sim, RIGHT, HOP)
+            ),
+        ));
+    }
+    take_out(sim, RIGHT)?;
+    let (a, b) = LATE;
+    sim.step(a, |core| core.unban_node(&key(b).node_id()).unwrap());
+    sim.step(b, |core| core.unban_node(&key(a).node_id()).unwrap());
     if !run_sliced(sim, sim.now + READY_WITHIN_MS + METHODS_WITHIN_MS, |sim| {
         formed(sim).is_ok()
     }) {
@@ -643,10 +758,38 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
 /// XRP drawn to it, and earns nothing there: the payment completes through
 /// node 2.
 fn methods(sim: &mut Sim, rng: &mut SeededRng, seen: &RefCell<Seen>) -> Result<(), Outcome> {
-    let first = start(sim, (SENDER, PAYEE), HUB, 10 + rng.below(10))?;
-    start(sim, (PAYEE, SENDER), HUB_DSUSD, 10 + rng.below(10))?;
+    let first = start(
+        sim,
+        (SENDER, PAYEE),
+        HUB,
+        LEAST_PACKETS + rng.below(LEAST_PACKETS),
+    )?;
+    start(
+        sim,
+        (PAYEE, SENDER),
+        HUB_DSUSD,
+        LEAST_PACKETS + rng.below(LEAST_PACKETS),
+    )?;
     run_seeing(sim, seen, sim.now + PAID_WITHIN_MS, paid);
     check_paid(sim, first, "methods")?;
+    let refused =
+        |seen: &Seen| seen.rejected((RIGHT, HOP), RIGHT, ErrorCode::T04_INSUFFICIENT_LIQUIDITY);
+    // Once node 2 earned node 1 a fee, node 1 draws node 3 only when it
+    // explores: node 0 pays node 4 again until node 3 answered T04.
+    for _ in 0..AGAIN {
+        if refused(&seen.borrow()) != 0 {
+            break;
+        }
+        let again = start(
+            sim,
+            (SENDER, PAYEE),
+            HUB,
+            LEAST_PACKETS + rng.below(LEAST_PACKETS),
+        )?;
+        run_seeing(sim, seen, sim.now + PAID_WITHIN_MS, paid);
+        check_paid(sim, again, "methods")?;
+        sim.count("payments made again until node 3 answered T04");
+    }
     first_failure([
         check_unconverted(sim).map_err(|problem| Outcome::safety("converted", problem)),
         check_weights_cost_fees(sim).map_err(|problem| Outcome::safety("weights", problem)),
@@ -674,13 +817,15 @@ fn methods(sim: &mut Sim, rng: &mut SeededRng, seen: &RefCell<Seen>) -> Result<(
     }
     // Node 3 was drawn, and refused: otherwise it earned nothing only for
     // never having been tried.
-    let refused =
-        seen.borrow()
-            .rejected((RIGHT, HOP), RIGHT, ErrorCode::T04_INSUFFICIENT_LIQUIDITY);
+    let refused = refused(&seen.borrow());
     if refused == 0 {
         return Err(Outcome::liveness(
             "refusing-hop",
-            "node 1 never drew node 3, which could fund no hold in the XRP hub",
+            format!(
+                "node 3, which could fund no hold in the XRP hub, answered no T04 in {} \
+                 payments",
+                AGAIN + 1
+            ),
         ));
     }
     *sim.counts.entry(SHORT_OF_ROOM).or_default() += refused;
@@ -757,18 +902,20 @@ fn attack(sim: &mut Sim, rng: &mut SeededRng, seen: &RefCell<Seen>) -> Result<()
 }
 
 /// Node 2's owner takes out of the XRP hub all its account can spend,
-/// and node 0 pays node 4: node 1 still draws node 2 by its weight, and it
+/// and node 0 pays node 4, again until node 2 has spent what its hold
+/// toward node 4 had left: node 1 still draws node 2 by its weight, and it
 /// answers T04, its packets moving to no other method. Its owner moves
-/// funds back in, its hold is funded again, and the payment completes;
+/// funds back in, its hold is funded again, and the payments complete;
 /// at every step of a window longer than all that, node 2's weight in node
-/// 1 has lost only what decay takes. Then it carries packets again.
+/// 1 has lost only what decay takes, of what it had earned by then. Then
+/// it carries packets again.
 fn short(sim: &mut Sim, rng: &mut SeededRng, seen: &RefCell<Seen>) -> Result<(), Outcome> {
     take_out(sim, LEFT)?;
     let until = sim.now + SHORT_WINDOW_MS;
     // What node 2 earned node 1 before, as decay alone leaves it at the
-    // window's end, is the least its weight may be at any time in it.
-    let kept = weight(sim, HOP, LEFT, HUB, until);
-    if kept == 0 {
+    // window's end, is the least its weight may be until node 2 refuses.
+    let earned = weight(sim, HOP, LEFT, HUB, until);
+    if earned == 0 {
         return Err(Outcome::liveness(
             "short",
             "node 2 had earned node 1 nothing by the time it was short of room",
@@ -777,7 +924,7 @@ fn short(sim: &mut Sim, rng: &mut SeededRng, seen: &RefCell<Seen>) -> Result<(),
     seen.borrow_mut().watch = Some(Watch {
         hop: LEFT,
         until,
-        lowest: kept,
+        lowest: earned,
     });
     let count = |seen: &Seen| {
         (
@@ -787,14 +934,55 @@ fn short(sim: &mut Sim, rng: &mut SeededRng, seen: &RefCell<Seen>) -> Result<(),
     };
     let (refusals, sideways) = count(&seen.borrow());
     let over_dsusd = sim.counts.get(PREPARES_OVER_DSUSD).copied().unwrap_or(0);
-    let payment = start(sim, (SENDER, PAYEE), HUB, 10 + rng.below(10))?;
+    let payment = start(
+        sim,
+        (SENDER, PAYEE),
+        HUB,
+        LEAST_PACKETS + rng.below(LEAST_PACKETS),
+    )?;
+    let deadline = sim.now + PAID_WITHIN_MS;
     let refused = |sim: &Sim| count(&seen.borrow()).0 > refusals || paid(sim);
-    run_seeing(sim, seen, sim.now + PAID_WITHIN_MS, refused);
+    loop {
+        run_seeing(sim, seen, deadline, refused);
+        if count(&seen.borrow()).0 > refusals || sim.now >= deadline {
+            break;
+        }
+        // Paid with no T04: node 2's hold toward node 4, funded before its
+        // owner took the funds out, carried what node 1 drew to node 2, and
+        // node 3 the rest. Node 0 pays again, until that hold is spent.
+        start(
+            sim,
+            (SENDER, PAYEE),
+            HUB,
+            LEAST_PACKETS + rng.below(LEAST_PACKETS),
+        )?;
+        sim.count("payments made again until node 2 was short of room");
+    }
     let refused = count(&seen.borrow()).0 - refusals;
     if refused == 0 {
         return Err(Outcome::liveness(
             "short",
             "node 2, short of room in the XRP hub, never answered T04",
+        ));
+    }
+    // Node 2's first T04 is on its way to node 1, which has not taken it
+    // yet. Until now its weight may not fall below what it had earned;
+    // from now on not below what it has earned, the fees of the payments
+    // made again included, so that those fees cannot hide a cut on the
+    // refusal.
+    let kept = weight(sim, HOP, LEFT, HUB, until);
+    let lowest = {
+        let mut seen = seen.borrow_mut();
+        let watch = seen.watch.as_mut().unwrap();
+        std::mem::replace(&mut watch.lowest, kept)
+    };
+    if lowest < earned {
+        return Err(Outcome::safety(
+            "short-weight",
+            format!(
+                "node 1's weight for node 2 fell from {earned} to {lowest} once node 2 was short \
+                 of room, before it refused anything, beyond what decay takes"
+            ),
         ));
     }
     bring_back(sim, seen, LEFT, until)?;
@@ -830,7 +1018,12 @@ fn short(sim: &mut Sim, rng: &mut SeededRng, seen: &RefCell<Seen>) -> Result<(),
     sim.count("hops short of room kept their weight");
     // Drawn by that weight, it carries packets again.
     let fulfilled = seen.borrow().fulfilled(LEFT, HOP);
-    let payment = start(sim, (SENDER, PAYEE), HUB, 10 + rng.below(10))?;
+    let payment = start(
+        sim,
+        (SENDER, PAYEE),
+        HUB,
+        LEAST_PACKETS + rng.below(LEAST_PACKETS),
+    )?;
     run_seeing(sim, seen, sim.now + PAID_WITHIN_MS, paid);
     check_paid(sim, payment, "room back")?;
     if seen.borrow().fulfilled(LEFT, HOP) == fulfilled {

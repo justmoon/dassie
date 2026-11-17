@@ -171,6 +171,9 @@ pub const REGIONAL_LATENCY_MS: (u64, u64) =
     (1, dassie_hub::consensus::Config::DEFAULT.max_delay_ms);
 /// The longest a forged copy of a request arrives after the original.
 pub const FORGERY_WITHIN_MS: u64 = 90_000;
+/// How many of a thousand messages a run loses, unless it sets
+/// [`Sim::loss_per_mille`] otherwise.
+pub const LOSS_PER_MILLE: u64 = 10;
 
 /// The key of the forger, who saw requests between nodes and sends them
 /// again under the only key it can prove, its own: no node of the network
@@ -1136,7 +1139,7 @@ impl Sim {
             queue: BTreeMap::new(),
             sequence: 0,
             rng: SeededRng::new(seed),
-            loss_per_mille: 10,
+            loss_per_mille: LOSS_PER_MILLE,
             forgery_per_mille: 0,
             to_mint: (0..skews_ms.len())
                 .filter(|index| {
