@@ -346,7 +346,7 @@ fn withdrawal_name(number: u64) -> Name {
 }
 
 /// The hash of a member's operation, as the journal keys what it moved.
-fn operation_hash(operation: &SignedMemberOperation) -> Digest {
+pub(super) fn operation_hash(operation: &SignedMemberOperation) -> Digest {
     Operation::Member(operation.clone()).hash()
 }
 
@@ -777,22 +777,7 @@ impl HubScheme {
                 }
                 self.settled(settlement, operation, applied, detail, effects);
             }
-            Purpose::Claim(hold) => {
-                self.claimed_on_hub(hold, operation, applied);
-                // The fee of a claim is the payer's doing: its claim was
-                // missing or late. Booked now, in order with the rest.
-                if let Some(peer) = self.payer_of(hold) {
-                    let loss = Loss {
-                        units: units(fee),
-                        cause: LossCause::ClaimFee,
-                        operation: id,
-                        hold,
-                        sequence: 0,
-                    };
-                    self.book_loss(peer, loss, effects);
-                    return;
-                }
-            }
+            Purpose::Claim(hold) => self.claimed_on_hub(hold, operation, applied),
             Purpose::Withdraw => {
                 if let (true, MemberOperation::Withdraw { amount, .. }) =
                     (applied, &operation.operation)
@@ -812,22 +797,46 @@ impl HubScheme {
                         .map(|release| release.value.sequence)
                         .collect();
                     peer.payer.disputed(&sequences);
-                    // The peer claimed what it released: its cheating, which
-                    // cost us the dispute's fee (spec/decisions/signed-rejects.md).
-                    let loss = Loss {
-                        units: units(fee),
-                        cause: LossCause::DisputeFee,
-                        operation: id,
-                        hold,
-                        sequence: 0,
-                    };
-                    self.book_loss(name, loss, effects);
-                    return;
                 }
             }
             Purpose::Redeem(_) | Purpose::Disbursal => {}
         }
-        self.pay_fee(fee, id, effects);
+        self.own_fee(purpose, fee, id, effects);
+    }
+
+    /// Books the fee our operation `id` for `purpose` paid: a claim's is
+    /// the payer's doing, since its claim was missing or late, and a
+    /// dispute's the payee's, which claimed what it released
+    /// (spec/decisions/signed-rejects.md); each a loss on the peer. Any
+    /// other is a fee.
+    pub(super) fn own_fee(
+        &mut self,
+        purpose: Purpose,
+        fee: Amount,
+        id: Digest,
+        effects: &mut Vec<Effect>,
+    ) {
+        let blamed = match purpose {
+            Purpose::Claim(hold) => self
+                .payer_of(hold)
+                .map(|peer| (peer, hold, LossCause::ClaimFee)),
+            Purpose::Dispute(hold) => self
+                .payee_of(hold)
+                .map(|peer| (peer, hold, LossCause::DisputeFee)),
+            _ => None,
+        };
+        let Some((peer, hold, cause)) = blamed else {
+            self.pay_fee(fee, id, effects);
+            return;
+        };
+        let loss = Loss {
+            units: units(fee),
+            cause,
+            operation: id,
+            hold,
+            sequence: 0,
+        };
+        self.book_loss(peer, loss, effects);
     }
 
     fn pay_fee(&mut self, fee: Amount, id: Digest, effects: &mut Vec<Effect>) {

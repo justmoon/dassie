@@ -310,8 +310,9 @@ pub enum News {
         /// The holds it mirrored before.
         before: Vec<(HoldNumber, HoldMirror)>,
         /// The operation of ours that was on its way and used its sequence
-        /// in between: whether it applied is not known.
-        unread: Option<(Purpose, MemberOperation)>,
+        /// in between, as we signed it: whether it applied is not known,
+        /// but its sequence paid the hub's operation fee.
+        unread: Option<(Purpose, SignedMemberOperation)>,
     },
     /// The account of a key the scheme asked about
     /// ([`HubAccount::look_up`]).
@@ -2127,7 +2128,7 @@ impl HubAccount {
     /// thaw, the one that is not a claim: the state read anew shows whether
     /// it applied, and the claim, sent again, fails at worst. The others
     /// can never apply now, and are signed again.
-    fn take_unread(&mut self, sequence: u64) -> Option<(Purpose, MemberOperation)> {
+    fn take_unread(&mut self, sequence: u64) -> Option<(Purpose, SignedMemberOperation)> {
         let used = |q: &Queued| {
             q.sent
                 .as_ref()
@@ -2147,7 +2148,8 @@ impl HubAccount {
         if queued.purpose == Purpose::Disbursal {
             self.disbursal_set = true;
         }
-        Some((queued.purpose, queued.operation))
+        let (signed, _) = queued.sent?;
+        Some((queued.purpose, signed))
     }
 
     /// Keeps news for the scheme. The node tells it after every input, and

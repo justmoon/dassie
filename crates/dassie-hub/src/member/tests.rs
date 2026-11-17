@@ -1528,6 +1528,115 @@ fn an_unread_pay_waits_for_the_hub_across_a_restart() {
     scheme.check_invariants();
 }
 
+/// Validators 0 and 1 no longer keep the history since the cursor, and
+/// say the account is `view` with `holds` as of the block at `height`.
+fn read_anew(
+    hub: &Hub,
+    account: &mut HubAccount,
+    height: u64,
+    view: AccountView,
+    holds: Vec<(crate::promise::HoldNumber, crate::client::HoldView)>,
+) {
+    let trimmed = Statement::Trimmed {
+        height,
+        below: height / 2,
+    };
+    let now = Statement::Account {
+        height,
+        key: hub.key.public_key(),
+        account: Some((AccountNumber(7), view)),
+    };
+    let holds = Statement::Holds {
+        height,
+        timestamp: 1_000 + height,
+        account: AccountNumber(7),
+        page: 0,
+        pages: 1,
+        holds,
+    };
+    for v in 0..2 {
+        say_all(hub, account, v, core::slice::from_ref(&trimmed));
+    }
+    for v in 0..2 {
+        say_all(hub, account, v, &[now.clone(), holds.clone()]);
+    }
+}
+
+// spec/areas/hubs.md#when-the-history-is-gone: our settlement on its way
+// executed in the blocks the account skips when it reads its state anew.
+// Its sequence paid the hub's operation fee, which is booked as a fee, as
+// reading it in order books it: nothing of it goes through suspense.
+#[test]
+fn reading_anew_books_the_fee_of_our_operation_in_between() {
+    let hub = Hub::new();
+    let (mut account, mut scheme) = synced_scheme(&hub);
+    let booked = scheme.balance();
+    let settlement = Name::new("00112233445566778899aabbccddeeff").unwrap();
+    let hold = crate::promise::HoldNumber(1);
+    let drops = 1_000;
+    scheme.settling.insert(
+        settlement,
+        scheme::Settling {
+            peer: Name::new("peer").unwrap(),
+            drops,
+        },
+    );
+    account
+        .prepare(
+            settlement,
+            MemberOperation::HoldFund {
+                hold,
+                amount: drops,
+            },
+        )
+        .unwrap();
+    assert!(account.execute(settlement));
+    let sent = submitted(&mut account);
+    assert!(sent.iter().all(|signed| signed.sequence == 3), "{sent:?}");
+    // It executed, and the validators no longer keep the block it did.
+    let fee = hub.rules.terms.fees.operation;
+    assert!(fee > 0);
+    let view = AccountView {
+        key: hub.key.public_key(),
+        balance: 5_000_000 - drops - fee,
+        reserve: 2_000_000,
+        sequence: 4,
+        disbursal: true,
+        closing: false,
+        deposited: 7_000_000,
+        withdrawn: 0,
+        returned: 0,
+    };
+    let fund = crate::client::HoldView {
+        payer: AccountNumber(7),
+        payee: AccountNumber(9),
+        amount: drops,
+        reduction: None,
+        total: 0,
+        through: 0,
+        pending: (0, 0),
+    };
+    read_anew(&hub, &mut account, 100, view, alloc::vec![(hold, fund)]);
+    assert_eq!(account.cursor(), 100, "read anew");
+    let mut effects = Vec::new();
+    scheme.on_asset(0, &mut account, &mut effects);
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Reconcile { .. })),
+        "nothing through suspense: {effects:?}"
+    );
+    assert_eq!(effects.len(), 2, "{effects:?}");
+    assert_eq!(effects[0], Effect::Finalize { settlement });
+    assert!(
+        matches!(effects[1], Effect::Fee { amount, .. } if amount == units(fee)),
+        "{effects:?}"
+    );
+    assert_eq!(scheme.balance(), booked - units(drops + fee));
+    scheme.check_invariants();
+    account.check_invariants();
+}
+
 // spec/decisions/database-continuity.md: the scheme's state of version 3,
 // which a release since the testnet's reset wrote, reads as one with no
 // releases or disputes; one of an older version, which none wrote, is
