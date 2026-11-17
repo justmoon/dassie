@@ -38,3 +38,22 @@ test("a process that ignores SIGTERM is killed", async () => {
   const { code } = await child.stop(200);
   assertEquals(code, 137);
 });
+
+test("a process that waits after SIGTERM is stopped by a second", async () => {
+  // As a node draining packets in flight: the first SIGTERM only starts
+  // its wait, the second ends it, cleanly.
+  const { promise: ready, resolve } = Promise.withResolvers<void>();
+  const child = new ChildProcess("draining", "sh", {
+    args: [
+      "-c",
+      "n=0; trap 'n=$((n + 1)); [ $n -ge 2 ] && exit 0' TERM; echo ready; " +
+      "while :; do sleep 0.05; done",
+    ],
+    onLine: (_, line) => {
+      if (line === "ready") resolve();
+    },
+  });
+  await ready;
+  const { code } = await child.stop(200);
+  assertEquals(code, 0);
+});

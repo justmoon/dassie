@@ -45,8 +45,9 @@ const httpsPort = (index: number) => HTTPS_PORT_BASE + 1 + index + OFFSET;
 const STOPS_AT_ONCE_MS = 30_000;
 /**
  * How long the dev server gets to stop cleanly: its nodes stop at once,
- * each within {@linkcode STOP_GRACE_MS}, and its server within a second
- * more; the rest is room for a slow machine.
+ * each within {@linkcode STOP_GRACE_MS}, or within two when one still
+ * drains packets in flight and stops at a second SIGTERM, and its server
+ * within a second more; the rest is room for a slow machine.
  */
 const DEV_STOP_MS = 2 * STOP_GRACE_MS + 10_000;
 

@@ -19,7 +19,10 @@ import type { Readable } from "node:stream";
 export const TAIL_LINES = 200;
 /** Longest line kept or passed on; the rest is cut. */
 export const MAX_LINE_BYTES = 4096;
-/** How long a process has to exit after SIGTERM before SIGKILL. */
+/**
+ * How long a process has to exit after SIGTERM before a second SIGTERM,
+ * and after that before SIGKILL.
+ */
 export const STOP_GRACE_MS = 5_000;
 
 export type Stream = "stdout" | "stderr";
@@ -86,17 +89,30 @@ export class ChildProcess {
     return this.#tail.join("\n");
   }
 
-  /** Stops the process: SIGTERM, and SIGKILL if it lingers. */
+  /**
+   * Stops the process: SIGTERM; a second if it lingers, which stops a node
+   * still draining packets in flight at once, as their answers may never
+   * come when its peers stop with it
+   * (spec/decisions/drain-on-shutdown.md); and SIGKILL if it lingers still.
+   */
   async stop(graceMs = STOP_GRACE_MS): Promise<Exit> {
-    this.#child.kill("SIGTERM");
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const lingering = new Promise<"lingering">((resolve) => {
-      timer = setTimeout(() => resolve("lingering"), graceMs);
-    });
-    const first = await Promise.race([this.exited, lingering]);
-    clearTimeout(timer);
-    if (first === "lingering") this.#child.kill("SIGKILL");
+    for (const signal of ["SIGTERM", "SIGTERM", "SIGKILL"] as const) {
+      this.#child.kill(signal);
+      if (signal === "SIGKILL" || await this.#exitsWithin(graceMs)) break;
+    }
     return await this.exited;
+  }
+
+  /** Whether the process exits within `ms`. */
+  async #exitsWithin(ms: number): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const lingering = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), ms);
+    });
+    const exited = this.exited.then(() => true);
+    const first = await Promise.race([exited, lingering]);
+    clearTimeout(timer);
+    return first;
   }
 
   /** Resolves once `readable` has ended, or broke with the process. */
