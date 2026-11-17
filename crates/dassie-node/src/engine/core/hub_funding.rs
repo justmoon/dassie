@@ -1468,6 +1468,223 @@ mod tests {
         assert_eq!(funding.due(5 + OWNER_PAUSE_MS, &low), None);
     }
 
+    // The gas check against the XRP book's own account and its reads, on
+    // a fake ledger: what Core::gas_seen hands the check is what the
+    // account proved.
+    mod gas_reads {
+        use super::*;
+        use dassie_settlement::{AssetEffect, ExternalAsset, LedgerInput};
+        use dassie_xrpl::AccountId;
+        use dassie_xrpl::account::{FRESH_ANCHOR_MS, XrplAccount};
+        use dassie_xrpl::fake::{FakeLedger, with_publishers};
+        use dassie_xrpl::network::TESTNET;
+
+        /// The XRP book's account on a fake ledger, and a token hub's
+        /// escrow on it.
+        struct Reads {
+            ledger: FakeLedger,
+            account: XrplAccount,
+            escrow: AccountId,
+            now: u64,
+        }
+
+        impl Reads {
+            /// The account synced, idle, with the escrow holding 100 XRP.
+            fn new() -> Self {
+                let mut ledger = FakeLedger::new();
+                let config =
+                    with_publishers(r#"{"server":"ws://ledger.test","faucet":null}"#, &TESTNET);
+                let account = XrplAccount::new(
+                    TESTNET.first(),
+                    &[TESTNET.xrp_scheme],
+                    &config,
+                    &[7; 32],
+                    &[],
+                )
+                .unwrap();
+                let escrow = AccountId([9; 20]);
+                ledger.deposit(account.account(), 100_000_000);
+                ledger.deposit(escrow, 100_000_000);
+                ledger.close();
+                let now = ledger.now_ms();
+                let mut reads = Self {
+                    ledger,
+                    account,
+                    escrow,
+                    now,
+                };
+                reads.account.on_ledger(now, LedgerInput::Connected);
+                assert!(reads.carry_out(false).is_empty());
+                assert!(reads.account.is_synced());
+                reads
+            }
+
+            /// Carries out what the account asks until it asks nothing
+            /// more, and returns the requests that start a round, held
+            /// unanswered if `hold_rounds`, as from a slow server.
+            fn carry_out(&mut self, hold_rounds: bool) -> Vec<Vec<u8>> {
+                let mut held = Vec::new();
+                for _ in 0..64 {
+                    self.account.told();
+                    self.account.check_invariants();
+                    let mut effects = Vec::new();
+                    self.account.take_effects(&mut effects);
+                    if effects.is_empty() {
+                        return held;
+                    }
+                    for effect in effects {
+                        match effect {
+                            AssetEffect::Send { message } => {
+                                let request: serde_json::Value =
+                                    serde_json::from_slice(&message).unwrap();
+                                if hold_rounds && request["command"] == "state_proof" {
+                                    assert_eq!(request["ledger_index"], "validated", "a round");
+                                    held.push(message);
+                                } else {
+                                    self.answer(&message);
+                                }
+                            }
+                            AssetEffect::Fetch { url, .. } => {
+                                let body = self.ledger.fetch(&url).unwrap();
+                                let fetched = LedgerInput::Fetched {
+                                    url: &url,
+                                    body: Some(&body),
+                                };
+                                self.account.on_ledger(self.now, fetched);
+                            }
+                            other => panic!("unexpected: {other:?}"),
+                        }
+                    }
+                }
+                panic!("the account kept asking");
+            }
+
+            fn answer(&mut self, message: &[u8]) {
+                let reply = self.ledger.request(1, message);
+                self.account
+                    .on_ledger(self.now, LedgerInput::Message(&reply));
+            }
+
+            /// Closes a ledger, and hands the account its hints.
+            fn close(&mut self) {
+                let messages = self.ledger.close();
+                self.now = self.ledger.now_ms();
+                for (connection, message) in messages {
+                    assert_eq!(connection, 1);
+                    self.account
+                        .on_ledger(self.now, LedgerInput::Message(&message));
+                }
+                if self.account.deadline().is_some_and(|at| at <= self.now) {
+                    self.account.on_timer(self.now);
+                }
+                assert!(self.carry_out(false).is_empty());
+            }
+
+            /// What the check is decided from, as Core::gas_seen takes it.
+            fn seen(&self) -> GasSeen {
+                GasSeen {
+                    anchor: (self.account.anchor())
+                        .filter(|_| self.account.is_synced())
+                        .map(|at| at.index),
+                    proven: (self.account.proven_balance(&self.escrow))
+                        .map(|balance| (balance.drops, balance.ledger_index)),
+                    topping_up: OwnerPaymentState::Unknown,
+                    book_held: false,
+                }
+            }
+        }
+
+        /// A check that found the escrow's gas, and ran out since, while
+        /// the escrow fell below the least gas in ledgers the idle account
+        /// has not anchored on: it still has the anchor the check's read
+        /// was proven at, and the read's answer.
+        fn expired_check() -> (Reads, Funding, u32) {
+            let mut reads = Reads::new();
+            let mut funding = Funding::new(0, 4_000);
+            assert_eq!(funding.gas_step(reads.now, &reads.seen()), GasNext::Read);
+            reads.account.read_balance(reads.escrow);
+            assert!(reads.carry_out(false).is_empty());
+            assert_eq!(funding.gas_step(reads.now, &reads.seen()), GasNext::Ready);
+            let checked = reads.now;
+            let anchor = reads.account.anchor().unwrap().index;
+            assert_eq!(reads.seen().proven, Some((Some(100_000_000), anchor)));
+
+            let low = LEAST_ESCROW_GAS_DROPS / 2;
+            reads
+                .ledger
+                .take_unrecorded(reads.escrow, 100_000_000 - low);
+            for _ in 0..64 {
+                if reads.now > checked + GAS_CHECK_LASTS_MS {
+                    break;
+                }
+                reads.close();
+            }
+            assert!(!funding.gas_ready(reads.now), "the check ran out");
+            assert!(reads.now > checked + FRESH_ANCHOR_MS, "a stale anchor");
+            assert!(reads.account.is_synced());
+            assert_eq!(reads.account.anchor().unwrap().index, anchor);
+            assert!(reads.ledger.ledger() > anchor);
+            assert_eq!(reads.ledger.balance(reads.escrow), Some(low));
+            assert_eq!(reads.seen().proven, Some((Some(100_000_000), anchor)));
+            (reads, funding, anchor)
+        }
+
+        // spec/areas/hubs.md#in-the-node: a check is decided by a read
+        // asked for after it began. While the round the read asked for is
+        // on its way, the anchor is still the one the last check's read was
+        // proven at: that answer is no answer to the new read, which the
+        // check waits for.
+        #[test]
+        fn a_gas_check_waits_for_its_own_read() {
+            let (mut reads, mut funding, anchor) = expired_check();
+            assert_eq!(funding.gas_step(reads.now, &reads.seen()), GasNext::Read);
+            reads.account.read_balance(reads.escrow);
+            let held = reads.carry_out(true);
+            assert_eq!(held.len(), 1, "a round, on its way");
+            reads.now += 2_000;
+            reads.account.on_timer(reads.now);
+            assert!(reads.carry_out(true).is_empty());
+            assert!(reads.account.is_synced());
+            assert_eq!(reads.account.anchor().unwrap().index, anchor);
+            assert_eq!(
+                funding.gas_step(reads.now, &reads.seen()),
+                GasNext::Read,
+                "never ready from the last check's answer"
+            );
+            assert!(!funding.gas_ready(reads.now));
+            assert_eq!(reads.seen().proven, None, "no answer while it waits");
+        }
+
+        // spec/areas/hubs.md#in-the-node: the read's round answered, the
+        // check sees the escrow short at the new anchor, and tops up the
+        // whole shortfall.
+        #[test]
+        fn a_gas_check_reads_the_shortfall_at_a_new_anchor() {
+            let (mut reads, mut funding, anchor) = expired_check();
+            assert_eq!(funding.gas_step(reads.now, &reads.seen()), GasNext::Read);
+            reads.account.read_balance(reads.escrow);
+            let held = reads.carry_out(true);
+            assert_eq!(held.len(), 1, "a round, on its way");
+            reads.now += 2_000;
+            for message in held {
+                reads.answer(&message);
+            }
+            assert!(reads.carry_out(false).is_empty());
+            let seen = reads.seen();
+            let new = seen.anchor.unwrap();
+            assert!(new > anchor);
+            let low = LEAST_ESCROW_GAS_DROPS / 2;
+            assert_eq!(seen.proven, Some((Some(low), new)));
+            assert_eq!(
+                funding.gas_step(reads.now, &seen),
+                GasNext::TopUp {
+                    drops: LEAST_ESCROW_GAS_DROPS - low,
+                    at: new,
+                }
+            );
+        }
+    }
+
     // spec/decisions/token-hubs.md: before a token hub's withdrawal, the
     // escrow's XRP is read at the newest ledger proven when asked, or
     // later; with enough, the withdrawal goes; short, the shortfall is

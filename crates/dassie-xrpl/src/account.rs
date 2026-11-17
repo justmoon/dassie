@@ -617,7 +617,8 @@ pub struct XrplAccount {
     /// read at the anchor.
     balances_asked: BTreeSet<AccountId>,
     /// What the reads of balances asked for proved, by account, at most
-    /// [`MAX_SCHEMES`].
+    /// [`MAX_SCHEMES`]: none of an account asked for again, until that
+    /// read is answered.
     balances: BTreeMap<AccountId, ProvenBalance>,
     /// How often one of our transactions could be proven neither applied
     /// The network the connection's server is on, once checked.
@@ -942,17 +943,23 @@ impl XrplAccount {
     /// pool is read. What it proved is [`proven_balance`](Self::proven_balance).
     /// At most [`MAX_SCHEMES`] accounts are asked for at once; more wait to
     /// be asked again.
+    ///
+    /// What an earlier read proved of `account` is forgotten, whether or
+    /// not there was room to ask now: no answer from before an ask ever
+    /// stands in for one after it, and one refused for room is asked again.
     pub fn read_balance(&mut self, account: AccountId) {
+        self.balances.remove(&account);
         if self.balances_asked.contains(&account) || self.balances_asked.len() < MAX_SCHEMES {
             self.balances_asked.insert(account);
             self.read_asked();
         }
     }
 
-    /// The XRP balance of `account` as last proven by a read asked for
+    /// The XRP balance of `account` as proven by the read last asked for
     /// ([`read_balance`](Self::read_balance)), with the ledger it was
-    /// proven at: a read asked for after the anchor's ledger proves it at
-    /// that ledger or later.
+    /// proven at: `None` until that read is answered. The answer is proven
+    /// at the anchor the account had when the read was asked, or at one it
+    /// took since, a later ledger unless a testnet reset came between.
     #[must_use]
     pub fn proven_balance(&self, account: &AccountId) -> Option<ProvenBalance> {
         self.balances.get(account).copied()
@@ -2592,6 +2599,10 @@ impl ExternalAsset for XrplAccount {
         assert!(self.issuers_asked.len() <= MAX_SCHEMES);
         assert!(self.balances_asked.len() <= MAX_SCHEMES);
         assert!(self.balances.len() <= MAX_SCHEMES);
+        assert!(
+            (self.balances_asked.iter()).all(|asked| !self.balances.contains_key(asked)),
+            "a balance asked for has no answer from before the ask"
+        );
         assert!(self.pools.len() <= MAX_SCHEMES);
         if let Some(walk) = &self.walk {
             walk.check_invariants();
@@ -2940,6 +2951,122 @@ mod tests {
         account.write_off(true);
         account.disconnected();
         assert_eq!(account.proven_balance(&accounts[MAX_SCHEMES]), None);
+        account.check_invariants();
+    }
+
+    /// The node's account, synced on a fake ledger that holds 100 XRP in
+    /// `other`, and the ledger's time.
+    fn on_fake_ledger(other: AccountId) -> (crate::fake::FakeLedger, XrplAccount, u64) {
+        let mut ledger = crate::fake::FakeLedger::new();
+        let config = crate::fake::with_publishers(
+            r#"{"server":"ws://ledger.test","faucet":null}"#,
+            &TESTNET,
+        );
+        let mut account =
+            XrplAccount::new(FIRST, &[TESTNET.xrp_scheme], &config, &[7; 32], &[]).unwrap();
+        ledger.deposit(account.account(), 100_000_000);
+        ledger.deposit(other, 100_000_000);
+        ledger.close();
+        let now = ledger.now_ms();
+        account.on_ledger(now, LedgerInput::Connected);
+        assert!(carry_out(&mut ledger, &mut account, now, false).is_empty());
+        assert!(account.is_synced());
+        (ledger, account, now)
+    }
+
+    /// Carries out what `account` asks of `ledger` until it asks nothing
+    /// more, and returns the requests that start a round, held unanswered
+    /// if `hold_rounds`, as from a slow server.
+    fn carry_out(
+        ledger: &mut crate::fake::FakeLedger,
+        account: &mut XrplAccount,
+        now: u64,
+        hold_rounds: bool,
+    ) -> Vec<Vec<u8>> {
+        let mut held = Vec::new();
+        for _ in 0..64 {
+            account.told();
+            account.check_invariants();
+            let mut effects = Vec::new();
+            account.take_effects(&mut effects);
+            if effects.is_empty() {
+                return held;
+            }
+            for effect in effects {
+                match effect {
+                    AssetEffect::Send { message } => {
+                        let request: Value = serde_json::from_slice(&message).unwrap();
+                        if hold_rounds && request["ledger_index"] == "validated" {
+                            held.push(message);
+                        } else {
+                            let reply = ledger.request(1, &message);
+                            account.on_ledger(now, LedgerInput::Message(&reply));
+                        }
+                    }
+                    AssetEffect::Fetch { url, .. } => {
+                        let body = ledger.fetch(&url).unwrap();
+                        let fetched = LedgerInput::Fetched {
+                            url: &url,
+                            body: Some(&body),
+                        };
+                        account.on_ledger(now, fetched);
+                    }
+                    other => panic!("unexpected: {other:?}"),
+                }
+            }
+        }
+        panic!("the account kept asking");
+    }
+
+    // spec/areas/hubs.md#in-the-node: a balance asked for again has no
+    // answer until that read is answered, never the one an earlier read
+    // proved, also while the round the read waits for is on its way and
+    // the anchor is still the one the earlier answer was proven at; the
+    // answer is proven at a later anchor. One not asked for want of room
+    // forgets its earlier answer as well.
+    #[test]
+    fn a_balance_asked_for_again_waits_for_its_answer() {
+        let escrow = AccountId([9; 20]);
+        let (mut ledger, mut account, now) = on_fake_ledger(escrow);
+        account.read_balance(escrow);
+        assert!(carry_out(&mut ledger, &mut account, now, false).is_empty());
+        let first = account.anchor().unwrap().index;
+        let proven = |drops, ledger_index| ProvenBalance {
+            drops: Some(drops),
+            ledger_index,
+        };
+        assert_eq!(
+            account.proven_balance(&escrow),
+            Some(proven(100_000_000, first))
+        );
+
+        ledger.take_unrecorded(escrow, 99_000_000);
+        ledger.close();
+        account.read_balance(escrow);
+        let held = carry_out(&mut ledger, &mut account, now, true);
+        assert_eq!(held.len(), 1, "a round, on its way");
+        assert_eq!(account.anchor().unwrap().index, first);
+        assert_eq!(account.proven_balance(&escrow), None, "no answer yet");
+        for message in held {
+            let reply = ledger.request(1, &message);
+            account.on_ledger(now, LedgerInput::Message(&reply));
+        }
+        assert!(carry_out(&mut ledger, &mut account, now, false).is_empty());
+        let later = account.anchor().unwrap().index;
+        assert!(later > first);
+        assert_eq!(
+            account.proven_balance(&escrow),
+            Some(proven(1_000_000, later))
+        );
+
+        // The other accounts asked for fill the room: the escrow is not
+        // asked for, and its earlier answer goes all the same.
+        for byte in 1..=u8::try_from(MAX_SCHEMES).unwrap() {
+            account.read_balance(AccountId([byte; 20]));
+        }
+        account.read_balance(escrow);
+        assert!(!account.balances_asked.contains(&escrow), "no room");
+        assert_eq!(account.proven_balance(&escrow), None);
         account.check_invariants();
     }
 
