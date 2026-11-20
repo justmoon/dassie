@@ -706,14 +706,15 @@ let
   # The binaries the end-to-end tests run, as `node --run build:e2e` lays
   # them out in target/e2e: the node with the wallet built in, dassie-release
   # for the release script's tests, and the fake XRP Ledger and the interop
-  # tests' STREAM peer, the examples the crates' tests build. Each was built
-  # for the checks already; this only copies them.
+  # tests' STREAM peer and TLS endpoint, the examples the crates' tests
+  # build. Each was built for the checks already; this only copies them.
   e2eBinaries = pkgs.runCommand "dassie-e2e" { } ''
     mkdir -p $out/examples
     cp ${crates.${idOf "dassie-cli"}}/bin/dassie ${
       crates.${idOf "dassie-release"}
     }/bin/dassie-release $out/
     cp ${tests.dassie-node.examples.fake_ledger}/bin/fake_ledger $out/examples/
+    cp ${tests.dassie-node.examples.tls_interop}/bin/tls_interop $out/examples/
     cp ${tests.dassie-stream.examples.interop_peer}/bin/interop_peer $out/examples/
   '';
   # A test finds the files it reads and the binaries it runs from what

@@ -83,6 +83,13 @@ quinn = { version = "0.11.12", default-features = false, features = ["runtime-to
 quinn-proto = { version = "0.11.19", default-features = false }
 # The HMAC key quinn's stateless resets take; already in the tree.
 ring = "0.17.14"
+# ML-KEM-768 for the hybrid key exchange X25519MLKEM768, which rustls has
+# only with aws-lc-rs (spec/decisions/hybrid-key-exchange.md). Pure Rust, so
+# the static builds stay as they are. `hazmat` documents the encapsulation
+# that takes its randomness as an argument; `zeroize` wipes the
+# decapsulation key on drop.
+ml-kem = { version = "0.3.4", features = ["hazmat", "zeroize"] }
+zeroize = { version = "1.9", default-features = false }
 
 # SQLite, compiled in: the release binary carries no shared libraries.
 rusqlite = { version = "0.41", features = ["backup", "bundled"] }

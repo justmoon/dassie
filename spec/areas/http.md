@@ -115,7 +115,7 @@ Setup happens once: whoever opens the setup URL claims the node with their passp
 
 ## Certificates
 
-The HTTPS listener always has a certificate: a self-signed one until ACME or the owner provides another. It reads the current one at every handshake, so a renewal or an installed certificate takes effect at once, without restarting the listener. TLS is rustls with ring as the only crypto provider (`tls.rs`); post-quantum key exchange is not built ([roadmap](../roadmap.md)).
+The HTTPS listener always has a certificate: a self-signed one until ACME or the owner provides another. It reads the current one at every handshake, so a renewal or an installed certificate takes effect at once, without restarting the listener. TLS is rustls with ring as the only crypto provider (`tls.rs`), with the hybrid post-quantum key exchange X25519MLKEM768 offered and preferred, and X25519 kept for clients without it ([hybrid-key-exchange](../decisions/hybrid-key-exchange.md)).
 
 What to serve is decided at start and whenever the hostname changes (`certificate::decide`):
 
@@ -140,4 +140,5 @@ The daemon runs every ACME order ([RFC 8555](https://www.rfc-editor.org/rfc/rfc8
 - [secrets-at-rest](../decisions/secrets-at-rest.md): session tokens stored only as hashes.
 - [headless-setup](../decisions/headless-setup.md): `dassie setup` through the setup route, and why it pins the certificate the daemon names.
 - [tigerstyle](../decisions/tigerstyle.md): the node's decisions as pure functions in `dassie-node-core`; every table and timer bounded.
+- [hybrid-key-exchange](../decisions/hybrid-key-exchange.md): X25519MLKEM768 first on ring, from RustCrypto's ML-KEM, rather than the aws-lc-rs provider.
 - [quic-over-websocket](../decisions/quic-over-websocket.md): `/quic`, a WebSocket that carries QUIC's packets, which holds the place of the QUIC connection it carries once upgraded.

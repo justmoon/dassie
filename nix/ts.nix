@@ -215,6 +215,7 @@ in
         export CHROME_BIN=${lib.getExe pkgs.chromium}
         export FONTCONFIG_FILE=${pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; }}
         export DASSIE_INTEROP_PEER=$PWD/target/e2e/examples/interop_peer
+        export DASSIE_TLS_INTEROP=$PWD/target/e2e/examples/tls_interop
         node --run test:e2e
       '';
     };

@@ -43,6 +43,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [hub-scheme-names](hub-scheme-names.md) | A hub scheme's ID names its underlying ledger and its asset | hubs, settlement, xrpl |
 | [hub-waits-end-at-the-event](hub-waits-end-at-the-event.md) | A validator checks an escrow, and a member looks up a peer's account, when what it waits for happens; the poll stays as the fallback | hubs, peer-protocol |
 | [hubs-only](hubs-only.md) | Peers settle only over settlement hubs | designs/settlement-hubs, settlement, network, xrpl, testing |
+| [hybrid-key-exchange](hybrid-key-exchange.md) | Every TLS handshake offers the hybrid X25519MLKEM768 first, built on ring's X25519 and RustCrypto's ML-KEM | http, peer-protocol |
 | [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (transfer fees not built) | xrpl, settlement, connector |
 | [keeper-follows-the-pool](keeper-follows-the-pool.md) | The DSUSD keeper follows the pool, and reprices after each trade | dsusd-keeper, xrpl |
 | [lazy-downlink-accounts](lazy-downlink-accounts.md) | A downlink's accounts open once value first moves with it, in room kept for it while its channel is open | network, settlement, connector, ledger |

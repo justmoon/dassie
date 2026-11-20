@@ -51,7 +51,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `apps/market-maker` | [Market maker VM](areas/market-maker-vm.md), [Rate feed](areas/rate-feed.md#market-maker), [Release](areas/release.md), [Settlement hubs](areas/hubs.md#in-the-node) |
 | `apps/website`, `scripts/website/`, `.github/workflows/website.yml` | [Website](areas/website.md) |
 | `tests/e2e` | [Testing](areas/testing.md), and the area under test |
-| `tests/interop` | [Testing](areas/testing.md), [STREAM](areas/stream.md), [Payments](areas/payments.md) |
+| `tests/interop` | [Testing](areas/testing.md), [STREAM](areas/stream.md), [Payments](areas/payments.md), [HTTP](areas/http.md) |
 | `resources/`, `nix/`, `scripts/release.ts`, `scripts/flake-latest.ts`, `scripts/flake-latest/`, `.github/workflows/release.yml` | [Release](areas/release.md) |
 | `resources/front-door/` | [Front doors](areas/http.md#front-doors), [Node](areas/node.md#a-chosen-relay) |
 | `resources/proof-server/` | [Proof servers](areas/proof-servers.md), [Checking the validators](designs/xrpl-validation.md#3-the-proof-api) |
