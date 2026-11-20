@@ -25,7 +25,24 @@ export const SOURCE_KINDS = [
   ["norges-bank", "Norges Bank"],
   ["bank-of-canada", "Bank of Canada"],
   ["cnb", "Czech National Bank"],
+  ["xrpl-pool", "XRP Ledger: mainnet's XRP/RLUSD pool"],
 ] as const;
+
+/** The kinds of rate source that take another server, with what the field
+ * says: Coinbase's format, served by others too, and the XRP/RLUSD pool,
+ * followed on another XRPL server. */
+export const URL_KINDS: Record<string, { hint: string; placeholder: string }> =
+  {
+    coinbase: {
+      hint: "Empty for Coinbase's own; else an HTTPS server of its format.",
+      placeholder: "https://api.coinbase.com/v2/exchange-rates?currency=USD",
+    },
+    "xrpl-pool": {
+      hint:
+        "Empty for Dassie's proof server; else an XRPL mainnet server that serves proofs.",
+      placeholder: "wss://mainnet.xrpl.dassieland.net",
+    },
+  };
 
 /** A rate source's name for people. */
 export function sourceName(kind: string, url: string): string {

@@ -624,6 +624,7 @@ fn make_node(
             settlement_interval_ms: Policies::DEV.settlement_interval_ms,
             settlement_request_every_ms: Policies::DEV.settlement_request_every_ms,
             peg: Policies::DEV.peg,
+            pool_rate: Policies::DEV.pool_rate,
             ..parts.policies
         }
     } else {

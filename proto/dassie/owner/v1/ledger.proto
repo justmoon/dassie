@@ -357,11 +357,12 @@ message DisplayTotal {
 // currency's rate is the median of the sources that cover it, once more than
 // half of them gave one.
 message RateSource {
-  // "coinbase", "kraken", "bitstamp", "ecb", "norges-bank", "bank-of-canada"
-  // or "cnb".
+  // "coinbase", "kraken", "bitstamp", "ecb", "norges-bank", "bank-of-canada",
+  // "cnb" or "xrpl-pool" (mainnet's XRP/RLUSD pool, XRP only).
   string kind = 1;
-  // A server of Coinbase's format other than Coinbase's own, for
-  // "coinbase" only; empty for the kind's own server.
+  // Another server than the kind's own: an HTTPS server of Coinbase's
+  // format for "coinbase", an XRPL mainnet server's WebSocket for
+  // "xrpl-pool"; empty for the kind's own server.
   string url = 2;
 }
 

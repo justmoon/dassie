@@ -199,6 +199,12 @@
         by up to a day, and more over a holiday. Your node stops using a bank
         whose newest rates are older than its holidays explain.
       </p>
+      <p>
+        You can add <strong>XRP Ledger: mainnet's XRP/RLUSD pool</strong>
+        for XRP. Your node reads the pool on the XRP Ledger and proves each
+        reading, so it trusts no server's word. It needs a few minutes after
+        you add it, or after your node starts, before it has a rate.
+      </p>
 
       <h3>Change the sources</h3>
       <ol class="steps">
@@ -211,6 +217,9 @@
           <strong>Add</strong>. A Coinbase source can take a
           <strong>URL</strong>: leave it empty for Coinbase's own, or enter
           an <code>https://</code> server that answers in Coinbase's format.
+          The XRP/RLUSD pool can take one too: leave it empty for Dassie's
+          proof server, or enter the <code>wss://</code> address of another
+          XRP Ledger mainnet server that serves proofs.
         </li>
         <li>To drop one, select <strong>Remove</strong> next to it.</li>
         <li>Select <strong>Save</strong>. Nothing changes until you do.</li>

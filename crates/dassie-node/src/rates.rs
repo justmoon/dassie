@@ -155,11 +155,16 @@ pub enum SourceKind {
     /// distribute and reproduce it with the CNB named as the source
     /// (<https://www.cnb.cz/en/privacy-statement-and-disclaimer/disclaimer-copyright/>).
     Cnb,
+    /// Mainnet's XRP/RLUSD AMM pool, proven at ledgers a quorum of
+    /// mainnet's validators validated, RLUSD taken at par: XRP only. The
+    /// node follows it on a WebSocket to an XRPL server rather than asking
+    /// it over HTTP (spec/areas/xrpl.md#xrps-rate).
+    XrplPool,
 }
 
 impl SourceKind {
     /// Every kind.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Coinbase,
         Self::Kraken,
         Self::Bitstamp,
@@ -167,6 +172,7 @@ impl SourceKind {
         Self::NorgesBank,
         Self::BankOfCanada,
         Self::Cnb,
+        Self::XrplPool,
     ];
 
     /// Its name, as the database and the wallet have it.
@@ -180,6 +186,7 @@ impl SourceKind {
             Self::NorgesBank => "norges-bank",
             Self::BankOfCanada => "bank-of-canada",
             Self::Cnb => "cnb",
+            Self::XrplPool => "xrpl-pool",
         }
     }
 
@@ -208,6 +215,7 @@ impl SourceKind {
             Self::Cnb => {
                 "https://www.cnb.cz/en/financial-markets/foreign-exchange-market/central-bank-exchange-rate-fixing/central-bank-exchange-rate-fixing/daily.txt"
             }
+            Self::XrplPool => dassie_xrpl::network::MAINNET.server,
         }
     }
 
@@ -215,9 +223,11 @@ impl SourceKind {
     #[must_use]
     pub const fn accept(self) -> &'static str {
         match self {
-            Self::Coinbase | Self::Kraken | Self::Bitstamp | Self::BankOfCanada => {
-                "application/json"
-            }
+            Self::Coinbase
+            | Self::Kraken
+            | Self::Bitstamp
+            | Self::BankOfCanada
+            | Self::XrplPool => "application/json",
             Self::Ecb => "text/xml",
             Self::NorgesBank => "text/csv",
             Self::Cnb => "text/plain",
@@ -229,7 +239,7 @@ impl SourceKind {
     pub fn covers(self, code: &str) -> bool {
         match self {
             Self::Coinbase | Self::Kraken => true,
-            Self::Bitstamp => code == "XRP",
+            Self::Bitstamp | Self::XrplPool => code == "XRP",
             Self::Ecb | Self::NorgesBank | Self::BankOfCanada | Self::Cnb => code != "XRP",
         }
     }
@@ -240,7 +250,8 @@ impl SourceKind {
 pub struct RateSource {
     /// How it answers.
     pub kind: SourceKind,
-    /// Where, if not the kind's own server: Coinbase's format only.
+    /// Where, if not the kind's own server: Coinbase's format, or another
+    /// XRPL server for the pool.
     pub url: Option<String>,
 }
 
@@ -274,18 +285,31 @@ impl RateSource {
     }
 
     /// Why it cannot be kept, if it cannot: a URL only for Coinbase's
-    /// format, and only HTTPS.
+    /// format, an HTTPS one, or for the pool, an XRPL server's WebSocket.
     #[must_use]
     pub fn problem(&self) -> Option<&'static str> {
         let url = self.url.as_deref()?;
-        if self.kind != SourceKind::Coinbase {
-            return Some("only a Coinbase-format source takes a URL");
+        let host_after = |prefix: &str| {
+            url.len() <= 2048
+                && url
+                    .strip_prefix(prefix)
+                    .is_some_and(|rest| !rest.is_empty() && !rest.starts_with('/'))
+        };
+        match self.kind {
+            SourceKind::Coinbase => {
+                (!host_after("https://")).then_some("a source's URL must be an HTTPS URL")
+            }
+            // `ws://` connects only where private addresses are allowed:
+            // the outbound client refuses it elsewhere.
+            SourceKind::XrplPool => (!host_after("wss://") && !host_after("ws://"))
+                .then_some("an XRPL server's URL must be a WebSocket URL"),
+            SourceKind::Kraken
+            | SourceKind::Bitstamp
+            | SourceKind::Ecb
+            | SourceKind::NorgesBank
+            | SourceKind::BankOfCanada
+            | SourceKind::Cnb => Some("only a Coinbase-format source or the XRPL pool takes a URL"),
         }
-        let valid = url.len() <= 2048
-            && url
-                .strip_prefix("https://")
-                .is_some_and(|rest| !rest.is_empty() && !rest.starts_with('/'));
-        (!valid).then_some("a source's URL must be an HTTPS URL")
     }
 }
 
@@ -371,6 +395,7 @@ pub fn parse(
         SourceKind::NorgesBank => norges_bank(body, now_ms),
         SourceKind::BankOfCanada => bank_of_canada(&json()?, now_ms),
         SourceKind::Cnb => cnb(body, now_ms),
+        SourceKind::XrplPool => Err(Unreadable("the pool is followed, not asked")),
     }
 }
 
@@ -760,7 +785,7 @@ pub fn combine(wanted: &[&'static str], answers: &[Answer]) -> Vec<(&'static str
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unwrap_used, clippy::panic)]
 
     use proptest::prelude::*;
 
@@ -1267,6 +1292,7 @@ mod tests {
             SourceKind::NorgesBank => (NORGES_BANK, BANKS_NOW),
             SourceKind::BankOfCanada => (BANK_OF_CANADA, BANKS_NOW),
             SourceKind::Cnb => (CNB, BANKS_NOW),
+            SourceKind::XrplPool => panic!("followed, never asked"),
         }
     }
 
@@ -1562,7 +1588,12 @@ mod tests {
         );
         for kind in SourceKind::ALL {
             assert_eq!(SourceKind::parse(kind.as_str()), Some(kind));
-            assert!(kind.default_url().starts_with("https://"), "{kind:?}");
+            let scheme = if kind == SourceKind::XrplPool {
+                "wss://"
+            } else {
+                "https://"
+            };
+            assert!(kind.default_url().starts_with(scheme), "{kind:?}");
         }
         assert_eq!(SourceKind::parse("ECB"), None);
         assert!(
@@ -1572,6 +1603,28 @@ mod tests {
             }
             .problem()
             .is_some()
+        );
+    }
+
+    #[test]
+    fn the_pool_takes_an_xrpl_server() {
+        let custom = |url: &str| RateSource {
+            kind: SourceKind::XrplPool,
+            url: Some(url.into()),
+        };
+        assert_eq!(
+            RateSource::of(SourceKind::XrplPool).url(),
+            "wss://mainnet.xrpl.dassieland.net"
+        );
+        for url in ["wss://s1.ripple.com", "ws://127.0.0.1:6006"] {
+            assert_eq!(custom(url).problem(), None, "{url}");
+        }
+        for url in ["https://s1.ripple.com", "wss://", "ws:///x"] {
+            assert!(custom(url).problem().is_some(), "{url}");
+        }
+        assert_eq!(
+            parse(SourceKind::XrplPool, b"{}", 0),
+            Err(Unreadable("the pool is followed, not asked"))
         );
     }
 }
