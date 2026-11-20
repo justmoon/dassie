@@ -357,7 +357,8 @@ message DisplayTotal {
 // currency's rate is the median of the sources that cover it, once more than
 // half of them gave one.
 message RateSource {
-  // "coinbase", "kraken", "bitstamp" or "ecb".
+  // "coinbase", "kraken", "bitstamp", "ecb", "norges-bank", "bank-of-canada"
+  // or "cnb".
   string kind = 1;
   // A server of Coinbase's format other than Coinbase's own, for
   // "coinbase" only; empty for the kind's own server.

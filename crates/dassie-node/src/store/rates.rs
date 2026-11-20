@@ -172,6 +172,10 @@ mod tests {
         assert_eq!(store.rate_sources().unwrap(), dev);
         store.set_rate_sources(&[]).unwrap();
         assert_eq!(store.rate_sources().unwrap(), []);
+        // Every kind is kept, the central banks beside the ECB too.
+        let every: Vec<RateSource> = SourceKind::ALL.into_iter().map(RateSource::of).collect();
+        store.set_rate_sources(&every).unwrap();
+        assert_eq!(store.rate_sources().unwrap(), every);
     }
 
     #[test]

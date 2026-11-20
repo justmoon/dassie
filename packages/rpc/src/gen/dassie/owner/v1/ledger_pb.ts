@@ -1007,7 +1007,8 @@ export const DisplayTotalSchema: GenMessage<DisplayTotal> = /*@__PURE__*/
  */
 export type RateSource = Message<"dassie.owner.v1.RateSource"> & {
   /**
-   * "coinbase", "kraken", "bitstamp" or "ecb".
+   * "coinbase", "kraken", "bitstamp", "ecb", "norges-bank", "bank-of-canada"
+   * or "cnb".
    *
    * @generated from field: string kind = 1;
    */

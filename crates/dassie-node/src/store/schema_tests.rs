@@ -162,6 +162,11 @@ fn build(path: &Path, migrations: &[&str]) {
     schema::prepare(&mut connection, migrations).unwrap();
 }
 
+/// This version's migrations that bring a database to `version`.
+fn up_to(version: i64) -> &'static [&'static str] {
+    &MIGRATIONS[..usize::try_from(version - BASELINE_VERSION + 1).unwrap()]
+}
+
 fn assert_alike(old: &[(String, Vec<Vec<Value>>)], new: &[(String, Vec<Vec<Value>>)]) {
     for ((query, old), (_, new)) in old.iter().zip(new) {
         assert_eq!(old, new, "{query}");
@@ -271,7 +276,7 @@ fn every_releases_database_opens() {
 fn migration_15_keeps_each_networks_newest_verifier() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("v14");
-    build(&path, &MIGRATIONS[..MIGRATIONS.len() - 1]);
+    build(&path, up_to(14));
     let connection = Connection::open(&path).unwrap();
     let state = |network: u32, tail: u8| {
         let mut state = network.to_be_bytes().to_vec();
@@ -321,5 +326,69 @@ fn migration_15_keeps_each_networks_newest_verifier() {
     let cursors = rows(&connection, "SELECT * FROM hub_escrow ORDER BY hub");
     assert_eq!(cursors.len(), escrows.len(), "every cursor stays");
     assert!(cursors.iter().all(|row| row.len() == 4), "{cursors:?}");
+    schema::check(&mut connection).unwrap();
+}
+
+// spec/areas/connector.md#sources: migration 16 keeps the owner's rate
+// sources as they were, in their order, and admits the central banks
+// beside the ECB, and an XRP Ledger pool with a URL; a URL on any other
+// kind, or a kind it does not know, is still refused.
+#[test]
+fn migration_16_widens_the_rate_sources_kinds() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("v15");
+    build(&path, up_to(15));
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute_batch(
+            "DELETE FROM rate_sources;
+             INSERT INTO rate_sources VALUES
+               (0, 'ecb', NULL), (1, 'coinbase', 'https://localhost:10100/rates.json');",
+        )
+        .unwrap();
+    assert!(
+        connection
+            .execute("INSERT INTO rate_sources VALUES (2, 'cnb', NULL)", [])
+            .is_err(),
+        "not a kind before"
+    );
+    drop(connection);
+    build(&path, MIGRATIONS);
+    let mut connection = Connection::open(&path).unwrap();
+    let text = |text: &str| Value::Text(text.into());
+    assert_eq!(
+        rows(&connection, "SELECT * FROM rate_sources ORDER BY position"),
+        [
+            vec![Value::Integer(0), text("ecb"), Value::Null],
+            vec![
+                Value::Integer(1),
+                text("coinbase"),
+                text("https://localhost:10100/rates.json")
+            ],
+        ]
+    );
+    for row in [
+        "(2, 'norges-bank', NULL)",
+        "(3, 'bank-of-canada', NULL)",
+        "(4, 'cnb', NULL)",
+        "(5, 'xrpl-pool', NULL)",
+        "(6, 'xrpl-pool', 'wss://xrplcluster.com')",
+    ] {
+        connection
+            .execute(&format!("INSERT INTO rate_sources VALUES {row}"), [])
+            .unwrap();
+    }
+    for row in [
+        "(7, 'cnb', 'https://example.com')",
+        "(7, 'boc', NULL)",
+        "(8, 'ecb', NULL)",
+    ] {
+        assert!(
+            connection
+                .execute(&format!("INSERT INTO rate_sources VALUES {row}"), [])
+                .is_err(),
+            "{row}"
+        );
+    }
     schema::check(&mut connection).unwrap();
 }

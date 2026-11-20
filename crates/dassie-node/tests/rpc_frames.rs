@@ -821,7 +821,15 @@ fn sending() -> BoxedStrategy<Method> {
     ]);
     let rate_sources = proptest::collection::vec(
         (
-            field(&["coinbase", "kraken", "bitstamp", "ecb"]),
+            field(&[
+                "coinbase",
+                "kraken",
+                "bitstamp",
+                "ecb",
+                "norges-bank",
+                "bank-of-canada",
+                "cnb",
+            ]),
             field(&["", "https://rates.example", "https://127.0.0.1:8443/x"]),
         ),
         0..10,

@@ -76,6 +76,12 @@
           </tbody>
         </table>
       </div>
+      <p>
+        You can add three more central banks, each of which covers the
+        currencies other than XRP from its own daily rates: Norges Bank, the
+        Bank of Canada and the Czech National Bank. Each quotes in its own
+        currency, and your node converts its rates to the dollar.
+      </p>
       <ul>
         <li>
           <strong>The median.</strong> A rate counts once more than half of
@@ -86,6 +92,13 @@
         <li>
           <strong>Exact.</strong> Rates are read and used as exact decimals,
           never as floating point, and every conversion rounds down.
+        </li>
+        <li>
+          <strong>Daily banks.</strong> A central bank publishes once each
+          business day, so its rates trail the markets by up to a day, and
+          by several over a holiday. Your node stops using a bank whose newest
+          rates are older than its holidays explain, or dated in the future,
+          as if it were silent.
         </li>
         <li>
           <strong>Fresh, or nothing.</strong> Your node keeps its last rates
@@ -100,7 +113,7 @@
         <a href="/docs/wallet/rates/">Exchange-rate settings</a>.
       </p>
       <p
-        class="not-yet">The exchanges license their data for personal or internal use only. Sources whose terms allow a node to convert by them for a fee, XRP's price from the XRP Ledger's own XRP/RLUSD pool, and the other currencies from four central banks in place of the exchanges, are not there yet. <a href="/docs/project/roadmap/">What's next</a></p>
+        class="not-yet">The exchanges license their data for personal or internal use only. The central banks' terms allow a node to convert by their rates for a fee. XRP's price from the XRP Ledger's own XRP/RLUSD pool, and a new node starting with the four central banks in place of the exchanges, are not there yet. <a href="/docs/project/roadmap/">What's next</a></p>
       <p
         class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/exchange-rates.md">Why three sources and a median</a>, and <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/open-rate-sources.md">which sources come next</a>.</p>
 

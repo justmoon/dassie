@@ -22,6 +22,9 @@ export const SOURCE_KINDS = [
   ["kraken", "Kraken"],
   ["bitstamp", "Bitstamp"],
   ["ecb", "European Central Bank"],
+  ["norges-bank", "Norges Bank"],
+  ["bank-of-canada", "Bank of Canada"],
+  ["cnb", "Czech National Bank"],
 ] as const;
 
 /** A rate source's name for people. */

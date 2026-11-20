@@ -1,0 +1,32 @@
+20 Nov 2026 #223
+Country|Currency|Amount|Code|Rate
+Australia|dollar|1|AUD|14.835
+Brazil|real|1|BRL|3.749
+Canada|dollar|1|CAD|15.561
+China|renminbi|1|CNY|3.334
+Denmark|krone|1|DKK|3.274
+EMU|euro|1|EUR|24.470
+Hongkong|dollar|1|HKD|2.840
+Hungary|forint|100|HUF|6.545
+Iceland|krona|100|ISK|17.835
+IMF|SDR|1|XDR|29.928
+India|rupee|100|INR|24.021
+Indonesia|rupiah|1000|IDR|1.219
+Israel|new shekel|1|ILS|6.661
+Japan|yen|100|JPY|14.031
+Malaysia|ringgit|1|MYR|5.413
+Mexico|peso|1|MXN|1.168
+New Zealand|dollar|1|NZD|12.251
+Norway|krone|1|NOK|2.283
+Philippines|peso|100|PHP|34.907
+Poland|zloty|1|PLN|5.485
+Romania|leu|1|RON|4.574
+Singapore|dollar|1|SGD|17.276
+South Africa|rand|1|ZAR|1.274
+South Korea|won|100|KRW|1.661
+Sweden|krona|1|SEK|2.182
+Switzerland|franc|1|CHF|26.546
+Thailand|baht|100|THB|65.654
+Turkey|lira|100|TRY|44.015
+United Kingdom|pound|1|GBP|29.211
+USA|dollar|1|USD|22.262
