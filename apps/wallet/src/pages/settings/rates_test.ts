@@ -6,6 +6,7 @@ import {
   parseCharge,
   rateText,
   sourceName,
+  sourcesText,
 } from "./rates.ts";
 
 test("a rate reads as what a dollar buys, and its age", () => {
@@ -43,4 +44,34 @@ test("fees and spreads are percentages up to 10", () => {
   assertEquals(chargeText(2_500), "0.25");
   assertEquals(chargeText(0), "0");
   assertEquals(chargeText(100_000), "10");
+});
+
+test("the sources are named in a sentence", () => {
+  const own = (kind: string) => ({ kind, url: "" });
+  assertEquals(sourcesText([]), "");
+  assertEquals(
+    sourcesText([own("ecb")]),
+    "Rates from the European Central Bank.",
+  );
+  assertEquals(
+    sourcesText([own("xrpl-pool"), own("ecb")]),
+    "Rates from mainnet's XRP/RLUSD pool on the XRP Ledger and the European Central Bank.",
+  );
+  assertEquals(
+    sourcesText([
+      own("xrpl-pool"),
+      own("ecb"),
+      own("norges-bank"),
+      own("bank-of-canada"),
+      own("cnb"),
+    ]),
+    "Rates from mainnet's XRP/RLUSD pool on the XRP Ledger, the European Central Bank, Norges Bank, the Bank of Canada and the Czech National Bank.",
+  );
+  assertEquals(
+    sourcesText([{
+      kind: "coinbase",
+      url: "https://localhost:10100/rates.json",
+    }]),
+    "Rates from https://localhost:10100/rates.json.",
+  );
 });

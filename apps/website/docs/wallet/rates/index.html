@@ -175,36 +175,44 @@
         that answered, once more than half of them did. One wrong source
         cannot move a rate past what the others say.
       </p>
-      <p>A new node starts with four sources. All are free and need no key:</p>
+      <p>
+        A new node starts with five sources. All are free, need no key, and
+        let your node convert by their rates for a fee:
+      </p>
       <ul>
-        <li><strong>Coinbase</strong>, which covers every currency;</li>
-        <li><strong>Kraken</strong>, the last trade on its markets;</li>
-        <li><strong>Bitstamp</strong>, which covers XRP;</li>
         <li>
-          <strong>European Central Bank</strong>, its daily reference rates
-          for the government currencies.
+          <strong>XRP Ledger: mainnet's XRP/RLUSD pool</strong>, for XRP. Your
+          node reads the pool on the XRP Ledger and proves each reading, so
+          it trusts no server's word. It needs a few minutes after your node
+          starts before it has a rate.
+        </li>
+        <li>
+          <strong>European Central Bank</strong>, <strong>Norges Bank</strong>,
+          the <strong>Bank of Canada</strong> and the
+          <strong>Czech National Bank</strong>, each with its daily rates for
+          the government currencies.
         </li>
       </ul>
       <p>
-        So three sources cover every currency. DSUSD needs no rate: your node
-        books it as a dollar, as long as the
-        <a href="/docs/wallet/peg-guard/">peg guard</a> lets it.
+        So four sources cover each government currency. Each bank publishes
+        once a business day, so its rates trail the markets by up to a day,
+        and more over a holiday. Your node stops using a bank whose newest
+        rates are older than its holidays explain. The wallet names your
+        sources under your total and beside the exchange rates, as the banks
+        ask. DSUSD needs no rate: your node books it as a dollar, as long as
+        the <a href="/docs/wallet/peg-guard/">peg guard</a> lets it.
       </p>
       <p>
-        You can add three more central banks, each with its daily rates for
-        the government currencies: <strong>Norges Bank</strong>, the
-        <strong>Bank of Canada</strong> and the
-        <strong>Czech National Bank</strong>. Like the European Central Bank,
-        each publishes once a business day, so its rates trail the markets
-        by up to a day, and more over a holiday. Your node stops using a bank
-        whose newest rates are older than its holidays explain.
+        You can add <strong>Coinbase</strong>, which covers every currency,
+        <strong>Kraken</strong> or <strong>Bitstamp</strong>. Their terms
+        license their data for personal or internal use only, so keeping to
+        them is up to you. Your node follows one XRP Ledger pool source at a
+        time.
       </p>
       <p>
-        You can add <strong>XRP Ledger: mainnet's XRP/RLUSD pool</strong>
-        for XRP. Your node reads the pool on the XRP Ledger and proves each
-        reading, so it trusts no server's word. It needs a few minutes after
-        you add it, or after your node starts, before it has a rate. Your
-        node follows one pool source at a time.
+        A node that still had the four sources it started with, Coinbase,
+        Kraken, Bitstamp and the European Central Bank, moves to these five
+        when it updates. If you changed your list, it stays as you left it.
       </p>
 
       <h3>Change the sources</h3>

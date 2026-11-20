@@ -1,6 +1,7 @@
 /**
  * Home (spec/areas/wallet.md#pages): the owner's balance, the total in the
- * display currency (spec/decisions/owner-ledger.md) while the rates allow
+ * display currency (spec/decisions/owner-ledger.md) while the rates allow,
+ * with the sources its rates come from (spec/decisions/open-rate-sources.md),
  * and below it each asset in its own currency, as it changes, its
  * settlement hub's and its own account's together, reserves included
  * (spec/decisions/one-balance-per-asset.md), what a payment may spend of
@@ -18,6 +19,7 @@ import { For, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { useNodeData } from "@dassie/ui/node-data";
 import { Link } from "@dassie/ui/router";
+import { RateSources } from "./settings/RateSources.tsx";
 import {
   assetLabel,
   FrontDoorNote,
@@ -70,6 +72,9 @@ function Balance(): JSX.Element {
               />
             </p>
           )}
+        </Show>
+        <Show when={data.total()}>
+          <RateSources class="balance-sources" />
         </Show>
         <ul class="balances">
           <For each={data.balances()} keyed={(balance) => balance.name}>

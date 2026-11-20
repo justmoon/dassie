@@ -153,7 +153,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sources_start_with_one_of_each_kind_and_change() {
+    fn sources_start_as_a_new_node_s_and_change() {
         let store = Store::open_in_memory().unwrap();
         assert_eq!(store.rate_sources().unwrap(), RateSource::defaults());
         let dev = vec![RateSource {

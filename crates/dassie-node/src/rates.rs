@@ -7,9 +7,11 @@
 //! read in exact decimal arithmetic. A currency's rate is the median of
 //! the sources that cover it and answered, once more than half of them did;
 //! otherwise it keeps its last rate, which the connector stops using once
-//! it is an hour old. A new node's sources cover every currency three
-//! times, from three upstreams that do not share their data, so that one
-//! wrong or silent source cannot take a rate outside what the others say.
+//! it is an hour old. A new node's sources are those whose terms allow its
+//! use (spec/decisions/open-rate-sources.md): XRP's rate from mainnet's
+//! XRP/RLUSD pool alone, and the fiat currencies' from four central banks,
+//! so that one wrong or silent bank cannot take a rate outside what the
+//! others say.
 
 use dassie_connector::RATE_PRECISION;
 
@@ -262,16 +264,19 @@ impl RateSource {
         Self { kind, url: None }
     }
 
-    /// The sources a new node starts with: Coinbase, Kraken, Bitstamp and
-    /// the ECB, which cover every currency three times, so that one wrong
-    /// or silent source cannot take a rate outside what the others say.
+    /// The sources a new node starts with, each one whose terms allow a
+    /// node to convert by it for a fee: mainnet's XRP/RLUSD pool, XRP's
+    /// only source, and the ECB, Norges Bank, the Bank of Canada and the
+    /// CNB, which cover the fiat currencies four times, so that one wrong
+    /// or silent bank cannot take a rate outside what the others say.
     #[must_use]
     pub fn defaults() -> Vec<Self> {
         [
-            SourceKind::Coinbase,
-            SourceKind::Kraken,
-            SourceKind::Bitstamp,
+            SourceKind::XrplPool,
             SourceKind::Ecb,
+            SourceKind::NorgesBank,
+            SourceKind::BankOfCanada,
+            SourceKind::Cnb,
         ]
         .into_iter()
         .map(Self::of)
@@ -937,6 +942,8 @@ mod tests {
     const NORGES_BANK: &str = include_str!("testdata/rates/norges-bank.csv");
     const BANK_OF_CANADA: &str = include_str!("testdata/rates/bank-of-canada.json");
     const CNB: &str = include_str!("testdata/rates/cnb-daily.txt");
+    // The ECB's answer of the same afternoon, its rates of the 19th.
+    const ECB_NOVEMBER: &str = include_str!("testdata/rates/ecb-daily.xml");
     // When they were recorded.
     const BANKS_NOW: u64 = 1_795_181_477_000;
     // Midnight of the 19th and of the 20th.
@@ -1296,12 +1303,20 @@ mod tests {
         }
     }
 
-    /// What each of a new node's sources said.
+    /// What each of a new node's sources said: the pool, 0.4 XRP to the
+    /// dollar.
     fn default_answers() -> Vec<Answer> {
         RateSource::defaults()
             .into_iter()
             .map(|source| {
-                let (body, now) = recorded(source.kind);
+                if source.kind == SourceKind::XrplPool {
+                    return (source.kind, Some(vec![("XRP", 4 * ONE / 10)]));
+                }
+                // The banks of one day, the ECB's beside the others'.
+                let (body, now) = match source.kind {
+                    SourceKind::Ecb => (ECB_NOVEMBER, BANKS_NOW),
+                    kind => recorded(kind),
+                };
                 let rates = parse(source.kind, body.as_bytes(), now).unwrap();
                 (source.kind, Some(rates))
             })
@@ -1309,20 +1324,26 @@ mod tests {
     }
 
     #[test]
-    fn a_new_nodes_sources_cover_every_currency_three_times() {
+    fn a_new_nodes_sources_are_the_pool_and_four_banks() {
         let sources = RateSource::defaults();
+        assert!(!(sources.iter()).any(|source| matches!(
+            source.kind,
+            SourceKind::Coinbase | SourceKind::Kraken | SourceKind::Bitstamp
+        )));
         for code in CURRENCIES.into_iter().filter(|code| *code != BASE) {
             let covering = sources
                 .iter()
                 .filter(|source| source.kind.covers(code))
                 .count();
-            assert!(covering >= 3, "{code} is covered {covering} times");
+            let wanted = if code == "XRP" { 1 } else { 4 };
+            assert_eq!(covering, wanted, "{code} is covered {covering} times");
         }
     }
 
-    // With a new node's sources, any one of them may say anything about
-    // every currency, or nothing: each rate stays within what the others
-    // say, and every currency still has one.
+    // With a new node's sources, any one bank may say anything about every
+    // fiat currency, or nothing: each rate stays within what the others
+    // say, and every currency still has one. XRP's only source is the
+    // pool (spec/decisions/open-rate-sources.md#accepted).
     #[test]
     fn one_wrong_or_silent_source_leaves_every_rate_within_the_others() {
         let honest = default_answers();
@@ -1333,6 +1354,9 @@ mod tests {
             Some(CURRENCIES.iter().map(|&code| (code, 1)).collect()),
         ];
         for (liar, (kind, _)) in honest.iter().enumerate() {
+            if *kind == SourceKind::XrplPool {
+                continue;
+            }
             for lie in &lies {
                 let mut answers = honest.clone();
                 answers[liar] = (*kind, lie.clone());
@@ -1570,21 +1594,6 @@ mod tests {
         assert_eq!(
             RateSource::of(SourceKind::Bitstamp).url(),
             SourceKind::Bitstamp.default_url()
-        );
-        // A new node's sources are still the four it started with; the
-        // central banks beside the ECB are the owner's to add.
-        let kinds: Vec<SourceKind> = RateSource::defaults()
-            .into_iter()
-            .map(|source| source.kind)
-            .collect();
-        assert_eq!(
-            kinds,
-            [
-                SourceKind::Coinbase,
-                SourceKind::Kraken,
-                SourceKind::Bitstamp,
-                SourceKind::Ecb
-            ]
         );
         for kind in SourceKind::ALL {
             assert_eq!(SourceKind::parse(kind.as_str()), Some(kind));

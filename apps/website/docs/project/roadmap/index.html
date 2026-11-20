@@ -176,15 +176,13 @@
       <p>
         A node's holdings drift as it forwards payments. Today, peers swap
         assets with each other at the prices in each other's signed
-        snapshots, which brings them back toward balance. What is left is
-        where the rates come from. A node takes its
-        <a href="/docs/concepts/rates/">exchange rates</a> today from
-        exchanges, whose terms allow personal or internal use, and the
-        European Central Bank. An owner can list Norges Bank, the Bank of
-        Canada and the Czech National Bank beside it already, and XRP's rate
-        from mainnet's XRP/RLUSD pool, proven against validated ledgers.
-        Next, a new node starts with only the pool and the four central
-        banks.
+        snapshots, which brings them back toward balance. A node takes
+        XRP's rate from mainnet's XRP/RLUSD pool, proven against validated
+        ledgers, and the other currencies' from four central banks, whose
+        terms let it convert by them for a fee. What is left is the peg
+        guard: with XRP's rate from that pool, it could only ever read RLUSD
+        as a dollar, so it is turned off next, until a price of XRP in
+        dollars from outside every dollar token's pool comes along.
       </p>
 
       <h2 id="xrp-ledger">Checking the XRP Ledger</h2>

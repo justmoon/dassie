@@ -39,6 +39,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     MIGRATION_14,
     MIGRATION_15,
     MIGRATION_16,
+    MIGRATION_17,
 ];
 
 /// The schema version this code writes.
@@ -790,6 +791,30 @@ SELECT position, kind, url FROM rate_sources;
 DROP TABLE rate_sources;
 
 ALTER TABLE rate_sources_16 RENAME TO rate_sources;
+";
+
+/// Migration 17: a node still on the sources it started with, Coinbase,
+/// Kraken, Bitstamp and the ECB, each its own server, in that order,
+/// starts on a new node's instead: mainnet's XRP/RLUSD pool and the four
+/// central banks, whose terms allow its use
+/// (spec/decisions/open-rate-sources.md). An owner's own list, an empty one
+/// too, is left alone.
+const MIGRATION_17: &str = "
+CREATE TEMP TABLE rate_sources_stock_17 AS
+SELECT (SELECT count(*) FROM rate_sources) = 4
+  AND (SELECT count(*) FROM rate_sources
+       WHERE url IS NULL
+         AND (position, kind) IN (VALUES (0, 'coinbase'), (1, 'kraken'), (2, 'bitstamp'), (3, 'ecb'))
+      ) = 4 AS stock;
+
+DELETE FROM rate_sources WHERE (SELECT stock FROM rate_sources_stock_17);
+
+INSERT INTO rate_sources (position, kind, url)
+SELECT column1, column2, NULL
+FROM (VALUES (0, 'xrpl-pool'), (1, 'ecb'), (2, 'norges-bank'), (3, 'bank-of-canada'), (4, 'cnb'))
+WHERE (SELECT stock FROM rate_sources_stock_17);
+
+DROP TABLE rate_sources_stock_17;
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.
