@@ -670,10 +670,10 @@ impl Core {
             let over = u128::from(over);
             (over > 0).then(|| (u128::from(cost) * million).div_ceil(over))
         };
-        let max_packet = self.settle.max_packet;
+        let (max_packet, _) = self.limits_of(scheme)?;
         let gas = fees.operation.saturating_mul(UNITS_PER_DROP);
         let gas_ppm = per(gas, policy::minimum(max_packet))?;
-        let step = policy::hub_step(self.hub_target(scheme));
+        let step = policy::hub_step(self.hub_target(scheme)?);
         let deposit = XRPL_FEE_DROPS.saturating_mul(UNITS_PER_DROP);
         let deposit = if ledger.asset().code == "XRP" {
             deposit
@@ -693,10 +693,12 @@ impl Core {
     /// the target its owner set, checked when set ([`check_target`]) and
     /// kept from ten largest packets to the most an owner may set, should
     /// the largest packet change since; or the default
-    /// (spec/decisions/generous-hub-target.md).
-    pub(super) fn hub_target(&self, scheme: Name) -> u64 {
-        let max_packet = self.settle.max_packet;
-        self.funding
+    /// (spec/decisions/generous-hub-target.md). In the largest packet on
+    /// the hub's ledger; none on a scheme the node does not run.
+    pub(super) fn hub_target(&self, scheme: Name) -> Option<u64> {
+        let (max_packet, _) = self.limits_of(scheme)?;
+        let target = self
+            .funding
             .get(&scheme)
             .and_then(|funding| funding.target)
             .map_or_else(
@@ -707,7 +709,8 @@ impl Core {
                         policy::MOST_HUB_TARGET,
                     )
                 },
-            )
+            );
+        Some(target)
     }
 
     /// The hub account as last agreed, once the account read up to it.
@@ -755,16 +758,12 @@ impl Core {
         let active = self.schemes.get(&scheme)?;
         let terms = account.terms();
         let fees = terms.fees;
-        let target = self.hub_target(scheme);
+        let target = self.hub_target(scheme)?;
+        let (max_packet, credit) = self.limits_of(scheme)?;
         let (floor, ceiling) = policy::hub_limits(target);
         let (floor, ceiling) = (drops_up(floor), ceiling / UNITS_PER_DROP);
         let peerings = u64::try_from(self.hub_peerings(scheme).len()).unwrap_or(u64::MAX);
-        let least_spendable = drops_up(policy::hub_spendable(
-            self.settle.max_packet,
-            self.peer_credit,
-            peerings,
-            target,
-        ));
+        let least_spendable = drops_up(policy::hub_spendable(max_packet, credit, peerings, target));
         let unfunded = active
             .asset
             .and_then(|asset| self.assets.get(&asset))
@@ -793,7 +792,7 @@ impl Core {
             floor,
             ceiling,
             least_spendable,
-            least_pool: drops_up(self.least_pool(scheme)),
+            least_pool: drops_up(self.least_pool(scheme)?),
             pool_step: policy::hub_step(target) / UNITS_PER_DROP,
             opening: fees
                 .account_reserve
@@ -802,7 +801,7 @@ impl Core {
             least_payout: fees.least_payout,
             ledger_fee: fees.ledger,
             withdrawal_fees: fees.operation.saturating_add(fees.ledger),
-            least_deposit: drops_up(self.settle.max_packet),
+            least_deposit: drops_up(max_packet),
             xrpl: self
                 .owner_book(scheme)
                 .and_then(|book| self.book_spendable(book)),
@@ -1528,7 +1527,7 @@ impl Core {
     fn hub_status_of(&self, scheme: Name) -> Option<HubStatus> {
         let account = self.hub_account(scheme)?;
         let peers = self.hub_peerings(scheme);
-        let target = self.hub_target(scheme);
+        let target = self.hub_target(scheme)?;
         let (floor, ceiling) = policy::hub_limits(target);
         let number = account.number();
         let view = account.view().map(|(_, view)| *view);
@@ -1840,7 +1839,10 @@ impl Core {
             let reserve = self
                 .hub_account(scheme)
                 .map_or(0, |account| account.terms().fees.account_reserve);
-            check_target(scheme, target, self.settle.max_packet, reserve)?;
+            let (max_packet, _) = self
+                .limits_of(scheme)
+                .ok_or_else(|| EngineError::Internal("the hub scheme vanished".into()))?;
+            check_target(scheme, target, max_packet, reserve)?;
         }
         self.follow_hubs();
         let funding = self

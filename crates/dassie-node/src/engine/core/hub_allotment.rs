@@ -348,11 +348,11 @@ impl Core {
         let Some(pool) = pool else {
             let peers: Vec<(NodeId, u64)> = by_priority(&peers)
                 .iter()
-                .map(|peer| (peer.node, self.peer_credit))
+                .map(|peer| (peer.node, self.peer_credit.get(ledger)))
                 .collect();
             return Some(Allotments {
                 plentiful: true,
-                full: self.peer_credit,
+                full: self.peer_credit.get(ledger),
                 reserved: vec![0; peers.len()],
                 unopened: vec![false; peers.len()],
                 peers,
@@ -361,10 +361,10 @@ impl Core {
                 opening: 0,
             });
         };
-        let max_packet = self.settle.max_packet;
-        let least = policy::least_hold(max_packet, self.connector.config().max_in_flight());
+        let max_packet = self.settle.max_packet.get(ledger);
+        let least = policy::least_hold(max_packet, self.connector.config().max_in_flight(ledger));
         let explore_ppm = self.connector.config().explore_ppm;
-        let full = self.peer_credit;
+        let full = self.peer_credit.get(ledger);
         let packet = policy::minimum(max_packet);
         let mut allotments = allot(pool, (full, least, packet), explore_ppm, &peers);
         allotments.opening = account.map_or(0, |account| {

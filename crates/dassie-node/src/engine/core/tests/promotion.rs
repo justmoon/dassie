@@ -34,8 +34,12 @@ const URL: &str = "https://d.example:4443";
 /// default credit for the one edge a network of one bootstrap node asks.
 fn enough() -> u64 {
     let units = policy::promotion_funds(
-        Policies::DEFAULT.connector.max_packet_amount,
-        Policies::DEFAULT.peer_credit,
+        Policies::DEFAULT
+            .connector
+            .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp),
+        Policies::DEFAULT
+            .peer_credit
+            .get(dassie_ledger::LedgerId::HubXrplTestnetXrp),
         1,
     );
     units / UNITS_PER_DROP

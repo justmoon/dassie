@@ -15,15 +15,10 @@ use dassie_ledger::LedgerId;
 use dassie_peer::wire::SchemeId;
 
 use super::{
-    DSUSD, Drift, LIVE_XRP, Payment, RLUSD, START, Settling, Sim, TRIGGER, USD, Withdrawal, XRP,
-    key, received, sent,
+    DSUSD, Drift, LIVE_XRP, MAX_PACKET, PEER_CREDIT, Payment, RLUSD, START, Settling, Sim, TRIGGER,
+    USD, Withdrawal, XRP, key, received, sent,
 };
-use crate::node::Policies;
 use crate::store::{OutgoingState, PaymentId};
-
-/// Every link's largest packet, which its thresholds are counted in
-/// (spec/decisions/thresholds-in-packets.md).
-const MAX_PACKET: u64 = Policies::DEFAULT.connector.max_packet_amount;
 
 /// A capped token spent at most its cap plus what refilled, over every
 /// period the journal shows, and its checkpoint is the journal's replay.
@@ -337,10 +332,7 @@ fn survives(sim: &Sim, asker: u64, payer: usize, credit: u64) -> u128 {
     let over_hub =
         matches!(sim.settling, Settling::StubHub(_)) || sim.settling.hub_validators().is_some();
     let answers = if over_hub {
-        sim.credits
-            .get(&payer)
-            .copied()
-            .unwrap_or(Policies::DEFAULT.peer_credit)
+        sim.credits.get(&payer).copied().unwrap_or(PEER_CREDIT)
     } else {
         credit
     };

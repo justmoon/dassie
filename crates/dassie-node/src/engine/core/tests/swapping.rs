@@ -665,7 +665,9 @@ fn first_step_rate(snapshot: &dassie_feed::Snapshot, from: MethodTag, to: Method
 // pass, so that the F08 names exactly the most that does.
 #[test]
 fn an_owner_swap_at_the_promised_rate_goes_on_after_an_f08() {
-    let largest = crate::node::Policies::DEFAULT.connector.max_packet_amount;
+    let largest = crate::node::Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::XrplTestnetXrp);
     for seed in SEEDS {
         let mut sim = pair(seed);
         sim.step(1, |core| {
@@ -675,7 +677,9 @@ fn an_owner_swap_at_the_promised_rate_goes_on_after_an_f08() {
             };
             core.set_peer_settings(settings).unwrap();
         });
-        sim.step(0, |core| core.settle.max_packet = 2 * largest);
+        sim.step(0, |core| {
+            core.settle.max_packet = dassie_ledger::PerLedger::splat(2 * largest)
+        });
         let one = key(1).node_id();
         let has_snapshot = |sim: &Sim| sim.core(0).peer_snapshot(&one).is_some();
         assert!(

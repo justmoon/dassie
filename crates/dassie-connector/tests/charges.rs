@@ -277,7 +277,7 @@ proptest! {
     // less the fee, and k above it; the source pays exactly what came in.
     #[test]
     fn charges_never_give_away_money(
-        amount in 1u64..=Config::DEFAULT.max_packet_amount,
+        amount in 1u64..=Config::DEFAULT.max_packet(USD),
         fee_ppm in 0..=Charges::MAX_PPM,
         spread_ppm in 0..=Charges::MAX_PPM,
         rebalance_ppm in 0..=MAX_REBALANCE_PPM,
@@ -310,7 +310,7 @@ proptest! {
                 // conversion makes larger than the largest packet, which
                 // is told the most that would pass.
                 if code == ErrorCode::F08_AMOUNT_TOO_LARGE {
-                    let largest = Config::DEFAULT.max_packet_amount;
+                    let largest = Config::DEFAULT.max_packet(XRP);
                     prop_assert!(expected.is_ok_and(|out| out > largest));
                     let too_large = AmountTooLarge::decode_exact(&data).unwrap();
                     prop_assert_eq!(too_large.received_amount, amount);
@@ -323,7 +323,7 @@ proptest! {
             other => panic!("{other:?}"),
         };
         let out = amount_sent(&h, sent);
-        prop_assert!(out <= Config::DEFAULT.max_packet_amount);
+        prop_assert!(out <= Config::DEFAULT.max_packet(XRP));
         prop_assert_eq!(expected, Ok(out));
         prop_assert!(price.and_then(|price| price.convert(net)) >= Some(out));
         // Spot, k above it: net · xrp_rate / 10^15 · (1 + k).

@@ -82,10 +82,7 @@ pub(super) const OWNER_DEPOSIT_MICROS: u64 = MINT_MICROS / 2;
 // at least, so the node deposits nothing more once the second arrives,
 // and the book keeps whatever of the first the node did not take.
 const _: () = assert!(
-    MINT_MICROS * UNITS_PER_DROP
-        >= dassie_settlement::policy::hub_floor(
-            crate::node::Policies::DEFAULT.connector.max_packet_amount
-        ),
+    MINT_MICROS * UNITS_PER_DROP >= dassie_settlement::policy::hub_floor(super::MAX_PACKET),
     "the first mint fills the DSUSD hub to its floor"
 );
 const _: () = assert!(

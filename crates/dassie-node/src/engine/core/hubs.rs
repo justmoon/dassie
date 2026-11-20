@@ -360,7 +360,9 @@ impl Core {
             return;
         };
         let target = match self.joining(scheme, name) {
-            Some(Joining::PaidIn(minimum)) => paid_in_credit(minimum, self.settle.trigger),
+            Some(Joining::PaidIn(minimum)) => {
+                paid_in_credit(minimum, self.settle.trigger.get(ledger))
+            }
             Some(Joining::Paying(_)) => 0,
             None => hub_credit(holds, settling),
         };

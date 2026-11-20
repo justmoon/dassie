@@ -343,8 +343,8 @@ impl Core {
         });
         Some(Reading {
             pool: held.pool().saturating_mul(UNITS_PER_DROP),
-            packet: self.settle.max_packet,
-            margin: self.pool_margin(scheme),
+            packet: self.limits_of(scheme)?.0,
+            margin: self.pool_margin(scheme)?,
             core: self.peer.is_core(),
             funds_coming,
         })
@@ -352,10 +352,16 @@ impl Core {
 
     /// How far past its need the pool of the hub of `scheme` comes before a
     /// refusal lifts, in internal units: one request to settle's funding,
-    /// as the hub's target caps it (`policy::hub_spendable`).
-    fn pool_margin(&self, scheme: Name) -> u64 {
-        let packet = self.settle.max_packet;
-        policy::hub_spendable(packet, self.peer_credit, 1, self.hub_target(scheme))
+    /// as the hub's target caps it (`policy::hub_spendable`). None on a
+    /// scheme the node does not run.
+    fn pool_margin(&self, scheme: Name) -> Option<u64> {
+        let (packet, credit) = self.limits_of(scheme)?;
+        Some(policy::hub_spendable(
+            packet,
+            credit,
+            1,
+            self.hub_target(scheme)?,
+        ))
     }
 
     /// The least pool the hub of `scheme` needs, in internal units: a
@@ -365,14 +371,17 @@ impl Core {
     /// the pool there while its own account can pay
     /// ([`Standing::least_pool`](super::hub_funding::Standing::least_pool)),
     /// so it refuses newcomers and ends peerings only for want of funds.
-    pub(super) fn least_pool(&self, scheme: Name) -> u64 {
+    /// None on a scheme the node does not run.
+    pub(super) fn least_pool(&self, scheme: Name) -> Option<u64> {
         let count =
             SchemeId::parse(scheme.as_str()).map_or(0, |method| self.peerings_over(method).len());
         let count = u64::try_from(count).unwrap_or(u64::MAX).saturating_add(1);
-        self.settle
-            .max_packet
-            .saturating_mul(count)
-            .saturating_add(self.pool_margin(scheme))
+        let (packet, _) = self.limits_of(scheme)?;
+        Some(
+            packet
+                .saturating_mul(count)
+                .saturating_add(self.pool_margin(scheme)?),
+        )
     }
 
     /// The peerings with a method on `method`, neither being ended nor

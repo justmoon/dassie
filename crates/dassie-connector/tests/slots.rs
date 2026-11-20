@@ -144,7 +144,7 @@ fn a_method_short_of_room_answers_t04_and_never_moves_the_packet() {
     assert_eq!(h.connector.pending_count(), 0, "nothing moved to XRP");
     // The money in flight is per method: the USD method of the hop full,
     // its XRP method empty, a packet on USD gets T05.
-    let largest = Config::DEFAULT.max_packet_amount;
+    let largest = Config::DEFAULT.max_packet(USD);
     h.connector.set_routes([(FAR, &[ONE][..])]).unwrap();
     for request_id in 10..12 {
         send(&mut h, (SOURCE, USD), request_id, largest, 0).unwrap();
@@ -415,7 +415,7 @@ fn the_hub_flag_is_per_method() {
 // for liquidity (T04), would be sent again as it is, for good.
 #[test]
 fn a_conversion_past_the_largest_packet_gets_f08() {
-    let largest = Config::DEFAULT.max_packet_amount;
+    let largest = Config::DEFAULT.max_packet(USD);
     let mut h = Harness::new(Config::DEFAULT, TRUST);
     h.open_books(USD);
     h.fund(XRP, TRUST);
@@ -447,6 +447,7 @@ fn a_conversion_past_the_largest_packet_gets_f08() {
             Outcome::Forward(sent) => {
                 assert_eq!((sent.to, sent.ledger), (ONE, XRP));
                 let out = decode_prepare(&h.buffer[..sent.length]).amount;
+                let largest = Config::DEFAULT.max_packet(XRP);
                 assert!(out <= largest && out > largest * 9 / 10, "{out}");
                 return;
             }
@@ -461,6 +462,62 @@ fn a_conversion_past_the_largest_packet_gets_f08() {
         }
     }
     panic!("no packet sized by the F08s got through");
+}
+
+// spec/decisions/limits-per-ledger.md: each ledger has its own largest
+// packet. A packet in is held to its own ledger's, what a conversion makes
+// of it to the outgoing ledger's, and the money in flight on each method to
+// its own ledger's: here, ten times as much on dollars as on XRP.
+#[test]
+fn each_ledger_has_its_own_largest_packet() {
+    let xrp = Config::DEFAULT.max_packet(XRP);
+    let usd = 10 * xrp;
+    let config = Config {
+        max_packet: Config::DEFAULT.max_packet.with(USD, usd),
+        ..Config::DEFAULT
+    };
+    let mut h = Harness::new(config, TRUST);
+    h.open_books(USD);
+    h.fund(XRP, TRUST);
+    h.open_books(XRP);
+    h.add_peer(5, "dsource", TRUST, 0);
+    h.add_peer_on(XRP, 1, "done", TRUST, 0);
+    h.rates.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
+    h.rates.set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), NOW);
+    h.connector.set_routes([(FAR, &[ONE][..])]).unwrap();
+    let refused = |h: &mut Harness, amount: u64, request_id: u32| {
+        let packet = prepare(FAR, amount, NOW + 20_000, [1; 32]);
+        let Outcome::Respond(length) = h.prepare_on(NOW, (SOURCE, USD), request_id, &packet) else {
+            panic!("{amount} was forwarded");
+        };
+        let (code, data) = h.reject_written(length);
+        (code, AmountTooLarge::decode_exact(&data).ok())
+    };
+    // Past the dollars' largest packet: F08, naming it.
+    let (code, told) = refused(&mut h, usd + 1, 1);
+    assert_eq!(code, ErrorCode::F08_AMOUNT_TOO_LARGE);
+    assert_eq!(told.unwrap().maximum_amount, usd);
+    // Within it, but about two of XRP's on the way out: F08, naming about
+    // half of XRP's largest packet in dollars.
+    let (code, told) = refused(&mut h, xrp, 2);
+    assert_eq!(code, ErrorCode::F08_AMOUNT_TOO_LARGE);
+    let most = told.unwrap().maximum_amount;
+    assert!(most > xrp / 3 && most < xrp * 3 / 5, "{most}");
+    // Packets of about nine tenths of XRP's largest out: two fill the XRP
+    // method's money in flight, and a third gets T05, though what is in
+    // flight from the source is far from the dollars' cap.
+    let packet = xrp * 9 / 20;
+    for request_id in 3..5 {
+        let prepared = prepare(FAR, packet, NOW + 20_000, [1; 32]);
+        let Outcome::Forward(sent) = h.prepare_on(NOW, (SOURCE, USD), request_id, &prepared) else {
+            panic!("not forwarded");
+        };
+        assert_eq!((sent.to, sent.ledger), (ONE, XRP));
+    }
+    assert_eq!(refused(&mut h, packet, 5).0, ErrorCode::T05_RATE_LIMITED);
+    let source = h.connector.slots(SOURCE).find(|s| s.ledger == USD).unwrap();
+    assert_eq!(source.money_from, 2 * packet);
+    assert!(source.money_from < config.max_in_flight(USD) / 10);
 }
 
 // spec/decisions/settlement-methods.md, spec/decisions/token-hubs.md: a

@@ -268,7 +268,9 @@ fn a_method_that_would_settle_directly_takes_nothing_and_is_dropped() {
     assert!(!winding, "collected on a method that settles nothing");
     // The peering carries on over the stub, and does not take the owner
     // book back.
-    let amount = 3 * crate::node::Policies::DEFAULT.connector.max_packet_amount;
+    let amount = 3 * crate::node::Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     assert!(sim.pay(0, 1, amount, None, Some(amount)));
     assert!(
         !sim.run_until_or(sim.now + 300_000, |sim| asked(sim) || !over_stub(sim)),

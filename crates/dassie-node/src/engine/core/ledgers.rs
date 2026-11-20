@@ -1188,10 +1188,13 @@ impl Core {
                 self.peer
                     .settlement_booked(self.now_ms, &node, method, amount);
             }
-            // At least the least settlement, on any of its ledgers: it paid
-            // us, for good, and is no free receiver
+            // At least the least settlement of the ledger it came on, any
+            // of its ledgers: it paid us, for good, and is no free receiver
             // (spec/decisions/free-receivers-half.md).
-            if amount >= self.settle.minimum {
+            if self
+                .minimum_on(method)
+                .is_some_and(|minimum| amount >= minimum)
+            {
                 self.with_peer(|peer, hooks, now| peer.paid_by(now, hooks, &node));
             }
             self.report(SettlementEvent::SettlementBooked {

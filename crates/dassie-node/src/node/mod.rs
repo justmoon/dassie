@@ -19,6 +19,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use dassie_identity::{IdentityKey, SlhDsaKeygen};
 use dassie_kit::ClientKey;
+use dassie_ledger::{LedgerId, PerLedger};
 use dassie_node_core::acme::{ChallengeTokens, Renewal, RenewalPolicy};
 use dassie_node_core::config::{NodeConfig, Realm};
 use dassie_node_core::connections::{ConnectionLimits, Refused};
@@ -97,12 +98,12 @@ pub struct Policies {
     /// The peer protocol's bounds and timers.
     pub peer: dassie_peer::Config,
     /// The credit by which a payer over a settlement hub sizes what one
-    /// request to settle has it fund its hold with, in its ledger's units:
-    /// 1.1 units at scale 9 on the test network
-    /// (spec/areas/settlement.md#credit). Large enough that a request
-    /// funds at least the least settlement
-    /// (spec/decisions/thresholds-in-packets.md).
-    pub peer_credit: u64,
+    /// request to settle has it fund its hold with, on each ledger in its
+    /// units (spec/areas/settlement.md#credit). Large enough that a
+    /// request funds at least the least settlement
+    /// (spec/decisions/thresholds-in-packets.md), which the node checks as
+    /// it starts.
+    pub peer_credit: PerLedger<u64>,
     /// How often peers are checked, to ask those near the credit we extend
     /// to settle (spec/decisions/own-fulfills.md).
     pub settlement_interval_ms: u64,
@@ -124,6 +125,36 @@ pub struct Policies {
     /// connections being set up (spec/areas/peer-protocol.md#quic-over-websocket).
     pub tunnel_bounds: crate::quic::tunnel::TunnelBounds,
 }
+
+/// 1.1 XRP: eleven of the largest packets
+/// ([`dassie_connector::XRP_PACKET`]). A value fixed in the build,
+/// never converted at a rate (spec/decisions/limits-per-ledger.md).
+pub const XRP_CREDIT: u64 = 1_100_000_000;
+
+/// $1.10, on every dollar ledger: eleven of the largest packets
+/// ([`dassie_connector::USD_PACKET`]).
+pub const USD_CREDIT: u64 = 1_100_000_000;
+
+/// The default credit on `ledger`, in its units (scale 9). Ledgers that
+/// count the same asset share it, testnet and mainnet alike, so the tests
+/// run on what real money does.
+const fn peer_credit(ledger: LedgerId) -> u64 {
+    match ledger {
+        LedgerId::XrplTestnetXrp
+        | LedgerId::XrplXrp
+        | LedgerId::HubXrplTestnetXrp
+        | LedgerId::HubXrplXrp => XRP_CREDIT,
+        LedgerId::StubUsd
+        | LedgerId::XrplTestnetRlusdUsd
+        | LedgerId::XrplRlusdUsd
+        | LedgerId::XrplTestnetDsusdUsd
+        | LedgerId::HubXrplTestnetDsusdUsd
+        | LedgerId::HubXrplRlusdUsd => USD_CREDIT,
+    }
+}
+
+/// The default credit on each ledger.
+pub const PEER_CREDITS: PerLedger<u64> = dassie_ledger::per_ledger!(peer_credit);
 
 impl Policies {
     /// The production values.
@@ -162,7 +193,7 @@ impl Policies {
             ..dassie_connector::Config::DEFAULT
         },
         peer: dassie_peer::Config::DEFAULT,
-        peer_credit: 1_100_000_000,
+        peer_credit: PEER_CREDITS,
         settlement_interval_ms: 4_000,
         settlement_request_every_ms: 60_000,
         incoming: crate::engine::IncomingPolicy::DEFAULT,

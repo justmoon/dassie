@@ -187,9 +187,9 @@ The connector caps, for each peer's method and each way, what the packets in fli
 
 ## The largest packet
 
-A Prepare above the largest packet `P` gets F08, with the amounts. `P` is how much the owner is prepared to lose on a link, so every threshold of a link is counted in it: the cap above, and the settlement trigger, the least settlement and the least default credit ([Settlement](settlement.md#positions-and-thresholds)). It is one value for the node, as is the default credit; per-ledger values are not built ([roadmap](../roadmap.md#not-built-yet)).
+A Prepare above the largest packet `P` gets F08, with the amounts. `P` is how much the owner is prepared to lose on a link, so every threshold of a link is counted in it: the cap above, and the settlement trigger, the least settlement and the least default credit ([Settlement](settlement.md#positions-and-thresholds)). Each ledger has its own `P` (`Config::max_packet`), as it has its own default credit, fixed in the build and never converted at a rate ([limits-per-ledger](../decisions/limits-per-ledger.md)): a Prepare is held to its own ledger's, and the money in flight on a method to its ledger's ([below](#money-in-flight-with-a-peer)).
 
-A Prepare that a conversion would forward above `P` gets F08 too, naming the most that would pass in its own units at the rate it got; with one `P` for every ledger, a packet of `P` in a dear asset converts to more than `P` of a cheap one. Forwarded, it could find too little room toward the next hop while the hop, its trigger counted in `P`, sees too much to ask for a settlement; refused for liquidity (T04), its sender would send it again as it is, for good.
+A Prepare that a conversion would forward above the outgoing ledger's `P` gets F08 too, naming the most that would pass in its own units at the rate it got: each ledger's `P` is fixed, so a packet of `P` in an asset that grew dearer converts to more than `P` of the other. Forwarded, it could find too little room toward the next hop while the hop, its trigger counted in `P`, sees too much to ask for a settlement; refused for liquidity (T04), its sender would send it again as it is, for good.
 
 ## Fees and spread
 
@@ -252,6 +252,7 @@ ILP-over-HTTP (RFC 35) is not built: the connector has no HTTP endpoint ([roadma
 - [own-fulfills](../decisions/own-fulfills.md): Fulfills booked as final; a stale resend from a peer is dropped.
 - [drain-on-shutdown](../decisions/drain-on-shutdown.md): a node that stops takes no new packet, with T03, and waits for those in flight.
 - [packets-in-flight](../decisions/packets-in-flight.md): the cap on money in flight with a peer.
+- [limits-per-ledger](../decisions/limits-per-ledger.md): each ledger's largest packet, fixed in the build.
 - [thresholds-in-packets](../decisions/thresholds-in-packets.md): the cap counted in the largest packet.
 - [unreachable-peers](../decisions/unreachable-peers.md): no Prepare taken from a peer our messages surely do not reach.
 - [route-back-is-temporary](../decisions/route-back-is-temporary.md): T01, not F02, for a route that leads only back to the packet's source.

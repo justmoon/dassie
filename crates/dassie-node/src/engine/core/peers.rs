@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use dassie_connector::{Connector, EndpointId};
 use dassie_identity::{NodeId, PublicKey};
 use dassie_ilp::ErrorCode;
-use dassie_ledger::{AccountName, AccountPath, Ledger, LedgerId, Name};
+use dassie_ledger::{AccountName, AccountPath, Ledger, LedgerId, Name, PerLedger};
 use dassie_peer::wire::{RefusalReason, SchemeId, TerminationReason};
 use dassie_peer::{
     Agreed, BanError, Declined, Event, InboundId, NameEvent, Output as PeerOutput, PacketAnswer,
@@ -41,11 +41,11 @@ pub(super) struct Hooks<'a> {
     pub settings: PeerSettings,
     /// The step's time, which a peer's snapshot must not have expired by.
     pub now_ms: u64,
-    /// The largest packet, and the default credit, which what a candidate
-    /// for promotion must hold in its hub is counted in
+    /// The largest packet, and the default credit, on each ledger, which
+    /// what a candidate for promotion must hold in its hub is counted in
     /// (spec/decisions/promotion-to-core.md).
-    pub max_packet: u64,
-    pub peer_credit: u64,
+    pub max_packet: PerLedger<u64>,
+    pub peer_credit: PerLedger<u64>,
     /// The hubs whose pool takes no newcomer of a kind
     /// (spec/decisions/slots-by-liquidity.md).
     pub liquidity: &'a super::liquidity::Liquidity,
