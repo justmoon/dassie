@@ -13,7 +13,8 @@ use std::collections::BTreeMap;
 
 use dassie_identity::NodeId;
 use dassie_ledger::{
-    AccountName, AccountPath, LedgerId, Name, Reference, Transfer, TransferId, TransferSpec,
+    AccountName, AccountPath, LedgerId, Name, PerLedger, Reference, Transfer, TransferId,
+    TransferSpec,
 };
 use dassie_peer::Room;
 use dassie_peer::wire::SchemeId;
@@ -52,10 +53,11 @@ pub(super) struct Settlements {
     pub interval_ms: u64,
     /// How often a peer that did not settle since is asked again, at most.
     pub request_every_ms: u64,
-    /// Our trigger for every peer, and the least we settle, from the
-    /// largest packet (spec/decisions/thresholds-in-packets.md).
-    pub trigger: u64,
-    pub minimum: u64,
+    /// Our trigger for every peer, and the least we settle, on each ledger,
+    /// from its largest packet (spec/decisions/thresholds-in-packets.md,
+    /// spec/decisions/limits-per-ledger.md).
+    pub trigger: PerLedger<u64>,
+    pub minimum: PerLedger<u64>,
     /// When each peer was last asked to settle on each method, until it
     /// settles on it (spec/decisions/settlement-methods.md).
     pub asked: BTreeMap<(NodeId, SchemeId), u64>,
@@ -92,8 +94,9 @@ pub(super) struct Settlements {
     /// simulation, rather than their signatures.
     #[cfg(feature = "testing")]
     pub validation_secret: Option<[u8; 32]>,
-    /// The largest packet, which schemes that count in packets need.
-    pub max_packet: u64,
+    /// The largest packet on each ledger, which schemes that count in
+    /// packets need.
+    pub max_packet: PerLedger<u64>,
     /// The timings of a dollar token's peg guard.
     pub peg: dassie_xrpl::peg::Timings,
     /// The default hubs a hub's scheme added without rules joins: the
@@ -102,14 +105,15 @@ pub(super) struct Settlements {
 }
 
 impl Settlements {
-    pub(super) const fn new(now_ms: u64, policies: &Policies) -> Self {
+    pub(super) fn new(now_ms: u64, policies: &Policies) -> Self {
+        let max_packet = policies.connector.max_packet;
         Self {
             at_ms: now_ms.saturating_add(policies.settlement_interval_ms),
             interval_ms: policies.settlement_interval_ms,
             request_every_ms: policies.settlement_request_every_ms,
-            trigger: policy::trigger(policies.connector.max_packet_amount),
-            minimum: policy::minimum(policies.connector.max_packet_amount),
-            max_packet: policies.connector.max_packet_amount,
+            trigger: max_packet.map(policy::trigger),
+            minimum: max_packet.map(policy::minimum),
+            max_packet,
             peg: policies.peg,
             default_hubs: super::schemes::DEFAULT_HUBS,
             asked: BTreeMap::new(),
@@ -317,7 +321,7 @@ impl Core {
                 .position(node, scheme)
                 // `minimum` is one of the largest packets
                 // (spec/decisions/thresholds-in-packets.md).
-                .is_some_and(|at| at.position < u128::from(self.settle.minimum))
+                .is_some_and(|at| at.position < u128::from(self.settle.minimum.get(at.ledger)))
             {
                 // Two checks' worth at most: more is a stall of ours.
                 let most_ms = self.settle.interval_ms.saturating_mul(2);
@@ -541,12 +545,15 @@ impl Core {
         {
             return false;
         }
-        self.position(node, scheme)
-            .is_some_and(|at| policy::ask(at.position, self.settle.trigger))
+        let Some(at) = self.position(node, scheme) else {
+            return false;
+        };
+        let trigger = self.settle.trigger.get(at.ledger);
+        policy::ask(at.position, trigger)
             || joining.is_none()
                 && self
                     .hub_room(node, scheme)
-                    .is_some_and(|room| policy::ask(u128::from(room), self.settle.trigger))
+                    .is_some_and(|room| policy::ask(u128::from(room), trigger))
     }
 
     /// Whether a request of ours to settle on `scheme` is pending with a
@@ -700,10 +707,12 @@ impl Core {
             }
             // Only once the scheme can spend the least settlement, and
             // more than at a try that funded nothing.
-            let Some(spendable) = self.spendable_for(node, scheme) else {
+            let (Some(spendable), Some(minimum)) =
+                (self.spendable_for(node, scheme), self.minimum_on(scheme))
+            else {
                 continue;
             };
-            if spendable < self.settle.minimum || unanswered.tried == Some(spendable) {
+            if spendable < minimum || unanswered.tried == Some(spendable) {
                 continue;
             }
             let shares = allotments.get(&scheme).and_then(Option::as_ref);
@@ -747,6 +756,23 @@ impl Core {
             .filter(|peering| peering.depeering.is_none())
             .and_then(|peering| peering.method(scheme))
             .is_some_and(|method| !method.winding_down())
+    }
+
+    /// The largest packet on the ledger of `scheme`, and the default credit
+    /// there; none on a scheme the node does not run.
+    pub(super) fn limits_of(&self, scheme: Name) -> Option<(u64, u64)> {
+        let ledger = self.schemes.get(&scheme)?.scheme.ledger();
+        Some((
+            self.settle.max_packet.get(ledger),
+            self.peer_credit.get(ledger),
+        ))
+    }
+
+    /// The least settlement on `scheme`'s ledger, one of its largest
+    /// packets; none on a scheme the node does not run.
+    pub(super) fn minimum_on(&self, scheme: SchemeId) -> Option<u64> {
+        self.method_ledger(scheme)
+            .map(|ledger| self.settle.minimum.get(ledger))
     }
 
     /// What a settlement to `node` on `scheme` could move now, as its
@@ -824,9 +850,9 @@ impl Core {
         // A hold the scheme could fund with less than the least
         // settlement is funded with nothing now: the rest follows.
         if paying.is_none()
-            && self
-                .spendable_for(node, scheme)
-                .is_some_and(|spendable| spendable < amount && spendable < self.settle.minimum)
+            && self.spendable_for(node, scheme).is_some_and(|spendable| {
+                spendable < amount && spendable < self.settle.minimum.get(at.ledger)
+            })
         {
             return Answer::Short;
         }
@@ -891,18 +917,19 @@ impl Core {
             .get(&at.scheme)
             .is_some_and(|active| active.over_hub);
         let position = if over_hub {
-            hub_position(&at, self.peer_credit)
+            hub_position(&at, self.peer_credit.get(at.ledger))
         } else {
             at.position
         };
-        let asked = policy::requested_amount(position, self.settle.trigger, self.settle.minimum);
+        let minimum = self.settle.minimum.get(at.ledger);
+        let asked = policy::requested_amount(position, self.settle.trigger.get(at.ledger), minimum);
         let room = allotments.filter(|_| over_hub).and_then(|allotments| {
             let spendable = self.spendable_for(node, scheme);
             allotments.room(&node, at.credit_out, spendable)
         });
         let (capped, allotted) = match room {
             Some(room) if room < asked => {
-                let room = if room < self.settle.minimum { 0 } else { room };
+                let room = if room < minimum { 0 } else { room };
                 (room, true)
             }
             _ => (asked, false),
@@ -1651,14 +1678,14 @@ fn position(
 /// Whether `node`'s own account in the hub `scheme` settles over could
 /// spend, as the hub last said, one request to settle at the default
 /// credit for each of the `edges` joining the core asks, in the largest
-/// packet and the credit given ([`policy::promotion_funds`],
+/// packet and the credit given on its ledger ([`policy::promotion_funds`],
 /// spec/decisions/promotion-to-core.md): only for a key `proof`, from its
 /// link state, shows is its own. None until its funds were read, and on a
 /// scheme the node does not run, that does not settle over a hub, or whose
 /// hub failed or stalled: funds there forward nothing.
 pub(super) fn funded(
     schemes: &BTreeMap<Name, super::ledgers::ActiveScheme>,
-    (max_packet, credit): (u64, u64),
+    (max_packet, credit): (PerLedger<u64>, PerLedger<u64>),
     node: NodeId,
     (scheme, edges): (SchemeId, u64),
     proof: Option<&[u8; 64]>,
@@ -1670,5 +1697,6 @@ pub(super) fn funded(
     let funds = active
         .scheme
         .peer_funds(Name::new(node.as_str()).ok()?, proof)?;
-    Some(funds >= policy::promotion_funds(max_packet, credit, edges))
+    let ledger = active.scheme.ledger();
+    Some(funds >= policy::promotion_funds(max_packet.get(ledger), credit.get(ledger), edges))
 }

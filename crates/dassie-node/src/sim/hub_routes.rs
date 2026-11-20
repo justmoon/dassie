@@ -454,7 +454,7 @@ fn start(
     packets: u64,
 ) -> Result<usize, Outcome> {
     let index = sim.payments.len();
-    let amount = packets * Policies::DEFAULT.connector.max_packet_amount;
+    let amount = packets * super::MAX_PACKET;
     if sim.pay_in(from, (ledger, ledger), to, amount, None, None) {
         Ok(index)
     } else {
@@ -713,7 +713,7 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     // peerings over the XRP hub, which its owner cannot take out: with
     // nothing left to spend, it still has the liquidity to take node 4
     // over the hub, and none to fund a hold toward it.
-    let least = 2 * Policies::DEFAULT.connector.max_packet_amount;
+    let least = 2 * super::MAX_PACKET;
     if !run_sliced(sim, sim.now + READY_WITHIN_MS + METHODS_WITHIN_MS, |sim| {
         holding(sim, RIGHT, HOP) >= least
     }) {
@@ -855,7 +855,7 @@ fn attack(sim: &mut Sim, rng: &mut SeededRng, seen: &RefCell<Seen>) -> Result<()
         link = Some(core.btp_connect(&token.secret).unwrap().link);
     });
     let link = link.ok_or_else(|| Outcome::liveness("attack", "node 0 stopped"))?;
-    let amount = Policies::DEFAULT.connector.max_packet_amount / 10;
+    let amount = super::MAX_PACKET / 10;
     for request in 1..=ATTACK_PACKETS {
         let mut fulfillment = [0; 32];
         for chunk in fulfillment.chunks_mut(8) {

@@ -53,7 +53,7 @@ use dassie_connector::{
 };
 use dassie_identity::IdentityKey;
 use dassie_ilp::MAX_PACKET_LENGTH;
-use dassie_ledger::{Account, AccountId, AccountName, Ledger, Name, TraceId};
+use dassie_ledger::{Account, AccountId, AccountName, Ledger, Name, PerLedger, TraceId};
 use dassie_node_core::config::{LiveRealm, Realm};
 use dassie_stream::BUFFER_LENGTH;
 
@@ -443,8 +443,8 @@ pub struct Core {
     /// Whether the live realm may run.
     live: LiveRealm,
     /// The credit by which a payer over a hub sizes what a request to
-    /// settle funds (spec/areas/settlement.md#credit).
-    peer_credit: u64,
+    /// settle funds, on each ledger (spec/areas/settlement.md#credit).
+    peer_credit: PerLedger<u64>,
     /// Peer requests and replies, handed over once the batch is persisted.
     outputs_peer: Vec<Output>,
     /// Settling with peers.
@@ -1168,23 +1168,25 @@ fn check_bounds(policies: &Policies) {
         policies.incoming.max_open_owner > 0 && policies.incoming.max_open_clients > 0,
         "incoming payments need room"
     );
-    assert!(
-        policies.peer_credit <= dassie_ledger::MAX_TOTAL,
-        "the credit fits the ledger"
-    );
-    // Less, and a hub link could stop settling after one crash: its drift,
-    // up to what was in flight, would leave a payer asked, which counts this
-    // credit whatever its hold, less than the minimum to fund; and with
-    // much less, a request would fund nothing even without a crash
-    // (spec/areas/settlement.md#credit).
-    let least = dassie_settlement::policy::least_credit(
-        connector.max_packet_amount,
-        connector.max_in_flight(),
-    );
-    assert!(
-        policies.peer_credit >= least,
-        "the default credit survives a crash"
-    );
+    for (ledger, credit) in policies.peer_credit.iter() {
+        assert!(
+            credit <= dassie_ledger::MAX_TOTAL,
+            "the credit on {ledger} fits the ledger"
+        );
+        // Less, and a hub link could stop settling after one crash: its
+        // drift, up to what was in flight, would leave a payer asked, which
+        // counts this credit whatever its hold, less than the minimum to
+        // fund; and with much less, a request would fund nothing even
+        // without a crash (spec/areas/settlement.md#credit).
+        let least = dassie_settlement::policy::least_credit(
+            connector.max_packet(ledger),
+            connector.max_in_flight(ledger),
+        );
+        assert!(
+            credit >= least,
+            "the default credit on {ledger} survives a crash"
+        );
+    }
     // A request that never arrived is asked again at the next check; one
     // whose fate is unknown, or that the peer refused, only after a request
     // interval. Two of those withdraw nothing: the third request is answered,

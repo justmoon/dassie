@@ -179,6 +179,123 @@ impl LedgerId {
     }
 }
 
+/// One value for each ledger: what differs by ledger, such as the largest
+/// packet and the default credit (spec/decisions/limits-per-ledger.md).
+/// Build one from a `const fn` over [`LedgerId`] with [`per_ledger!`],
+/// whose exhaustive match gives a new ledger its value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PerLedger<T>([T; LedgerId::ALL.len()]);
+
+impl<T: Copy> PerLedger<T> {
+    /// `value` on every ledger.
+    #[must_use]
+    pub const fn splat(value: T) -> Self {
+        Self([value; LedgerId::ALL.len()])
+    }
+
+    /// The values of the ledgers in [`LedgerId::ALL`]'s order, as
+    /// [`per_ledger!`] lists them.
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn in_order(values: [T; LedgerId::ALL.len()]) -> Self {
+        Self(values)
+    }
+
+    /// The value on `ledger`.
+    #[must_use]
+    pub const fn get(&self, ledger: LedgerId) -> T {
+        let [
+            stub,
+            testnet_xrp,
+            xrp,
+            testnet_rlusd,
+            rlusd,
+            testnet_dsusd,
+            hub_testnet_xrp,
+            hub_testnet_dsusd,
+            hub_xrp,
+            hub_rlusd,
+        ] = self.0;
+        match ledger {
+            LedgerId::StubUsd => stub,
+            LedgerId::XrplTestnetXrp => testnet_xrp,
+            LedgerId::XrplXrp => xrp,
+            LedgerId::XrplTestnetRlusdUsd => testnet_rlusd,
+            LedgerId::XrplRlusdUsd => rlusd,
+            LedgerId::XrplTestnetDsusdUsd => testnet_dsusd,
+            LedgerId::HubXrplTestnetXrp => hub_testnet_xrp,
+            LedgerId::HubXrplTestnetDsusdUsd => hub_testnet_dsusd,
+            LedgerId::HubXrplXrp => hub_xrp,
+            LedgerId::HubXrplRlusdUsd => hub_rlusd,
+        }
+    }
+
+    /// The same values, but `value` on `ledger`.
+    #[must_use]
+    pub const fn with(self, ledger: LedgerId, value: T) -> Self {
+        let mut values = self.0;
+        let [
+            stub,
+            testnet_xrp,
+            xrp,
+            testnet_rlusd,
+            rlusd,
+            testnet_dsusd,
+            hub_testnet_xrp,
+            hub_testnet_dsusd,
+            hub_xrp,
+            hub_rlusd,
+        ] = &mut values;
+        let slot = match ledger {
+            LedgerId::StubUsd => stub,
+            LedgerId::XrplTestnetXrp => testnet_xrp,
+            LedgerId::XrplXrp => xrp,
+            LedgerId::XrplTestnetRlusdUsd => testnet_rlusd,
+            LedgerId::XrplRlusdUsd => rlusd,
+            LedgerId::XrplTestnetDsusdUsd => testnet_dsusd,
+            LedgerId::HubXrplTestnetXrp => hub_testnet_xrp,
+            LedgerId::HubXrplTestnetDsusdUsd => hub_testnet_dsusd,
+            LedgerId::HubXrplXrp => hub_xrp,
+            LedgerId::HubXrplRlusdUsd => hub_rlusd,
+        };
+        *slot = value;
+        Self(values)
+    }
+
+    /// What `f` makes of each ledger's value.
+    #[must_use]
+    pub fn map<U: Copy>(&self, f: impl Fn(T) -> U) -> PerLedger<U> {
+        PerLedger(self.0.map(f))
+    }
+
+    /// Every ledger with its value, in [`LedgerId::ALL`]'s order.
+    pub fn iter(&self) -> impl Iterator<Item = (LedgerId, T)> + '_ {
+        LedgerId::ALL
+            .into_iter()
+            .map(|ledger| (ledger, self.get(ledger)))
+    }
+}
+
+/// A [`PerLedger`] of what a `const fn(LedgerId) -> T` gives each ledger,
+/// in a constant.
+#[macro_export]
+macro_rules! per_ledger {
+    ($of:path) => {
+        $crate::PerLedger::in_order([
+            $of($crate::LedgerId::StubUsd),
+            $of($crate::LedgerId::XrplTestnetXrp),
+            $of($crate::LedgerId::XrplXrp),
+            $of($crate::LedgerId::XrplTestnetRlusdUsd),
+            $of($crate::LedgerId::XrplRlusdUsd),
+            $of($crate::LedgerId::XrplTestnetDsusdUsd),
+            $of($crate::LedgerId::HubXrplTestnetXrp),
+            $of($crate::LedgerId::HubXrplTestnetDsusdUsd),
+            $of($crate::LedgerId::HubXrplXrp),
+            $of($crate::LedgerId::HubXrplRlusdUsd),
+        ])
+    };
+}
+
 impl fmt::Display for LedgerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
@@ -226,5 +343,32 @@ mod tests {
         }
         assert_eq!(LedgerId::HubXrplTestnetXrp.wallet_name(), "xrp");
         assert_eq!(LedgerId::HubXrplRlusdUsd.wallet_name(), "rlusd");
+    }
+
+    const fn hubs_count_more(ledger: LedgerId) -> u64 {
+        if ledger.is_hub() { 2 } else { 1 }
+    }
+
+    // `per_ledger!` lists the ledgers, and `get` and `with` name them, in
+    // `ALL`'s order: each ledger has a value of its own.
+    #[test]
+    fn a_table_holds_each_ledgers_value() {
+        const TABLE: PerLedger<u64> = crate::per_ledger!(hubs_count_more);
+        for (ledger, value) in TABLE.iter() {
+            assert_eq!(value, hubs_count_more(ledger), "{ledger}");
+        }
+        let changed = TABLE.with(LedgerId::StubUsd, 7);
+        assert_eq!(changed.get(LedgerId::StubUsd), 7);
+        assert_eq!(changed.get(LedgerId::HubXrplXrp), 2);
+        assert_eq!(PerLedger::splat(3).get(LedgerId::XrplXrp), 3);
+        assert_eq!(TABLE.map(|value| value * 10).get(LedgerId::HubXrplXrp), 20);
+        for (index, ledger) in LedgerId::ALL.into_iter().enumerate() {
+            let numbered = PerLedger::in_order(core::array::from_fn(|i| i));
+            assert_eq!(numbered.get(ledger), index, "{ledger}");
+            let marked = PerLedger::splat(0).with(ledger, 1);
+            for (other, value) in marked.iter() {
+                assert_eq!(value, usize::from(other == ledger), "{ledger}, {other}");
+            }
+        }
     }
 }

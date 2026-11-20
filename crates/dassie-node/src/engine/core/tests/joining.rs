@@ -209,7 +209,10 @@ fn a_newcomer_trusts_its_payer_with_the_minimum_and_asks_at_it() {
     let scheme = scheme_id("stub");
     let name = Name::new(peer.as_str()).unwrap();
     assert_eq!(core.joining(STUB, name), Some(Joining::PaidIn(MINIMUM)));
-    let extended = paid_in_credit(MINIMUM, core.settle.trigger);
+    let extended = paid_in_credit(
+        MINIMUM,
+        core.settle.trigger.get(dassie_ledger::LedgerId::StubUsd),
+    );
     assert_eq!(credit(&core, peer), (extended, 0));
     // Advertised with no account, so that members with one peer with it,
     // once the offers follow the scheme's membership.

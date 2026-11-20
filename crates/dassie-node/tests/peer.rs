@@ -46,7 +46,9 @@ const DEPOSIT: u64 = 100_000_000_000;
 
 /// The credit a payer over a hub funds its hold as if it extended, when
 /// asked to settle (spec/areas/hubs.md#in-the-node): the node's default.
-const CREDIT: u64 = Policies::DEV.peer_credit;
+const CREDIT: u64 = Policies::DEV
+    .peer_credit
+    .get(dassie_ledger::LedgerId::StubUsd);
 
 /// The net credit of `node`'s account `account` for its peer `peer`.
 async fn net_of(node: &TestNode, account: &str, peer: &IdentityKey) -> i128 {

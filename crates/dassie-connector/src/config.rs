@@ -1,5 +1,7 @@
 //! The connector's bounds and timing.
 
+use dassie_ledger::{LedgerId, PerLedger};
+
 /// The connector's bounds and timing rules. Every table has a limit
 /// (spec/decisions/tigerstyle.md), and the timing follows
 /// spec/decisions/connector-timing.md.
@@ -33,11 +35,12 @@ pub struct Config {
     pub min_timeout_ms: u64,
     /// The longest the next hop gets (`MAXIMUM_HOLD_TIME`).
     pub max_hold_ms: u64,
-    /// The largest incoming amount, in the source ledger's units; more gets
-    /// F08. Per ledger later (spec/decisions/owner-ledger.md). It also sets
-    /// how much money may be in flight with a peer: [`IN_FLIGHT_PACKETS`] of
-    /// it, and half of it more.
-    pub max_packet_amount: u64,
+    /// The largest packet on each ledger, in its units: a larger incoming
+    /// amount gets F08, and so does one a conversion makes larger than the
+    /// outgoing ledger's (spec/areas/connector.md#the-largest-packet). It
+    /// also sets how much money may be in flight with a peer on the ledger:
+    /// [`IN_FLIGHT_PACKETS`] of it, and half of it more.
+    pub max_packet: PerLedger<u64>,
     /// Rates older than this refuse cross-currency packets with T00
     /// (spec/decisions/exchange-rates.md).
     pub max_rate_age_ms: u64,
@@ -57,7 +60,7 @@ pub struct Config {
 pub(crate) const PPM: u32 = 1_000_000;
 
 /// How much money may be in flight with one peer each way, in packets of
-/// [`Config::max_packet_amount`] (spec/decisions/packets-in-flight.md,
+/// [`Config::max_packet`] (spec/decisions/packets-in-flight.md,
 /// spec/decisions/thresholds-in-packets.md), and half a packet more: two of
 /// the largest fit, a third does not, so half a packet stays free for smaller
 /// ones, such as a quote's probes while a payment fills the link. A crash
@@ -66,9 +69,37 @@ pub(crate) const PPM: u32 = 1_000_000;
 /// to lose on a link, so one follows from the other.
 pub const IN_FLIGHT_PACKETS: u64 = 2;
 
+/// 0.1 XRP: about as much as [`USD_PACKET`] at the time of writing. A value
+/// fixed in the build, never converted at a rate
+/// (spec/decisions/limits-per-ledger.md).
+pub const XRP_PACKET: u64 = 100_000_000;
+
+/// $0.10, on every dollar ledger: they count the same dollar, at par.
+pub const USD_PACKET: u64 = 100_000_000;
+
+/// The largest packet on `ledger`, in its units (scale 9). Ledgers that
+/// count the same asset share it, testnet and mainnet alike, so the tests
+/// run on what real money does.
+const fn max_packet(ledger: LedgerId) -> u64 {
+    match ledger {
+        LedgerId::XrplTestnetXrp
+        | LedgerId::XrplXrp
+        | LedgerId::HubXrplTestnetXrp
+        | LedgerId::HubXrplXrp => XRP_PACKET,
+        LedgerId::StubUsd
+        | LedgerId::XrplTestnetRlusdUsd
+        | LedgerId::XrplRlusdUsd
+        | LedgerId::XrplTestnetDsusdUsd
+        | LedgerId::HubXrplTestnetDsusdUsd
+        | LedgerId::HubXrplRlusdUsd => USD_PACKET,
+    }
+}
+
+/// The largest packet on each ledger.
+pub const MAX_PACKETS: PerLedger<u64> = dassie_ledger::per_ledger!(max_packet);
+
 impl Config {
-    /// The production values: 0.1 units per packet at scale 9, packets held
-    /// up to 30 s.
+    /// The production values: [`MAX_PACKETS`], packets held up to 30 s.
     pub const DEFAULT: Self = Self {
         epoch: 0,
         max_endpoints: 256,
@@ -81,7 +112,7 @@ impl Config {
         message_window_ms: 1_600,
         min_timeout_ms: 1_000,
         max_hold_ms: 30_000,
-        max_packet_amount: 100_000_000,
+        max_packet: MAX_PACKETS,
         max_rate_age_ms: 60 * 60 * 1_000,
         max_caps: 256,
         earnings_half_life_ms: 60 * 60 * 1_000,
@@ -99,8 +130,11 @@ impl Config {
         assert!(self.max_pending_per_endpoint > 0);
         assert!(self.max_pending_per_endpoint <= self.max_pending);
         assert!(self.max_pending_per_peer > 0);
-        // What is in flight with a peer, and one packet more, fits a u64.
-        assert!(self.max_packet_amount <= u64::MAX / (IN_FLIGHT_PACKETS + 1));
+        for (_, max_packet) in self.max_packet.iter() {
+            assert!(max_packet > 0, "a packet carries money");
+            // What is in flight with a peer, and one packet more, fits a u64.
+            assert!(max_packet <= u64::MAX / (IN_FLIGHT_PACKETS + 1));
+        }
         assert!(self.trace_capacity > 0 && self.max_events > 0);
         assert!(self.max_hold_ms >= self.min_timeout_ms);
         // Request IDs are u32s: a counter skipping IDs in use always finds
@@ -110,11 +144,18 @@ impl Config {
         assert!(self.explore_ppm <= PPM, "a share of the draws");
     }
 
-    /// The most money in flight with one peer each way
+    /// The largest packet on `ledger`.
+    #[must_use]
+    pub const fn max_packet(&self, ledger: LedgerId) -> u64 {
+        self.max_packet.get(ledger)
+    }
+
+    /// The most money in flight with one peer each way on `ledger`
     /// (spec/decisions/packets-in-flight.md).
     #[must_use]
-    pub const fn max_in_flight(&self) -> u64 {
-        self.max_packet_amount * IN_FLIGHT_PACKETS + self.max_packet_amount / 2
+    pub const fn max_in_flight(&self, ledger: LedgerId) -> u64 {
+        let max_packet = self.max_packet(ledger);
+        max_packet * IN_FLIGHT_PACKETS + max_packet / 2
     }
 
     /// The pending transfers the ledger must have room for: up to three

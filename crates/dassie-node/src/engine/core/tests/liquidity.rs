@@ -22,7 +22,10 @@ use super::{
 };
 
 /// The largest packet, in drops.
-const P: u64 = Policies::DEFAULT.connector.max_packet_amount / UNITS_PER_DROP;
+const P: u64 = Policies::DEFAULT
+    .connector
+    .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp)
+    / UNITS_PER_DROP;
 
 /// The core in the XRP hub, account 5, holding `balance` drops as last
 /// agreed, its own moves off, and what its opening deposit credited.
@@ -193,11 +196,18 @@ fn a_short_pool_refuses_then_ends_the_newest_free_downlinks() {
     let (_, peered) = ask(&mut core, &hub, 5);
     assert!(!peered, "within the margin");
     // Past it, the caps come back.
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     let target = dassie_settlement::policy::hub_target(p);
-    let margin =
-        dassie_settlement::policy::hub_spendable(p, Policies::DEFAULT.peer_credit, 1, target)
-            / UNITS_PER_DROP;
+    let margin = dassie_settlement::policy::hub_spendable(
+        p,
+        Policies::DEFAULT
+            .peer_credit
+            .get(dassie_ledger::LedgerId::HubXrplTestnetXrp),
+        1,
+        target,
+    ) / UNITS_PER_DROP;
     let later = core.now_ms() + 8_000;
     run_to(&mut core, &mut hub, later, funded + margin, opening);
     let liquidity = core.hub_status().unwrap().liquidity.unwrap();
@@ -224,7 +234,10 @@ fn funds_on_its_own_account_are_deposited_not_refused() {
     wait_and_close(&mut core, &mut ledger, 1_000);
     let escrow = hub.escrow();
     let mut deposited = deposits(&mut ledger, escrow)[0].amount;
-    let target = 25 * Policies::DEFAULT.connector.max_packet_amount;
+    let target = 25
+        * Policies::DEFAULT
+            .connector
+            .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     core.set_hub_target(SCHEME_ID, Some(target)).unwrap();
     let reserve = hub.rules.terms.fees.account_reserve;
     assert_eq!(reserve, 20 * P);

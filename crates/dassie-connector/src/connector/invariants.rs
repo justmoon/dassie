@@ -146,7 +146,7 @@ impl Connector {
                     assert_eq!((slot.money_from, slot.money_to), (0, 0));
                     continue;
                 }
-                let max = self.config.max_in_flight();
+                let max = self.config.max_in_flight(slot.ledger);
                 assert_eq!(slot.money_from, on.money_from, "money from {id}");
                 assert_eq!(slot.money_to, on.money_to, "money to {id}");
                 assert!(slot.money_from <= max, "money from {id} within bounds");

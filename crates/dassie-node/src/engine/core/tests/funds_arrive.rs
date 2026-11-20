@@ -32,17 +32,27 @@ const ASK_EVERY_MS: u64 = Policies::DEFAULT.settlement_request_every_ms;
 /// What one request has a payer over a hub with nothing held fund.
 fn one_request(core: &Core) -> u64 {
     policy::requested_amount(
-        u128::from(Policies::DEFAULT.peer_credit),
-        core.settle.trigger,
-        core.settle.minimum,
+        u128::from(
+            Policies::DEFAULT
+                .peer_credit
+                .get(dassie_ledger::LedgerId::StubUsd),
+        ),
+        core.settle.trigger.get(dassie_ledger::LedgerId::StubUsd),
+        core.settle.minimum.get(dassie_ledger::LedgerId::StubUsd),
     )
 }
 
 /// [`one_request`] at the default policies.
 fn one_request_default() -> u64 {
-    let max_packet = Policies::DEFAULT.connector.max_packet_amount;
+    let max_packet = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::StubUsd);
     policy::requested_amount(
-        u128::from(Policies::DEFAULT.peer_credit),
+        u128::from(
+            Policies::DEFAULT
+                .peer_credit
+                .get(dassie_ledger::LedgerId::StubUsd),
+        ),
         policy::trigger(max_packet),
         policy::minimum(max_packet),
     )
@@ -114,7 +124,7 @@ fn a_request_the_payer_could_not_fund_is_funded_once_it_can() {
 fn a_payer_funds_nothing_below_the_least_settlement() {
     let (mut core, peer) = hub_core_with_downlink(82);
     let stub = scheme_id("stub");
-    let least = core.settle.minimum;
+    let least = core.settle.minimum.get(dassie_ledger::LedgerId::StubUsd);
     drain(&mut core, least / 2);
     core.begin_step(NOW + 2_000);
     let before = core.ledger.next_transfer_id();
@@ -141,7 +151,7 @@ fn nothing_more_goes_while_the_funded_part_is_on_its_way() {
     let stub = scheme_id("stub");
     let expected = one_request(&core);
     let part = expected / 2;
-    assert!(part >= core.settle.minimum);
+    assert!(part >= core.settle.minimum.get(dassie_ledger::LedgerId::StubUsd));
     drain(&mut core, part);
     core.begin_step(NOW + 2_000);
     assert_eq!(core.settlement_requested(peer, stub), part);
@@ -223,9 +233,16 @@ fn a_part_funded_request_is_topped_up_once_funds_arrive() {
     let part = one_request_default() / 2;
     let (took, funded, asked) = deposit_after_a_short_request(92, part);
     assert!(took < 1_000, "took {took} ms");
-    let max_packet = Policies::DEFAULT.connector.max_packet_amount;
+    let max_packet = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::StubUsd);
     let rest = policy::requested_amount(
-        u128::from(Policies::DEFAULT.peer_credit - part),
+        u128::from(
+            Policies::DEFAULT
+                .peer_credit
+                .get(dassie_ledger::LedgerId::StubUsd)
+                - part,
+        ),
         policy::trigger(max_packet),
         policy::minimum(max_packet),
     );

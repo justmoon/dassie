@@ -12,7 +12,7 @@
 //! every ledger and a module's failure reached them all.
 
 use dassie_identity::NodeKey;
-use dassie_ledger::{AccountName, LedgerId, Name, Realm};
+use dassie_ledger::{AccountName, LedgerId, Name, PerLedger, Realm};
 use dassie_settlement::{
     AssetEffect, AssetId, AssetKind, Detach, Effect, ExternalAsset, Holding, LedgerInput,
     LedgerStatus, SchemeError, SchemeInfo, SettlementScheme, Stub, Unproven,
@@ -619,7 +619,8 @@ pub(super) fn check_validations_with(asset: &mut dyn ExternalAsset, secret: [u8;
     }
 }
 
-/// Makes the hub scheme `id` on its account in the hub, `asset`.
+/// Makes the hub scheme `id` on its account in the hub, `asset`, counting
+/// in the largest packet on the hub's ledger.
 ///
 /// # Errors
 ///
@@ -628,7 +629,7 @@ pub(super) fn check_validations_with(asset: &mut dyn ExternalAsset, secret: [u8;
 fn create_hub_scheme(
     id: &str,
     asset: Option<&dyn ExternalAsset>,
-    max_packet: u64,
+    max_packet: PerLedger<u64>,
     balance: Option<u64>,
     state: &[u8],
 ) -> Result<Box<dyn SettlementScheme>, SchemeError> {
@@ -636,6 +637,9 @@ fn create_hub_scheme(
     let account = any
         .and_then(|asset| asset.downcast_ref::<dassie_hub::member::HubAccount>())
         .ok_or(SchemeError::InvalidConfig)?;
+    let (_, ledger) =
+        dassie_hub::member::scheme_of(account.terms()).ok_or(SchemeError::InvalidConfig)?;
+    let max_packet = max_packet.get(ledger);
     let scheme = dassie_hub::member::HubScheme::new(account, max_packet, balance, state)?;
     // The account was made for this scheme, from rules whose asset names
     // it.
@@ -646,8 +650,8 @@ fn create_hub_scheme(
 }
 
 /// Makes the scheme `id` with its config, what the books last kept for it,
-/// and the asset it settles through; a dollar token's peg guard runs on
-/// `peg`. The original's RPC dropped every key of the config, and it
+/// and the asset it settles through; a hub's scheme counts in the largest
+/// packet on its ledger, and a dollar token's peg guard runs on `peg`. The original's RPC dropped every key of the config, and it
 /// never passed on what it stored.
 ///
 /// # Errors
@@ -658,7 +662,7 @@ fn create(
     config: &str,
     checkpoint: Option<&Checkpoint>,
     asset: Option<&dyn ExternalAsset>,
-    max_packet: u64,
+    max_packet: PerLedger<u64>,
     peg: dassie_xrpl::peg::Timings,
 ) -> Result<Box<dyn SettlementScheme>, SchemeError> {
     let balance = checkpoint.map(|c| c.balance);
@@ -1700,7 +1704,7 @@ mod tests {
             &dsusd,
             None,
             Some(made.as_ref()),
-            1_000_000,
+            PerLedger::splat(1_000_000),
             dassie_xrpl::peg::Timings::DEFAULT,
         )
         .unwrap();
@@ -1712,7 +1716,7 @@ mod tests {
                 &dsusd,
                 None,
                 Some(made.as_ref()),
-                1_000_000,
+                PerLedger::splat(1_000_000),
                 dassie_xrpl::peg::Timings::DEFAULT,
             ),
             Err(SchemeError::InvalidConfig)
@@ -1780,7 +1784,7 @@ mod tests {
                 config,
                 None,
                 Some(made.as_ref()),
-                1_000_000,
+                PerLedger::splat(1_000_000),
                 dassie_xrpl::peg::Timings::DEFAULT,
             )
             .unwrap();
@@ -1925,7 +1929,7 @@ mod tests {
                 "",
                 None,
                 Some(asset.as_ref()),
-                0,
+                PerLedger::splat(0),
                 dassie_xrpl::peg::Timings::DEFAULT
             ),
             Err(SchemeError::UnknownScheme)

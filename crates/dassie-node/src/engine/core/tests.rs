@@ -161,6 +161,38 @@ fn the_bounds_hold_the_most_uplinks() {
     assert!(refused.is_err());
 }
 
+// spec/decisions/limits-per-ledger.md, spec/areas/settlement.md#credit: the
+// node refuses to start with a default credit too small for a hub link to
+// survive a crash on any one ledger, checked against that ledger's largest
+// packet, whatever the others'.
+#[test]
+fn the_bounds_hold_each_ledgers_credit() {
+    let ledger = dassie_ledger::LedgerId::HubXrplTestnetDsusdUsd;
+    let connector = Policies::DEFAULT.connector;
+    let least = dassie_settlement::policy::least_credit(
+        connector.max_packet(ledger),
+        connector.max_in_flight(ledger),
+    );
+    let with_credit = |credit| Policies {
+        peer_credit: Policies::DEFAULT.peer_credit.with(ledger, credit),
+        ..Policies::DEFAULT
+    };
+    super::check_bounds(&with_credit(least));
+    let short = with_credit(least - 1);
+    assert!(std::panic::catch_unwind(|| super::check_bounds(&short)).is_err());
+    // A larger packet on the ledger, and the same credit there, no longer
+    // survives a crash.
+    let packet = Policies::DEFAULT.peer_credit.get(ledger) / 7;
+    let larger = Policies {
+        connector: dassie_connector::Config {
+            max_packet: connector.max_packet.with(ledger, packet),
+            ..connector
+        },
+        ..Policies::DEFAULT
+    };
+    assert!(std::panic::catch_unwind(|| super::check_bounds(&larger)).is_err());
+}
+
 // Time never goes back within a core, whatever its driver says.
 #[test]
 fn time_only_moves_forward() {
@@ -1336,7 +1368,7 @@ fn a_settlement_of_a_largest_packet_marks_its_payer() {
     store.commit_ledger(&batch).unwrap();
     let mut core = core_on(Arc::clone(&store), 9);
     add_stub(&mut core, COMMITTING);
-    let minimum = core.settle.minimum;
+    let minimum = core.settle.minimum.get(LedgerId::StubUsd);
     let mut effects = Vec::new();
     for (key, amount) in [(&paying, minimum), (&short, minimum - 1)] {
         let peer = Name::new(key.node_id().as_str()).unwrap();
@@ -1664,7 +1696,7 @@ fn over_a_hub_a_request_that_settles_nothing_opens_nothing() {
     let (mut core, peer) = hub_core_with_downlink(35);
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     let trigger = core.settle.trigger;
-    core.settle.trigger = u64::MAX;
+    core.settle.trigger = dassie_ledger::PerLedger::splat(u64::MAX);
     core.begin_step(NOW + 2_000);
     assert_eq!(core.settlement_requested(peer, scheme), 0);
     assert!(!has_any_accounts(&core, peer));
@@ -1758,7 +1790,12 @@ fn the_books_hold_a_channel_open_while_anything_of_it_is_pending() {
     let peer = dassie_identity::TableKeygen::identity_key(&[9; 32]).node_id();
     let name = Name::new(peer.as_str()).unwrap();
     core.ledger
-        .open_peer(NOW, LedgerId::StubUsd, name, core.peer_credit)
+        .open_peer(
+            NOW,
+            LedgerId::StubUsd,
+            name,
+            core.peer_credit.get(LedgerId::StubUsd),
+        )
         .unwrap();
     assert!(core.with_peer(|_, hooks, _| hooks.closable(peer)));
     let find = |core: &Core, name| {
@@ -1786,7 +1823,12 @@ fn the_books_hold_a_channel_open_while_anything_of_it_is_pending() {
     // Accounts on a ledger no scheme follows: a late settlement there
     // could not be told from a deposit.
     core.ledger
-        .open_peer(NOW, LedgerId::XrplTestnetXrp, name, core.peer_credit)
+        .open_peer(
+            NOW,
+            LedgerId::XrplTestnetXrp,
+            name,
+            core.peer_credit.get(LedgerId::XrplTestnetXrp),
+        )
         .unwrap();
     assert!(
         !core.with_peer(|_, hooks, _| hooks.closable(peer)),
@@ -4796,7 +4838,7 @@ fn a_peering_on_a_disabled_scheme_ends_collecting_nothing() {
     let on = LedgerId::XrplTestnetRlusdUsd;
     let at = core.now_ms();
     core.ledger
-        .open_peer(at, on, name, Policies::DEFAULT.peer_credit)
+        .open_peer(at, on, name, Policies::DEFAULT.peer_credit.get(on))
         .unwrap();
     core.refresh_waiting(id);
     core.flush();
@@ -5068,9 +5110,13 @@ fn asked_over_a_hub_a_payer_funds_its_hold() {
     core.begin_step(NOW + 2_000);
     let settling = core.settlement_requested(peer, scheme);
     let expected = dassie_settlement::policy::requested_amount(
-        u128::from(Policies::DEFAULT.peer_credit),
-        core.settle.trigger,
-        core.settle.minimum,
+        u128::from(
+            Policies::DEFAULT
+                .peer_credit
+                .get(dassie_ledger::LedgerId::StubUsd),
+        ),
+        core.settle.trigger.get(dassie_ledger::LedgerId::StubUsd),
+        core.settle.minimum.get(dassie_ledger::LedgerId::StubUsd),
     );
     assert!(expected > 0);
     assert_eq!(settling, expected);
@@ -5211,7 +5257,7 @@ fn over_a_hub_a_payee_asks_by_the_room_of_the_hold_toward_it() {
     let pool = core
         .account(LedgerId::StubUsd, AccountName::EquityOwner)
         .unwrap();
-    let owed = core.settle.trigger.saturating_mul(4);
+    let owed = core.settle.trigger.get(LedgerId::StubUsd).saturating_mul(4);
     core.begin_step(NOW + 2_000);
     core.ledger
         .create(
@@ -5558,13 +5604,60 @@ impl Validators {
 /// A core with the XRP Ledger testnet scheme synced on `ledger`, and the
 /// hub of [`hub_rules`].
 fn funding_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
-    let mut core = core(9);
+    funding_core_with(ledger, Policies::DEFAULT)
+}
+
+/// [`funding_core`] with `policies`.
+fn funding_core_with(ledger: &mut dassie_xrpl::fake::FakeLedger, policies: Policies) -> Core {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let refused = dassie_node_core::config::LiveRealm::Refused;
+    let mut core = core_with(store, 9, (Realm::Test, refused), policies).unwrap();
     add_xrpl(&mut core, "xrpl-testnet-xrp", SHARED_CONFIG).unwrap();
     follow_xrpl(&mut core, ledger);
     core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(600, 300))
         .unwrap();
     follow_xrpl(&mut core, ledger);
     core
+}
+
+// spec/decisions/limits-per-ledger.md: each ledger has its own largest
+// packet and default credit, and a scheme counts every threshold in its
+// ledger's: here the XRP hub's are twice the stub's.
+#[test]
+fn a_scheme_counts_in_its_own_ledgers_largest_packet() {
+    use dassie_ledger::LedgerId;
+    use dassie_settlement::policy;
+    let hub = LedgerId::HubXrplTestnetXrp;
+    let usd = Policies::DEFAULT.connector.max_packet(LedgerId::StubUsd);
+    let packet = 2 * Policies::DEFAULT.connector.max_packet(hub);
+    let credit = 2 * Policies::DEFAULT.peer_credit.get(hub);
+    let policies = Policies {
+        connector: dassie_connector::Config {
+            max_packet: Policies::DEFAULT.connector.max_packet.with(hub, packet),
+            ..Policies::DEFAULT.connector
+        },
+        peer_credit: Policies::DEFAULT.peer_credit.with(hub, credit),
+        ..Policies::DEFAULT
+    };
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core_with(&mut ledger, policies);
+    add_stub(&mut core, COMMITTING);
+    let name = dassie_ledger::Name::new(dassie_hub::member::SCHEME_ID).unwrap();
+    assert_eq!(core.limits_of(name), Some((packet, credit)));
+    assert_eq!(core.hub_target(name), Some(policy::hub_target(packet)));
+    let on_hub = scheme_id(dassie_hub::member::SCHEME_ID);
+    assert_eq!(core.minimum_on(on_hub), Some(policy::minimum(packet)));
+    assert_eq!(core.settle.trigger.get(hub), policy::trigger(packet));
+    let stub = scheme_id("stub");
+    assert_eq!(core.minimum_on(stub), Some(policy::minimum(usd)));
+    assert_eq!(
+        core.settle.trigger.get(LedgerId::StubUsd),
+        policy::trigger(usd)
+    );
+    assert_eq!(
+        core.limits_of(dassie_ledger::Name::new("stub").unwrap()),
+        Some((usd, Policies::DEFAULT.peer_credit.get(LedgerId::StubUsd)))
+    );
 }
 
 /// Moves the core's time on by `ms`, then by a few ledgers' closes, each
@@ -5687,7 +5780,9 @@ fn the_node_keeps_its_hub_between_floor_and_ceiling() {
     let escrow = hub.escrow();
     hub.no_account(&mut core);
     let fees = hub.rules.terms.fees;
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     let floor = policy::hub_floor(p) / dassie_xrpl::UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / dassie_xrpl::UNITS_PER_DROP;
     let middle = floor.midpoint(ceiling);
@@ -5827,7 +5922,9 @@ fn the_owners_target_moves_the_floor_and_the_ceiling() {
     let target = owners_target_set(&mut core);
     let fees = hub.rules.terms.fees;
     let units = dassie_xrpl::UNITS_PER_DROP;
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
 
     // The opening deposit fills the owner's target.
     wait_and_close(&mut core, &mut ledger, 1_000);
@@ -5883,7 +5980,9 @@ fn owners_target_set(core: &mut Core) -> u64 {
     use dassie_settlement::policy;
 
     let scheme = dassie_hub::member::SCHEME_ID;
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     let status = core.hub_status().unwrap();
     assert_eq!(
         (status.target, status.target_by_owner),
@@ -6178,7 +6277,9 @@ fn our_holds_never_hold_back_the_deposit() {
     hub.no_account(&mut core);
     wait_and_close(&mut core, &mut ledger, 1_000);
     let opening = deposits(&mut ledger, escrow)[0].amount;
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     let floor = policy::hub_floor(p) / dassie_xrpl::UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / dassie_xrpl::UNITS_PER_DROP;
     hub.account(&mut core, floor, opening);
@@ -6213,7 +6314,9 @@ fn a_strangers_hold_moves_nothing() {
     hub.no_account(&mut core);
     wait_and_close(&mut core, &mut ledger, 1_000);
     let opening = deposits(&mut ledger, escrow)[0].amount;
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     let floor = policy::hub_floor(p) / dassie_xrpl::UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / dassie_xrpl::UNITS_PER_DROP;
     let balance = floor.midpoint(ceiling);
@@ -6459,7 +6562,9 @@ fn a_hub_withdrawal_takes_only_the_owners_funds() {
     wait_and_close(&mut core, &mut ledger, 1_000);
     let opening = deposits(&mut ledger, escrow)[0].amount;
     // Only the floor, so nothing moves by itself.
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(LedgerId::HubXrplTestnetXrp);
     let floor = dassie_settlement::policy::hub_floor(p) / dassie_xrpl::UNITS_PER_DROP;
     let units = dassie_xrpl::UNITS_PER_DROP;
     let balance = floor + 3_000_000;
@@ -6562,7 +6667,9 @@ fn an_owner_book_funds_the_hub_and_never_peers() {
     // Credited, then taken past the ceiling: withdrawn to the owner book's
     // account.
     let fees = hub.rules.terms.fees;
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(LedgerId::HubXrplTestnetXrp);
     let floor = dassie_settlement::policy::hub_floor(p) / units;
     let ceiling = dassie_settlement::policy::hub_ceiling(p) / units;
     hub.account(&mut core, floor + 1_000, opening);

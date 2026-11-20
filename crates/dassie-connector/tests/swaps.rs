@@ -182,7 +182,7 @@ fn a_swap_is_refused_as_transit_is() {
     let code = refuse(&mut h, (USD, TO_XRP, 1_000, NOW + 1_500));
     assert_eq!(code, ErrorCode::R02_INSUFFICIENT_TIMEOUT);
     // Above the largest packet, told the most.
-    let largest = Config::DEFAULT.max_packet_amount;
+    let largest = Config::DEFAULT.max_packet(USD);
     let packet = swap(TO_XRP, largest + 1, NOW + 20_000, [1; 32]);
     let outcome = h.prepare_on(NOW, (ONE, USD), 1, &packet);
     let (code, data) = refused(&h, outcome);
@@ -222,7 +222,7 @@ fn a_swap_is_refused_as_transit_is() {
 #[test]
 fn a_swap_counts_in_the_money_in_flight() {
     let mut h = harness(Charges::NONE);
-    let largest = Config::DEFAULT.max_packet_amount;
+    let largest = Config::DEFAULT.max_packet(USD);
     // 1 USD buys 2 XRP: half the largest packet in comes back as about
     // the largest out.
     let mut request_id = 0;
@@ -243,7 +243,7 @@ fn a_swap_counts_in_the_money_in_flight() {
         .slots(ONE)
         .find(|slot| slot.ledger == XRP)
         .unwrap();
-    assert!(xrp.money_to <= Config::DEFAULT.max_in_flight());
+    assert!(xrp.money_to <= Config::DEFAULT.max_in_flight(XRP));
 }
 
 // A node that does not offer swaps, or a periphery node, refuses them
@@ -330,7 +330,7 @@ fn the_nodes_own_swap_is_refused_before_it_goes() {
     h.connector.set_available(ONE, USD, true);
     // More than the owner has.
     let packet = swap(TO_XRP, 1_000, NOW + 20_000, [9; 32]);
-    let rich = Config::DEFAULT.max_packet_amount;
+    let rich = Config::DEFAULT.max_packet(USD);
     let mut poor = Harness::new(Config::DEFAULT, rich / 2);
     poor.open_books(USD);
     poor.fund(XRP, TRUST);

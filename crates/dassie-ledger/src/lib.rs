@@ -40,7 +40,7 @@ pub use ledger::{
     Config, JournalEntry, Ledger, LedgerError, RestoreError, Stats, StoredAccount, Transfer,
     TransferError, TransferId, TransferSpec, TransferState,
 };
-pub use ledger_id::{Asset, LedgerId, Realm};
+pub use ledger_id::{Asset, LedgerId, PerLedger, Realm};
 pub use name::{InvalidName, Name};
 pub use path::{AccountName, AccountPath, InvalidPath, OwnerSub};
 pub use reference::{Reference, TraceId};

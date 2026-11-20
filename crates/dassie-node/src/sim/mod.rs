@@ -138,9 +138,32 @@ use crate::store::{Aim, FailedCommit, ForeignAmount, Holds, PaymentId, PeerSetti
 pub const START: u64 = 1_800_000_000_000;
 /// The credit a node extends by default.
 pub const CREDIT: i128 = 1_100_000_000;
+/// Every link's largest packet, which its thresholds are counted in
+/// (spec/decisions/thresholds-in-packets.md): the same on every ledger, as
+/// the simulation's checks count it (asserted below).
+pub const MAX_PACKET: u64 = Policies::DEFAULT.connector.max_packet(USD);
+/// The default credit a node extends: the same on every ledger, as the
+/// simulation's checks count it (asserted below).
+pub const PEER_CREDIT: u64 = Policies::DEFAULT.peer_credit.get(USD);
 /// Every node's trigger, one and a half of the largest packets
 /// (spec/decisions/thresholds-in-packets.md).
-pub const TRIGGER: u64 = policy::trigger(Policies::DEFAULT.connector.max_packet_amount);
+pub const TRIGGER: u64 = policy::trigger(MAX_PACKET);
+
+// The checks count every ledger in one largest packet and one default
+// credit (spec/decisions/limits-per-ledger.md): before a ledger gets values
+// of its own, they must read each method's.
+const _: () = {
+    let mut index = 0;
+    while index < LedgerId::ALL.len() {
+        let ledger = LedgerId::ALL[index];
+        assert!(
+            Policies::DEFAULT.connector.max_packet(ledger) == MAX_PACKET
+                && Policies::DEFAULT.peer_credit.get(ledger) == PEER_CREDIT,
+            "the simulation's checks count every ledger in one largest packet and credit"
+        );
+        index += 1;
+    }
+};
 /// How long a payment's client waits to measure the exchange rate again,
 /// after a measurement failed or a rate too low stopped its money, or to
 /// connect again, after its connection closed.
@@ -1280,8 +1303,9 @@ impl Sim {
                 peer_credit: self
                     .credits
                     .get(&index)
-                    .copied()
-                    .unwrap_or(Policies::DEFAULT.peer_credit),
+                    .map_or(Policies::DEFAULT.peer_credit, |&credit| {
+                        dassie_ledger::PerLedger::splat(credit)
+                    }),
                 peer: self.peer,
                 ..Policies::DEFAULT
             },

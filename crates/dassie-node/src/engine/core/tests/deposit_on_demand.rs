@@ -92,7 +92,9 @@ fn a_payment_beyond_the_hub_waits_for_its_deposit() {
     hub.no_account(&mut core);
     wait_and_close(&mut core, &mut ledger, 1_000);
     let opening = deposits(&mut ledger, escrow)[0].amount;
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     let floor = policy::hub_floor(p) / UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
     let balance = floor.midpoint(ceiling);
@@ -169,7 +171,9 @@ fn a_shut_down_hub_draws_no_deposit_for_payments() {
     hub.no_account(&mut core);
     wait_and_close(&mut core, &mut ledger, 1_000);
     let opening = deposits(&mut ledger, escrow)[0].amount;
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     let floor = policy::hub_floor(p) / UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
     let balance = floor.midpoint(ceiling);
@@ -208,7 +212,9 @@ fn a_hub_with_no_progress_lately_draws_no_deposit_for_payments() {
     hub.no_account(&mut core);
     wait_and_close(&mut core, &mut ledger, 1_000);
     let opening = deposits(&mut ledger, escrow)[0].amount;
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     let floor = policy::hub_floor(p) / UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
     let balance = floor.midpoint(ceiling);
@@ -250,7 +256,9 @@ fn after_a_restart_a_quiet_hub_draws_no_deposit_for_payments() {
     let escrow = hub.escrow();
     wait_and_close(&mut core, &mut ledger, 1_000);
     let opening = deposits(&mut ledger, escrow)[0].amount;
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     let floor = policy::hub_floor(p) / UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
     let balance = floor.midpoint(ceiling);

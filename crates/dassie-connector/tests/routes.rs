@@ -161,7 +161,7 @@ fn peer_packets_book_against_its_credit() {
 fn money_in_flight_with_a_peer_is_capped() {
     let mut harness = harness();
     set(&mut harness, &[("test.das.dfar", &[TWO])]);
-    let max = Config::DEFAULT.max_packet_amount;
+    let max = Config::DEFAULT.max_packet(dassie_ledger::LedgerId::StubUsd);
     let mut ids = Vec::new();
     // From a peer: two of the largest packets, but not a third.
     for request_id in 0..2 {

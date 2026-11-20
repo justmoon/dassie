@@ -1183,7 +1183,7 @@ impl Core {
         };
         let size = (end - start)
             .min(limit - start)
-            .min(self.settle.max_packet)
+            .min(self.settle.max_packet.get(pay_on))
             .min(peer.largest.get(&pair).copied().unwrap_or(u64::MAX))
             .min(left);
         let promised = snapshot

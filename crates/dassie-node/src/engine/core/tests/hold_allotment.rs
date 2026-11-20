@@ -24,7 +24,9 @@ use super::{
 use crate::store::Store;
 
 /// The largest packet, in internal units.
-const P: u64 = Policies::DEFAULT.connector.max_packet_amount;
+const P: u64 = Policies::DEFAULT
+    .connector
+    .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
 
 /// The core peer's account in the hub, and the downlink's.
 const CORE_ACCOUNT: u32 = 9;
@@ -34,7 +36,11 @@ const DOWNLINK_ACCOUNT: u32 = 10;
 /// rule says: half the way from the default credit down to the trigger.
 fn one_request() -> u64 {
     policy::requested_amount(
-        u128::from(Policies::DEFAULT.peer_credit),
+        u128::from(
+            Policies::DEFAULT
+                .peer_credit
+                .get(dassie_ledger::LedgerId::HubXrplTestnetXrp),
+        ),
         policy::trigger(P),
         policy::minimum(P),
     )
@@ -189,7 +195,12 @@ fn a_scarce_pool_keeps_the_others_reserves() {
     let pool = 7 * P;
     let (mut core, _, peer, downlink, _) = hub_with_peers(&mut ledger, pool / UNITS_PER_DROP);
     let scheme = scheme_id(SCHEME_ID);
-    let least = policy::least_hold(P, Policies::DEFAULT.connector.max_in_flight());
+    let least = policy::least_hold(
+        P,
+        Policies::DEFAULT
+            .connector
+            .max_in_flight(dassie_ledger::LedgerId::HubXrplTestnetXrp),
+    );
     let allotments = core.hub_allotments(scheme).unwrap();
     assert!(!allotments.plentiful);
     assert_eq!(allotments.peers, [(peer, least), (downlink, pool - least)]);
@@ -233,7 +244,12 @@ fn a_busy_peer_takes_past_its_allotment_what_idle_shares_leave() {
     let pool = 12 * P;
     let (mut core, _, peer, downlink, _) = hub_with_peers(&mut ledger, pool / UNITS_PER_DROP);
     let scheme = scheme_id(SCHEME_ID);
-    let least = policy::least_hold(P, Policies::DEFAULT.connector.max_in_flight());
+    let least = policy::least_hold(
+        P,
+        Policies::DEFAULT
+            .connector
+            .max_in_flight(dassie_ledger::LedgerId::HubXrplTestnetXrp),
+    );
     let allotments = core.hub_allotments(scheme).unwrap();
     assert_eq!(allotments.peers, [(peer, pool - least), (downlink, least)]);
     assert!(one_request() > least, "the rule asks past the allotment");
@@ -264,7 +280,9 @@ fn a_busy_peer_may_rise_to_the_default_credit() {
     let (core, _, peer, downlink, _) = hub_with_peers(&mut ledger, pool / UNITS_PER_DROP);
     let allotments = core.hub_allotments(scheme_id(SCHEME_ID)).unwrap();
     assert!(!allotments.plentiful);
-    let full = Policies::DEFAULT.peer_credit;
+    let full = Policies::DEFAULT
+        .peer_credit
+        .get(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     assert!(allotments.of(&downlink).unwrap() < full);
     assert_eq!(room(&core, downlink), full);
     let spendable = core.spendable_for(downlink, scheme_id(SCHEME_ID)).unwrap();
@@ -279,7 +297,12 @@ fn a_busy_peer_may_rise_to_the_default_credit() {
 #[test]
 fn a_request_the_others_reserves_leave_nothing_waits() {
     let (mut ledger, _) = funded_ledger();
-    let least = policy::least_hold(P, Policies::DEFAULT.connector.max_in_flight());
+    let least = policy::least_hold(
+        P,
+        Policies::DEFAULT
+            .connector
+            .max_in_flight(dassie_ledger::LedgerId::HubXrplTestnetXrp),
+    );
     let balance = 3 * P / UNITS_PER_DROP;
     let (mut core, mut hub, peer, downlink, deposited) = hub_with_peers(&mut ledger, balance);
     hub.opened_hold(&mut core, P / UNITS_PER_DROP / 10, balance, deposited);
@@ -311,7 +334,9 @@ fn a_request_the_others_reserves_leave_nothing_waits() {
 fn a_plentiful_pool_funds_what_the_rule_says() {
     let (mut ledger, _) = funded_ledger();
     // Every peer's default credit, and what opening its hold costs.
-    let pool = 3 * Policies::DEFAULT.peer_credit;
+    let pool = 3 * Policies::DEFAULT
+        .peer_credit
+        .get(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     let (mut core, mut hub, peer, downlink, deposited) =
         hub_with_peers(&mut ledger, pool / UNITS_PER_DROP);
     hub.opened_hold(
@@ -324,7 +349,9 @@ fn a_plentiful_pool_funds_what_the_rule_says() {
     let allotments = core.hub_allotments(scheme).unwrap();
     assert!(allotments.plentiful);
     assert_eq!(allotments.room(&peer, 0, Some(0)), None, "nothing capped");
-    let full = Policies::DEFAULT.peer_credit;
+    let full = Policies::DEFAULT
+        .peer_credit
+        .get(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     assert_eq!(allotment_shown(&core, peer), Some(full));
 
     let at = core.now_ms() + 1_000;

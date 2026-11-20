@@ -27,7 +27,7 @@ use dassie_ledger::LedgerId;
 use dassie_node::engine::{EngineError, EngineEvent, Lie, NewIncoming, NewOutgoing};
 use dassie_node::node::Policies;
 use dassie_node::sim::checks::{check, check_books, check_events, check_ledgers, drifted_past};
-use dassie_node::sim::{START, Settling, Sim, key, received, sent};
+use dassie_node::sim::{MAX_PACKET, PEER_CREDIT, START, Settling, Sim, key, received, sent};
 use dassie_node::store::{Aim, ForeignAmount, OutgoingRow, OutgoingState, PaymentId, PeerSettings};
 use dassie_payments::amount::Amount;
 use dassie_payments::gnap::Limits;
@@ -86,7 +86,7 @@ fn an_upstream_that_forgot_the_packet_changes_nothing_downstream() {
     // The simulation saw the drift the crash made, no more than was in
     // flight, and it is all the books show (spec/decisions/crash-drift.md).
     let drift = sim.drift(0, 1);
-    let packet = u128::from(Policies::DEFAULT.connector.max_packet_amount);
+    let packet = u128::from(MAX_PACKET);
     assert!(
         drift.crashes > 0 && drift.crashes * 2 <= packet * 5,
         "{drift:?}"
@@ -168,7 +168,7 @@ fn a_peer_that_cannot_hear_us_drifts_by_at_most_what_was_in_flight() {
     sim.run_until(sim.now + 600_000);
     let (sender, receiver) = (key(1).node_id(), key(0).node_id());
     let drift = -(sim.owes(0, &sender) + sim.owes(1, &receiver));
-    let packet = i128::from(Policies::DEFAULT.connector.max_packet_amount);
+    let packet = i128::from(MAX_PACKET);
     assert!(
         drift > 0 && drift * 2 <= packet * 5,
         "the books drifted by {drift}, past 2.5 packets of {packet}"
@@ -618,7 +618,7 @@ fn payments_that_fit_together_into_one_incoming_payment_both_complete() {
 
 /// What each payment racing into one incoming payment sends, and what the
 /// incoming payment asks for when they race: three of the largest packets.
-const RACED: u64 = 3 * Policies::DEFAULT.connector.max_packet_amount;
+const RACED: u64 = 3 * MAX_PACKET;
 
 /// Node 0 pays an incoming payment of node 1 for `amount` twice at once,
 /// [`RACED`] each, each payment with credentials of its own, and runs until
@@ -853,7 +853,7 @@ fn crashes_past_what_it_survives(payer: usize, payee: usize) {
         "the nodes did not peer"
     );
     let withdrawn = key(payer).node_id();
-    let packet = Policies::DEFAULT.connector.max_packet_amount;
+    let packet = MAX_PACKET;
     let settles = 2 * u128::from(policy::trigger(packet)) + 2 * u128::from(policy::minimum(packet));
     // The payee's hold toward the payer, which is the credit it extends,
     // and its room for the payer, by its books.
@@ -873,7 +873,7 @@ fn crashes_past_what_it_survives(payer: usize, payee: usize) {
     // (spec/areas/network.md#advertised-peers).
     let survives = |sim: &Sim| {
         let (hold, _) = standing(sim);
-        (u128::from(Policies::DEFAULT.peer_credit) + u128::from(hold)).saturating_sub(settles)
+        (u128::from(PEER_CREDIT) + u128::from(hold)).saturating_sub(settles)
     };
     let stuck = |sim: &mut Sim| {
         let (_, room) = standing(sim);
@@ -931,7 +931,7 @@ fn a_payments_last_packet_below_its_tolerance_is_paid_too() {
     sim.latency_ms = (latency_ms, latency_ms);
     // Three of the largest packets and twenty thousand units, less than
     // the tolerance of 49,999.
-    let amount = 3 * Policies::DEFAULT.connector.max_packet_amount + 20_000;
+    let amount = 3 * MAX_PACKET + 20_000;
     assert!(sim.pay(0, 1, amount, None, Some(amount)));
     sim.pay_outgoing(0, 1, amount).unwrap();
     sim.run_until(sim.now + 300_000);
@@ -960,7 +960,7 @@ fn on_unlimited_trust_nodes_pay_without_settling() {
             assert_eq!(peer.peering.first().credit_out, policy::UNLIMITED_CREDIT);
         }
     }
-    let credit = Policies::DEFAULT.peer_credit;
+    let credit = PEER_CREDIT;
     let (there, back) = (30 * credit, 50 * credit);
     assert!(sim.pay(0, 1, there, None, Some(there)));
     assert!(sim.pay(1, 0, back, None, Some(back)));
@@ -1203,7 +1203,7 @@ fn pay_at_least(sim: &mut Sim, debit: u64, least: u64) -> (PaymentId, PaymentId)
 fn a_payment_whose_path_got_dearer_keeps_its_rate_until_it_is_back() {
     let mut sim = charging_line(91, 10_000);
     // At no less than 98%: at the 1% fee, and not at 3%.
-    let debit = 50 * Policies::DEFAULT.connector.max_packet_amount;
+    let debit = 50 * MAX_PACKET;
     let least = debit / 100 * 98;
     let (incoming, outgoing) = pay_at_least(&mut sim, debit, least);
     let row = |sim: &Sim| {
@@ -1246,7 +1246,7 @@ fn a_payment_whose_path_got_dearer_keeps_its_rate_until_it_is_back() {
     sim.run_until(sim.now + 60_000);
     assert!(at_rate(&sim), "delivered below its rate");
     assert_eq!(row(&sim).state, OutgoingState::Sending);
-    assert!(received(&sim) <= stalled + Policies::DEFAULT.connector.max_packet_amount);
+    assert!(received(&sim) <= stalled + MAX_PACKET);
     charge(&mut sim, 10_000);
     let done = |sim: &Sim| row(sim).state != OutgoingState::Sending;
     assert!(

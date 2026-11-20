@@ -1,6 +1,6 @@
 # Owner ledger and multi-currency accounts
 
-**Areas:** [Ledger](../areas/ledger.md), [Connector](../areas/connector.md). Per-ledger credit and packet settings are not built yet ([roadmap](../roadmap.md)).
+**Areas:** [Ledger](../areas/ledger.md), [Connector](../areas/connector.md). Each ledger's largest packet and default credit are [limits-per-ledger](limits-per-ledger.md).
 
 ## Facts
 

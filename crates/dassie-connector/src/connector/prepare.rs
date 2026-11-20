@@ -433,13 +433,14 @@ impl Connector {
             ));
         }
         let expires_at = Timestamp::from_unix_ms(latest_ms.min(now_ms + config.max_hold_ms));
-        if prepare.amount > config.max_packet_amount {
+        let max_in = config.max_packet(in_ledger);
+        if prepare.amount > max_in {
             return Err(Refusal {
                 code: ErrorCode::F08_AMOUNT_TOO_LARGE,
                 message: "packet amount exceeds maximum allowed amount",
                 too_large: Some(AmountTooLarge {
                     received_amount: prepare.amount,
-                    maximum_amount: config.max_packet_amount,
+                    maximum_amount: max_in,
                 }),
             });
         }
@@ -450,7 +451,7 @@ impl Connector {
         };
         let onto = (to, out_ledger);
         let (fee, amount_out) = self.amounts(now_ms, from, onto, prepare.amount, prices, ledger)?;
-        too_large_out(prepare.amount, amount_out, config.max_packet_amount)?;
+        too_large_out(prepare.amount, amount_out, config.max_packet(out_ledger))?;
         self.admits_in_flight(from, onto, prepare.amount, amount_out)?;
         Ok(Route {
             to,
@@ -509,7 +510,7 @@ impl Connector {
     }
 
     /// Whether the money in flight with each peer the packet passes stays
-    /// within [`Config::max_in_flight`] each way, or T05
+    /// within [`Config::max_in_flight`] on its ledger each way, or T05
     /// (spec/decisions/packets-in-flight.md). A crash loses the Fulfills of
     /// what was in flight, so this bounds how far a crash makes two peers'
     /// books drift apart. Half a packet of it stays free for smaller packets
@@ -521,9 +522,10 @@ impl Connector {
         amount_in: u64,
         amount_out: u64,
     ) -> Result<(), Refusal> {
-        let max = self.config.max_in_flight();
-        let over = |in_flight: u64, amount: u64| {
-            amount > 0 && in_flight > 0 && in_flight.saturating_add(amount) > max
+        let over = |in_flight: u64, amount: u64, ledger: LedgerId| {
+            amount > 0
+                && in_flight > 0
+                && in_flight.saturating_add(amount) > self.config.max_in_flight(ledger)
         };
         let from = self
             .endpoints
@@ -533,7 +535,8 @@ impl Connector {
             .endpoints
             .slot(to, out_ledger)
             .map_or(0, |slot| slot.money_to);
-        if (source.is_peer() && over(from, amount_in)) || (to.is_peer() && over(onward, amount_out))
+        if (source.is_peer() && over(from, amount_in, in_ledger))
+            || (to.is_peer() && over(onward, amount_out, out_ledger))
         {
             return Err(refuse(ErrorCode::T05_RATE_LIMITED, MONEY_IN_FLIGHT));
         }
@@ -887,13 +890,13 @@ fn same_group(ledger: &Ledger, a: AccountId, b: AccountId) -> bool {
     group(a).is_some_and(|root| group(b) == Some(root))
 }
 
-/// F08 for a packet a conversion makes larger than the largest packet `max`
-/// on the way out, with the most that would pass in the packet's own units
-/// (spec/areas/connector.md#the-largest-packet). Every threshold of the
-/// next link is counted in `max`: a larger packet can find too little room
-/// toward the hop while the room is too much for the hop to ask for a
-/// settlement, and refused for liquidity (T04), it would be sent again as
-/// it is, for good.
+/// F08 for a packet a conversion makes larger than `max`, the outgoing
+/// ledger's largest packet, with the most that would pass in the packet's
+/// own units (spec/areas/connector.md#the-largest-packet). Every threshold
+/// of the next link is counted in `max`: a larger packet can find too
+/// little room toward the hop while the room is too much for the hop to ask
+/// for a settlement, and refused for liquidity (T04), it would be sent
+/// again as it is, for good.
 fn too_large_out(amount_in: u64, amount_out: u64, max: u64) -> Result<(), Refusal> {
     if amount_out <= max {
         return Ok(());

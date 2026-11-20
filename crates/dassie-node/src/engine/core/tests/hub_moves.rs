@@ -688,7 +688,9 @@ fn a_live_hub_is_funded_from_the_live_book() {
     // Credited, then taken past the ceiling: withdrawn to the target, to
     // the node's mainnet account, and the hub's ledger names no deposit
     // address (spec/decisions/one-balance-per-asset.md).
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     let floor = policy::hub_floor(p) / UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
     hub.account(&mut core, floor + 1_000, opening);

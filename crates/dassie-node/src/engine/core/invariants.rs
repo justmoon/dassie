@@ -97,12 +97,16 @@ impl Core {
             "an unanswered request per method of a peering"
         );
         assert!(
-            self.settle.unanswered.values().all(|unanswered| {
-                unanswered.asked_ms <= self.now_ms
-                    && unanswered
-                        .tried
-                        .is_none_or(|tried| tried >= self.settle.minimum)
-            }),
+            self.settle
+                .unanswered
+                .iter()
+                .all(|((_, scheme), unanswered)| {
+                    unanswered.asked_ms <= self.now_ms
+                        && unanswered.tried.is_none_or(|tried| {
+                            self.minimum_on(*scheme)
+                                .is_none_or(|minimum| tried >= minimum)
+                        })
+                }),
             "an unanswered request came, and was tried only with the least settlement to spend"
         );
     }

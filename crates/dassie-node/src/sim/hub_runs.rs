@@ -33,7 +33,6 @@ use super::hub_pairs::{check_hubs, join_hubs};
 use super::hubbed::{PAID_WITHIN_MS, check_calm, form, over_hub, paid, pay, routed, settle_down};
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{HUB, LEDGER_CLOSE_MS, LEDGER_RECONNECT_MS, LONGEST_LIE_MS, Settling, Sim};
-use crate::node::Policies;
 
 /// How long a server of [`run_lies`] lies to a member: the longest a drawn
 /// one does.
@@ -64,8 +63,7 @@ const _: () = assert!(
 /// The most an owner moves into the hub at once in [`run_lies`], in XRP:
 /// as much as a node keeps there at its target.
 const MOST_MOVED_XRP: u64 =
-    dassie_settlement::policy::hub_target(Policies::DEFAULT.connector.max_packet_amount)
-        / (DROPS_PER_XRP * UNITS_PER_DROP);
+    dassie_settlement::policy::hub_target(super::MAX_PACKET) / (DROPS_PER_XRP * UNITS_PER_DROP);
 
 /// What a seed of a run over a hub draws first: its generator, how many
 /// validators the hub has (4 to 7, all honest), and how many nodes.

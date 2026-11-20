@@ -34,7 +34,9 @@ const PEER_SEED: u8 = 12;
 /// The floor and the ceiling of a hub whose target is `target`, or the
 /// default, in drops, and their midpoint, the target.
 fn limits(target: Option<u64>) -> (u64, u64, u64) {
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     let (floor, ceiling) = policy::hub_limits(target.unwrap_or(policy::hub_target(p)));
     let (floor, ceiling) = (floor.div_ceil(UNITS_PER_DROP), ceiling / UNITS_PER_DROP);
     (floor, ceiling, floor.midpoint(ceiling))
@@ -188,7 +190,9 @@ fn a_withdrawal_sized_before_a_funding_landed_holds_back_no_deposit() {
 /// [`a_withdrawal_sized_before_a_funding_landed_holds_back_no_deposit`]
 /// on a core of `seed`.
 fn withdrawal_sized_before_a_funding_landed(seed: u64) {
-    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let p = Policies::DEFAULT
+        .connector
+        .max_packet(dassie_ledger::LedgerId::HubXrplTestnetXrp);
     let target = 333 * p / 10;
     let (floor, ceiling, middle) = limits(Some(target));
     let (mut ledger, _) = funded_ledger();
@@ -197,8 +201,15 @@ fn withdrawal_sized_before_a_funding_landed(seed: u64) {
         hub_with_peer(&mut ledger, balance, Some(target), seed);
     let fees = hub.rules.terms.fees;
     let fee = fees.operation + fees.ledger;
-    let least_spendable =
-        policy::hub_spendable(p, Policies::DEFAULT.peer_credit, 1, target).div_ceil(UNITS_PER_DROP);
+    let least_spendable = policy::hub_spendable(
+        p,
+        Policies::DEFAULT
+            .peer_credit
+            .get(dassie_ledger::LedgerId::HubXrplTestnetXrp),
+        1,
+        target,
+    )
+    .div_ceil(UNITS_PER_DROP);
     assert!(
         balance + fees.account_reserve <= ceiling,
         "nothing withdrawn before the funding"

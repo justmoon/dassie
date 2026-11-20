@@ -86,7 +86,7 @@ fn room_above_the_trigger_asks_nothing() {
     let stub = scheme_id("stub");
     core.settle.at_ms = u64::MAX;
     // The peer's hold toward us: well above our trigger.
-    let funded = core.settle.trigger * 4;
+    let funded = core.settle.trigger.get(dassie_ledger::LedgerId::StubUsd) * 4;
     core.begin_step(NOW + 2_000);
     core.incoming_settlement(peer, stub, funded, &[]).unwrap();
     let mut outputs = Vec::new();
