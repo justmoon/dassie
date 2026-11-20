@@ -62,7 +62,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [one-address-per-asset](one-address-per-asset.md) | One wallet address per asset, booking where the asset arrives | payments, hubs, wallet, ledger |
 | [one-balance-per-asset](one-balance-per-asset.md) | The owner holds one balance per asset, and the node manages the hub's part of it | hubs, payments, wallet, settlement |
 | [open-payments](open-payments.md) | Open Payments, fully, and no SPSP | payments, http |
-| [open-rate-sources](open-rate-sources.md) | A node takes its rates only from sources whose terms allow its use: XRP's from mainnet's XRP/RLUSD pool, the fiat currencies' from central banks, with no peg guard until a dollar token has a price of its own (the keeper's target, the pool's reader and the central banks' sources built) | connector, xrpl, dsusd-keeper, wallet |
+| [open-rate-sources](open-rate-sources.md) | A node takes its rates only from sources whose terms allow its use: XRP's from mainnet's XRP/RLUSD pool, the fiat currencies' from central banks, with no peg guard until a dollar token has a price of its own (all built but turning the guard off) | connector, xrpl, dsusd-keeper, wallet |
 | [own-books](own-books.md) | Each node keeps its own books | engineering, settlement, testing |
 | [own-fulfills](own-fulfills.md) | Each node books its own Fulfills | settlement, connector, peer-protocol |
 | [owner-chooses-assets](owner-chooses-assets.md) | The owner chooses assets, the node adds their schemes, and the balance counts everything the owner has | wallet, hubs, settlement, rpc |

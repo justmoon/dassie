@@ -3,7 +3,8 @@
  * its one balance (spec/decisions/one-balance-per-asset.md), what a
  * payment may spend of it where that is less, how its ledgers stand, and
  * a link to its own page; a way to add another; and the exchange rates
- * the node converts at, with their age (spec/decisions/exchange-rates.md).
+ * the node converts at, with their age and their sources
+ * (spec/decisions/exchange-rates.md, spec/decisions/open-rate-sources.md).
  */
 
 import type { JSX } from "@solidjs/web";
@@ -14,6 +15,7 @@ import { useNodeData } from "@dassie/ui/node-data";
 import { Link } from "@dassie/ui/router";
 import { Card, LiveNote, PageTitle, ValueCube } from "@dassie/ui/ui";
 import { ageText, rateText } from "../settings/rates.ts";
+import { RateSources } from "../settings/RateSources.tsx";
 import { connectionText } from "../ledgers/connection.ts";
 import { assetTitle, showsSpendable } from "./assets.ts";
 
@@ -54,6 +56,7 @@ export function Assets(): JSX.Element {
               )}
             </For>
           </ul>
+          <RateSources />
           <p class="muted">
             Change their sources in <Link href="/settings">Settings</Link>.
           </p>

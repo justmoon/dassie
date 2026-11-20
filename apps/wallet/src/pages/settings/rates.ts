@@ -50,6 +50,33 @@ export function sourceName(kind: string, url: string): string {
   return SOURCE_KINDS.find(([known]) => known === kind)?.[1] ?? kind;
 }
 
+/** Each kind's own server, as a sentence names it. */
+const IN_A_SENTENCE: Record<string, string> = {
+  ecb: "the European Central Bank",
+  "bank-of-canada": "the Bank of Canada",
+  cnb: "the Czech National Bank",
+  "xrpl-pool": "mainnet's XRP/RLUSD pool on the XRP Ledger",
+};
+
+/** The line that names where the rates come from, as the central banks'
+ * terms ask wherever a rate or a total is shown
+ * (spec/decisions/open-rate-sources.md): "Rates from …, … and …."; empty
+ * without a source. */
+export function sourcesText(
+  sources: readonly { kind: string; url: string }[],
+): string {
+  const names = sources.map((source) =>
+    source.url === ""
+      ? (IN_A_SENTENCE[source.kind] ?? sourceName(source.kind, ""))
+      : source.url
+  );
+  if (names.length === 0) return "";
+  const listed = names.length === 1
+    ? names[0]
+    : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return `Rates from ${listed}.`;
+}
+
 /** One dollar in a currency, as the node has it: "1 USD = 1.8656 XRP". */
 export function rateText(code: string, perUsd: string): string {
   return `1 USD = ${perUsd} ${code}`;

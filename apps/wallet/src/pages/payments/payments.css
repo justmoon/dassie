@@ -131,6 +131,13 @@
   vertical-align: 0.9em;
 }
 
+/* Where the total's rates come from, small, as the overline. */
+.balance-card .balance-sources {
+  margin: 4px 0 0;
+  color: #F2C9A4;
+  font-size: 0.8rem;
+}
+
 .balance-card .amount-extra {
   color: #EBCFB9;
   font-size: 0.45em;

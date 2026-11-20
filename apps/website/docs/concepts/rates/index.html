@@ -45,8 +45,8 @@
       <h2 id="where-rates-come-from">Where rates come from</h2>
       <p>
         Every minute, your node asks its rate sources and takes the median
-        of the answers. A new node starts with four sources, so that every
-        currency is covered three times, from three independent places:
+        of the answers. A new node starts with five sources, each one whose
+        terms let your node convert by its rates for a fee:
       </p>
       <div class="table-wrap">
         <table>
@@ -58,51 +58,60 @@
           </thead>
           <tbody>
             <tr>
-              <td>Coinbase's exchange rates</td>
-              <td>every currency</td>
-            </tr>
-            <tr>
-              <td>Kraken's ticker</td>
-              <td>every currency</td>
-            </tr>
-            <tr>
-              <td>Bitstamp's ticker</td>
+              <td>Mainnet's XRP/RLUSD pool on the XRP Ledger</td>
               <td>XRP</td>
             </tr>
             <tr>
               <td>The European Central Bank's daily reference rates</td>
               <td>the other currencies</td>
             </tr>
+            <tr>
+              <td>Norges Bank's daily exchange rates</td>
+              <td>the other currencies</td>
+            </tr>
+            <tr>
+              <td>The Bank of Canada's daily averages</td>
+              <td>the other currencies</td>
+            </tr>
+            <tr>
+              <td>The Czech National Bank's daily fixing</td>
+              <td>the other currencies</td>
+            </tr>
           </tbody>
         </table>
       </div>
       <p>
-        You can add three more central banks, each of which covers the
-        currencies other than XRP from its own daily rates: Norges Bank, the
-        Bank of Canada and the Czech National Bank. Each quotes in its own
-        currency, and your node converts its rates to the dollar.
+        Each central bank quotes in its own currency, and your node converts
+        its rates to the dollar. The wallet names the sources wherever it
+        shows a rate or a total, as the banks ask.
       </p>
       <p>
-        You can also take XRP's rate from the XRP Ledger itself: from
-        mainnet's XRP/RLUSD pool, counting RLUSD as a dollar. Your node reads
-        the pool four times a minute and proves each reading against a ledger
+        XRP's rate comes from the XRP Ledger itself: from mainnet's
+        XRP/RLUSD pool, counting RLUSD as a dollar. Your node reads the pool
+        four times a minute and proves each reading against a ledger
         mainnet's validators signed, with no key and no account of its own,
         whichever network it runs on. Its rate is the middle of the last five
         minutes' readings, so pushing the pool for less than half of that
-        moves nothing, as long as the server answers honestly. A server
-        that holds ledgers back can make a push count sooner, after about a
-        minute, but each reading stands for at least three ledgers,
-        so a push of a few ledgers never counts often. A pool drained to
-        under 100,000 XRP does not count.
-        Your node needs a few minutes after it starts before this source has
-        a rate.
+        moves nothing, as long as the server answers honestly. A server that
+        holds ledgers back can make a push count sooner, after about a
+        minute, but each reading stands for at least three ledgers, so a push
+        of a few ledgers never counts often. A pool drained to under 100,000
+        XRP does not count. Your node needs a few minutes after it starts
+        before this source has a rate.
+      </p>
+      <p>
+        You can also list Coinbase, which covers every currency, Kraken's
+        ticker, or Bitstamp's for XRP. Their terms license their data for
+        personal or internal use only, so a new node lists none of them, and
+        if you add one, keeping to its terms is up to you.
       </p>
       <ul>
         <li>
           <strong>The median.</strong> A rate counts once more than half of
           its sources answered. One wrong source can move it only as far as
-          the others allow. With one source silent, the other two must agree
-          closely.
+          the others allow. With an even number of answers, the middle two
+          must agree closely. XRP has one source, the pool, so its rate is
+          the pool's.
         </li>
         <li>
           <strong>Exact.</strong> Rates are read and used as exact decimals,
@@ -127,8 +136,6 @@
         You can change the list of sources in the wallet. See
         <a href="/docs/wallet/rates/">Exchange-rate settings</a>.
       </p>
-      <p
-        class="not-yet">The exchanges license their data for personal or internal use only. The central banks' terms allow a node to convert by their rates for a fee, and the XRP Ledger's state comes with no terms. A new node starting with the pool and the four central banks in place of the exchanges is not there yet. <a href="/docs/project/roadmap/">What's next</a></p>
       <p
         class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/exchange-rates.md">Why three sources and a median</a>, and <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/open-rate-sources.md">which sources come next</a>.</p>
 

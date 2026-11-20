@@ -392,3 +392,56 @@ fn migration_16_widens_the_rate_sources_kinds() {
     }
     schema::check(&mut connection).unwrap();
 }
+
+// spec/decisions/open-rate-sources.md: migration 17 moves a node still on
+// the sources it started with to a new node's, the pool and the four
+// central banks; any other list, an empty one or the stock list with one
+// source changed, stays as the owner left it.
+#[test]
+fn migration_17_moves_the_stock_sources_to_the_open_ones() {
+    let text = |text: &str| Value::Text(text.into());
+    let open = vec![
+        vec![Value::Integer(0), text("xrpl-pool"), Value::Null],
+        vec![Value::Integer(1), text("ecb"), Value::Null],
+        vec![Value::Integer(2), text("norges-bank"), Value::Null],
+        vec![Value::Integer(3), text("bank-of-canada"), Value::Null],
+        vec![Value::Integer(4), text("cnb"), Value::Null],
+    ];
+    let stock =
+        "(0, 'coinbase', NULL), (1, 'kraken', NULL), (2, 'bitstamp', NULL), (3, 'ecb', NULL)";
+    let cases: [(&str, Option<Vec<Vec<Value>>>); 5] = [
+        (stock, Some(open)),
+        ("", None),
+        (
+            "(0, 'coinbase', NULL), (1, 'kraken', NULL), (2, 'bitstamp', NULL), (3, 'ecb', NULL), (4, 'cnb', NULL)",
+            None,
+        ),
+        (
+            "(0, 'coinbase', 'https://localhost:10100/rates.json'), (1, 'kraken', NULL), (2, 'bitstamp', NULL), (3, 'ecb', NULL)",
+            None,
+        ),
+        (
+            "(0, 'kraken', NULL), (1, 'coinbase', NULL), (2, 'bitstamp', NULL), (3, 'ecb', NULL)",
+            None,
+        ),
+    ];
+    for (at, (list, after)) in cases.into_iter().enumerate() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join(format!("v16-{at}"));
+        build(&path, up_to(16));
+        let connection = Connection::open(&path).unwrap();
+        connection.execute("DELETE FROM rate_sources", []).unwrap();
+        if !list.is_empty() {
+            connection
+                .execute(&format!("INSERT INTO rate_sources VALUES {list}"), [])
+                .unwrap();
+        }
+        let before = rows(&connection, "SELECT * FROM rate_sources ORDER BY position");
+        drop(connection);
+        build(&path, MIGRATIONS);
+        let mut connection = Connection::open(&path).unwrap();
+        let now = rows(&connection, "SELECT * FROM rate_sources ORDER BY position");
+        assert_eq!(now, after.unwrap_or(before), "{list}");
+        schema::check(&mut connection).unwrap();
+    }
+}

@@ -1,6 +1,6 @@
 # A node takes its rates only from sources whose terms allow its use: XRP's from mainnet's XRP/RLUSD pool, the fiat currencies' from central banks, with no peg guard until a dollar token has a price of its own
 
-**Areas:** [Connector](../areas/connector.md#exchange-rates), [XRPL](../areas/xrpl.md#xrps-rate), [XRPL](../areas/xrpl.md#the-peg-guard), [DSUSD keeper](../areas/dsusd-keeper.md#the-price), [Wallet](../areas/wallet.md). Built: the keeper's target, and the pool's reader and the central banks' sources, which an owner may list; the new defaults and the guard turned off are not ([roadmap](../roadmap.md#open-rate-sources)).
+**Areas:** [Connector](../areas/connector.md#exchange-rates), [XRPL](../areas/xrpl.md#xrps-rate), [XRPL](../areas/xrpl.md#the-peg-guard), [DSUSD keeper](../areas/dsusd-keeper.md#the-price), [Wallet](../areas/wallet.md). All built but turning the guard off ([roadmap](../roadmap.md#open-rate-sources)).
 
 ## Facts
 
