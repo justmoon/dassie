@@ -7,6 +7,11 @@ import { DROPS_PER_XRP, type Result } from "./units.ts";
 /** The XRP Ledger testnet's public server and faucet. */
 export const TESTNET_SERVER = "wss://s.altnet.rippletest.net:51233";
 export const TESTNET_FAUCET = "https://faucet.altnet.rippletest.net/accounts";
+/** The mainnet server the price is read from by default: the project's
+ * mainnet proof server, which the node names too
+ * (`crates/dassie-xrpl/src/network.rs`), and which answers `amm_info` as
+ * any server does. */
+export const MAINNET_SERVER = "wss://mainnet.xrpl.dassieland.net";
 
 /** The pool's depth by default, in XRP, and the bounds of the setting.
  * Deep enough that buying 50 DSUSD moves the pool's price by less than half a
@@ -25,11 +30,13 @@ export type Settings = Config & {
   keeperSeed: string;
   server: string;
   faucet: string;
+  priceServer: string;
 };
 
 /** The settings from `env`: DSUSD_ISSUER_SEED and DSUSD_KEEPER_SEED, and
  * optionally DSUSD_KEEPER_SERVER, DSUSD_KEEPER_FAUCET,
- * DSUSD_KEEPER_DEPTH_XRP and DSUSD_KEEPER_BAND_PPM. */
+ * DSUSD_KEEPER_PRICE_SERVER, DSUSD_KEEPER_DEPTH_XRP and
+ * DSUSD_KEEPER_BAND_PPM. */
 export function settingsFrom(
   env: Record<string, string | undefined>,
 ): Result<Settings> {
@@ -61,6 +68,13 @@ export function settingsFrom(
       error: `DSUSD_KEEPER_FAUCET: ${faucet} is no HTTP URL`,
     };
   }
+  const priceServer = env["DSUSD_KEEPER_PRICE_SERVER"] ?? MAINNET_SERVER;
+  if (!/^wss?:\/\//.test(priceServer)) {
+    return {
+      ok: false,
+      error: `DSUSD_KEEPER_PRICE_SERVER: ${priceServer} is no WebSocket URL`,
+    };
+  }
   const depth = integer(env["DSUSD_KEEPER_DEPTH_XRP"], DEPTH_XRP_DEFAULT);
   if (depth === null || depth < DEPTH_XRP_MIN || depth > DEPTH_XRP_MAX) {
     return {
@@ -80,6 +94,7 @@ export function settingsFrom(
       keeperSeed,
       server,
       faucet,
+      priceServer,
       depthDrops: depth * DROPS_PER_XRP,
       bandPpm,
     },

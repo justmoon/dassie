@@ -6,14 +6,14 @@
 
 - A node converts between the ledgers it settles on at its exchange rates, and books a dollar token as `USD` at par ([issued-assets](issued-assets.md)). Market makers trade nodes' rates against the pools on the ledgers themselves, which is what moves a node's holdings back where they ran short.
 - Test RLUSD has no market value: Ripple hands it out by hand, and the testnet's XRP/RLUSD pool prices it about thirty times away from par. A market maker would take every node's RLUSD at par and sell it into that pool, and nodes would never get it back. Neither the issuer nor the pool is ours to correct.
-- XRP has a market price, which exchanges publish, and the testnet faucet hands out test XRP to anyone.
+- XRP has a market price, which exchanges publish and mainnet's XRP/RLUSD pool follows, and the testnet faucet hands out test XRP to anyone.
 - A pool on the XRP Ledger prices by the ratio of what it holds. A liquidity provider can deposit or withdraw one of its two assets alone, which moves that side only, and so the price, by exactly the amount.
 
 ## Decision
 
 - **DSUSD, a testnet dollar token of our own,** issued by an account of ours, is the testnet's dollar token and its stand-in for RLUSD: nodes settle in it over its settlement hub ([token-hubs](token-hubs.md)) and book it as `USD` at par, and the peg guard runs on it, with its own pool, as it runs on mainnet RLUSD ([issued-assets](issued-assets.md)). Test RLUSD is disabled ([mainnet-schemes](mainnet-schemes.md)).
 - **DSUSD is had only by paying XRP for it, on the ledger, through the XRP/DSUSD pool.** The issuer mints only into the pool, never to a person, so it holds no XRP that anyone could drain, and there is no faucet. Every DSUSD outstanding was paid for with XRP that sits in the pool, or is still in the pool.
-- **A keeper holds the pool at one exchange's XRP/USD price.** On the testnet nothing of value rides on the price, so one source is enough. An exchange's terms forbid publishing its price so, and [open-rate-sources](open-rate-sources.md) moves the keeper to mainnet's XRP/RLUSD pool; until that is built, it reads Bitstamp's ticker. The keeper refuses a ticker that is stale, crossed, too wide or out of bounds, rather than move the pool on it.
+- **A keeper holds the pool at XRP's price in mainnet's XRP/RLUSD pool** ([open-rate-sources](open-rate-sources.md)), whose terms, unlike an exchange's, allow publishing it on a pool. On the testnet nothing of value rides on the price, so one source is enough. The keeper refuses a reading that is stale, of a pool too thin, or out of bounds, rather than move the pool on it.
 - **The keeper reprices as the pool's main liquidity provider, with DSUSD alone:** it deposits newly minted DSUSD to raise XRP's price, and withdraws DSUSD, which it gives back to the issuer to burn, to lower it. It never buys or sells XRP, so the pool's XRP is what buyers paid in, plus faucet XRP the keeper adds, with DSUSD beside it at the pool's price, to keep the pool deep.
 
 ## Accepted

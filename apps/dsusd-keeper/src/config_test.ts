@@ -3,6 +3,7 @@ import { assert, assertEquals } from "@std/assert";
 import {
   BAND_PPM_DEFAULT,
   DEPTH_XRP_DEFAULT,
+  MAINNET_SERVER,
   settingsFrom,
   TESTNET_FAUCET,
   TESTNET_SERVER,
@@ -18,6 +19,7 @@ test("the seeds are all a run needs; the rest has defaults", () => {
     keeperSeed: "sKeeper",
     server: TESTNET_SERVER,
     faucet: TESTNET_FAUCET,
+    priceServer: MAINNET_SERVER,
     depthDrops: DEPTH_XRP_DEFAULT * 1_000_000n,
     bandPpm: BAND_PPM_DEFAULT,
   });
@@ -28,6 +30,7 @@ test("the settings can be given", () => {
     ...SEEDS,
     DSUSD_KEEPER_SERVER: "ws://localhost:6006",
     DSUSD_KEEPER_FAUCET: "http://localhost:8080/accounts",
+    DSUSD_KEEPER_PRICE_SERVER: "wss://s1.ripple.com",
     DSUSD_KEEPER_DEPTH_XRP: "250",
     DSUSD_KEEPER_BAND_PPM: "0",
   });
@@ -35,6 +38,7 @@ test("the settings can be given", () => {
   assertEquals(settings.value.depthDrops, 250_000_000n);
   assertEquals(settings.value.bandPpm, 0n);
   assertEquals(settings.value.server, "ws://localhost:6006");
+  assertEquals(settings.value.priceServer, "wss://s1.ripple.com");
 });
 
 test("missing or shared seeds and settings out of bounds are refused", () => {
@@ -44,6 +48,7 @@ test("missing or shared seeds and settings out of bounds are refused", () => {
     { DSUSD_ISSUER_SEED: "sSame", DSUSD_KEEPER_SEED: "sSame" },
     { ...SEEDS, DSUSD_KEEPER_SERVER: "https://example.com" },
     { ...SEEDS, DSUSD_KEEPER_FAUCET: "ftp://example.com" },
+    { ...SEEDS, DSUSD_KEEPER_PRICE_SERVER: "https://s1.ripple.com" },
     { ...SEEDS, DSUSD_KEEPER_DEPTH_XRP: "5" },
     { ...SEEDS, DSUSD_KEEPER_DEPTH_XRP: "1.5" },
     { ...SEEDS, DSUSD_KEEPER_DEPTH_XRP: "2000000" },

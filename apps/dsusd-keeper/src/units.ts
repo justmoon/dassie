@@ -40,8 +40,8 @@ const DECIMAL_TEXT_MAX = 64;
 
 const DECIMAL = /^(-?)(\d{1,40})(?:\.(\d{1,40}))?(?:[eE]([+-]?\d{1,4}))?$/;
 
-/** Parses a value as the ledger and the exchange write it ("12.5",
- * "-3", "9999999999999999e80", "1e-6"), exactly. */
+/** Parses a value as the ledger writes it ("12.5", "-3",
+ * "9999999999999999e80", "1e-6"), exactly. */
 export function parseDecimal(text: string): Result<Decimal> {
   if (text.length > DECIMAL_TEXT_MAX) {
     return { ok: false, error: `not a decimal: ${text.slice(0, 20)}…` };

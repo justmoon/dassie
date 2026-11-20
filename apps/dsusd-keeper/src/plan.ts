@@ -43,7 +43,7 @@ export type Budget = {
 
 /** One window's budget, what one run had when the keeper ran every five
  * minutes: a faucet request for each account and one for depth; far more
- * DSUSD than a window at the default depth mints, so that a ticker or a
+ * DSUSD than a window at the default depth mints, so that a price or a
  * pool misread can cost a bounded amount at most; and one withdrawal,
  * which is all a window needs while the keeper is the pool's main
  * liquidity provider. A keeper with a small share would otherwise withdraw

@@ -17,7 +17,7 @@
 #   secrets with the issuer's and the keeper's seeds, and nothing else;
 # - a network of its own with no firewall rule: nothing reaches the VM
 #   (GCP denies ingress by default), and the VM reaches out to the testnet,
-#   its faucet, the exchange and GitHub;
+#   its faucet, mainnet's server for the price and GitHub;
 # - an e2-micro VM in a region where one is in the free tier, whose startup
 #   script is startup.sh. It needs no SSH: the keeper's lines go to the
 #   serial console as well as the journal, so

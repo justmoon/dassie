@@ -1,0 +1,111 @@
+{
+  "source": "Answers of wss://mainnet.xrpl.dassieland.net through xrpl.js, whole: ledger of the newest validated ledger, and amm_info of the XRP/RLUSD pool at its hash. Captured 2026-11-20T13:30:58.491Z by apps/dsusd-keeper/testdata/capture-mainnet-pool.ts.",
+  "ledger": {
+    "ledger": {
+      "account_hash": "76BB4FD384ADF9E8DE4DEAD6CD79DA5C609ED868884B490E5222F0B9FA39C6AE",
+      "close_flags": 0,
+      "close_time": 848496652,
+      "close_time_human": "2026-Nov-20 13:30:52.000000000 UTC",
+      "close_time_iso": "2026-11-20T13:30:52Z",
+      "close_time_resolution": 10,
+      "closed": true,
+      "ledger_hash": "D621ED21EAC749CFF5F099E4BE8CCC59BA44F76BA668DBC522067B45828C7F81",
+      "ledger_index": 108454740,
+      "parent_close_time": 848496651,
+      "parent_hash": "B3B4597C188E05337BDD9470D9141B01741E5423015F56FBECB74917BCA43A85",
+      "total_coins": "99985541527933711",
+      "transaction_hash": "669C33115C81B8149DB5A67F7782F309DA961062FACAB1B6C45A76B92A841AD7"
+    },
+    "ledger_hash": "D621ED21EAC749CFF5F099E4BE8CCC59BA44F76BA668DBC522067B45828C7F81",
+    "ledger_index": 108454740,
+    "validated": true
+  },
+  "amm": {
+    "amm": {
+      "account": "rhWTXC2m2gGGA9WozUaoMm6kLAVPb1tcS3",
+      "amount": "2023664867701",
+      "amount2": {
+        "currency": "524C555344000000000000000000000000000000",
+        "issuer": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De",
+        "value": "1899847.950220252"
+      },
+      "asset2_frozen": false,
+      "auction_slot": {
+        "account": "r4uKh2rHuarMZdAgSBYqqicX7MxPBegttw",
+        "auth_accounts": [
+          {
+            "account": "rNy92d5CrBQ1eC5HUokq1LDfcuLPvTfh4X"
+          },
+          {
+            "account": "rJrFQCQKgUJwG6bnDLyX33ea4DwWcjk6P3"
+          },
+          {
+            "account": "rGDuzDRHd7MEPHLykPt6Z2CkQuvBcDrdQZ"
+          },
+          {
+            "account": "rBJpahxkPrMenKYzKBKEFNGsd7KpBTPL5P"
+          }
+        ],
+        "discounted_fee": 31,
+        "expiration": "2026-03-02T17:05:00+0000",
+        "price": {
+          "currency": "03B245BE580EC4F4386A751C084489EC4B514A2F",
+          "issuer": "rhWTXC2m2gGGA9WozUaoMm6kLAVPb1tcS3",
+          "value": "131482.3939333034"
+        },
+        "time_interval": 20
+      },
+      "lp_token": {
+        "currency": "03B245BE580EC4F4386A751C084489EC4B514A2F",
+        "issuer": "rhWTXC2m2gGGA9WozUaoMm6kLAVPb1tcS3",
+        "value": "1653371030.438479"
+      },
+      "trading_fee": 315,
+      "vote_slots": [
+        {
+          "account": "rJ4XeEzorvsQp6un4h9CjtANEsB3Qcc8iA",
+          "trading_fee": 1000,
+          "vote_weight": 3218
+        },
+        {
+          "account": "rDu4vMpZU5WcwVME6oorzSov4DMLWXUEDf",
+          "trading_fee": 0,
+          "vote_weight": 584
+        },
+        {
+          "account": "rHq1hgWYgaiG9ycudXHoMbqGdJi75UTfzt",
+          "trading_fee": 200,
+          "vote_weight": 3857
+        },
+        {
+          "account": "rETg9RYxRAxgNjm33Q4tAWceKKVoMcpM7",
+          "trading_fee": 200,
+          "vote_weight": 3857
+        },
+        {
+          "account": "rnEQs55pWyvEfWXkjMCD2TNzCQ1uS7SBGS",
+          "trading_fee": 200,
+          "vote_weight": 3857
+        },
+        {
+          "account": "rwCdTmuSML5TizAMTAZFKC5ppkdxT5j24k",
+          "trading_fee": 200,
+          "vote_weight": 3857
+        },
+        {
+          "account": "rUaf9PLELm2gtui2pEivv7k9Xbue5c6yJ3",
+          "trading_fee": 200,
+          "vote_weight": 3857
+        },
+        {
+          "account": "r42VCs56CWH9eiS4EKBQB33ThbtPcBwN4",
+          "trading_fee": 1000,
+          "vote_weight": 297
+        }
+      ]
+    },
+    "ledger_hash": "D621ED21EAC749CFF5F099E4BE8CCC59BA44F76BA668DBC522067B45828C7F81",
+    "ledger_index": 108454740,
+    "validated": true
+  }
+}
