@@ -8,7 +8,7 @@
     "build:wallet": "cd apps/wallet && node --run build",
     "build:dashboard": "cd apps/dev-dashboard && node --run build",
     "build:website": "cd apps/website && node --run build",
-    "build:e2e": "DASSIE_WALLET_DIST=$(pwd)/apps/wallet/dist cargo build --locked --profile e2e -p dassie-cli && cargo build --locked --profile e2e -p dassie-node --features testing --example fake_ledger && cargo build --locked --profile e2e -p dassie-release --features tool",
+    "build:e2e": "DASSIE_WALLET_DIST=$(pwd)/apps/wallet/dist cargo build --locked --profile e2e -p dassie-cli && cargo build --locked --profile e2e -p dassie-node --features testing --example fake_ledger --example tls_interop && cargo build --locked --profile e2e -p dassie-release --features tool",
     "dev": "node apps/dev/main.ts",
     "cli": "node apps/dev/cli.ts",
     "check": "dprint check && oxlint && node --run typecheck && node --run lint:proto",

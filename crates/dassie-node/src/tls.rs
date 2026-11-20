@@ -26,13 +26,23 @@ use x509_parser::extensions::GeneralName;
 
 use crate::store::StoredCertificate;
 
+pub mod x25519_mlkem768;
+
 /// Longest PEM accepted for a chain or a key, in bytes.
 pub const MAX_PEM_BYTES: usize = 64 * 1024;
 
-/// The only crypto provider: ring (see the manifest).
+/// The only crypto provider: ring (see the manifest), with the hybrid key
+/// exchange X25519MLKEM768 first, ahead of ring's X25519, P-256 and P-384
+/// (spec/decisions/hybrid-key-exchange.md). A client sends a share for it
+/// and one for X25519, so a server without the hybrid takes X25519 without
+/// another round trip.
 #[must_use]
 pub fn provider() -> Arc<CryptoProvider> {
-    Arc::new(rustls::crypto::ring::default_provider())
+    let mut provider = rustls::crypto::ring::default_provider();
+    provider
+        .kx_groups
+        .insert(0, x25519_mlkem768::X25519MLKEM768);
+    Arc::new(provider)
 }
 
 /// A certificate could not be used.
@@ -327,6 +337,111 @@ mod tests {
             ..good
         };
         assert!(matches!(load(&huge), Err(TlsError::Pem(_))));
+    }
+
+    mod key_exchange {
+        use std::time::Duration;
+
+        use rustls::pki_types::UnixTime;
+        use rustls::time_provider::TimeProvider;
+        use rustls::{
+            ClientConfig, ClientConnection, HandshakeKind, NamedGroup, RootCertStore,
+            ServerConnection,
+        };
+
+        use super::*;
+
+        /// The client's clock, at [`NOW_MS`]: the test reads no wall clock.
+        #[derive(Debug)]
+        struct Now;
+
+        impl TimeProvider for Now {
+            fn current_time(&self) -> Option<UnixTime> {
+                Some(UnixTime::since_unix_epoch(Duration::from_millis(NOW_MS)))
+            }
+        }
+
+        /// The providers of nodes before the hybrid.
+        fn classical() -> Arc<CryptoProvider> {
+            Arc::new(rustls::crypto::ring::default_provider())
+        }
+
+        /// A TLS 1.3 handshake in memory between a client and a server of
+        /// the given providers: the group they agreed on, and whether it
+        /// took a HelloRetryRequest.
+        fn handshake(
+            client: Arc<CryptoProvider>,
+            server: Arc<CryptoProvider>,
+        ) -> (NamedGroup, HandshakeKind) {
+            let loaded = load(&self_signed(&names(), NOW_MS).unwrap()).unwrap();
+            let mut roots = RootCertStore::empty();
+            roots.add(loaded.key.cert[0].clone()).unwrap();
+            let slot = Arc::new(CertificateSlot::new(loaded));
+            let server_config = ServerConfig::builder_with_provider(server)
+                .with_protocol_versions(&[&rustls::version::TLS13])
+                .unwrap()
+                .with_no_client_auth()
+                .with_cert_resolver(Arc::new(SlotResolver(slot)));
+            let client_config = ClientConfig::builder_with_details(client, Arc::new(Now))
+                .with_protocol_versions(&[&rustls::version::TLS13])
+                .unwrap()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            let mut client =
+                ClientConnection::new(Arc::new(client_config), "localhost".try_into().unwrap())
+                    .unwrap();
+            let mut server = ServerConnection::new(Arc::new(server_config)).unwrap();
+            for _ in 0..10 {
+                if !client.is_handshaking() && !server.is_handshaking() {
+                    break;
+                }
+                let mut bytes = Vec::new();
+                while client.wants_write() {
+                    client.write_tls(&mut bytes).unwrap();
+                }
+                server.read_tls(&mut bytes.as_slice()).unwrap();
+                server.process_new_packets().unwrap();
+                let mut bytes = Vec::new();
+                while server.wants_write() {
+                    server.write_tls(&mut bytes).unwrap();
+                }
+                client.read_tls(&mut bytes.as_slice()).unwrap();
+                client.process_new_packets().unwrap();
+            }
+            assert!(!client.is_handshaking() && !server.is_handshaking());
+            let group = client.negotiated_key_exchange_group().unwrap().name();
+            assert_eq!(
+                server.negotiated_key_exchange_group().unwrap().name(),
+                group
+            );
+            (group, client.handshake_kind().unwrap())
+        }
+
+        #[test]
+        fn nodes_agree_on_the_hybrid() {
+            assert_eq!(
+                handshake(provider(), provider()),
+                (NamedGroup::X25519MLKEM768, HandshakeKind::Full)
+            );
+        }
+
+        // The client's X25519 share beside the hybrid one spares a server
+        // without the hybrid a HelloRetryRequest.
+        #[test]
+        fn a_server_before_the_hybrid_takes_x25519_at_once() {
+            assert_eq!(
+                handshake(provider(), classical()),
+                (NamedGroup::X25519, HandshakeKind::Full)
+            );
+        }
+
+        #[test]
+        fn a_client_before_the_hybrid_gets_x25519() {
+            assert_eq!(
+                handshake(classical(), provider()),
+                (NamedGroup::X25519, HandshakeKind::Full)
+            );
+        }
     }
 
     mod properties {

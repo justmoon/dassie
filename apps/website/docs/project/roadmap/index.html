@@ -210,9 +210,10 @@
           Payments to clients, but serves no <code>/ilp</code> route.
         </li>
         <li>
-          <strong>Post-quantum TLS.</strong> The node's TLS uses classical key
-          exchange only. Each node ID already commits to a post-quantum key,
-          which signs nothing yet.
+          <strong>Post-quantum signatures.</strong> The node's connections
+          already agree on their keys in a way a quantum computer can't
+          break, but they're signed with Ed25519, which one could. Each node
+          ID already commits to a post-quantum key, which signs nothing yet.
         </li>
         <li>
           <strong>Live status in the wallet.</strong> The wallet asks the node

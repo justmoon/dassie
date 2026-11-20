@@ -204,6 +204,13 @@
         </table>
       </div>
       <p>
+        Everything on TCP 443 and UDP 443 is encrypted with TLS. With
+        current browsers and with other nodes, the keys are agreed on with
+        X25519MLKEM768, which adds a post-quantum exchange to the classical
+        one: a recording made today stays unreadable even to a future
+        quantum computer. Older clients get the classical exchange alone.
+      </p>
+      <p>
         The wallet is on the public port, behind a login that only your
         recovery phrase can make. Your phrase never leaves your browser: the
         browser sends a proof derived from it, never the phrase. The node
