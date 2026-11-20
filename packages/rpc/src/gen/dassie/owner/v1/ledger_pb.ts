@@ -1007,16 +1007,17 @@ export const DisplayTotalSchema: GenMessage<DisplayTotal> = /*@__PURE__*/
  */
 export type RateSource = Message<"dassie.owner.v1.RateSource"> & {
   /**
-   * "coinbase", "kraken", "bitstamp", "ecb", "norges-bank", "bank-of-canada"
-   * or "cnb".
+   * "coinbase", "kraken", "bitstamp", "ecb", "norges-bank", "bank-of-canada",
+   * "cnb" or "xrpl-pool" (mainnet's XRP/RLUSD pool, XRP only).
    *
    * @generated from field: string kind = 1;
    */
   kind: string;
 
   /**
-   * A server of Coinbase's format other than Coinbase's own, for
-   * "coinbase" only; empty for the kind's own server.
+   * Another server than the kind's own: an HTTPS server of Coinbase's
+   * format for "coinbase", an XRPL mainnet server's WebSocket for
+   * "xrpl-pool"; empty for the kind's own server.
    *
    * @generated from field: string url = 2;
    */

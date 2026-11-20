@@ -37,6 +37,13 @@ pub(super) async fn dispatch(node: &Arc<Node>, method: Method) -> Result<Reply, 
                 .iter()
                 .map(source)
                 .collect::<Result<Vec<_>, _>>()?;
+            // The node follows one pool: a second would only ever be silent.
+            let pools = (chosen.iter())
+                .filter(|source| source.kind == SourceKind::XrplPool)
+                .count();
+            if pools > 1 {
+                return Err(RpcError::invalid("at most one XRPL pool source"));
+            }
             store
                 .set_rate_sources(&chosen)
                 .map_err(RpcError::internal)?;
@@ -81,7 +88,7 @@ fn sources(sources: &[RateSource]) -> Vec<proto::RateSource> {
 fn source(message: &proto::RateSource) -> Result<RateSource, RpcError> {
     let kind = SourceKind::parse(&message.kind).ok_or_else(|| {
         RpcError::invalid(
-            "a rate source is coinbase, kraken, bitstamp, ecb, norges-bank, bank-of-canada or cnb",
+            "a rate source is coinbase, kraken, bitstamp, ecb, norges-bank, bank-of-canada, cnb or xrpl-pool",
         )
     })?;
     let chosen = RateSource {

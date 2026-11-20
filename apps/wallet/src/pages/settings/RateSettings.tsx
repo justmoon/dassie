@@ -11,7 +11,7 @@ import { useNodeData } from "@dassie/ui/node-data";
 import { describe, useClient } from "@dassie/ui/rpc";
 import { useToast } from "@dassie/ui/toast";
 import { Card, ErrorText, Field } from "@dassie/ui/ui";
-import { CURRENCIES, SOURCE_KINDS, sourceName } from "./rates.ts";
+import { CURRENCIES, SOURCE_KINDS, sourceName, URL_KINDS } from "./rates.ts";
 
 /** Most sources the node keeps. */
 const MAX_SOURCES = 8;
@@ -48,7 +48,7 @@ export function RateSettings(): JSX.Element {
     if (sources().length >= MAX_SOURCES) {
       return setError(`At most ${MAX_SOURCES} sources.`);
     }
-    const custom = kind() === "coinbase" ? url().trim() : "";
+    const custom = kind() in URL_KINDS ? url().trim() : "";
     setEdited([...sources(), { kind: kind(), url: custom } as RateSource]);
     setUrl("");
   };
@@ -131,20 +131,18 @@ export function RateSettings(): JSX.Element {
             </For>
           </select>
         </Field>
-        <Show when={kind() === "coinbase"}>
-          <Field
-            label="URL"
-            for={`${id}-url`}
-            hint="Empty for Coinbase's own; else an HTTPS server of its format."
-          >
-            <input
-              id={`${id}-url`}
-              data-testid="rate-source-url"
-              placeholder="https://api.coinbase.com/v2/exchange-rates?currency=USD"
-              value={url()}
-              onInput={(event) => setUrl(event.currentTarget.value)}
-            />
-          </Field>
+        <Show when={URL_KINDS[kind()]}>
+          {(field) => (
+            <Field label="URL" for={`${id}-url`} hint={field().hint}>
+              <input
+                id={`${id}-url`}
+                data-testid="rate-source-url"
+                placeholder={field().placeholder}
+                value={url()}
+                onInput={(event) => setUrl(event.currentTarget.value)}
+              />
+            </Field>
+          )}
         </Show>
         <div class="actions">
           <button

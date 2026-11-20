@@ -1,16 +1,19 @@
 //! The rate fetcher (spec/decisions/exchange-rates.md): every minute, each
 //! source is asked at once, and the rates its answers agree on are kept and
-//! handed to the engine.
+//! handed to the engine. A source of mainnet's XRP/RLUSD pool is followed
+//! all along instead ([`super::pool_rate`]), and answers with the rate its
+//! reader has then.
 
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
 use super::Node;
+use super::pool_rate::Follower;
 use crate::clock::interval_passed;
 use crate::log::target;
 use crate::outbound::WebRequest;
-use crate::rates::{self, Answer, BASE, MAX_RESPONSE_BYTES, RateSource};
+use crate::rates::{self, Answer, BASE, MAX_RESPONSE_BYTES, RateSource, SourceKind};
 use crate::store::StoredRate;
 
 /// How long a source has to answer.
@@ -26,9 +29,11 @@ impl Node {
     pub async fn run_rates(self: Arc<Self>, shutdown: CancellationToken) {
         let mut engines = self.engine.subscribe();
         let mut moves = self.clock.subscribe();
+        let mut pool: Option<Follower> = None;
         loop {
+            self.follow_pool(&mut pool, &shutdown);
             if let Some(engine) = self.engine() {
-                self.fetch_rates(&engine).await;
+                self.fetch_rates(&engine, pool.as_ref()).await;
             }
             let every_ms = self.policies.rates_every_ms;
             tokio::select! {
@@ -49,8 +54,30 @@ impl Node {
         self.rates_wake.notify_one();
     }
 
+    /// Follows the pool on the server the owner's first source of it names,
+    /// if one does: on the one followed already, or anew.
+    fn follow_pool(&self, pool: &mut Option<Follower>, shutdown: &CancellationToken) {
+        let named = match self.store.rate_sources() {
+            Ok(sources) => (sources.into_iter())
+                .find(|source| source.kind == SourceKind::XrplPool)
+                .map(|source| source.url().to_owned()),
+            Err(error) => {
+                tracing::error!(target: target::ENGINE, %error, "reading the rate sources");
+                return;
+            }
+        };
+        if pool.as_ref().map(Follower::url) == named.as_deref() {
+            return;
+        }
+        *pool = named.map(|url| {
+            let policies = (self.policies.pool_rate, self.policies.pool_rate_unl);
+            let client = self.outbound().cloned();
+            Follower::start(&url, client, Arc::clone(&self.clock), policies, shutdown)
+        });
+    }
+
     /// One cycle: the currencies the node needs, from every source.
-    async fn fetch_rates(&self, engine: &crate::engine::Engine) {
+    async fn fetch_rates(&self, engine: &crate::engine::Engine, pool: Option<&Follower>) {
         let Ok(mut wanted) = engine.rate_currencies().await else {
             return;
         };
@@ -70,7 +97,8 @@ impl Node {
             }
         };
         let answers: Vec<Answer> =
-            futures_util::future::join_all(sources.iter().map(|source| self.ask(source))).await;
+            futures_util::future::join_all((sources.iter()).map(|source| self.ask(source, pool)))
+                .await;
         let now = self.now_ms();
         let fresh: Vec<StoredRate> = rates::combine(&wanted, &answers)
             .into_iter()
@@ -92,8 +120,17 @@ impl Node {
         }
     }
 
-    /// What one source says, if it answers well.
-    async fn ask(&self, source: &RateSource) -> Answer {
+    /// What one source says, if it answers well: the pool's reader, what
+    /// it has now.
+    async fn ask(&self, source: &RateSource, pool: Option<&Follower>) -> Answer {
+        if source.kind == SourceKind::XrplPool {
+            let followed = pool.filter(|pool| pool.url() == source.url());
+            let rate = followed.and_then(|pool| pool.rate(self.now_ms()));
+            if rate.is_none() {
+                tracing::debug!(target: target::ENGINE, url = source.url(), "the XRP/RLUSD pool has no rate yet");
+            }
+            return (source.kind, rate.map(|rate| vec![("XRP", rate)]));
+        }
         let said = match self.outbound() {
             Some(client) => {
                 let request = WebRequest {

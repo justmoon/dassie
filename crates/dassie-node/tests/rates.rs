@@ -136,3 +136,97 @@ async fn rates_are_fetched_kept_and_age() {
     assert_eq!(list.total.unwrap().amount, dollars / 4);
     node.stop().await;
 }
+
+/// XRP's rate from mainnet's XRP/RLUSD pool (spec/areas/xrpl.md#xrps-rate):
+/// the node follows a fake mainnet's validated ledgers for the pool's price,
+/// with no key and no XRPL account of its own, and has XRP's rate once the
+/// window holds enough readings.
+#[tokio::test(flavor = "multi_thread")]
+async fn xrp_s_rate_follows_mainnet_s_pool() {
+    use dassie_node::fake_ledger::{Options, Server};
+    use dassie_node::store::StoredCertificate;
+    use dassie_node_core::certificate::CertificateSource;
+    use dassie_xrpl::amount::IssuedAsset;
+    use dassie_xrpl::codec::TokenValue;
+    use dassie_xrpl::validator_list::UnlConfig;
+    use support::pair::{cert_file, key_file};
+
+    let clock = ManualClock::new(START_MS);
+    let server = Server::start(Options {
+        network: &dassie_xrpl::network::MAINNET,
+        listen: ([127, 0, 0, 1], 0).into(),
+        faucet: Some((
+            ([127, 0, 0, 1], 0).into(),
+            StoredCertificate {
+                source: CertificateSource::Manual,
+                chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+                key_pem: std::fs::read_to_string(key_file()).unwrap(),
+            },
+        )),
+        close_every: std::time::Duration::from_millis(100),
+    })
+    .await
+    .unwrap();
+    server.close_on(std::sync::Arc::new(clock.clone()));
+    // 1.86 million XRP beside 4.65 million RLUSD: 0.4 XRP to the dollar.
+    server
+        .ledger()
+        .set_pool(
+            IssuedAsset::RLUSD,
+            1_860_000_000_000,
+            TokenValue::parse("4650000").unwrap(),
+            300,
+        )
+        .unwrap();
+    let unl = UnlConfig::mainnet()
+        .with_override(&server.publishers().unwrap())
+        .unwrap();
+    let policies = Policies {
+        pool_rate: dassie_xrpl::pool_rate::Timings::DEV,
+        pool_rate_unl: Some(Box::leak(Box::new(unl))),
+        ..Policies::DEFAULT
+    };
+    let env = [
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+    ];
+    let node = Bound::bind_in(tempfile::tempdir().unwrap())
+        .start(clock.clone(), 1, policies, &env)
+        .await;
+    prepare(&node, &key(1)).await;
+    let mut owner = node.ipc().await;
+    let pool = |url: &str| proto::RateSource {
+        kind: "xrpl-pool".into(),
+        url: url.into(),
+    };
+    // The node follows one pool: a second is refused.
+    let two = vec![pool(&server.url), pool("wss://s1.ripple.com")];
+    assert!(
+        owner
+            .call(Method::SetRateSources(proto::SetRateSourcesRequest {
+                sources: two
+            }))
+            .await
+            .is_err()
+    );
+    owner
+        .call(Method::SetRateSources(proto::SetRateSourcesRequest {
+            sources: vec![pool(&server.url)],
+        }))
+        .await
+        .unwrap();
+    owner
+        .call(Method::SetDisplayCurrency(
+            proto::SetDisplayCurrencyRequest {
+                currency: "XRP".into(),
+            },
+        ))
+        .await
+        .unwrap();
+    until_by(&clock, 500, async || {
+        rate(&ledgers(&node).await, "XRP").is_some_and(|rate| !rate.stale)
+    })
+    .await;
+    assert_eq!(rate(&ledgers(&node).await, "XRP").unwrap().per_usd, "0.4");
+    node.stop().await;
+}

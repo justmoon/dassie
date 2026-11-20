@@ -98,6 +98,8 @@ pub mod manifest;
 pub mod network;
 pub mod offer;
 pub mod peg;
+pub mod pool;
+pub mod pool_rate;
 pub mod records;
 pub mod rlusd;
 pub mod scheme;

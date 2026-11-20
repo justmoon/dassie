@@ -82,6 +82,21 @@
         Bank of Canada and the Czech National Bank. Each quotes in its own
         currency, and your node converts its rates to the dollar.
       </p>
+      <p>
+        You can also take XRP's rate from the XRP Ledger itself: from
+        mainnet's XRP/RLUSD pool, counting RLUSD as a dollar. Your node reads
+        the pool four times a minute and proves each reading against a ledger
+        mainnet's validators signed, with no key and no account of its own,
+        whichever network it runs on. Its rate is the middle of the last five
+        minutes' readings, so pushing the pool for less than half of that
+        moves nothing, as long as the server answers honestly. A server
+        that holds ledgers back can make a push count sooner, after about a
+        minute, but each reading stands for at least three ledgers,
+        so a push of a few ledgers never counts often. A pool drained to
+        under 100,000 XRP does not count.
+        Your node needs a few minutes after it starts before this source has
+        a rate.
+      </p>
       <ul>
         <li>
           <strong>The median.</strong> A rate counts once more than half of
@@ -113,7 +128,7 @@
         <a href="/docs/wallet/rates/">Exchange-rate settings</a>.
       </p>
       <p
-        class="not-yet">The exchanges license their data for personal or internal use only. The central banks' terms allow a node to convert by their rates for a fee. XRP's price from the XRP Ledger's own XRP/RLUSD pool, and a new node starting with the four central banks in place of the exchanges, are not there yet. <a href="/docs/project/roadmap/">What's next</a></p>
+        class="not-yet">The exchanges license their data for personal or internal use only. The central banks' terms allow a node to convert by their rates for a fee, and the XRP Ledger's state comes with no terms. A new node starting with the pool and the four central banks in place of the exchanges is not there yet. <a href="/docs/project/roadmap/">What's next</a></p>
       <p
         class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/exchange-rates.md">Why three sources and a median</a>, and <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/open-rate-sources.md">which sources come next</a>.</p>
 

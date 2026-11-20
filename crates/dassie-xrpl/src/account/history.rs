@@ -58,7 +58,7 @@ use super::{
     Doubt, MAX_ACCOUNT_DROPS, MAX_IN_FLIGHT, MAX_LIST_ASKS, MAX_LISTS, MAX_SCHEMES, News, Phase,
     ProvenBalance, Request, TOO_MUCH_XRP, XrplAccount,
 };
-use crate::amount::{IssuedAsset, TokenValue};
+use crate::amount::IssuedAsset;
 use crate::anchor::{
     LedgerProof, ProvenState, ProvenTx, ledger_proof, prove_state, prove_transaction,
 };
@@ -66,7 +66,7 @@ use crate::api::{
     self, AccountInfo, AccountSettings, ApiError, MAX_PROOF_KEYS, TrustLine, TxRecord,
 };
 use crate::keys::AccountId;
-use crate::peg::PoolReading;
+use crate::pool::{self, PoolSeen};
 use crate::records::{self, Fees, Root, Thread};
 use crate::skip_list::{SkipList, recent_key};
 use crate::unl::Anchor;
@@ -109,18 +109,6 @@ pub(super) struct PoolWatch {
     pub account: Option<AccountId>,
     /// Whether a scheme asked for the pool since it was last told.
     pub asked: bool,
-}
-
-/// What an anchor proved of a pool.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum PoolSeen {
-    /// There is none.
-    Gone,
-    /// Its object names this account, whose root and line the next anchor
-    /// proves.
-    Named(AccountId),
-    /// What it holds.
-    Read(PoolReading),
 }
 
 /// What the account follows, as proven at an anchor.
@@ -442,66 +430,16 @@ impl XrplAccount {
         anchor: Anchor,
         proven: &ProvenState,
     ) -> Result<BTreeMap<IssuedAsset, PoolSeen>, Doubt> {
-        let unreadable = |_| Doubt::Unreadable;
         let mut pools = BTreeMap::new();
         for (key, watch) in &self.pools {
-            let seen = match proven.object(&records::amm_key(key.issuer, key.currency)) {
-                None => continue,
-                Some(None) => PoolSeen::Gone,
-                Some(Some(bytes)) => {
-                    let object = records::amm(bytes).map_err(unreadable)?;
-                    if !object.pairs(key.issuer, key.currency) {
-                        return Err(Doubt::Unreadable);
-                    }
-                    let account = object.account;
-                    let root = proven.object(&records::account_key(account));
-                    let line = proven.object(&records::line_key(account, key.issuer, key.currency));
-                    match (watch.account == Some(account), root, line) {
-                        (true, Some(Some(root)), Some(line)) => {
-                            let root = records::account_root(root).map_err(unreadable)?;
-                            let value = match line {
-                                None => TokenValue::ZERO,
-                                Some(line) => {
-                                    let (line, _) =
-                                        records::ripple_state(line).map_err(unreadable)?;
-                                    pool_tokens(&line, account, key)?
-                                }
-                            };
-                            if root.account != account || value.is_negative() {
-                                return Err(Doubt::Unreadable);
-                            }
-                            PoolSeen::Read(PoolReading {
-                                account,
-                                drops: root.balance,
-                                value,
-                                ledger_index: anchor.index,
-                                closed_ms: crate::unl::unix_ms(anchor.close_time),
-                            })
-                        }
-                        (true, Some(None), _) => PoolSeen::Gone,
-                        _ => PoolSeen::Named(account),
-                    }
-                }
-            };
-            pools.insert(*key, seen);
+            if let Some(seen) =
+                pool::seen(proven, key, watch.account, anchor.index, anchor.close_time)?
+            {
+                pools.insert(*key, seen);
+            }
         }
         Ok(pools)
     }
-}
-
-/// What the pool's `account` holds of the token of `key` on `line`, the
-/// line its key names: one between other accounts, or in another
-/// currency, is not what the key holds, as for the account's own lines.
-fn pool_tokens(
-    line: &TrustLine,
-    account: AccountId,
-    key: &IssuedAsset,
-) -> Result<TokenValue, Doubt> {
-    if !line.is_between(account, key.issuer, key.currency) {
-        return Err(Doubt::Unreadable);
-    }
-    let view = line.view(account).ok_or(Doubt::Unreadable)?;
-    Ok(view.balance)
 }
 
 /// The anchor's state, and the history up to it.
@@ -904,14 +842,7 @@ impl XrplAccount {
             push_new(&mut keys, records::account_key(*account));
         }
         for (key, watch) in self.pools.iter().filter(|(_, watch)| watch.asked) {
-            push_new(&mut keys, records::amm_key(key.issuer, key.currency));
-            if let Some(account) = watch.account {
-                push_new(&mut keys, records::account_key(account));
-                push_new(
-                    &mut keys,
-                    records::line_key(account, key.issuer, key.currency),
-                );
-            }
+            pool::push_keys(&mut keys, key, watch.account);
         }
         assert!(keys.len() <= MAX_PROOF_KEYS, "one state proof's worth");
         keys
@@ -1527,49 +1458,6 @@ mod tests {
             },
             holds: true,
         }
-    }
-
-    // A pool's line is the one between the pool's account and the token's
-    // issuer, in the token's currency, at both ends, as each of the
-    // account's own lines is: its key binds them.
-    #[test]
-    fn a_pool_s_line_is_between_the_pool_and_the_issuer() {
-        let key = crate::dsusd::LINE;
-        let pool = Wallet::from_entropy(&[3; 32]).account();
-        let other = Wallet::from_entropy(&[4; 32]).account();
-        let value = TokenValue::from_units(12, 0).unwrap();
-        let line = |a: AccountId, b: AccountId, currency| {
-            let (low, high) = if a < b { (a, b) } else { (b, a) };
-            TrustLine {
-                low,
-                high,
-                currency,
-                balance: if low == pool { value } else { value.negate() },
-                low_limit: TokenValue::ZERO,
-                high_limit: TokenValue::ZERO,
-                flags: 0,
-            }
-        };
-        assert_eq!(
-            pool_tokens(&line(pool, key.issuer, key.currency), pool, &key),
-            Ok(value)
-        );
-        assert_eq!(
-            pool_tokens(&line(pool, other, key.currency), pool, &key),
-            Err(Doubt::Unreadable)
-        );
-        assert_eq!(
-            pool_tokens(&line(other, key.issuer, key.currency), pool, &key),
-            Err(Doubt::Unreadable)
-        );
-        assert_eq!(
-            pool_tokens(
-                &line(pool, key.issuer, crate::amount::Currency([9; 20])),
-                pool,
-                &key
-            ),
-            Err(Doubt::Unreadable)
-        );
     }
 
     // spec/designs/xrpl-validation.md#6-the-account-on-proofs: the schemes

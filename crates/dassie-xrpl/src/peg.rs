@@ -35,7 +35,7 @@ use dassie_settlement::{DollarRate, PegPause, PegView};
 
 use crate::amount::TokenValue;
 use crate::kept::{In, Out};
-use crate::keys::AccountId;
+pub use crate::pool::PoolReading;
 
 /// A dollar, in millionths: the peg.
 pub const PAR_PPM: u64 = 1_000_000;
@@ -175,24 +175,6 @@ pub struct Peg {
     /// a pool thinner than that moves too cheaply to say what the token is
     /// worth.
     pub min_pool_drops: u64,
-}
-
-/// The pool of XRP and a token, as of one validated ledger: both balances
-/// at that ledger, never at two, which could pair an old XRP balance with a
-/// newer token balance, a ratio the pool never had.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PoolReading {
-    /// The pool's account, which holds both.
-    pub account: AccountId,
-    /// Its XRP, in drops.
-    pub drops: u64,
-    /// Its token.
-    pub value: TokenValue,
-    /// The validated ledger both are as of: the account's anchor.
-    pub ledger_index: u32,
-    /// When that ledger closed, by the close time its validators agreed
-    /// on, in milliseconds since 1970.
-    pub closed_ms: u64,
 }
 
 /// What became of a reading.
@@ -569,7 +551,7 @@ mod tests {
     fn pool(ppm: u64, closed_ms: u64) -> PoolReading {
         let micro_tokens = 500_000_000_000_000 / ppm;
         PoolReading {
-            account: AccountId([7; 20]),
+            account: crate::keys::AccountId([7; 20]),
             drops: 1_000_000_000,
             value: TokenValue::from_units(micro_tokens, 6).unwrap(),
             ledger_index: 10,
