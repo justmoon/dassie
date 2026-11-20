@@ -1,6 +1,6 @@
 # DSUSD keeper
 
-DSUSD is the testnet dollar token of our own that nodes settle in, the testnet's stand-in for RLUSD, and that owners get only by paying XRP for it through the XRP Ledger testnet's XRP/DSUSD pool ([dsusd](../decisions/dsusd.md)). The keeper is a small program, on a VM of its own, that keeps the token's issuer, its own account and the pool in place, and holds the pool at an exchange's XRP/USD price: it follows the pool, and brings it back within a few ledgers of each trade.
+DSUSD is the testnet dollar token of our own that nodes settle in, the testnet's stand-in for RLUSD, and that owners get only by paying XRP for it through the XRP Ledger testnet's XRP/DSUSD pool ([dsusd](../decisions/dsusd.md)). The keeper is a small program, on a VM of its own, that keeps the token's issuer, its own account and the pool in place, and holds the pool at XRP's price in mainnet's XRP/RLUSD pool: it follows the pool, and brings it back within a few ledgers of each trade.
 
 **Paths:** `apps/dsusd-keeper/`
 **Read with:** [XRPL](xrpl.md) (tokens, trust lines, the testnet), [Testing](testing.md)
@@ -17,7 +17,7 @@ It is tooling ([engineering](../engineering.md#where-the-rules-bend)): TypeScrip
 
 ## A run
 
-A run remembers nothing of the runs before it. It reads the exchange's ticker, then reads the ledger and takes one step, and reads again, until the plan is done (`src/plan.ts`):
+A run remembers nothing of the runs before it. It reads mainnet's XRP/RLUSD pool for the target ([below](#the-price)), then reads the testnet's ledger and takes one step, and reads again, until the plan is done (`src/plan.ts`):
 
 1. Fund the issuer and the keeper from the faucet if either is missing, which is also how a testnet reset is met.
 2. Set DefaultRipple on the issuer, and the keeper's line.
@@ -30,7 +30,7 @@ DSUSD the keeper needs for a step is minted to it first, as a step of its own. E
 
 **A run's bounds** are a number of steps, a time, and what its window may still spend (`BUDGET`, [below](#following-the-pool)): faucet requests, DSUSD minted, and withdrawals. A run that meets a bound, or fails, or cannot do what it must (it is stuck), says why; the next run starts again from the ledger. The faucet is best effort: when it fails, the run goes on without it, and is stuck only if it needed the XRP. A run's line holds the target, the pool after the run, its steps, and the two addresses.
 
-**Only on the testnet.** The keeper refuses a server that does not report the testnet's network ID.
+**Only on the testnet.** The keeper refuses a server that does not report the testnet's network ID for the ledger it signs on, and reads the price only from a server that reports mainnet's; it signs nothing on mainnet.
 
 `--once` runs once with a full budget, prints its line and exits; `--dry-run` prints the first step of a run and submits nothing.
 
@@ -47,9 +47,9 @@ The keeper is one process that runs the plan whenever the pool may be off the ta
 
 ## The price
 
-The target is the mid between the bid and the ask of one exchange's XRP/USD ticker, in millionths of a dollar ([dsusd](../decisions/dsusd.md)). Before it moves any money the keeper refuses a ticker that is stale or from the future, crossed, wider than a bound, or outside the prices it believes (`src/price.ts`): moving the pool on a broken price would mint or burn DSUSD for nothing.
+The target is XRP's price in mainnet's XRP/RLUSD pool, the RLUSD it holds per XRP, with RLUSD taken at par, in millionths of a dollar ([open-rate-sources](../decisions/open-rate-sources.md)). Each run reads it afresh, from a mainnet server (`DSUSD_KEEPER_PRICE_SERVER`, by default the project's mainnet proof server): the newest validated ledger, for its close time, and `amm_info` at that ledger's hash, so the pool's two sides and the time are all of one ledger. It reads without a proof: nothing of value rides on the testnet's price.
 
-The exchange's terms forbid publishing its price on a pool; a target from mainnet's XRP/RLUSD pool instead is not built yet ([roadmap](../roadmap.md#open-rate-sources)).
+Before it moves any money the keeper refuses a reading that is not of a validated ledger, that is stale or from the future by that ledger's close time, of a pool that is frozen or holds less XRP than its floor, or outside the prices it believes (`src/price.ts`): moving the pool on a broken price would mint or burn DSUSD for nothing. The floor is the one the node's peg guard takes for the same pool: a pool drained far below it moves cheaply, and one emptied is filled again at whatever ratio its first depositor picks. A server that cannot be read leaves the testnet's pool where it is, and the run fails.
 
 ## Repricing with DSUSD alone
 
@@ -70,11 +70,11 @@ A single-asset deposit or withdrawal of DSUSD moves the pool's DSUSD by exactly 
 
 ## Testing
 
-The pure parts are separate modules, each with `node --test` unit tests that never touch the network: the price from a ticker answer, the pool's math with the fee, the ledger's answers parsed, the transactions each step submits, the settings, the plan, and when a following keeper runs and what each window spends, on a clock the tests move. The plan's tests run whole runs against a model of the ledger that checks what the ledger checks (enough XRP, DSUSD and LP tokens for each step), from a fresh testnet, after traders moved the pool and the market moved, after a reset, and over a long seeded walk of both; each run must end at the target, within its budget, and without a step that pays the keeper XRP. The keeper itself is checked by hand on the testnet with fresh seeds, which also stands for a reset, and a trade against the pool it makes.
+The pure parts are separate modules, each with `node --test` unit tests that never touch the network: the price from answers recorded from mainnet, the pool's math with the fee, the ledger's answers parsed, the transactions each step submits, the settings, the plan, and when a following keeper runs and what each window spends, on a clock the tests move. The plan's tests run whole runs against a model of the ledger that checks what the ledger checks (enough XRP, DSUSD and LP tokens for each step), from a fresh testnet, after traders moved the pool and the market moved, after a reset, and over a long seeded walk of both; each run must end at the target, within its budget, and without a step that pays the keeper XRP. The keeper itself is checked by hand on the testnet with fresh seeds, which also stands for a reset, and a trade against the pool it makes.
 
 ## Decisions
 
-- [dsusd](../decisions/dsusd.md): DSUSD beside RLUSD, bought only with XRP through the pool, one exchange's price, and repricing with DSUSD alone.
+- [dsusd](../decisions/dsusd.md): DSUSD beside RLUSD, bought only with XRP through the pool, one source's price, and repricing with DSUSD alone.
 - [keeper-follows-the-pool](../decisions/keeper-follows-the-pool.md): repricing after each trade, with a budget per window of time.
-- [open-rate-sources](../decisions/open-rate-sources.md): mainnet's XRP/RLUSD pool as the target, in place of the exchange's ticker (not built).
+- [open-rate-sources](../decisions/open-rate-sources.md): mainnet's XRP/RLUSD pool as the target, read without a proof.
 - [issued-assets](../decisions/issued-assets.md): a dollar token is booked as `USD`, at par.

@@ -1,6 +1,6 @@
 # A node takes its rates only from sources whose terms allow its use: XRP's from mainnet's XRP/RLUSD pool, the fiat currencies' from central banks, with no peg guard until a dollar token has a price of its own
 
-**Areas:** [Connector](../areas/connector.md#exchange-rates), [XRPL](../areas/xrpl.md#the-peg-guard), [DSUSD keeper](../areas/dsusd-keeper.md#the-price), [Wallet](../areas/wallet.md). Not built yet ([roadmap](../roadmap.md#open-rate-sources)).
+**Areas:** [Connector](../areas/connector.md#exchange-rates), [XRPL](../areas/xrpl.md#the-peg-guard), [DSUSD keeper](../areas/dsusd-keeper.md#the-price), [Wallet](../areas/wallet.md). Only the keeper's target is built ([roadmap](../roadmap.md#open-rate-sources)).
 
 ## Facts
 
@@ -35,6 +35,7 @@
 - **The order books are not read.** Proving a book's best offers needs proofs of every better quality's absence, which no one has built; the pool is proven as it is.
 - **Fiat totals lag the market** by up to a day, and by several over a holiday. With four daily sources fixed at different hours, the middle two may disagree on a day the market moved, and a total is then shown no more until they agree again.
 - **Attribution.** The wallet carries a line naming the central banks.
+- **The keeper takes the pool as one ledger shows it,** with the node's floor but without its window: a pool pushed for a ledger or two moves DSUSD's pool as far, until the next run reads it back. That costs test XRP only.
 
 ## Rejected
 

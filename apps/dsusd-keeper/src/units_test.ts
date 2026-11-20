@@ -26,7 +26,7 @@ test("DSUSD's code is its letters in ASCII, padded to 160 bits", () => {
   assertThrows(() => currencyHex("dsusd"));
 });
 
-test("parseDecimal reads the ledger's and the exchange's forms exactly", () => {
+test("parseDecimal reads the ledger's forms exactly", () => {
   assertEquals(decimal("12.5"), { mantissa: 125n, exponent: -1 });
   assertEquals(decimal("-3"), { mantissa: -3n, exponent: 0 });
   assertEquals(decimal("9999999999999999e80"), {

@@ -1,23 +1,23 @@
 // The DSUSD keeper (spec/areas/dsusd-keeper.md,
 // spec/decisions/dsusd.md): holds the XRP Ledger testnet's XRP/DSUSD pool
-// at the exchange's XRP/USD price.
+// at the price of mainnet's XRP/RLUSD pool.
 //
 //   node apps/dsusd-keeper/main.ts [--once] [--dry-run]
 //
-// A run reads the ticker, then reads the ledger and takes the plan's next
-// step (src/plan.ts), again and again, until the plan is done or a bound
-// is reached. By default the keeper follows the pool: it runs at once
-// after someone else's transaction touched the pool, and otherwise once a
-// minute, for the market's moves, with a budget per window of time
-// (src/follow.ts); it prints a line for each run that did something or
-// could not, and one for each window. After its life it exits, and
-// systemd starts it again from the newest `main` (vm/). With `--once` it
-// runs once, prints one line and exits; `--dry-run` runs once, prints the
-// first step and submits nothing.
+// A run reads mainnet's pool for the price, then reads the testnet's
+// ledger and takes the plan's next step (src/plan.ts), again and again,
+// until the plan is done or a bound is reached. By default the keeper
+// follows the pool: it runs at once after someone else's transaction
+// touched the pool, and otherwise once a minute, for the market's moves,
+// with a budget per window of time (src/follow.ts); it prints a line for
+// each run that did something or could not, and one for each window.
+// After its life it exits, and systemd starts it again from the newest
+// `main` (vm/). With `--once` it runs once, prints one line and exits;
+// `--dry-run` runs once, prints the first step and submits nothing.
 //
 // It reads its settings from the environment (src/config.ts): the
 // issuer's and the keeper's seeds, which on the VM come from Secret
-// Manager (vm/run.sh).
+// Manager (vm/run.sh), and the servers it reads, which have defaults.
 
 import process from "node:process";
 import { parseArgs } from "node:util";
@@ -30,9 +30,9 @@ import {
   WINDOW_MS,
   WINDOWS_PER_LIFE,
 } from "./src/follow.ts";
-import { getJson, Ledger, type Listeners } from "./src/ledger.ts";
+import { Ledger, type Listeners, readMainnetPool } from "./src/ledger.ts";
 import { BUDGET, type Budget, describe, nextStep, spend } from "./src/plan.ts";
-import { targetPrice, TICKER_URL } from "./src/price.ts";
+import { targetPrice } from "./src/price.ts";
 import { type Addresses, transactionOf } from "./src/transactions.ts";
 import { DROPS_PER_XRP, formatUnits, type Result } from "./src/units.ts";
 
@@ -98,11 +98,18 @@ async function run(
     line: `${reason}; ${who}`,
     reason,
   });
-  const ticker = await getJson(TICKER_URL);
-  if (!ticker.ok) return failed(ticker.error);
-  const target = targetPrice(ticker.value, Date.now());
+  const answers = await readMainnetPool(settings.priceServer);
+  if (!answers.ok) return failed(answers.error);
+  const target = targetPrice(
+    answers.value.ledger,
+    answers.value.amm,
+    Date.now(),
+  );
   if (!target.ok) return failed(target.error);
   const price = target.value.usdMicrosPerXrp;
+  const targetLine = `target ${
+    formatUnits(price, 6)
+  } USD/XRP at mainnet ledger ${target.value.ledgerIndex}`;
 
   const done: string[] = [];
   const notes: string[] = [];
@@ -112,7 +119,7 @@ async function run(
       const step = nextStep(state, price, settings, budget);
       if (dryRun || step.kind === "done" || step.kind === "stuck") {
         const parts = [
-          `target ${formatUnits(price, 6)} USD/XRP`,
+          targetLine,
           poolLine(state.pool),
           done.length === 0 ? "nothing done" : done.join(", "),
           ...(dryRun || step.kind === "stuck"
@@ -153,9 +160,9 @@ async function run(
       kind: "bounded",
       budget,
       steps: done.length,
-      line: `target ${
-        formatUnits(price, 6)
-      } USD/XRP; ${STEPS_MAX} steps and not done: ${done.join(", ")}; ${who}`,
+      line: `${targetLine}; ${STEPS_MAX} steps and not done: ${
+        done.join(", ")
+      }; ${who}`,
       reason: `${STEPS_MAX} steps and not done`,
     };
   } catch (error) {

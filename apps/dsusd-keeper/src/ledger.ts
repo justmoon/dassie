@@ -1,6 +1,6 @@
 // The keeper's IO: the XRP Ledger testnet through xrpl.js, its faucet, and
-// the exchange's ticker. Every request has a timeout and every wait a
-// bound; what comes back is parsed by the pure modules.
+// mainnet's XRP/RLUSD pool, the price. Every request has a timeout and
+// every wait a bound; what comes back is parsed by the pure modules.
 
 import {
   Client,
@@ -17,13 +17,16 @@ import {
   parseLpTokens,
   parsePool,
 } from "./state.ts";
+import { RLUSD_CURRENCY, RLUSD_ISSUER } from "./price.ts";
 import { DSUSD_CURRENCY, type Result } from "./units.ts";
 
 /** The testnet's network ID: the keeper acts on no other ledger. */
 export const TESTNET_NETWORK_ID = 1;
-/** Timeouts: connecting, each request, the faucet and the ticker. A
- * submitted transaction is waited for until its last ledger has passed,
- * which xrpl.js sets a bounded number of ledgers ahead. */
+/** Mainnet's network ID: the price is read from no other ledger. */
+export const MAINNET_NETWORK_ID = 0;
+/** Timeouts: connecting, each request, and the faucet. A submitted
+ * transaction is waited for until its last ledger has passed, which
+ * xrpl.js sets a bounded number of ledgers ahead. */
 const CONNECT_TIMEOUT_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 20_000;
 const HTTP_TIMEOUT_MS = 20_000;
@@ -78,15 +81,11 @@ export class Ledger {
       });
     }
     try {
-      const info = await client.request({ command: "server_info" });
-      const network = (info.result.info as { network_id?: unknown })
-        .network_id;
-      if (network !== TESTNET_NETWORK_ID) {
-        throw new Error(`${server} serves network ${network}, not the testnet`);
-      }
+      await checkNetwork(client, TESTNET_NETWORK_ID, "the testnet");
     } catch (error) {
       await ledger.close();
-      throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`${server}: ${message}`);
     }
     return ledger;
   }
@@ -215,15 +214,65 @@ export class Ledger {
   }
 }
 
+/** What mainnet's server answered for the price: `ledger`'s result for
+ * its newest validated ledger, and `amm_info`'s for the XRP/RLUSD pool at
+ * that ledger, which `targetPrice` checks (src/price.ts). */
+export type PoolAnswers = { ledger: unknown; amm: unknown };
+
+/** Reads mainnet's XRP/RLUSD pool from `server`, on a connection of its
+ * own, after checking that the server serves mainnet. It reads without a
+ * proof (spec/decisions/open-rate-sources.md): nothing of value rides on
+ * the testnet's price, and the price is checked before it moves money. */
+export async function readMainnetPool(
+  server: string,
+): Promise<Result<PoolAnswers>> {
+  const client = new Client(server, {
+    connectionTimeout: CONNECT_TIMEOUT_MS,
+    timeout: REQUEST_TIMEOUT_MS,
+  });
+  try {
+    await client.connect();
+    await checkNetwork(client, MAINNET_NETWORK_ID, "mainnet");
+    const ledger = await client.request({
+      command: "ledger",
+      ledger_index: "validated",
+    });
+    const amm = await client.request({
+      command: "amm_info",
+      asset: { currency: "XRP" },
+      asset2: { currency: RLUSD_CURRENCY, issuer: RLUSD_ISSUER },
+      ledger_hash: ledger.result.ledger_hash,
+    });
+    return { ok: true, value: { ledger: ledger.result, amm: amm.result } };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: `price: ${server}: ${message}` };
+  } finally {
+    try {
+      await client.disconnect();
+    } catch (_error) {
+      // A connection already gone has nothing to close.
+    }
+  }
+}
+
+/** Throws unless `client`'s server reports network `id`, named `name`. */
+async function checkNetwork(
+  client: Client,
+  id: number,
+  name: string,
+): Promise<void> {
+  const info = await client.request({ command: "server_info" });
+  const network = (info.result.info as { network_id?: unknown }).network_id;
+  if (network !== id) {
+    throw new Error(`serves network ${network}, not ${name}`);
+  }
+}
+
 /** A parsed answer, or the run stops on it. */
 function expect<T>(result: Result<T>): T {
   if (!result.ok) throw new Error(result.error);
   return result.value;
-}
-
-/** GETs `url` as JSON, bounded in time and size. */
-export async function getJson(url: string): Promise<Result<unknown>> {
-  return await http(url, { method: "GET" });
 }
 
 async function post(url: string, body: unknown): Promise<Result<unknown>> {

@@ -21,7 +21,7 @@
 
 - **The pool is off the market for a few ledgers after each trade:** the keeper hears of a trade once its ledger is validated, and mints and deposits in two transactions, each waiting for its own ledger. On the testnet, a trade was repriced four ledgers later, about fifteen seconds, against the ten minutes the guard waits.
 - **A trade still pays its own slippage.** Following brings the pool back after a trade, not during it: buying 50 DSUSD at once from a pool this deep costs a few percent above the market. A deeper pool is a setting of the keeper's, apart from this.
-- **A run per ledger while trades come every ledger,** each with a ticker request and a read of the ledger: a few requests every few seconds, on a testnet with little trading.
+- **A run per ledger while trades come every ledger,** each with a read of mainnet's pool and of the testnet's ledger: a few requests every few seconds, on a testnet with little trading.
 - **Two budgets can go out seconds apart,** at a window's boundary: a run just before it spends the rest of its window's, and one just after it starts on a full one, where the timer kept runs five minutes apart. Over any stretch of time, the keeper spends no more than a budget per window and one more.
 - **A few seconds without a keeper each hour,** and longer when the start fetches a new toolchain, while systemd starts it again.
 
@@ -32,4 +32,4 @@
 - *Leaving reconnecting to xrpl.js:* it connects again by itself, but without the subscription, and the keeper would follow nothing without knowing.
 - *Holding DSUSD ready between runs,* to save the mint's ledger: the keeper would hold DSUSD that neither the pool nor a buyer does, which [dsusd](dsusd.md) keeps to the pool and its buyers, to save one ledger of a few.
 - *Waiting out the window in the process after a failure:* it covers only the failures the process catches, not a start that fails before the keeper runs, a crash or a process killed for its memory.
-- *A budget per run:* with a run per ledger, a misread ticker or pool could cost each run's budget again every few seconds.
+- *A budget per run:* with a run per ledger, a misread price or pool could cost each run's budget again every few seconds.
