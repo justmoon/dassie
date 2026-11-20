@@ -1212,6 +1212,19 @@ rec {
         };
         resolvedDefaultFeatures = [ "alloc" "default" "simd-unsafe" "std" ];
       };
+      "base64ct" = rec {
+        crateName = "base64ct";
+        version = "1.8.3";
+        edition = "2024";
+        sha256 = "01nyyyx84bhwrcc168hn47d8gvz2pzpv3y3lmck7mq4hw5vh3x9a";
+        authors = [
+          "RustCrypto Developers"
+        ];
+        features = {
+          "std" = [ "alloc" ];
+        };
+        resolvedDefaultFeatures = [ "alloc" ];
+      };
       "beef" = rec {
         crateName = "beef";
         version = "0.5.2";
@@ -2900,7 +2913,7 @@ rec {
           }
           {
             name = "syn";
-            packageId = "syn 2.0.119";
+            packageId = "syn 3.0.9";
             features = [ "full" "extra-traits" ];
           }
         ];
@@ -2950,9 +2963,9 @@ rec {
       };
       "ctutils" = rec {
         crateName = "ctutils";
-        version = "0.4.5";
+        version = "0.4.8";
         edition = "2024";
-        sha256 = "182gbkq9y4j8rpwyf2iwlvdpn5sw257fd8yizyrq1mkxmav8zliq";
+        sha256 = "0ks7pq37idp67pdiwkm1dq6m65rlpb5xh5w7g998msh6gbfg86i6";
         authors = [
           "RustCrypto Developers"
         ];
@@ -3968,6 +3981,11 @@ rec {
             packageId = "listenfd";
           }
           {
+            name = "ml-kem";
+            packageId = "ml-kem";
+            features = [ "hazmat" "zeroize" ];
+          }
+          {
             name = "prost";
             packageId = "prost";
           }
@@ -4072,6 +4090,11 @@ rec {
           {
             name = "x509-parser";
             packageId = "x509-parser";
+          }
+          {
+            name = "zeroize";
+            packageId = "zeroize";
+            usesDefaultFeatures = false;
           }
         ];
         buildDependencies = [
@@ -4884,7 +4907,7 @@ rec {
           "time" = [ "dep:time" ];
           "zeroize" = [ "dep:zeroize" ];
         };
-        resolvedDefaultFeatures = [ "oid" "zeroize" ];
+        resolvedDefaultFeatures = [ "alloc" "oid" "zeroize" ];
       };
       "der-parser" = rec {
         crateName = "der-parser";
@@ -6009,7 +6032,7 @@ rec {
           }
           {
             name = "windows-sys";
-            packageId = "windows-sys 0.52.0";
+            packageId = "windows-sys 0.61.2";
             target = { target, features }: (target."windows" or false);
             features = [ "Win32_Foundation" "Win32_System_Diagnostics_Debug" ];
           }
@@ -8254,6 +8277,11 @@ rec {
         ];
         dependencies = [
           {
+            name = "ctutils";
+            packageId = "ctutils";
+            optional = true;
+          }
+          {
             name = "subtle";
             packageId = "subtle";
             optional = true;
@@ -8281,7 +8309,7 @@ rec {
           "zerocopy" = [ "dep:zerocopy" ];
           "zeroize" = [ "dep:zeroize" ];
         };
-        resolvedDefaultFeatures = [ "extra-sizes" "subtle" "zeroize" ];
+        resolvedDefaultFeatures = [ "ctutils" "extra-sizes" "subtle" "zeroize" ];
       };
       "hyper" = rec {
         crateName = "hyper";
@@ -10336,6 +10364,30 @@ rec {
           "parallel" = [ "dep:hybrid-array" ];
         };
       };
+      "kem" = rec {
+        crateName = "kem";
+        version = "0.3.0";
+        edition = "2024";
+        sha256 = "1p8ycb3p0l804s0rl92c951lkfiqklhbvdc6sk7lja40p9hp2wq1";
+        authors = [
+          "RustCrypto Developers"
+        ];
+        dependencies = [
+          {
+            name = "crypto-common";
+            packageId = "crypto-common 0.2.2";
+            rename = "common";
+            features = [ "rand_core" ];
+          }
+          {
+            name = "rand_core";
+            packageId = "rand_core";
+          }
+        ];
+        features = {
+          "getrandom" = [ "common/getrandom" ];
+        };
+      };
       "keyboard-types" = rec {
         crateName = "keyboard-types";
         version = "0.8.3";
@@ -11145,6 +11197,99 @@ rec {
           "os-ext" = [ "os-poll" "windows-sys/Win32_System_Pipes" "windows-sys/Win32_Security" ];
         };
         resolvedDefaultFeatures = [ "net" "os-ext" "os-poll" ];
+      };
+      "ml-kem" = rec {
+        crateName = "ml-kem";
+        version = "0.3.4";
+        edition = "2024";
+        sha256 = "1ld0ch5vgdhnfc3dhr8v23c8285bmpl3ls91z94hs1a6dyv7ijl4";
+        libName = "ml_kem";
+        dependencies = [
+          {
+            name = "hybrid-array";
+            packageId = "hybrid-array";
+            rename = "array";
+            features = [ "ctutils" "extra-sizes" ];
+          }
+          {
+            name = "kem";
+            packageId = "kem";
+          }
+          {
+            name = "module-lattice";
+            packageId = "module-lattice";
+            features = [ "ctutils" ];
+          }
+          {
+            name = "pkcs8";
+            packageId = "pkcs8";
+            optional = true;
+            usesDefaultFeatures = false;
+          }
+          {
+            name = "rand_core";
+            packageId = "rand_core";
+          }
+          {
+            name = "sha3";
+            packageId = "sha3 0.12.0";
+            usesDefaultFeatures = false;
+          }
+          {
+            name = "shake";
+            packageId = "shake";
+            usesDefaultFeatures = false;
+          }
+          {
+            name = "zeroize";
+            packageId = "zeroize";
+            optional = true;
+            usesDefaultFeatures = false;
+          }
+        ];
+        features = {
+          "alloc" = [ "module-lattice/alloc" "pkcs8?/alloc" ];
+          "default" = [ "alloc" ];
+          "getrandom" = [ "kem/getrandom" ];
+          "pem" = [ "pkcs8/pem" ];
+          "pkcs8" = [ "dep:const-oid" "dep:pkcs8" ];
+          "zeroize" = [ "module-lattice/zeroize" "dep:zeroize" ];
+        };
+        resolvedDefaultFeatures = [ "alloc" "default" "hazmat" "zeroize" ];
+      };
+      "module-lattice" = rec {
+        crateName = "module-lattice";
+        version = "0.2.4";
+        edition = "2024";
+        sha256 = "0mb1n8zy9w0lfm4hg7qva6r9d76435i809zlg33a30zfr09f98f4";
+        libName = "module_lattice";
+        dependencies = [
+          {
+            name = "ctutils";
+            packageId = "ctutils";
+          }
+          {
+            name = "hybrid-array";
+            packageId = "hybrid-array";
+            rename = "array";
+            features = [ "ctutils" "extra-sizes" ];
+          }
+          {
+            name = "num-traits";
+            packageId = "num-traits";
+            usesDefaultFeatures = false;
+          }
+          {
+            name = "zeroize";
+            packageId = "zeroize";
+            optional = true;
+            usesDefaultFeatures = false;
+          }
+        ];
+        features = {
+          "zeroize" = [ "array/zeroize" "dep:zeroize" ];
+        };
+        resolvedDefaultFeatures = [ "alloc" "ctutils" "zeroize" ];
       };
       "moxcms" = rec {
         crateName = "moxcms";
@@ -14093,6 +14238,7 @@ rec {
           "sha1-insecure" = [ "encryption" "pkcs5/sha1-insecure" ];
           "std" = [ "alloc" "der/std" "spki/std" ];
         };
+        resolvedDefaultFeatures = [ "alloc" ];
       };
       "pkg-config" = rec {
         crateName = "pkg-config";
@@ -15281,7 +15427,7 @@ rec {
           }
           {
             name = "windows-sys";
-            packageId = "windows-sys 0.52.0";
+            packageId = "windows-sys 0.61.2";
             target = { target, features }: (target."windows" or false);
             features = [ "Win32_Foundation" "Win32_System_IO" "Win32_Networking_WinSock" ];
           }
@@ -16306,7 +16452,7 @@ rec {
           }
           {
             name = "windows-sys";
-            packageId = "windows-sys 0.52.0";
+            packageId = "windows-sys 0.61.2";
             target = { target, features }: (target."windows" or false);
             features = [ "Win32_Foundation" "Win32_Networking_WinSock" ];
           }
@@ -16561,7 +16707,7 @@ rec {
           }
           {
             name = "windows-sys";
-            packageId = "windows-sys 0.52.0";
+            packageId = "windows-sys 0.61.2";
             usesDefaultFeatures = false;
             target = { target, features }: (target."windows" or false);
             features = [ "Win32_Foundation" "Win32_Security_Cryptography" ];
@@ -17826,7 +17972,7 @@ rec {
         };
         resolvedDefaultFeatures = [ "alloc" "default" "oid" "zeroize" ];
       };
-      "sha3" = rec {
+      "sha3 0.11.0" = rec {
         crateName = "sha3";
         version = "0.11.0";
         edition = "2024";
@@ -17856,6 +18002,81 @@ rec {
           "default" = [ "alloc" "oid" ];
           "oid" = [ "digest/oid" ];
           "zeroize" = [ "digest/zeroize" ];
+        };
+      };
+      "sha3 0.12.0" = rec {
+        crateName = "sha3";
+        version = "0.12.0";
+        edition = "2024";
+        sha256 = "0n8pq71mj055aa7rdmzcxra4npi8g7qwd4i65m5p50k3q81av6xw";
+        authors = [
+          "RustCrypto Developers"
+        ];
+        dependencies = [
+          {
+            name = "digest";
+            packageId = "digest 0.11.3";
+            usesDefaultFeatures = false;
+          }
+          {
+            name = "keccak";
+            packageId = "keccak";
+          }
+          {
+            name = "sponge-cursor";
+            packageId = "sponge-cursor";
+          }
+        ];
+        devDependencies = [
+          {
+            name = "digest";
+            packageId = "digest 0.11.3";
+            usesDefaultFeatures = false;
+            features = [ "dev" ];
+          }
+        ];
+        features = {
+          "alloc" = [ "digest/alloc" ];
+          "default" = [ "alloc" "oid" ];
+          "oid" = [ "digest/oid" ];
+          "zeroize" = [ "digest/zeroize" "sponge-cursor/zeroize" ];
+        };
+      };
+      "shake" = rec {
+        crateName = "shake";
+        version = "0.1.0";
+        edition = "2024";
+        sha256 = "0jkwjihnygh6qdlrq8i1jhhm9hx4z58v69hyvb9cpm4s2jr7q189";
+        authors = [
+          "RustCrypto Developers"
+        ];
+        dependencies = [
+          {
+            name = "digest";
+            packageId = "digest 0.11.3";
+            usesDefaultFeatures = false;
+          }
+          {
+            name = "keccak";
+            packageId = "keccak";
+          }
+          {
+            name = "sponge-cursor";
+            packageId = "sponge-cursor";
+          }
+        ];
+        devDependencies = [
+          {
+            name = "digest";
+            packageId = "digest 0.11.3";
+            usesDefaultFeatures = false;
+            features = [ "dev" ];
+          }
+        ];
+        features = {
+          "alloc" = [ "digest/alloc" ];
+          "default" = [ "alloc" ];
+          "zeroize" = [ "digest/zeroize" "sponge-cursor/zeroize" ];
         };
       };
       "sharded-slab" = rec {
@@ -18071,7 +18292,7 @@ rec {
           }
           {
             name = "sha3";
-            packageId = "sha3";
+            packageId = "sha3 0.11.0";
             usesDefaultFeatures = false;
           }
           {
@@ -18370,6 +18591,12 @@ rec {
         ];
         dependencies = [
           {
+            name = "base64ct";
+            packageId = "base64ct";
+            optional = true;
+            usesDefaultFeatures = false;
+          }
+          {
             name = "der";
             packageId = "der";
             features = [ "oid" ];
@@ -18384,6 +18611,20 @@ rec {
           "pem" = [ "alloc" "der/pem" ];
           "sha2" = [ "dep:sha2" ];
           "std" = [ "der/std" "alloc" ];
+        };
+        resolvedDefaultFeatures = [ "alloc" ];
+      };
+      "sponge-cursor" = rec {
+        crateName = "sponge-cursor";
+        version = "0.1.0";
+        edition = "2024";
+        sha256 = "0836pjdf7sdsy5hpzpgsvzpqp7xcw6azchagb8j5i7cpgnyij0is";
+        libName = "sponge_cursor";
+        authors = [
+          "RustCrypto Developers"
+        ];
+        features = {
+          "zeroize" = [ "dep:zeroize" ];
         };
       };
       "sqlite-wasm-rs" = rec {
@@ -20286,7 +20527,7 @@ rec {
           }
           {
             name = "windows-sys";
-            packageId = "windows-sys 0.52.0";
+            packageId = "windows-sys 0.61.2";
             target = { target, features }: (target."windows" or false);
             features = [ "Win32_Storage_FileSystem" "Win32_Foundation" ];
           }
@@ -23379,7 +23620,7 @@ rec {
         dependencies = [
           {
             name = "windows-sys";
-            packageId = "windows-sys 0.52.0";
+            packageId = "windows-sys 0.61.2";
             target = { target, features }: (target."windows" or false);
             features = [ "Win32_Foundation" "Win32_Storage_FileSystem" "Win32_System_Console" "Win32_System_SystemInformation" ];
           }
@@ -24903,7 +25144,7 @@ rec {
           "Win32_Web" = [ "Win32" ];
           "Win32_Web_InternetExplorer" = [ "Win32_Web" ];
         };
-        resolvedDefaultFeatures = [ "Win32" "Win32_Foundation" "Win32_Networking" "Win32_Networking_WinSock" "Win32_Security" "Win32_Security_Cryptography" "Win32_Storage" "Win32_Storage_FileSystem" "Win32_System" "Win32_System_Console" "Win32_System_Diagnostics" "Win32_System_Diagnostics_Debug" "Win32_System_IO" "Win32_System_SystemInformation" "Win32_System_Threading" "default" ];
+        resolvedDefaultFeatures = [ "Win32" "Win32_Foundation" "Win32_System" "Win32_System_Threading" "default" ];
       };
       "windows-sys 0.61.2" = rec {
         crateName = "windows-sys";
