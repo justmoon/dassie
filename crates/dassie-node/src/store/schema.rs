@@ -38,6 +38,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     MIGRATION_13,
     MIGRATION_14,
     MIGRATION_15,
+    MIGRATION_16,
 ];
 
 /// The schema version this code writes.
@@ -766,6 +767,29 @@ SELECT network, 0, verifier FROM (
 WHERE newest = 1;
 
 ALTER TABLE hub_escrow DROP COLUMN verifier;
+";
+
+/// Migration 16: the kinds of rate source a node may list widen to the
+/// central banks beside the ECB, and to XRP's rate from an XRP Ledger pool,
+/// which takes a URL as a Coinbase-format source does
+/// (spec/areas/connector.md#sources). SQLite changes no CHECK in place, so
+/// the table is built anew, with every row as it was.
+const MIGRATION_16: &str = "
+CREATE TABLE rate_sources_16 (
+  position INTEGER PRIMARY KEY CHECK (position BETWEEN 0 AND 7),
+  kind TEXT NOT NULL CHECK (kind IN ('coinbase', 'kraken', 'bitstamp', 'ecb',
+    'norges-bank', 'bank-of-canada', 'cnb', 'xrpl-pool')),
+  -- Only the Coinbase format is served by others too, and a pool is read
+  -- from a server the owner may name.
+  url TEXT CHECK (url IS NULL OR (kind IN ('coinbase', 'xrpl-pool') AND length(url) BETWEEN 9 AND 2048))
+) STRICT;
+
+INSERT INTO rate_sources_16 (position, kind, url)
+SELECT position, kind, url FROM rate_sources;
+
+DROP TABLE rate_sources;
+
+ALTER TABLE rate_sources_16 RENAME TO rate_sources;
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.

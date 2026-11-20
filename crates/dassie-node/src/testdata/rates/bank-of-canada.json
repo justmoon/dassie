@@ -1,0 +1,108 @@
+{
+    "terms": {
+        "url": "https://www.bankofcanada.ca/terms/"
+    },
+    "seriesDetail": {
+        "FXAUDCAD": {
+            "label": "AUD/CAD",
+            "description": "Daily average exchange rate of the Australian dollar in Canadian dollars.",
+            "dimension": {
+                "key": "d",
+                "name": "Date"
+            },
+            "dateFormat": "daily",
+            "metadata": {
+                "unit": "Canadian dollars per Australian dollar",
+                "frequency": "Business daily"
+            }
+        },
+        "FXCHFCAD": {
+            "label": "CHF/CAD",
+            "description": "Daily average exchange rate of the Swiss franc in Canadian dollars.",
+            "dimension": {
+                "key": "d",
+                "name": "Date"
+            },
+            "dateFormat": "daily",
+            "metadata": {
+                "unit": "Canadian dollars per Swiss franc",
+                "frequency": "Business daily"
+            }
+        },
+        "FXEURCAD": {
+            "label": "EUR/CAD",
+            "description": "Daily average exchange rate of the euro in Canadian dollars.",
+            "dimension": {
+                "key": "d",
+                "name": "Date"
+            },
+            "dateFormat": "daily",
+            "metadata": {
+                "unit": "Canadian dollars per euro",
+                "frequency": "Business daily"
+            }
+        },
+        "FXGBPCAD": {
+            "label": "GBP/CAD",
+            "description": "Daily average exchange rate of the UK pound sterling in Canadian dollars.",
+            "dimension": {
+                "key": "d",
+                "name": "Date"
+            },
+            "dateFormat": "daily",
+            "metadata": {
+                "unit": "Canadian dollars per UK pound sterling",
+                "frequency": "Business daily"
+            }
+        },
+        "FXJPYCAD": {
+            "label": "JPY/CAD",
+            "description": "Daily average exchange rate of the Japanese yen in Canadian dollars.",
+            "dimension": {
+                "key": "d",
+                "name": "Date"
+            },
+            "dateFormat": "daily",
+            "metadata": {
+                "unit": "Canadian dollars per Japanese yen",
+                "frequency": "Business daily"
+            }
+        },
+        "FXUSDCAD": {
+            "label": "USD/CAD",
+            "description": "Daily average exchange rate of the US dollar in Canadian dollars.",
+            "dimension": {
+                "key": "d",
+                "name": "Date"
+            },
+            "dateFormat": "daily",
+            "metadata": {
+                "unit": "Canadian dollars per US dollar",
+                "frequency": "Business daily"
+            }
+        }
+    },
+    "observations": [
+        {
+            "d": "2026-11-19",
+            "FXUSDCAD": {
+                "v": "1.4317"
+            },
+            "FXAUDCAD": {
+                "v": "0.9568"
+            },
+            "FXCHFCAD": {
+                "v": "1.6978"
+            },
+            "FXEURCAD": {
+                "v": "1.5726"
+            },
+            "FXGBPCAD": {
+                "v": "1.8783"
+            },
+            "FXJPYCAD": {
+                "v": "0.008960"
+            }
+        }
+    ]
+}

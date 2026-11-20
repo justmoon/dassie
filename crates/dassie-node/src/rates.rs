@@ -35,6 +35,27 @@ const ONE: u128 = 10u128.pow(RATE_PRECISION);
 /// Tuesday's: five days. Older ones mean it, or the node's clock, stopped.
 pub const MAX_ECB_AGE_DAYS: u64 = 5;
 
+/// How many days old Norges Bank's newest rates may be. It publishes them
+/// at about 16:00 CET on each Norwegian business day, and not on Christmas
+/// Eve. Its longest gaps leave Wednesday's rates standing until Tuesday's
+/// over Easter (Maundy Thursday, Good Friday, Easter Monday), and, with
+/// Christmas Eve on a Monday, Friday's until Thursday's: six days.
+pub const MAX_NORGES_BANK_AGE_DAYS: u64 = 6;
+
+/// How many days old the Bank of Canada's newest rates may be. It
+/// publishes them at 16:30 ET on each of its business days. Its longest
+/// gap, Christmas and Boxing Day beside a weekend, leaves the rates of
+/// the 23rd or 24th standing for five days; Easter, with Good Friday only,
+/// takes four.
+pub const MAX_BANK_OF_CANADA_AGE_DAYS: u64 = 5;
+
+/// How many days old the Czech National Bank's newest fixing may be. It
+/// fixes its rates after 14:30 CET on each Czech business day, and the
+/// 24th to the 26th of December are holidays: with Christmas Eve on a
+/// Monday, Friday's fixing stands until Thursday's, and on a Wednesday,
+/// Tuesday's until Monday's: six days. Easter takes five.
+pub const MAX_CNB_AGE_DAYS: u64 = 6;
+
 /// A day, in milliseconds.
 const MS_PER_DAY: u64 = 86_400_000;
 
@@ -118,11 +139,35 @@ pub enum SourceKind {
     /// euros: the fiat currencies, from the central banks' daily
     /// concertation.
     Ecb,
+    /// Norges Bank's daily exchange rates, from its SDMX API's `EXR`
+    /// dataflow, in Norwegian kroner: the fiat currencies. Open data under
+    /// the Norwegian Licence for Open Government Data (NLOD 2.0), with
+    /// Norges Bank named as the source
+    /// (<https://data.norge.no/en/datasets/23076ce8-b442-407c-817f-0d4ec3cbe744>).
+    NorgesBank,
+    /// The Bank of Canada's daily average exchange rates, from its Valet
+    /// API's `FX_RATES_DAILY` series, in Canadian dollars: the fiat
+    /// currencies. Its terms let anyone use and redistribute its content
+    /// with the Bank named as the source (<https://www.bankofcanada.ca/terms/>).
+    BankOfCanada,
+    /// The Czech National Bank's daily exchange rate fixing, `daily.txt`,
+    /// in Czech koruny: the fiat currencies. Its terms let anyone store,
+    /// distribute and reproduce it with the CNB named as the source
+    /// (<https://www.cnb.cz/en/privacy-statement-and-disclaimer/disclaimer-copyright/>).
+    Cnb,
 }
 
 impl SourceKind {
     /// Every kind.
-    pub const ALL: [Self; 4] = [Self::Coinbase, Self::Kraken, Self::Bitstamp, Self::Ecb];
+    pub const ALL: [Self; 7] = [
+        Self::Coinbase,
+        Self::Kraken,
+        Self::Bitstamp,
+        Self::Ecb,
+        Self::NorgesBank,
+        Self::BankOfCanada,
+        Self::Cnb,
+    ];
 
     /// Its name, as the database and the wallet have it.
     #[must_use]
@@ -132,6 +177,9 @@ impl SourceKind {
             Self::Kraken => "kraken",
             Self::Bitstamp => "bitstamp",
             Self::Ecb => "ecb",
+            Self::NorgesBank => "norges-bank",
+            Self::BankOfCanada => "bank-of-canada",
+            Self::Cnb => "cnb",
         }
     }
 
@@ -151,6 +199,15 @@ impl SourceKind {
             }
             Self::Bitstamp => "https://www.bitstamp.net/api/v2/ticker/xrpusd/",
             Self::Ecb => "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+            Self::NorgesBank => {
+                "https://data.norges-bank.no/api/data/EXR/B.USD+EUR+GBP+JPY+CHF+CAD+AUD.NOK.SP?format=csv&labels=id&lastNObservations=1"
+            }
+            Self::BankOfCanada => {
+                "https://www.bankofcanada.ca/valet/observations/FXUSDCAD,FXEURCAD,FXGBPCAD,FXJPYCAD,FXCHFCAD,FXAUDCAD/json?recent=1"
+            }
+            Self::Cnb => {
+                "https://www.cnb.cz/en/financial-markets/foreign-exchange-market/central-bank-exchange-rate-fixing/central-bank-exchange-rate-fixing/daily.txt"
+            }
         }
     }
 
@@ -158,8 +215,12 @@ impl SourceKind {
     #[must_use]
     pub const fn accept(self) -> &'static str {
         match self {
-            Self::Coinbase | Self::Kraken | Self::Bitstamp => "application/json",
+            Self::Coinbase | Self::Kraken | Self::Bitstamp | Self::BankOfCanada => {
+                "application/json"
+            }
             Self::Ecb => "text/xml",
+            Self::NorgesBank => "text/csv",
+            Self::Cnb => "text/plain",
         }
     }
 
@@ -169,7 +230,7 @@ impl SourceKind {
         match self {
             Self::Coinbase | Self::Kraken => true,
             Self::Bitstamp => code == "XRP",
-            Self::Ecb => code != "XRP",
+            Self::Ecb | Self::NorgesBank | Self::BankOfCanada | Self::Cnb => code != "XRP",
         }
     }
 }
@@ -190,12 +251,20 @@ impl RateSource {
         Self { kind, url: None }
     }
 
-    /// The sources a new node starts with: one of each kind, which cover
-    /// every currency three times, so that one wrong or silent source
-    /// cannot take a rate outside what the others say.
+    /// The sources a new node starts with: Coinbase, Kraken, Bitstamp and
+    /// the ECB, which cover every currency three times, so that one wrong
+    /// or silent source cannot take a rate outside what the others say.
     #[must_use]
     pub fn defaults() -> Vec<Self> {
-        SourceKind::ALL.into_iter().map(Self::of).collect()
+        [
+            SourceKind::Coinbase,
+            SourceKind::Kraken,
+            SourceKind::Bitstamp,
+            SourceKind::Ecb,
+        ]
+        .into_iter()
+        .map(Self::of)
+        .collect()
     }
 
     /// Where to fetch it.
@@ -299,6 +368,9 @@ pub fn parse(
         SourceKind::Kraken => kraken(&json()?),
         SourceKind::Bitstamp => bitstamp(&json()?),
         SourceKind::Ecb => ecb(body, now_ms),
+        SourceKind::NorgesBank => norges_bank(body, now_ms),
+        SourceKind::BankOfCanada => bank_of_canada(&json()?, now_ms),
+        SourceKind::Cnb => cnb(body, now_ms),
     }
 }
 
@@ -378,18 +450,11 @@ fn ecb(body: &[u8], now_ms: u64) -> Result<Vec<(&'static str, u128)>, Unreadable
         }
     }
     let day = day.ok_or(Unreadable("no day"))?;
-    let published = Some(day)
-        .filter(|day| day.len() == 10)
-        .and_then(|day| dassie_payments::time::parse_rfc3339(&format!("{day}T00:00:00Z")).ok())
-        .ok_or(Unreadable("not a day"))?
-        / MS_PER_DAY;
-    let today = now_ms / MS_PER_DAY;
-    if published > today {
-        return Err(Unreadable("rates of a day to come"));
-    }
-    if today - published > MAX_ECB_AGE_DAYS {
-        return Err(Unreadable("rates too old"));
-    }
+    recent(
+        day_number(day).ok_or(Unreadable("not a day"))?,
+        now_ms,
+        MAX_ECB_AGE_DAYS,
+    )?;
     rebase("EUR", |code| {
         rates
             .iter()
@@ -412,6 +477,211 @@ fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
                 .and_then(|inner| inner.strip_suffix(quote))
         })
     })
+}
+
+/// Norges Bank's `EXR` dataflow as CSV with IDs for labels: a header, then
+/// a row per currency with its `BASE_CUR`, `QUOTE_CUR`, `UNIT_MULT`,
+/// `TIME_PERIOD` and `OBS_VALUE`, separated by semicolons. A row says what
+/// 10^`UNIT_MULT` units of `BASE_CUR` cost in `QUOTE_CUR`, kroner. Columns
+/// are found by the header's names. Only the newest day's rows are read; a
+/// row of another quote currency, or whose units or rate do not read, is
+/// left out, and one whose day does not read refuses the answer. Rates of
+/// a day to come, or more than [`MAX_NORGES_BANK_AGE_DAYS`] old, are
+/// refused.
+fn norges_bank(body: &[u8], now_ms: u64) -> Result<Vec<(&'static str, u128)>, Unreadable> {
+    let text = std::str::from_utf8(body).map_err(|_| Unreadable("not text"))?;
+    let mut lines = text.lines().map(|line| line.trim_end_matches('\r'));
+    let header: Vec<&str> = lines
+        .next()
+        .ok_or(Unreadable("no header"))?
+        .split(';')
+        .collect();
+    let column = |name: &str| {
+        header
+            .iter()
+            .position(|given| *given == name)
+            .ok_or(Unreadable("not Norges Bank's columns"))
+    };
+    let (code, quote, power, time, value) = (
+        column("BASE_CUR")?,
+        column("QUOTE_CUR")?,
+        column("UNIT_MULT")?,
+        column("TIME_PERIOD")?,
+        column("OBS_VALUE")?,
+    );
+    let mut rows = Vec::new();
+    for line in lines.filter(|line| !line.is_empty()) {
+        let fields: Vec<&str> = line.split(';').collect();
+        let field = |at: usize| fields.get(at).copied().unwrap_or_default();
+        if fields.len() != header.len() || field(quote) != "NOK" {
+            continue;
+        }
+        let day = day_number(field(time)).ok_or(Unreadable("not a day"))?;
+        let units = whole(field(power))
+            .filter(|power| *power <= 9)
+            .and_then(|power| 10u128.checked_pow(u32::try_from(power).ok()?));
+        rows.push((day, field(code), decimal(field(value)), units));
+    }
+    let newest = rows
+        .iter()
+        .map(|(day, ..)| *day)
+        .max()
+        .ok_or(Unreadable("no day"))?;
+    recent(newest, now_ms, MAX_NORGES_BANK_AGE_DAYS)?;
+    crossed("NOK", |wanted| {
+        rows.iter()
+            .find(|(day, code, ..)| *day == newest && *code == wanted)
+            .and_then(|(_, _, price, units)| Some(((*price)?, (*units)?)))
+    })
+}
+
+/// The Bank of Canada's Valet observations, `{observations: [{d: "day",
+/// FXUSDCAD: {v: "decimal"}, …}]}`: for each day, what a unit of each
+/// currency costs in Canadian dollars. Only the newest day's observation
+/// is read. Rates of a day to come, or more than
+/// [`MAX_BANK_OF_CANADA_AGE_DAYS`] old, are refused.
+fn bank_of_canada(
+    json: &serde_json::Value,
+    now_ms: u64,
+) -> Result<Vec<(&'static str, u128)>, Unreadable> {
+    let observations = json
+        .get("observations")
+        .and_then(serde_json::Value::as_array)
+        .ok_or(Unreadable("no observations"))?;
+    let mut newest = None;
+    for observation in observations {
+        let day = observation
+            .get("d")
+            .and_then(serde_json::Value::as_str)
+            .and_then(day_number)
+            .ok_or(Unreadable("not a day"))?;
+        if newest.is_none_or(|(newest, _)| day > newest) {
+            newest = Some((day, observation));
+        }
+    }
+    let (day, observation) = newest.ok_or(Unreadable("no day"))?;
+    recent(day, now_ms, MAX_BANK_OF_CANADA_AGE_DAYS)?;
+    crossed("CAD", |code| {
+        let price = observation
+            .get(format!("FX{code}CAD"))?
+            .get("v")?
+            .as_str()
+            .and_then(decimal)?;
+        Some((price, 1))
+    })
+}
+
+/// The Czech National Bank's `daily.txt`, in English: its day, as
+/// `20 Nov 2026 #223`, a header, `Country|Currency|Amount|Code|Rate`, and
+/// a row per currency saying what `Amount` units of it cost in koruny.
+/// Columns are found by the header's names; a row that does not read is
+/// left out. Rates of a day to come, or more than [`MAX_CNB_AGE_DAYS`]
+/// old, are refused.
+fn cnb(body: &[u8], now_ms: u64) -> Result<Vec<(&'static str, u128)>, Unreadable> {
+    let text = std::str::from_utf8(body).map_err(|_| Unreadable("not text"))?;
+    let mut lines = text.lines().map(|line| line.trim_end_matches('\r'));
+    let day = lines
+        .next()
+        .and_then(cnb_day)
+        .ok_or(Unreadable("not a day"))?;
+    let header: Vec<&str> = lines
+        .next()
+        .ok_or(Unreadable("no header"))?
+        .split('|')
+        .collect();
+    let column = |name: &str| {
+        header
+            .iter()
+            .position(|given| *given == name)
+            .ok_or(Unreadable("not the CNB's columns"))
+    };
+    let (amount, code, rate) = (column("Amount")?, column("Code")?, column("Rate")?);
+    recent(day, now_ms, MAX_CNB_AGE_DAYS)?;
+    let rows: Vec<Vec<&str>> = lines
+        .map(|line| line.split('|').collect::<Vec<_>>())
+        .filter(|fields| fields.len() == header.len())
+        .collect();
+    crossed("CZK", |wanted| {
+        let row = rows
+            .iter()
+            .find(|fields| fields.get(code) == Some(&wanted))?;
+        let units = whole(row.get(amount)?)?;
+        Some((decimal(row.get(rate)?)?, units))
+    })
+}
+
+/// The CNB's day, `20 Nov 2026 #223`, as days since the epoch.
+fn cnb_day(line: &str) -> Option<u64> {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let mut words = line.split_whitespace();
+    let (day, month, year) = (words.next()?, words.next()?, words.next()?);
+    let day = whole(day).filter(|day| (1..=31).contains(day))?;
+    let month = MONTHS.iter().position(|known| *known == month)? + 1;
+    if year.len() != 4 || whole(year).is_none() {
+        return None;
+    }
+    day_number(&format!("{year}-{month:02}-{day:02}"))
+}
+
+/// A whole number of at most nine digits, such as `"100"`.
+fn whole(text: &str) -> Option<u128> {
+    if text.is_empty() || text.len() > 9 || !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    text.parse().ok()
+}
+
+/// A day, `YYYY-MM-DD`, as days since the epoch.
+fn day_number(text: &str) -> Option<u64> {
+    if text.len() != 10 {
+        return None;
+    }
+    let ms = dassie_payments::time::parse_rfc3339(&format!("{text}T00:00:00Z")).ok()?;
+    Some(ms / MS_PER_DAY)
+}
+
+/// Refuses a daily source's rates of `day` at `now_ms`, if the day is to
+/// come, or more than `max_age_days` old: a source that stopped, or a
+/// node's clock that did, reads as silent rather than as a wrong rate.
+fn recent(day: u64, now_ms: u64, max_age_days: u64) -> Result<(), Unreadable> {
+    let today = now_ms / MS_PER_DAY;
+    if day > today {
+        return Err(Unreadable("rates of a day to come"));
+    }
+    if today - day > max_age_days {
+        return Err(Unreadable("rates too old"));
+    }
+    Ok(())
+}
+
+/// Rates from what currencies cost in `base`, in units per dollar:
+/// `price(code)` is what some units of `code` cost, as a rate, and how
+/// many units, so that a currency's rate is the dollar's price per unit
+/// over its own. The base costs one per unit by definition; a price or a
+/// number of units of zero is left out, and so is a rate that rounds to
+/// nothing or does not fit.
+fn crossed(
+    base: &str,
+    price: impl Fn(&str) -> Option<(u128, u128)>,
+) -> Result<Vec<(&'static str, u128)>, Unreadable> {
+    let price = |code: &str| {
+        if code == base {
+            return Some((ONE, 1));
+        }
+        price(code).filter(|(price, units)| *price > 0 && *units > 0)
+    };
+    let (dollar, dollar_units) = price(BASE).ok_or(Unreadable("no rate for the dollar"))?;
+    Ok(CURRENCIES
+        .iter()
+        .filter_map(|&code| {
+            let (own, units) = price(code)?;
+            let rate =
+                dollar.checked_mul(units)?.checked_mul(ONE)? / dollar_units.checked_mul(own)?;
+            (rate > 0).then_some((code, rate))
+        })
+        .collect())
 }
 
 /// Rates in units per one `base`, as `read` gives them, in units per
@@ -635,6 +905,241 @@ mod tests {
         assert_eq!(at(0), Err(Unreadable("rates of a day to come")));
     }
 
+    // The central banks' answers beside the ECB's, recorded within a
+    // minute of each other on Friday, 2026-11-20, at 13:31 UTC: Norges
+    // Bank's and the Bank of Canada's newest day was the 19th, and the
+    // CNB had fixed the 20th's.
+    const NORGES_BANK: &str = include_str!("testdata/rates/norges-bank.csv");
+    const BANK_OF_CANADA: &str = include_str!("testdata/rates/bank-of-canada.json");
+    const CNB: &str = include_str!("testdata/rates/cnb-daily.txt");
+    // When they were recorded.
+    const BANKS_NOW: u64 = 1_795_181_477_000;
+    // Midnight of the 19th and of the 20th.
+    const NOVEMBER_19: u64 = 1_795_046_400_000;
+    const NOVEMBER_20: u64 = 1_795_132_800_000;
+    const DAY: u64 = 86_400_000;
+    const NORGES_HEADER: &str = "BASE_CUR;QUOTE_CUR;UNIT_MULT;TIME_PERIOD;OBS_VALUE\n";
+    const CNB_HEADER: &str = "20 Nov 2026 #223\nCountry|Currency|Amount|Code|Rate\n";
+
+    #[test]
+    fn norges_bank_is_read_in_kroner_and_crossed_to_the_dollar() {
+        let rates = parse(SourceKind::NorgesBank, NORGES_BANK.as_bytes(), BANKS_NOW).unwrap();
+        // 9.6866 kroner a dollar over 10.6475 a euro; the yen and the franc
+        // are quoted per hundred.
+        assert_eq!(
+            rates,
+            [
+                ("USD", ONE),
+                ("EUR", 909_753_463_254_285),
+                ("GBP", 760_383_386_581_469),
+                ("JPY", 159_971_594_662_438_895),
+                ("CHF", 842_613_453_492_114),
+                ("CAD", 1_430_051_966_458_013),
+                ("AUD", 1_489_994_001_015_212),
+            ]
+        );
+        // The columns are found by name, and a row of an older day, or of
+        // another quote currency, is left out.
+        let moved = "OBS_VALUE;TIME_PERIOD;UNIT_MULT;BASE_CUR;QUOTE_CUR
+2;2026-11-19;0;USD;NOK
+3;2026-11-18;0;EUR;NOK
+4;2026-11-19;0;GBP;SEK
+200;2026-11-19;2;JPY;NOK
+";
+        assert_eq!(
+            parse(SourceKind::NorgesBank, moved.as_bytes(), BANKS_NOW).unwrap(),
+            [("USD", ONE), ("JPY", rate("1"))]
+        );
+    }
+
+    #[test]
+    fn the_bank_of_canada_is_read_in_canadian_dollars_and_crossed_to_the_dollar() {
+        let rates = parse(
+            SourceKind::BankOfCanada,
+            BANK_OF_CANADA.as_bytes(),
+            BANKS_NOW,
+        )
+        .unwrap();
+        // 1.4317 Canadian dollars a dollar, the base itself at one.
+        assert_eq!(
+            rates,
+            [
+                ("USD", ONE),
+                ("EUR", 910_403_154_012_463),
+                ("GBP", 762_231_805_355_906),
+                ("JPY", 159_787_946_428_571_428),
+                ("CHF", 843_267_758_275_415),
+                ("CAD", rate("1.4317")),
+                ("AUD", 1_496_341_973_244_147),
+            ]
+        );
+        // Of several days, the newest is read.
+        let two = r#"{"observations":[
+            {"d":"2026-11-19","FXUSDCAD":{"v":"1.25"},"FXEURCAD":{"v":"1.5"}},
+            {"d":"2026-11-18","FXUSDCAD":{"v":"2"}}]}"#;
+        assert_eq!(
+            parse(SourceKind::BankOfCanada, two.as_bytes(), BANKS_NOW).unwrap(),
+            [
+                ("USD", ONE),
+                ("EUR", rate("0.833333333333333")),
+                ("CAD", rate("1.25"))
+            ]
+        );
+        // The series the URL asks for are those of every fiat currency
+        // but the base.
+        let url = SourceKind::BankOfCanada.default_url();
+        for code in CURRENCIES {
+            let asked = url.contains(&format!("FX{code}CAD"));
+            assert_eq!(asked, !["XRP", "CAD"].contains(&code), "{code}");
+        }
+    }
+
+    #[test]
+    fn the_cnb_is_read_in_koruny_and_crossed_to_the_dollar() {
+        let rates = parse(SourceKind::Cnb, CNB.as_bytes(), BANKS_NOW).unwrap();
+        // 22.262 koruny a dollar over 24.470 a euro; the yen is quoted per
+        // hundred.
+        assert_eq!(
+            rates,
+            [
+                ("USD", ONE),
+                ("EUR", 909_767_061_708_214),
+                ("GBP", 762_110_163_979_322),
+                ("JPY", 158_662_960_587_271_042),
+                ("CHF", 838_619_754_388_608),
+                ("CAD", 1_430_627_851_680_483),
+                ("AUD", 1_500_640_377_485_675),
+            ]
+        );
+        // The Czech page's day and decimal commas do not read.
+        let czech = "20.11.2026 #223\nzem\u{11b}|m\u{11b}na|mno\u{17e}stv\u{ed}|k\u{f3}d|kurz\nUSA|dolar|1|USD|22,262\n";
+        assert_eq!(
+            parse(SourceKind::Cnb, czech.as_bytes(), BANKS_NOW),
+            Err(Unreadable("not a day"))
+        );
+        let comma = format!("{CNB_HEADER}USA|dollar|1|USD|22,262\n");
+        assert_eq!(
+            parse(SourceKind::Cnb, comma.as_bytes(), BANKS_NOW),
+            Err(Unreadable("no rate for the dollar"))
+        );
+    }
+
+    // Each of the three covers every fiat currency, the dollar included,
+    // which the cross needs, and none covers XRP.
+    #[test]
+    fn the_central_banks_cover_every_fiat_currency() {
+        let fiat: Vec<&str> = CURRENCIES
+            .into_iter()
+            .filter(|code| *code != "XRP")
+            .collect();
+        let mut answers: Vec<Answer> = Vec::new();
+        for kind in [
+            SourceKind::NorgesBank,
+            SourceKind::BankOfCanada,
+            SourceKind::Cnb,
+        ] {
+            let (body, now) = recorded(kind);
+            let rates = parse(kind, body.as_bytes(), now).unwrap();
+            let codes: Vec<&str> = rates.iter().map(|(code, _)| *code).collect();
+            assert_eq!(codes, fiat, "{kind:?}");
+            assert!(!kind.covers("XRP") && fiat.iter().all(|code| kind.covers(code)));
+            answers.push((kind, Some(rates)));
+        }
+        // A day apart, they agree within 1%, so the middle two of them
+        // agree as a median of an even number asks.
+        assert_eq!(combine(&CURRENCIES, &answers).len(), fiat.len());
+    }
+
+    // Each bank's answer stands for its calendar's longest gap, and no
+    // longer; one of a day to come is refused.
+    #[test]
+    fn each_bank_is_taken_only_while_its_rates_are_recent() {
+        for (kind, published, max) in [
+            (
+                SourceKind::NorgesBank,
+                NOVEMBER_19,
+                MAX_NORGES_BANK_AGE_DAYS,
+            ),
+            (
+                SourceKind::BankOfCanada,
+                NOVEMBER_19,
+                MAX_BANK_OF_CANADA_AGE_DAYS,
+            ),
+            (SourceKind::Cnb, NOVEMBER_20, MAX_CNB_AGE_DAYS),
+        ] {
+            let (body, _) = recorded(kind);
+            let at = |now| parse(kind, body.as_bytes(), now);
+            assert!(at(published).is_ok(), "{kind:?}");
+            assert!(at(published + max * DAY + DAY - 1).is_ok(), "{kind:?}");
+            assert_eq!(
+                at(published + (max + 1) * DAY),
+                Err(Unreadable("rates too old")),
+                "{kind:?}"
+            );
+            assert_eq!(
+                at(published - 1),
+                Err(Unreadable("rates of a day to come")),
+                "{kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn what_a_central_bank_did_not_answer_is_refused() {
+        let norges = |row: &str| format!("{NORGES_HEADER}{row}\n");
+        let cnb = |row: &str| format!("{CNB_HEADER}{row}\n");
+        for (kind, body) in [
+            (SourceKind::NorgesBank, String::new()),
+            (SourceKind::NorgesBank, "not csv".into()),
+            (SourceKind::NorgesBank, NORGES_HEADER.into()),
+            (SourceKind::NorgesBank, norges("EUR;NOK;0;2026-11-19;10.6")),
+            (SourceKind::NorgesBank, norges("USD;NOK;0;2026-11-31;9.6")),
+            (SourceKind::NorgesBank, norges("USD;NOK;x;2026-11-19;9.6")),
+            (SourceKind::NorgesBank, norges("USD;NOK;10;2026-11-19;9.6")),
+            (SourceKind::BankOfCanada, "{}".into()),
+            (SourceKind::BankOfCanada, r#"{"observations":[]}"#.into()),
+            (
+                SourceKind::BankOfCanada,
+                r#"{"observations":[{"FXUSDCAD":{"v":"1.4"}}]}"#.into(),
+            ),
+            (
+                SourceKind::BankOfCanada,
+                r#"{"observations":[{"d":"2026-11-19","FXUSDCAD":{"v":1.4}}]}"#.into(),
+            ),
+            (
+                SourceKind::BankOfCanada,
+                r#"{"observations":[{"d":"2026-11-19","FXUSDCAD":{"v":"0"}}]}"#.into(),
+            ),
+            (SourceKind::Cnb, String::new()),
+            (SourceKind::Cnb, "20 Nov 2026 #223\n".into()),
+            (SourceKind::Cnb, CNB_HEADER.into()),
+            (
+                SourceKind::Cnb,
+                CNB_HEADER.replace("20 Nov", "31 Nov") + "USA|dollar|1|USD|22.262\n",
+            ),
+            (SourceKind::Cnb, cnb("USA|dollar|0|USD|22.262")),
+            (SourceKind::Cnb, cnb("USA|dollar|1|USD")),
+            (
+                SourceKind::Cnb,
+                "20 Nov 2026 #223\nCountry|Currency|Amount|Code\nUSA|dollar|1|USD\n".into(),
+            ),
+        ] {
+            assert!(
+                parse(kind, body.as_bytes(), BANKS_NOW).is_err(),
+                "{kind:?} {body}"
+            );
+        }
+        // A currency a bank left out is left out, and the others stand.
+        let no_franc: String = CNB
+            .lines()
+            .filter(|line| !line.contains("|CHF|"))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        let rates = parse(SourceKind::Cnb, no_franc.as_bytes(), BANKS_NOW).unwrap();
+        assert_eq!(rates.len(), CURRENCIES.len() - 2, "neither XRP nor CHF");
+        assert!(!rates.iter().any(|(code, _)| *code == "CHF"));
+    }
+
     #[test]
     fn another_base_is_rebased_on_the_dollar() {
         let euro = r#"{"data":{"currency":"EUR","rates":{"USD":"1.25","XRP":"2.5"}}}"#;
@@ -752,18 +1257,26 @@ mod tests {
     const COINBASE_ALL: &str = r#"{"data":{"currency":"USD","rates":{"AED":"3.6729833333333333","AUD":"1.429074","CAD":"1.4058133333333333","CHF":"0.8260933333333333","EUR":"0.89046","GBP":"0.7477551666666667","JPY":"158.2012083333333333","USD":"1.0","XRP":"0.7536362951239732"}}}"#;
     const BITSTAMP_NOW: &str = r#"{"timestamp":"1792516579","open":"1.30257","high":"1.34467","low":"1.28514","last":"1.32793","volume":"15305708.69416006","vwap":"1.30756","bid":"1.32842","ask":"1.32843"}"#;
 
+    /// A recorded answer of each kind, and when it was recorded.
+    fn recorded(kind: SourceKind) -> (&'static str, u64) {
+        match kind {
+            SourceKind::Coinbase => (COINBASE_ALL, NOW),
+            SourceKind::Kraken => (KRAKEN_ALL, NOW),
+            SourceKind::Bitstamp => (BITSTAMP_NOW, NOW),
+            SourceKind::Ecb => (ECB, NOW),
+            SourceKind::NorgesBank => (NORGES_BANK, BANKS_NOW),
+            SourceKind::BankOfCanada => (BANK_OF_CANADA, BANKS_NOW),
+            SourceKind::Cnb => (CNB, BANKS_NOW),
+        }
+    }
+
     /// What each of a new node's sources said.
     fn default_answers() -> Vec<Answer> {
         RateSource::defaults()
             .into_iter()
             .map(|source| {
-                let body = match source.kind {
-                    SourceKind::Coinbase => COINBASE_ALL,
-                    SourceKind::Kraken => KRAKEN_ALL,
-                    SourceKind::Bitstamp => BITSTAMP_NOW,
-                    SourceKind::Ecb => ECB,
-                };
-                let rates = parse(source.kind, body.as_bytes(), NOW).unwrap();
+                let (body, now) = recorded(source.kind);
+                let rates = parse(source.kind, body.as_bytes(), now).unwrap();
                 (source.kind, Some(rates))
             })
             .collect()
@@ -887,10 +1400,66 @@ mod tests {
                     .collect();
                 format!("<Cube><Cube time='{day}'>{cubes}</Cube></Cube>")
             });
+        let banks = bank_bodies();
         prop_oneof![
-            prop_oneof![coinbase, kraken, bitstamp, ecb].prop_map(String::into_bytes),
+            prop_oneof![coinbase, kraken, bitstamp, ecb, banks].prop_map(String::into_bytes),
             proptest::collection::vec(any::<u8>(), 0..64),
         ]
+    }
+
+    /// Bodies shaped like the central banks' answers beside the ECB's,
+    /// with any days, units and numbers in them.
+    fn bank_bodies() -> impl Strategy<Value = String> {
+        let number = prop_oneof!["[0-9]{1,25}(\\.[0-9]{0,20})?", "\\PC{0,8}"];
+        let code = prop_oneof![
+            proptest::sample::select(CURRENCIES.as_slice()).prop_map(str::to_owned),
+            "[A-Z]{3}",
+        ];
+        let day = prop_oneof![Just("2026-11-19".to_owned()), "[0-9]{4}-[0-9]{2}-[0-9]{2}"];
+        let units = prop_oneof!["[0-9]{1,3}", "[0-9a-z]{0,12}"];
+        let row = (code.clone(), units.clone(), day.clone(), number.clone());
+        let norges_bank = proptest::collection::vec(row, 0..6).prop_map(|rows| {
+            let rows: String = rows
+                .into_iter()
+                .map(|(code, power, day, value)| format!("{code};NOK;{power};{day};{value}\n"))
+                .collect();
+            format!("BASE_CUR;QUOTE_CUR;UNIT_MULT;TIME_PERIOD;OBS_VALUE\n{rows}")
+        });
+        let observation = (
+            day,
+            proptest::collection::vec((code.clone(), number.clone()), 0..6),
+        );
+        let bank_of_canada = proptest::collection::vec(observation, 0..3).prop_map(|days| {
+            let observations: Vec<serde_json::Value> = days
+                .into_iter()
+                .map(|(day, rates)| {
+                    let mut observation = serde_json::Map::new();
+                    observation.insert("d".into(), day.into());
+                    for (code, value) in rates {
+                        observation
+                            .insert(format!("FX{code}CAD"), serde_json::json!({ "v": value }));
+                    }
+                    serde_json::Value::Object(observation)
+                })
+                .collect();
+            serde_json::json!({ "observations": observations }).to_string()
+        });
+        let cnb_day = prop_oneof![
+            Just("20 Nov 2026 #223".to_owned()),
+            "[0-9]{1,2} [A-Z][a-z]{2} [0-9]{4}"
+        ];
+        let cnb = (
+            cnb_day,
+            proptest::collection::vec((units, code, number), 0..6),
+        )
+            .prop_map(|(day, rows)| {
+                let rows: String = rows
+                    .into_iter()
+                    .map(|(amount, code, rate)| format!("X|y|{amount}|{code}|{rate}\n"))
+                    .collect();
+                format!("{day}\nCountry|Currency|Amount|Code|Rate\n{rows}")
+            });
+        prop_oneof![norges_bank, bank_of_canada, cnb]
     }
 
     proptest! {
@@ -976,9 +1545,33 @@ mod tests {
             RateSource::of(SourceKind::Bitstamp).url(),
             SourceKind::Bitstamp.default_url()
         );
-        assert_eq!(RateSource::defaults().len(), SourceKind::ALL.len());
+        // A new node's sources are still the four it started with; the
+        // central banks beside the ECB are the owner's to add.
+        let kinds: Vec<SourceKind> = RateSource::defaults()
+            .into_iter()
+            .map(|source| source.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                SourceKind::Coinbase,
+                SourceKind::Kraken,
+                SourceKind::Bitstamp,
+                SourceKind::Ecb
+            ]
+        );
         for kind in SourceKind::ALL {
             assert_eq!(SourceKind::parse(kind.as_str()), Some(kind));
+            assert!(kind.default_url().starts_with("https://"), "{kind:?}");
         }
+        assert_eq!(SourceKind::parse("ECB"), None);
+        assert!(
+            RateSource {
+                kind: SourceKind::Cnb,
+                url: Some("https://example.com".into()),
+            }
+            .problem()
+            .is_some()
+        );
     }
 }

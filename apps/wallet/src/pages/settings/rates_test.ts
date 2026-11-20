@@ -21,6 +21,9 @@ test("a rate reads as what a dollar buys, and its age", () => {
 
 test("a source is named by its URL, or its kind", () => {
   assertEquals(sourceName("kraken", ""), "Kraken");
+  assertEquals(sourceName("norges-bank", ""), "Norges Bank");
+  assertEquals(sourceName("bank-of-canada", ""), "Bank of Canada");
+  assertEquals(sourceName("cnb", ""), "Czech National Bank");
   assertEquals(
     sourceName("coinbase", "https://localhost:10100/rates.json"),
     "https://localhost:10100/rates.json",
