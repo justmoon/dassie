@@ -44,7 +44,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [hub-waits-end-at-the-event](hub-waits-end-at-the-event.md) | A validator checks an escrow, and a member looks up a peer's account, when what it waits for happens; the poll stays as the fallback | hubs, peer-protocol |
 | [hubs-only](hubs-only.md) | Peers settle only over settlement hubs | designs/settlement-hubs, settlement, network, xrpl, testing |
 | [hybrid-key-exchange](hybrid-key-exchange.md) | Every TLS handshake offers the hybrid X25519MLKEM768 first, built on ring's X25519 and RustCrypto's ML-KEM | http, peer-protocol |
-| [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (transfer fees not built) | xrpl, settlement, connector |
+| [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (the guard turned off by open-rate-sources; transfer fees not built) | xrpl, settlement, connector |
 | [keeper-follows-the-pool](keeper-follows-the-pool.md) | The DSUSD keeper follows the pool, and reprices after each trade | dsusd-keeper, xrpl |
 | [lazy-downlink-accounts](lazy-downlink-accounts.md) | A downlink's accounts open once value first moves with it, in room kept for it while its channel is open | network, settlement, connector, ledger |
 | [leaving-a-hub-that-ended](leaving-a-hub-that-ended.md) | A node leaves a hub once a quorum signed its payout set, and writes off what its books held of it | hubs, settlement |
@@ -62,7 +62,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [one-address-per-asset](one-address-per-asset.md) | One wallet address per asset, booking where the asset arrives | payments, hubs, wallet, ledger |
 | [one-balance-per-asset](one-balance-per-asset.md) | The owner holds one balance per asset, and the node manages the hub's part of it | hubs, payments, wallet, settlement |
 | [open-payments](open-payments.md) | Open Payments, fully, and no SPSP | payments, http |
-| [open-rate-sources](open-rate-sources.md) | A node takes its rates only from sources whose terms allow its use: XRP's from mainnet's XRP/RLUSD pool, the fiat currencies' from central banks, with no peg guard until a dollar token has a price of its own (all built but turning the guard off) | connector, xrpl, dsusd-keeper, wallet |
+| [open-rate-sources](open-rate-sources.md) | A node takes its rates only from sources whose terms allow its use: XRP's from mainnet's XRP/RLUSD pool, the fiat currencies' from central banks, with no peg guard until a dollar token has a price of its own | connector, xrpl, dsusd-keeper, wallet |
 | [own-books](own-books.md) | Each node keeps its own books | engineering, settlement, testing |
 | [own-fulfills](own-fulfills.md) | Each node books its own Fulfills | settlement, connector, peer-protocol |
 | [owner-chooses-assets](owner-chooses-assets.md) | The owner chooses assets, the node adds their schemes, and the balance counts everything the owner has | wallet, hubs, settlement, rpc |

@@ -4,9 +4,7 @@
  * needs both the token and the ledger's own asset, which pays its fees and
  * its reserve as gas, at the same address, from the faucet only where there
  * is one. The reserve is shown in that asset, as the ledger holds it, never
- * in the token (spec/decisions/external-assets.md). While the token's peg
- * guard pauses the scheme, what arrives is still booked, and the page says
- * so.
+ * in the token (spec/decisions/external-assets.md).
  */
 
 import type { JSX } from "@solidjs/web";
@@ -23,7 +21,6 @@ import { freezeText, holdingCurrency, holdingOf } from "../assets/assets.ts";
 import { schemeName, type TokenScheme } from "../schemes.ts";
 import { DepositAddress } from "./DepositAddress.tsx";
 import { Faucet } from "./Faucet.tsx";
-import { PegGuard } from "./PegGuard.tsx";
 
 export function TokenDeposit(props: {
   ledger: Ledger;
@@ -145,7 +142,6 @@ export function TokenDeposit(props: {
         <dt>Arrives</dt>
         <dd>Once the ledger validates the payment, usually within seconds.</dd>
       </dl>
-      <PegGuard ledger={props.ledger} />
       <Show when={frozen()}>
         {(text) => (
           <Alert

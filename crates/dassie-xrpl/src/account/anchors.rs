@@ -27,10 +27,9 @@
 //! or on the next closed ledger: when a hint names a transaction of the
 //! account past the anchor, a closed ledger below it, or another reserve
 //! than its own; when a payment needs a fresher anchor than the newest
-//! ([`FRESH_ANCHOR_MS`]); when a pool or a balance is read; when the
-//! faucet answered; and on the heartbeat ([`HEARTBEAT_MS`]). So an idle
-//! account anchors a few times an hour, or once a minute while a token's
-//! peg guard reads its pool, while a settlement is credited in as many
+//! ([`FRESH_ANCHOR_MS`]); when a balance is read; when the faucet
+//! answered; and on the heartbeat ([`HEARTBEAT_MS`]). So an idle account
+//! anchors a few times an hour, while a settlement is credited in as many
 //! ledgers as when every ledger was anchored, whether or not the server
 //! tells of it.
 //!
@@ -71,11 +70,10 @@ pub use crate::verifier::{MAX_MANIFEST_ASKS, STALL_MS};
 /// their signature checks, to a few an hour against one every few seconds.
 pub const HEARTBEAT_MS: u64 = 180_000;
 /// How long ago, by the node's clock, the account may have taken its
-/// anchor to sign from it, or to read a pool or a balance at it. A
-/// transaction's last ledger is the anchor's index plus a window of
-/// ledgers, so the anchor must be well within that window's time for the
-/// last ledger never to be past already; and a pool's reading counts for
-/// the peg guard only while its anchor is fresh. A few ledgers' time: an
+/// anchor to sign from it, or to read a balance at it. A transaction's
+/// last ledger is the anchor's index plus a window of ledgers, so the
+/// anchor must be well within that window's time for the last ledger never
+/// to be past already. A few ledgers' time: an
 /// account that anchors on every ledger always has one this fresh. It
 /// counts from when the anchor was taken, the server's newest validated
 /// ledger with fresh validations then, not from its close time, so that a

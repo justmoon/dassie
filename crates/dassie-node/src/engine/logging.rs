@@ -505,8 +505,6 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::MessageWaits { .. }
         | SettlementEvent::UnknownCancelled { .. }
         | SettlementEvent::Failed { .. }
-        | SettlementEvent::PegPaused { .. }
-        | SettlementEvent::PegResumed { .. }
         | SettlementEvent::HubCredit { .. } => settlement_outcome(severity, event),
         SettlementEvent::PeerSettled { .. }
         | SettlementEvent::SettlementBooked { .. }
@@ -564,13 +562,6 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         }
         SettlementEvent::Failed { peer, amount } => {
             emit!(severity, target: target::SETTLEMENT, %peer, amount, "a settlement failed");
-        }
-        SettlementEvent::PegPaused { scheme, why } => {
-            let why = why.message();
-            emit!(severity, target: target::SETTLEMENT, %scheme, why, "the scheme is paused: it settles nothing, and its ledger converts nothing");
-        }
-        SettlementEvent::PegResumed { scheme } => {
-            emit!(severity, target: target::SETTLEMENT, %scheme, "the token is back on its peg: the scheme runs again");
         }
         SettlementEvent::Reconciling { scheme, pending } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, pending, "reconciling settlements from before the restart");

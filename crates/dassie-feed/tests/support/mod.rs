@@ -99,7 +99,7 @@ pub fn two_method_snapshot() -> dassie_feed::Snapshot {
 }
 
 /// As [`two_method_snapshot`], but the node gives out no DSUSD: its ask
-/// there is closed, a dollar token off its peg.
+/// there is closed.
 pub fn closed_side_snapshot() -> dassie_feed::Snapshot {
     let mut snapshot = two_method_snapshot();
     let dsusd = dassie_feed::method_tag("hub-xrpl-testnet-dsusd");

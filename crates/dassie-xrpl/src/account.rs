@@ -37,7 +37,7 @@
 //! validated. An anchor that the kept one's chain does not hold is a new
 //! chain, which only a testnet reset makes, and only on a network
 //! [`resets`] allows (spec/decisions/ledger-resets.md). What it holds, its
-//! lines, their issuers, the reserve and a pool are proven at the anchor;
+//! lines, their issuers and the reserve are proven at the anchor;
 //! every transaction it tells by its branch in a proven ledger, found by
 //! the history the proven objects name; an absence only when proven
 //! ([`history`], spec/designs/xrpl-validation.md#4-what-is-proven-and-how).
@@ -69,7 +69,6 @@ use crate::codec::{Amount, Memo, Payment, Signing, Transact, TrustSet};
 use crate::kept::{ACCOUNT_VERSION, In, Out};
 use crate::keys::{AccountId, PublicKey, Wallet};
 use crate::network::{Network, TESTNET};
-use crate::peg::PoolReading;
 use crate::records::Decoded;
 use crate::unl::{Secp256k1Signatures, Unl, ValidationSignatures};
 use crate::validator_list::{MAX_PUBLISHERS, UnlConfig};
@@ -140,10 +139,10 @@ const MAX_PARKED: usize = MAX_IN_FLIGHT * MAX_SCHEMES;
 /// Most news kept between two tellings: one message's worth, at most the
 /// proven transactions kept and the one just proven, each of ours in
 /// flight found or cancelled, what was kept for schemes and not read
-/// again, the schemes' lookups, and for each scheme its line, its issuer
-/// and its pool.
+/// again, the schemes' lookups, and for each scheme its line and its
+/// issuer.
 const MAX_NEWS: usize =
-    MAX_PROOFS + 1 + 2 * MAX_IN_FLIGHT + MAX_PARKED + MAX_LOOKUPS + 4 + 3 * MAX_SCHEMES;
+    MAX_PROOFS + 1 + 2 * MAX_IN_FLIGHT + MAX_PARKED + MAX_LOOKUPS + 4 + 2 * MAX_SCHEMES;
 /// Most effects between two takings: one message's worth, and a fetch of
 /// each publisher's list.
 const MAX_EFFECTS: usize = MAX_PENDING + MAX_IN_FLIGHT + 4 + MAX_PUBLISHERS;
@@ -353,15 +352,6 @@ pub enum News {
         /// What its account says about its tokens.
         settings: Option<AccountSettings>,
     },
-    /// The AMM pool of XRP and a token a scheme asked for
-    /// ([`XrplAccount::read_pool`]), both its balances as proven at one
-    /// anchor: `None` if there is none.
-    Pool {
-        /// The token, as its issuer and currency.
-        key: IssuedAsset,
-        /// The pool.
-        pool: Option<PoolReading>,
-    },
 }
 
 /// An account's XRP, as a read asked for proved it
@@ -457,7 +447,7 @@ enum Request {
     /// of everything the account follows.
     Anchor,
     /// A state proof at the anchor, of this hash, of what the schemes asked
-    /// for: issuers' accounts and pools.
+    /// for: issuers' accounts and the balances asked for.
     Read([u8; 32]),
     /// The account's history from one ledger to another, a page of it: a
     /// hint, which names transactions to prove sooner.
@@ -610,9 +600,6 @@ pub struct XrplAccount {
     /// The keys of a read at the anchor of what the schemes asked for, on
     /// its way.
     reading: Option<Vec<[u8; 32]>>,
-    /// The pools the schemes asked for, each with the account its `AMM`
-    /// object last named: told with the next anchor that proves it.
-    pools: BTreeMap<IssuedAsset, history::PoolWatch>,
     /// The accounts whose XRP the node asked for ([`XrplAccount::read_balance`]):
     /// read at the anchor.
     balances_asked: BTreeSet<AccountId>,
@@ -727,7 +714,6 @@ impl XrplAccount {
             balances_asked: BTreeSet::new(),
             balances: BTreeMap::new(),
             reading: None,
-            pools: BTreeMap::new(),
             phase: Phase::Disconnected,
             network_id: None,
             next_id: 1,
@@ -914,33 +900,11 @@ impl XrplAccount {
         }
     }
 
-    /// Reads the AMM pool of XRP and the token `key` names for a scheme's
-    /// peg guard: what it holds comes as [`News::Pool`], both balances
-    /// proven at the anchor, as one state proof of the pool's `AMM` object,
-    /// which names its account, and of that account's root and line to the
-    /// issuer (spec/designs/xrpl-validation.md#4-what-is-proven-and-how). A
-    /// pool read for the first time, or whose object names another account,
-    /// is read again once its account is known.
-    pub fn read_pool(&mut self, key: IssuedAsset) {
-        if let Some(watch) = self.pools.get_mut(&key) {
-            watch.asked = true;
-        } else if self.pools.len() < MAX_SCHEMES {
-            self.pools.insert(
-                key,
-                history::PoolWatch {
-                    account: None,
-                    asked: true,
-                },
-            );
-        }
-        self.read_asked();
-    }
-
     /// Reads the XRP balance of `account`, any account on the ledger, such
     /// as a token hub's escrow whose gas a member checks before it asks for
     /// a withdrawal (spec/decisions/token-hubs.md): proven at the anchor, as
-    /// one state proof of the account's root, the way a scheme's issuer or
-    /// pool is read. What it proved is [`proven_balance`](Self::proven_balance).
+    /// one state proof of the account's root, the way a scheme's issuer is
+    /// read. What it proved is [`proven_balance`](Self::proven_balance).
     /// At most [`MAX_SCHEMES`] accounts are asked for at once; more wait to
     /// be asked again.
     ///
@@ -1610,7 +1574,7 @@ impl XrplAccount {
         self.balance = None;
         self.proven_sequence = 0;
         // What was proven of the chain gone goes with it: the lines, the
-        // issuers' accounts and the pools are proven again once it is back.
+        // issuers' accounts are proven again once it is back.
         self.walk = None;
         self.proofs.clear();
         self.lists.clear();
@@ -1619,9 +1583,6 @@ impl XrplAccount {
         }
         self.issuers.clear();
         self.balances.clear();
-        for watch in self.pools.values_mut() {
-            watch.account = None;
-        }
     }
 
     /// Remembers `scheme`'s transaction `hash` as never sent; past
@@ -2603,7 +2564,6 @@ impl ExternalAsset for XrplAccount {
             (self.balances_asked.iter()).all(|asked| !self.balances.contains_key(asked)),
             "a balance asked for has no answer from before the ask"
         );
-        assert!(self.pools.len() <= MAX_SCHEMES);
         if let Some(walk) = &self.walk {
             walk.check_invariants();
         }
@@ -2878,10 +2838,6 @@ mod tests {
                 validated: true,
             };
             account.issuers.insert(issuer, frozen);
-            account.read_pool(crate::dsusd::LINE);
-            if let Some(watch) = account.pools.get_mut(&crate::dsusd::LINE) {
-                watch.account = Some(issuer);
-            }
             account.check_invariants();
             if restarted {
                 // As a reset does: written off, and connected anew.
@@ -2891,10 +2847,6 @@ mod tests {
                 account.absent();
             }
             assert!(account.issuers.is_empty(), "restarted: {restarted}");
-            assert!(
-                account.pools.values().all(|watch| watch.account.is_none()),
-                "a pool's account is proven again"
-            );
             assert_eq!(account.lines[&crate::dsusd::LINE], None);
             account.check_invariants();
         }
@@ -3126,5 +3078,61 @@ mod tests {
         let mut older = scheme_kept.clone();
         older[0] = 1;
         assert!(crate::XrplScheme::new(&restored, None, &older).is_err());
+    }
+
+    // spec/areas/xrpl.md#state-and-restarts: the token scheme's state is
+    // read whole and of its version, and so is the version before, written
+    // while a dollar token had a peg guard: the guard's part is read whole
+    // and dropped, and the state is written again in the token scheme's own.
+    #[test]
+    fn a_token_schemes_state_from_before_is_read_without_its_guard() {
+        use crate::kept::{Out, SCHEME_VERSION, TOKEN_SCHEME_VERSION, XRP_SCHEME_VERSION};
+        use dassie_settlement::SettlementScheme;
+
+        let id = dassie_ledger::name!(crate::dsusd::SCHEME_ID);
+        let account = synced_account(&[id]);
+        let new = |state: &[u8]| crate::DsusdScheme::new(&account, Some(0), state);
+        let kept = new(&[]).unwrap().state();
+        assert_eq!(kept[0], TOKEN_SCHEME_VERSION);
+        assert_eq!(new(&kept).unwrap().state(), kept);
+        // As the guard wrote its part: off its peg, crossing since 7, last
+        // read at 5, at $0.95 as of ledger 42.
+        let guard = |standing: u8| {
+            let mut out = Out(Vec::new());
+            out.u8(standing);
+            out.option(Some(7), Out::u64);
+            out.option(Some(5), Out::u64);
+            out.option(Some((950_000, 42)), |out, (price, ledger)| {
+                out.u64(price);
+                out.u32(ledger);
+            });
+            out.0
+        };
+        let mut before = kept.clone();
+        before[0] = SCHEME_VERSION;
+        before.extend(guard(2));
+        assert_eq!(new(&before).unwrap().state(), kept, "read, guard dropped");
+        // Each refused: cut short anywhere, the guard's part missing
+        // included, a byte more, a standing no guard wrote, or a version
+        // the token scheme never wrote.
+        for cut in 1..before.len() {
+            assert!(new(&before[..cut]).is_err(), "cut at {cut}");
+        }
+        for cut in 1..kept.len() {
+            assert!(new(&kept[..cut]).is_err(), "cut at {cut}");
+        }
+        for mut longer in [before.clone(), kept.clone()] {
+            longer.push(0);
+            assert!(new(&longer).is_err());
+        }
+        let mut unknown = kept.clone();
+        unknown[0] = SCHEME_VERSION;
+        unknown.extend(guard(3));
+        assert!(new(&unknown).is_err());
+        for version in [1, XRP_SCHEME_VERSION, TOKEN_SCHEME_VERSION + 1] {
+            let mut other = kept.clone();
+            other[0] = version;
+            assert!(new(&other).is_err(), "version {version}");
+        }
     }
 }

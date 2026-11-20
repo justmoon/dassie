@@ -7,8 +7,7 @@
 //! scheme booking only its own holding, with the books checked against the
 //! ledger after every ledger. The token
 //! scheme's rules in depth are in `tests/token.rs`, in DSUSD; this pins that
-//! each network's token runs on them unchanged, and that each is guarded by
-//! its own network's pool (spec/decisions/issued-assets.md).
+//! each network's token runs on them unchanged.
 
 #![allow(
     clippy::unwrap_used,
@@ -21,19 +20,17 @@ use std::collections::BTreeMap;
 
 use dassie_ledger::{LedgerId, Name};
 use dassie_settlement::{
-    AssetEffect, DollarRate, Effect, ExternalAsset, LedgerInput, LedgerStatus, OwnerPayment,
-    PegPause, SettlementScheme,
+    AssetEffect, Effect, ExternalAsset, LedgerInput, LedgerStatus, OwnerPayment, SettlementScheme,
 };
 use dassie_xrpl::account::{MAX_SETTLING_MS, XrplAccount};
 use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::codec::{Amount, Memo, Payment, Signing, TokenValue, Transact};
-use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, Lie, RESERVE_BASE, RESERVE_INC};
+use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC};
 use dassie_xrpl::network::{MAINNET, Network, TESTNET};
-use dassie_xrpl::peg::{MAX_RATE_AGE_MS, MAX_READING_AGE_MS, RECOVER_HOLD_MS, TRIP_HOLD_MS};
 use dassie_xrpl::token::UNITS_PER_MICRO;
 use dassie_xrpl::{
-    AccountId, DROPS_PER_XRP, DsusdScheme, RlusdScheme, UNITS_PER_DROP, Wallet, XrplMainnetScheme,
-    XrplScheme, dsusd, rlusd, scheme,
+    AccountId, DsusdScheme, RlusdScheme, UNITS_PER_DROP, Wallet, XrplMainnetScheme, XrplScheme,
+    dsusd, rlusd, scheme,
 };
 
 /// A network's XRPL schemes, by their index in a node: its XRP, and its
@@ -334,17 +331,6 @@ impl World {
         }
     }
 
-    /// Runs every account's timers that are due.
-    fn timers(&mut self) {
-        for index in 0..self.nodes.len() {
-            let account = &mut self.nodes[index].account;
-            if account.deadline().is_some_and(|at| at <= self.now) {
-                account.on_timer(self.now);
-                self.tell(index);
-            }
-        }
-    }
-
     /// Every node's books match the ledger: the token scheme's the line of
     /// its own token in whole millionths, the XRP scheme's the XRP less the
     /// reserve. The ledger made and lost no XRP and no token.
@@ -419,114 +405,6 @@ impl World {
         let token = self.net.token;
         self.ledger.issue(to, token.amount(value(amount))).unwrap();
     }
-
-    /// The issuer sets the pool of XRP and the network's dollar to `xrp`
-    /// XRP and [`POOL_TOKENS`] of the dollar, from the next ledger.
-    fn pool(&mut self, xrp: u64) {
-        let token = self.net.token;
-        let tokens = value(POOL_TOKENS);
-        self.ledger
-            .set_pool(token, xrp * DROPS_PER_XRP, tokens, 300)
-            .unwrap();
-    }
-
-    /// `count` minutes pass, a ledger closing at the end of each, and the
-    /// node's settlement check runs on every node's token scheme: told the
-    /// node's XRP rate first, fresh if `fresh`, else as it last was.
-    fn minutes(&mut self, count: usize, fresh: bool) {
-        for _ in 0..count {
-            self.now += 56_000;
-            self.close();
-            self.settlement_checks(fresh);
-        }
-    }
-
-    /// The node's settlement check on every node's token scheme, told the
-    /// node's XRP rate first, fresh if `fresh`.
-    fn settlement_checks(&mut self, fresh: bool) {
-        for index in 0..self.nodes.len() {
-            let now = self.now;
-            let node = &mut self.nodes[index];
-            let scheme = node.schemes[TOKEN].as_deref_mut().unwrap();
-            if fresh {
-                scheme.on_rate("XRP", Some(rate(now)));
-            }
-            scheme.on_check(now, &mut node.account);
-            scheme.check_invariants();
-            self.carry_out(index);
-        }
-    }
-
-    /// Why node `index`'s guard pauses its token scheme, if it does: then
-    /// it converts nothing.
-    fn paused(&mut self, index: usize) -> Option<PegPause> {
-        let node = &mut self.nodes[index];
-        let scheme = node.schemes[TOKEN].as_deref_mut().unwrap();
-        let paused = scheme.peg().unwrap().paused;
-        assert_eq!(scheme.converts(), paused.is_none());
-        paused
-    }
-
-    /// The price node `index`'s guard last read, in millionths of a dollar.
-    fn price(&self, index: usize) -> Option<u64> {
-        let scheme = self.nodes[index].schemes[TOKEN].as_ref().unwrap();
-        scheme.peg().unwrap().last.map(|(price, _)| price)
-    }
-
-    /// Node `index` restarts its token scheme from what its books kept, and
-    /// its account connects anew.
-    fn restart(&mut self, index: usize) {
-        let mainnet = self.net.network == &MAINNET;
-        let node = &mut self.nodes[index];
-        let kept = node.schemes[TOKEN].as_ref().unwrap();
-        let (balance, state) = (kept.balance(), kept.state());
-        let account = &node.account;
-        node.schemes[TOKEN] = Some(if mainnet {
-            Box::new(RlusdScheme::new(account, Some(balance), &state).unwrap())
-        } else {
-            Box::new(DsusdScheme::new(account, Some(balance), &state).unwrap())
-        });
-        self.tell(index);
-        let connection = self.nodes[index].connection;
-        self.ledger.disconnect(connection);
-        self.input(index, LedgerInput::Disconnected);
-        self.next_connection += 1;
-        self.nodes[index].connection = self.next_connection;
-        self.input(index, LedgerInput::Connected);
-    }
-}
-
-/// What the pool of the network's dollar holds of it in the guard's tests.
-const POOL_TOKENS: &str = "100000";
-/// What that pool holds of XRP at a dollar, at [`rate`]'s 2 XRP to the
-/// dollar: above either network's floor.
-const PAR_XRP: u64 = 200_000;
-
-/// The node's XRP rate, learnt at `as_of_ms`: 2 XRP to the dollar.
-const fn rate(as_of_ms: u64) -> DollarRate {
-    DollarRate {
-        per_dollar: 2_000_000_000_000_000,
-        precision: 15,
-        as_of_ms,
-    }
-}
-
-/// Minutes in `ms`.
-fn minutes_in(ms: u64) -> usize {
-    usize::try_from(ms / 60_000).unwrap()
-}
-
-/// Two nodes on the network's dollar alone, synced, the pool at a dollar
-/// and read.
-fn guarded(net: Net) -> World {
-    let mut world = World::new(net, &[&[TOKEN], &[TOKEN]]);
-    world.closes(3);
-    world.mint(0, "50");
-    world.pool(PAR_XRP);
-    world.minutes(1, true);
-    assert_eq!(world.price(0), Some(1_000_000));
-    assert_eq!(world.paused(0), None);
-    world
 }
 
 // spec/areas/xrpl.md#rlusd, spec/areas/xrpl.md#dsusd: each network's token
@@ -718,153 +596,4 @@ fn a_payment_with_a_settlement_memo_is_a_deposit() {
             .token_balance(world.address(1), IssuedAsset::RLUSD),
         Some(value("5"))
     );
-}
-
-// spec/decisions/issued-assets.md: each network's dollar is priced by its
-// own pool and the node's XRP/USD rate. A pool moved 5% off a dollar,
-// downward or upward, pauses the scheme only once every reading was off for
-// the trip hold: then it converts nothing, while what
-// arrives is still booked, and the owner may still pay. Back at a dollar,
-// it resumes only once every reading was inside the inner band for the
-// recovery hold.
-#[test]
-fn a_pool_off_its_peg_pauses_each_networks_dollar_both_ways() {
-    for net in [TESTNET_NET, MAINNET_NET] {
-        for (xrp, price) in [(190_000, 950_000), (210_000, 1_050_000)] {
-            let mut world = guarded(net);
-            world.pool(xrp);
-            // The first reading off, and the hold's minutes after it.
-            world.minutes(minutes_in(TRIP_HOLD_MS), true);
-            assert_eq!(world.price(0), Some(price));
-            assert_eq!(world.paused(0), None, "the hold is not over");
-            world.minutes(1, true);
-            assert_eq!(world.paused(0), Some(PegPause::OffPeg));
-            assert_eq!(world.paused(1), Some(PegPause::OffPeg));
-            // What arrives is still booked, and the owner still pays.
-            world.mint(0, "1");
-            world.close();
-            let deposits = &world.nodes[0].books[TOKEN].deposits;
-            assert_eq!(deposits, &[usd(50_000_000), usd(1_000_000)]);
-            let off = world.pay(TOKEN, 0, 1, usd(1_000_000));
-            world.close();
-            assert_eq!(world.nodes[0].books[TOKEN].paid, [(off, true)]);
-            // Back at a dollar: off until the recovery hold is over.
-            world.pool(PAR_XRP);
-            world.minutes(minutes_in(RECOVER_HOLD_MS), true);
-            assert_eq!(world.price(0), Some(1_000_000));
-            assert_eq!(world.paused(0), Some(PegPause::OffPeg));
-            world.minutes(1, true);
-            assert_eq!(world.paused(0), None);
-        }
-    }
-}
-
-// spec/decisions/issued-assets.md: the guard fails closed. Without a
-// reading that counts for as long as a de-peg must last to trip it, the
-// scheme pauses: no pool to read, a pool too thin to be a price, or the
-// node's XRP rate stale. The next reading that counts, at a dollar, ends it
-// at once.
-#[test]
-fn without_a_reading_each_networks_dollar_pauses() {
-    for net in [TESTNET_NET, MAINNET_NET] {
-        // No pool: the guard counts from when the node started.
-        let mut world = World::new(net, &[&[TOKEN], &[TOKEN]]);
-        world.closes(3);
-        world.mint(0, "50");
-        world.minutes(minutes_in(MAX_READING_AGE_MS) - 1, true);
-        assert_eq!(world.paused(0), None);
-        world.minutes(1, true);
-        assert_eq!(world.paused(0), Some(PegPause::Stale));
-        assert_eq!(world.price(0), None);
-        world.pool(PAR_XRP);
-        world.minutes(1, true);
-        assert_eq!(world.paused(0), None);
-
-        // A pool too thin.
-        world.pool(PAR_XRP / 10_000);
-        world.minutes(minutes_in(MAX_READING_AGE_MS) + 1, true);
-        assert_eq!(world.paused(0), Some(PegPause::Stale));
-        world.pool(PAR_XRP);
-        world.minutes(1, true);
-        assert_eq!(world.paused(0), None);
-
-        // A stale rate: readings count until it is too old, and the guard
-        // pauses once none has counted for the bound.
-        world.minutes(minutes_in(MAX_RATE_AGE_MS + MAX_READING_AGE_MS), false);
-        assert_eq!(world.paused(0), None);
-        world.minutes(1, false);
-        assert_eq!(world.paused(0), Some(PegPause::Stale));
-        world.minutes(1, true);
-        assert_eq!(world.paused(0), None);
-    }
-}
-
-// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: the pool is
-// taken only as proven at the anchor, both its balances at that one ledger;
-// a server behind it, which still shows the pool at a dollar, cannot prove
-// it there, and its price is not taken.
-#[test]
-fn an_old_answer_of_the_pool_is_not_taken() {
-    let mut world = guarded(TESTNET_NET);
-    let behind = world.ledger.clone();
-    world.pool(PAR_XRP * 9 / 10);
-    world.minutes(2, true);
-    assert_eq!(world.price(0), Some(900_000));
-    let mut current = std::mem::replace(&mut world.ledger, behind);
-    world.now += 60_000;
-    world.settlement_checks(true);
-    assert_eq!(world.price(0), Some(900_000));
-    std::mem::swap(&mut world.ledger, &mut current);
-    world.minutes(1, true);
-    assert_eq!(world.price(0), Some(900_000));
-}
-
-// spec/decisions/issued-assets.md: the guard's state is kept with the
-// scheme's, so a restart neither skips a recovery nor trips again: it goes
-// on where it was.
-#[test]
-fn the_guard_holds_across_a_restart() {
-    for net in [TESTNET_NET, MAINNET_NET] {
-        let mut world = guarded(net);
-        world.pool(PAR_XRP * 9 / 10);
-        world.minutes(minutes_in(TRIP_HOLD_MS) + 1, true);
-        assert_eq!(world.paused(0), Some(PegPause::OffPeg));
-        world.restart(0);
-        assert_eq!(world.paused(0), Some(PegPause::OffPeg));
-        world.pool(PAR_XRP);
-        world.minutes(minutes_in(RECOVER_HOLD_MS) / 2, true);
-        world.restart(0);
-        world.minutes(minutes_in(RECOVER_HOLD_MS) / 2, true);
-        assert_eq!(world.paused(0), Some(PegPause::OffPeg));
-        world.minutes(1, true);
-        assert_eq!(world.paused(0), None);
-        // Pegged, a restart keeps it so.
-        world.restart(0);
-        assert_eq!(world.paused(0), None);
-    }
-}
-
-// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: the pool is
-// proven at the anchor: its AMM object, which names its account, and that
-// account's root and line, at one ledger. A server that alters them, or
-// says the pool is gone, moves no price: the guard reads nothing from it,
-// and the pool's own price once a server is honest.
-#[test]
-fn a_pool_a_server_lies_about_moves_no_price() {
-    for net in [TESTNET_NET, MAINNET_NET] {
-        for lie in [Lie::AlteredObject, Lie::FalseAbsence] {
-            let mut world = guarded(net);
-            world.ledger.set_lie_for_all(Some(lie));
-            world.pool(PAR_XRP * 9 / 10);
-            world.minutes(1, true);
-            assert!(world.ledger.lies_told(lie) > 0, "{lie:?}");
-            assert_eq!(world.price(0), Some(1_000_000), "{lie:?}");
-            // The account connects anew once it has waited.
-            world.ledger.set_lie_for_all(None);
-            world.now += dassie_xrpl::account::STALL_MS;
-            world.timers();
-            world.minutes(2, true);
-            assert_eq!(world.price(0), Some(900_000), "{lie:?}");
-        }
-    }
 }

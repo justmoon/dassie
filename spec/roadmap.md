@@ -138,15 +138,6 @@ The XRPL account anchors on ledgers its own UNL validated, and proves at each an
 - **Later:** the negative UNL, so that a node rides out a fifth of the UNL offline as rippled does.
 - Hub validators prove what they attest under the UNL of the hub's network, through the same verifier as the account ([XRPL](areas/xrpl.md#the-verifier)); what is left for mainnet hubs is in [Mainnet hubs](#mainnet-hubs).
 
-### Open rate sources
-
-A node's default rate sources are exchanges whose terms license their market data for personal or internal use, and a node converts for its owner's fees. [open-rate-sources](decisions/open-rate-sources.md) replaces them with sources whose terms allow that use: XRP's rate from mainnet's XRP/RLUSD pool, proven at validated ledgers, and the fiat currencies' from four central banks. With XRP's rate from that pool, the peg guard could only read RLUSD as pegged, so it is turned off. DSUSD's keeper takes its target from the same pool ([DSUSD keeper](areas/dsusd-keeper.md#the-price)).
-
-- **Left to build:** the peg guard turned off on RLUSD and DSUSD, with their hubs' ledgers converting as the XRP hub's does.
-- **Done when:** a new node's sources are only these; XRP's rate follows mainnet's XRP/RLUSD pool, and a pool pushed for less than half the window leaves it unmoved; a test node signs nothing on mainnet; no dollar token's scheme or hub pauses for its price; the fiat currencies' rates come from the four banks, each dropped once older than its calendar allows; the wallet names the sources; and the keeper holds DSUSD's pool at mainnet's XRP/RLUSD price.
-- **Later:** a source of XRP's price in dollars outside every dollar token's pool, close to real time and with terms that allow a node's use, and the peg guard on it again.
-- **Later:** a backup XRP/USD rate to explore, from the median of the XRP Ledger's price publishers: XRPL Labs' (Xaman's) oracle, Band's, and two smaller publishers' `Oracle` entries, each proven at a validated ledger as the pool is. Each is one key with no terms or commitment, and all but XRPL Labs' update only every ten to thirty minutes.
-
 ## Not built yet
 
 Gaps between what the spec's contract or decisions ask for and what `main` does. Each can be picked up on its own.
@@ -175,7 +166,7 @@ The `live` realm is refused, so the XRP Ledger mainnet's scheme, `xrpl-xrp`, run
 
 Names are not among these: the live realm runs without them until registrations pay fees ([Names](#names)).
 
-The first four are on `main`, and so are each network's proof server, named in the node's defaults, the mainnet schemes and the realm gate, the mainnet hub schemes and validators that observe the escrow through proofs. Until the rest are, the testnet account stops unless its server reports the testnet's network ID, so a mainnet server never gets XRP booked or signed for with a testnet wallet; and the account proves what it reads against ledgers its UNL validated, from the project's proof servers by default ([Proof servers](#proof-servers)). The issuer's conditions for a dollar token are decided ([issued-assets](decisions/issued-assets.md)): the issuer is the owner's counterparty, its freezes and clawbacks are booked as built, and the scheme pauses while its pool prices it off its peg, until [open-rate-sources](decisions/open-rate-sources.md) turns the guard off.
+The first four are on `main`, and so are each network's proof server, named in the node's defaults, the mainnet schemes and the realm gate, the mainnet hub schemes and validators that observe the escrow through proofs. Until the rest are, the testnet account stops unless its server reports the testnet's network ID, so a mainnet server never gets XRP booked or signed for with a testnet wallet; and the account proves what it reads against ledgers its UNL validated, from the project's proof servers by default ([Proof servers](#proof-servers)). The issuer's conditions for a dollar token are decided ([issued-assets](decisions/issued-assets.md)): the issuer is the owner's counterparty, and its freezes and clawbacks are booked as built. No peg guard runs: a dollar token converts at par, and a de-peg is not detected ([open-rate-sources](decisions/open-rate-sources.md)).
 
 ## Smaller open points
 
@@ -184,6 +175,8 @@ The first four are on `main`, and so are each network's proof server, named in t
 - **The testnet's names under `test.dassiepay.net`.** The live realm takes `dassiepay.net` and the testnet moves to `<node ID>.test.dassiepay.net` ([public-domains](decisions/public-domains.md)): it needs the subdomain's DNS, a wildcard certificate and a testnet front door serving it, and then the testnet's default domain in the code.
 - **Pre-releases,** if wanted, are `vX.Y.Z-rc.N` tags that the release workflow builds and signs as it does a release, on a channel of their own that a node joins only when its owner asks; the version parser, the installer and the updater accept none yet ([release-integrity](decisions/release-integrity.md)).
 - **The market maker's VM on one node.** The VM runs one node in both hubs where it ran a node per asset ([Market maker VM](areas/market-maker-vm.md)), which deploying takes an operator's steps: make the secret `mm-phrase` from the DSUSD node's phrase in `mm-dsusd-phrase`, whose account holds XRP and a DSUSD trust line already, and grant the VM's service account access to it, as `provision.sh` does; send what the XRP node's account and hub hold to that account, or leave it; put the new `startup.sh` in the instance metadata and reset the VM, which stops the two nodes and starts the one; move `/var/lib/dassie-mm/xrp` and `/var/lib/dassie-mm/dsusd` away once the node runs; and then delete the secrets `mm-xrp-phrase` and `mm-dsusd-phrase` with their bindings. **Done when** the VM's log shows the market maker swapping through boot1–3 with one node.
+- **XRP's price in dollars from outside every dollar token's pool, and the peg guard on it.** XRP's rate comes from mainnet's XRP/RLUSD pool, so no peg guard runs and a de-peg is not detected ([open-rate-sources](decisions/open-rate-sources.md)). A source of XRP's price in dollars outside every dollar token's pool, close to real time and with terms that allow a node's use, would let the guard run again ([issued-assets](decisions/issued-assets.md)). **Done when** a node prices each dollar token against such a source, and pauses its book and its hub's ledger off its peg.
+- **A backup XRP/USD rate** to explore, from the median of the XRP Ledger's price publishers: XRPL Labs' (Xaman's) oracle, Band's, and two smaller publishers' `Oracle` entries, each proven at a validated ledger as the pool is ([XRPL](areas/xrpl.md#xrps-rate)). Each is one key with no terms or commitment, and all but XRPL Labs' update only every ten to thirty minutes.
 - **Importing a v0 node's config and BTP tokens** is not planned; it is cheap to add if anyone asks ([database-continuity](decisions/database-continuity.md)).
 
 ## Future work, design only
@@ -215,4 +208,5 @@ Designs that stay future work. The architecture must not preclude them.
 - [random-seed-simulations](decisions/random-seed-simulations.md): the simulation campaign.
 - [ledger-resets](decisions/ledger-resets.md): a lagging server is handled; a reset counts once the testnet's UNL validates it.
 - [default-relay](decisions/default-relay.md): the default relay, until an onboarding asks.
-- [issued-assets](decisions/issued-assets.md): the peg guard; transfer fees.
+- [issued-assets](decisions/issued-assets.md): the peg guard, when it runs again; transfer fees.
+- [open-rate-sources](decisions/open-rate-sources.md): no peg guard until a dollar token has a price of its own.

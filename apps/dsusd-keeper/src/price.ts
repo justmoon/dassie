@@ -18,8 +18,8 @@ export const RLUSD_CURRENCY = currencyHex("RLUSD");
 export const RLUSD_ISSUER = "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De";
 
 /** The least XRP the pool must hold for its price to count, in drops: the
- * floor the node's peg guard takes for the same pool
- * (`crates/dassie-xrpl/src/rlusd.rs`). It holds about two million; drained
+ * floor the node's XRP rate takes for the same pool (`MIN_POOL_DROPS` in
+ * `crates/dassie-xrpl/src/pool_rate.rs`). It holds about two million; drained
  * to a twentieth of that, it has lost the depth that makes its price
  * costly to move, and an emptied pool is filled again at whatever ratio
  * its first depositor picks. */

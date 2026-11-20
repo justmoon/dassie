@@ -1,11 +1,11 @@
 # The DSUSD keeper follows the pool, and reprices after each trade
 
-**Areas:** [DSUSD keeper](../areas/dsusd-keeper.md#following-the-pool), [XRPL](../areas/xrpl.md#the-peg-guard).
+**Areas:** [DSUSD keeper](../areas/dsusd-keeper.md#following-the-pool), [XRPL](../areas/xrpl.md#dsusd).
 
 ## Facts
 
 - DSUSD is had only by paying XRP for it through the XRP/DSUSD pool ([dsusd](dsusd.md)), so every node that needs dollars on the testnet, and the market maker that rebalances them, buys there.
-- The pool is shallow next to what nodes buy: about 1,400 XRP beside 1,800 DSUSD. Buying 40 DSUSD moves its price about 4%, and the peg guard pauses DSUSD on every node once each reading for ten minutes was more than 3% off a dollar ([XRPL](../areas/xrpl.md#the-peg-guard)).
+- The pool is shallow next to what nodes buy: about 1,400 XRP beside 1,800 DSUSD. Buying 40 DSUSD moves its price about 4%, and the peg guard, while it runs, pauses DSUSD on every node once each reading for ten minutes was more than 3% off a dollar ([issued-assets](issued-assets.md), [open-rate-sources](open-rate-sources.md)).
 - The keeper ran every five minutes, counted from the end of the last run, which could take up to four. After a trade, the pool stayed where the trade left it for up to nine minutes. Owners who bought dollars for a node bought a few at a time and waited for the keeper between purchases, for an hour or two for 40–50 DSUSD, and one round still came within a tenth of a percent of the guard's band.
 - The XRP Ledger streams every validated transaction that touches an account to whoever subscribes to it. Every trade with the pool, and every deposit or withdrawal, touches the pool's account.
 - A run is idempotent: it reads the ledger and takes the next step until the pool is at the target ([DSUSD keeper](../areas/dsusd-keeper.md#a-run)), so it may run at any time, as often as asked.

@@ -22,7 +22,6 @@ The `live` realm stays refused until all of these hold:
 - **the node checks the XRP Ledger's validators itself,** on both networks, against a UNL of its own, with transactions and state proven by branches against validated ledgers ([verified-ledgers](verified-ledgers.md));
 - **proof servers run:** a public rippled patched to serve those proofs, for each network, named in the node's defaults ([verified-ledgers](verified-ledgers.md));
 - **mainnet schemes exist for XRP and RLUSD,** and a ledger runs only in its node's realm ([mainnet-schemes](mainnet-schemes.md)). There is no DSUSD on mainnet;
-- **the dollar token's scheme pauses while its pool prices it off its peg** ([issued-assets](issued-assets.md)), until [open-rate-sources](open-rate-sources.md) turns the guard off and drops it from these gates (not built);
 - **settlement hubs run on mainnet:** a mainnet hub scheme, whose validators observe the escrow through proofs, and a default mainnet hub ([settlement-hubs](settlement-hubs.md));
 - there has been an external review;
 - a mainnet bootstrap node list exists.
@@ -32,6 +31,7 @@ The `live` realm stays refused until all of these hold:
 ## Accepted
 
 - **Launch, then observe.** Incentive problems no running network has shown yet (hub fees that follow congestion, idle and setup fees) are not solved before the launch. Their starting values are in the code; running nodes show which need more.
+- **A de-peg goes unseen.** No peg guard is among the gates: with XRP's rate from mainnet's XRP/RLUSD pool, a guard could only read RLUSD as pegged, so a node converts RLUSD at par with real money too, and a de-peg is not detected ([open-rate-sources](open-rate-sources.md)).
 - **What verifying ledgers leaves:** a proof server that is down stalls the nodes that rely on it, an anchor may be as old as the freshness bound allows, and beyond the history the proof servers keep a server can move a peer's settlement into the owner's suspense ([verified-ledgers](verified-ledgers.md)).
 
 ## Rejected

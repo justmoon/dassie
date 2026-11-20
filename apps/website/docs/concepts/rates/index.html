@@ -139,23 +139,16 @@
       <p
         class="why"><a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/exchange-rates.md">Why three sources and a median</a>, and <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/open-rate-sources.md">which sources come next</a>.</p>
 
-      <h2 id="the-peg-guard">Dollar tokens and the peg guard</h2>
+      <h2 id="dollar-tokens">Dollar tokens</h2>
       <p>
-        Booking a dollar token at par is only safe while the token is worth
-        a dollar. A node that converted at par while the token was off its
-        peg could be drained. So each dollar token has a peg guard: once a
-        minute your node reads the token's pool on the XRP Ledger, with a
-        proof, and prices the token against XRP's rate.
-      </p>
-      <p>
-        When the token stays off its peg for a while, the guard pauses every
-        conversion to or from it, on your own account and in its hub alike.
-        Settling and paying out in the token go on. When the token is back
-        near a dollar for a longer while, conversions start again. A guard
-        that cannot read the pool for long enough pauses too, rather than
-        guess. See
-        <a href="/docs/wallet/peg-guard/">Dollar tokens and the peg guard</a>
-        for what you see in the wallet.
+        A dollar token, such as DSUSD or RLUSD, needs no rate: your node
+        books it at par, one to one with every other dollar, on your own
+        account and in its hub alike. That is only safe while the token is
+        worth a dollar, and nothing checks that it is. XRP's rate comes from
+        mainnet's XRP/RLUSD pool, which prices XRP in RLUSD, so your node has
+        no dollar price for a token to compare. If a token leaves its peg,
+        your node does not notice, and keeps converting it at par.
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/open-rate-sources.md">Why there is no peg guard for now</a>.
       </p>
 
       <h2 id="pricing-by-what-you-hold">Pricing by what you hold</h2>
@@ -266,8 +259,7 @@
         <li>
           <strong>A promise, never more.</strong> A snapshot never says more
           than the node gives. A method the node offers but cannot convert
-          on now, for want of a fresh rate or a dollar token off its peg, is
-          listed closed.
+          on now, for want of a fresh rate, is listed closed.
         </li>
       </ul>
       <p>

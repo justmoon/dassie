@@ -18,7 +18,7 @@ use dassie_ledger::{
 };
 use dassie_peer::Room;
 use dassie_peer::wire::SchemeId;
-use dassie_settlement::{DollarRate, LedgerStatus, policy};
+use dassie_settlement::{LedgerStatus, policy};
 
 use super::events::SettlementEvent;
 use super::hub_allotment::Allotments;
@@ -97,8 +97,6 @@ pub(super) struct Settlements {
     /// The largest packet on each ledger, which schemes that count in
     /// packets need.
     pub max_packet: PerLedger<u64>,
-    /// The timings of a dollar token's peg guard.
-    pub peg: dassie_xrpl::peg::Timings,
     /// The default hubs a hub's scheme added without rules joins: the
     /// build's, or a test's.
     pub default_hubs: super::schemes::DefaultHubs,
@@ -114,7 +112,6 @@ impl Settlements {
             trigger: max_packet.map(policy::trigger),
             minimum: max_packet.map(policy::minimum),
             max_packet,
-            peg: policies.peg,
             default_hubs: super::schemes::DEFAULT_HUBS,
             asked: BTreeMap::new(),
             unanswered: BTreeMap::new(),
@@ -384,26 +381,11 @@ impl Core {
 
     /// The settlement check of each scheme that settles through an asset:
     /// what it reads of its ledger each time, such as an issuer's account,
-    /// is asked for now, and comes as news. Each is first handed the rates
-    /// it reads, as the node has them, such as XRP's for a dollar token's
-    /// peg guard.
+    /// is asked for now, and comes as news.
     fn check_schemes(&mut self) {
         let now = self.now_ms;
         let schemes: Vec<Name> = self.schemes.keys().copied().collect();
         for scheme in schemes {
-            let rates = &self.prices.rates;
-            let Some(active) = self.schemes.get_mut(&scheme) else {
-                continue;
-            };
-            for code in active.scheme.rate_currencies() {
-                let rate = rates.get(code).zip(rates.as_of(code));
-                let rate = rate.map(|(per_dollar, as_of_ms)| DollarRate {
-                    per_dollar,
-                    precision: dassie_connector::RATE_PRECISION,
-                    as_of_ms,
-                });
-                active.scheme.on_rate(code, rate);
-            }
             let Some((active, Some(asset))) = self.scheme_and_asset(scheme) else {
                 continue;
             };
@@ -412,51 +394,6 @@ impl Core {
                 self.carry_out(asset);
             }
         }
-        // A guard that went without a reading for too long pauses its
-        // scheme with no news from its ledger.
-        if self.follow_pegs() {
-            self.update_peer_schemes();
-        }
-    }
-
-    /// Follows each scheme's peg guard and whether its ledger converts:
-    /// once a guard paused or resumed its scheme, the owner is told, and
-    /// once a ledger stopped or started converting, a hub's with its owner
-    /// book's guard too, the prices are built again at the commit, without
-    /// its ledger or with it, and the owner's views with them
-    /// (spec/decisions/issued-assets.md). Returns whether a guard changed.
-    pub(super) fn follow_pegs(&mut self) -> bool {
-        // Which ledgers a hub's owner book halts, before the schemes are
-        // walked to be changed (`Core::converts_now`).
-        let halted = LedgerId::ALL.map(|ledger| self.hub_halted(ledger));
-        let mut changed = Vec::new();
-        for (id, active) in &mut self.schemes {
-            let ledger = active.scheme.ledger();
-            let by_hub = LedgerId::ALL
-                .iter()
-                .zip(halted)
-                .any(|(on, halted)| *on == ledger && halted);
-            let converts = active.converts_now() && !by_hub;
-            let paused = active.scheme.peg().and_then(|peg| peg.paused);
-            if paused != active.paused {
-                changed.push((*id, paused));
-                active.paused = paused;
-            }
-            if converts != active.converts {
-                active.converts = converts;
-                self.prices.due = true;
-                self.changes.ledger = true;
-            }
-        }
-        let any = !changed.is_empty();
-        for (scheme, paused) in changed {
-            self.changes.ledger = true;
-            self.report(match paused {
-                Some(why) => SettlementEvent::PegPaused { scheme, why },
-                None => SettlementEvent::PegResumed { scheme },
-            });
-        }
-        any
     }
 
     /// Asks each peer that is close to the credit we extend to settle, at

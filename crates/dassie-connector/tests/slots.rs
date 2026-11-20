@@ -16,9 +16,7 @@
 use std::collections::BTreeMap;
 
 use dassie_connector::sim::{Harness, NOW, decode_prepare, fulfill, prepare, reject};
-use dassie_connector::{
-    Config, EndpointId, MAX_SLOTS, Outcome, PriceTable, RATE_PRECISION, SlotError,
-};
+use dassie_connector::{Config, EndpointId, MAX_SLOTS, Outcome, RATE_PRECISION, SlotError};
 use dassie_ilp::{AmountTooLarge, ErrorCode};
 use dassie_ledger::{AccountId, LedgerId};
 use dassie_oer::Decode;
@@ -521,13 +519,12 @@ fn each_ledger_has_its_own_largest_packet() {
 }
 
 // spec/decisions/settlement-methods.md, spec/decisions/token-hubs.md: a
-// ledger whose conversions are halted, as a dollar token's hub off its peg,
-// still carries the packets that keep it: one in on its method goes on, on
-// that ledger, needing no rate. A packet that would convert off it is
-// refused, even into the owner's own funds in the same currency, which
-// needs no rate and converts at spot once the ledger is no longer halted.
+// ledger the price table leaves out, as one whose rate is stale, still
+// carries the packets that keep it: one in on its method goes on, on that
+// ledger, needing no rate. One into the owner's own funds in the same
+// currency converts at spot, which needs no rate either.
 #[test]
-fn a_halted_ledger_still_carries_the_packets_that_keep_it() {
+fn an_unpriced_ledger_still_carries_the_packets_that_keep_it() {
     let mut h = harness(Config::DEFAULT);
     // The owner's funds in XRP in a hub, at an address of their own: a
     // packet in on XRP to them converts, in the same currency.
@@ -537,18 +534,17 @@ fn a_halted_ledger_still_carries_the_packets_that_keep_it() {
     h.connector
         .add_endpoint(own, "test.das.dnode.hub", in_hub, HUB)
         .unwrap();
-    // Built without XRP, as the node builds it while XRP's guard pauses it.
+    // Built without XRP, as the node builds it while XRP's rate is stale.
     let inventories: Vec<_> = LedgerId::ALL
         .into_iter()
         .filter(|ledger| *ledger != XRP)
         .filter_map(|ledger| h.inventory(ledger))
         .collect();
     let max_age_ms = h.connector.config().max_rate_age_ms;
-    let running =
+    let prices =
         dassie_connector::PriceTable::build(&h.rates, &inventories, h.pricing, NOW, max_age_ms);
-    let mut halted = running;
-    halted.halt(XRP);
-    let send = |h: &mut Harness, prices: &PriceTable, request_id: u32, destination: &str| {
+    assert!(prices.ledger(XRP).is_none(), "XRP is left out");
+    let mut send = |request_id: u32, destination: &str| {
         let packet = prepare(destination, 1_000, NOW + 20_000, [1; 32]);
         let outcome = h.connector.handle_prepare_with(
             NOW,
@@ -556,30 +552,23 @@ fn a_halted_ledger_still_carries_the_packets_that_keep_it() {
             Some(XRP),
             &packet,
             &mut h.ledger,
-            prices,
+            &prices,
             &mut dassie_connector::OpensNone,
             0,
             &mut h.buffer,
         );
         h.check();
-        outcome
+        match outcome {
+            Outcome::Forward(sent) => Ok((sent, decode_prepare(&h.buffer[..sent.length]).amount)),
+            other => Err(other),
+        }
     };
-    match send(&mut h, &halted, 1, FAR) {
-        Outcome::Forward(sent) => {
-            let amount = decode_prepare(&h.buffer[..sent.length]).amount;
-            assert_eq!((sent.ledger, amount), (XRP, 1_000));
-        }
-        other => panic!("refused on the ledger it came in on: {other:?}"),
+    match send(1, FAR) {
+        Ok((sent, amount)) => assert_eq!((sent.ledger, amount), (XRP, 1_000)),
+        Err(other) => panic!("refused on the ledger it came in on: {other:?}"),
     }
-    match send(&mut h, &halted, 2, "test.das.dnode.hub") {
-        Outcome::Respond(length) => {
-            let (code, _) = h.reject_written(length);
-            assert_ne!(code, ErrorCode::T04_INSUFFICIENT_LIQUIDITY, "{code:?}");
-        }
-        other => panic!("converted off a halted ledger: {other:?}"),
-    }
-    match send(&mut h, &running, 3, "test.das.dnode.hub") {
-        Outcome::Forward(sent) => assert_eq!((sent.to, sent.ledger), (own, HUB)),
-        other => panic!("not converted at spot once running: {other:?}"),
+    match send(2, "test.das.dnode.hub") {
+        Ok((sent, _)) => assert_eq!((sent.to, sent.ledger), (own, HUB)),
+        Err(other) => panic!("not converted at spot into the owner's own funds: {other:?}"),
     }
 }

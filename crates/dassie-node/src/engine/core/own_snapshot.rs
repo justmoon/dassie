@@ -73,8 +73,8 @@ impl Content {
     /// What `quoting` says at `now_ms` on `grid`: each method the node
     /// offers, by its tag. One whose ledger the table prices has its bid
     /// and ask and their ladders, as the connector quotes them; one whose
-    /// ledger it does not price, for want of a fresh rate or a dollar
-    /// token's hub off its peg, is listed with both sides closed, so that a
+    /// ledger it does not price, for want of a fresh rate, is listed with
+    /// both sides closed, so that a
     /// reader tells a method the node offers but does not convert on now
     /// from one it does not offer. A ledger no method is on, such as an
     /// owner book's, is not listed. Two methods whose tags collide, or two

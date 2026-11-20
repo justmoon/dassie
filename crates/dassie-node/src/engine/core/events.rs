@@ -298,20 +298,6 @@ pub enum SettlementEvent {
         /// What its checkpoint says, nothing for none.
         kept: u64,
     },
-    /// A dollar token's peg guard paused its scheme: it settles nothing,
-    /// cannot receive, and its ledger converts nothing
-    /// (spec/decisions/issued-assets.md).
-    PegPaused {
-        /// The scheme.
-        scheme: Name,
-        /// Why.
-        why: dassie_settlement::PegPause,
-    },
-    /// A dollar token's peg guard let its scheme run again.
-    PegResumed {
-        /// The scheme.
-        scheme: Name,
-    },
     /// The books refused a scheme's effects, all of them: it is fed nothing
     /// more.
     SchemeStopped {
@@ -617,7 +603,6 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::RequestShort { .. }
         | SettlementEvent::RequestAllotted { .. }
         | SettlementEvent::PeerSettled { .. }
-        | SettlementEvent::PegResumed { .. }
         | SettlementEvent::HubEnded { .. }
         | SettlementEvent::HubLeft { .. }
         // The books follow what is above the reserve: a change of it is
@@ -635,7 +620,6 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::Unusable { .. }
         | SettlementEvent::Disabled { .. }
         | SettlementEvent::HubBooksMended { .. }
-        | SettlementEvent::PegPaused { .. }
         | SettlementEvent::BooksCannotSettle { .. }
         | SettlementEvent::SchemeUnavailable { .. }
         | SettlementEvent::PrepareFailed { .. }

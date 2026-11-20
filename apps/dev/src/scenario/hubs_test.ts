@@ -125,7 +125,6 @@ test("several hubs are checked before the scenario starts", () => {
     addedSchemes: xrpMember,
     bootstrap: [5],
     mint: { token: "DSUSD", value: "100" },
-    pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
     hubs: [
       { validators, sponsor: 0, members: [4, 5] },
       { validators, sponsor: 0, members: [5, 6], token: "DSUSD" },
@@ -152,10 +151,6 @@ test("several hubs are checked before the scenario starts", () => {
   assertEquals(
     invalidHubs({ ...base, mint: undefined }),
     "the DSUSD hub's members are minted no DSUSD",
-  );
-  assertEquals(
-    invalidHubs({ ...base, pool: undefined }),
-    "no pool prices DSUSD, whose guard halts its hub's ledger",
   );
   assertEquals(
     hubs([xrp, { ...dsusd, validators: [0, 1, 2] }]),

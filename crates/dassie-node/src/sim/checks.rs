@@ -717,7 +717,6 @@ pub fn check_books(sim: &Sim) -> Result<(), Outcome> {
         check_true(sim).map_err(|problem| Outcome::safety("proven", problem)),
         check_funded(sim).map_err(|problem| Outcome::liveness("funded", problem)),
         check_anchored(sim).map_err(|problem| Outcome::liveness("anchored", problem)),
-        check_pegged(sim).map_err(|problem| Outcome::liveness("pegged", problem)),
         check_settled(sim).map_err(|problem| Outcome::liveness("settled", problem)),
         check_delivered(sim).map_err(|problem| Outcome::liveness("delivered", problem)),
     ])
@@ -794,28 +793,6 @@ pub fn check_funded(sim: &Sim) -> Result<(), String> {
         Some(index) => Err(format!("node {index} was never minted on {token}")),
         None => Ok(()),
     }
-}
-
-/// On a token, every node's peg guard read the token's pool, which stays at
-/// a dollar at the run's rates, and lets its scheme run
-/// (spec/decisions/issued-assets.md).
-pub fn check_pegged(sim: &Sim) -> Result<(), String> {
-    let Some((token, _)) = sim.settling.token() else {
-        return Ok(());
-    };
-    for index in (0..sim.nodes.len()).filter(|index| books(sim, *index, token)) {
-        let peg = sim
-            .core(index)
-            .ledger_views()
-            .into_iter()
-            .find(|view| view.id == token)
-            .and_then(|view| view.peg)
-            .ok_or_else(|| format!("node {index} has no peg guard on {token}"))?;
-        if peg.paused.is_some() || peg.last.map(|(price, _)| price) != Some(1_000_000) {
-            return Err(format!("node {index}'s peg guard on {token} says {peg:?}"));
-        }
-    }
-    Ok(())
 }
 
 /// No settlement is still on its way: none in a channel's outbox, and
@@ -1015,7 +992,6 @@ pub fn check_across(sim: &Sim) -> Result<(), Outcome> {
             check_true(sim).map_err(|problem| Outcome::safety("proven", problem)),
             check_funded(sim).map_err(|problem| Outcome::liveness("funded", problem)),
             check_anchored(sim).map_err(|problem| Outcome::liveness("anchored", problem)),
-            check_pegged(sim).map_err(|problem| Outcome::liveness("pegged", problem)),
             check_finished(sim).map_err(|problem| Outcome::liveness("finished", problem)),
             check_settled(sim).map_err(|problem| Outcome::liveness("settled", problem)),
         ]

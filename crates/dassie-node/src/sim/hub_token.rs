@@ -7,9 +7,7 @@
 //! hub by a deposit from its DSUSD book, and the members pay each other
 //! across hops over the hub.
 //!
-//! The token's pool moves off its peg: the members' peg guards halt the
-//! conversions of the hub's ledger, and the members still pay each other
-//! over the hub, in the token as it is. The escrow's XRP is brought below
+//! The escrow's XRP is brought below
 //! the least the hub's crate fixes, as the fees of a long life would bring
 //! it, and a member's withdrawal first tops it up from its XRP book, and
 //! goes only once that applied. Then someone sends the escrow XRP, as
@@ -58,12 +56,9 @@ use dassie_kit::sim::{Outcome, Run, SeededRng};
 use dassie_oer::{Decode, Encode};
 use dassie_peer::InboundId;
 use dassie_peer::wire::{Content, SchemeId};
-use dassie_settlement::PegPause;
-use dassie_xrpl::DROPS_PER_XRP;
 use dassie_xrpl::account::REQUEST_TIMEOUT_MS;
 use dassie_xrpl::api;
 use dassie_xrpl::codec::{Amount, TokenValue};
-use dassie_xrpl::peg::{READ_EVERY_MS, TRIP_HOLD_MS};
 
 use super::checks::{
     check_events, check_funded, check_held, check_incoming, check_true, first_failure,
@@ -74,9 +69,7 @@ use super::hub_checks::{
     idle_in, in_step_in, joined, transaction_record,
 };
 use super::scripted::{READY_WITHIN_MS, ended};
-use super::{
-    DSUSD, Delivery, HUB_DSUSD, POOL_TOKENS, START, Settling, Sim, XRP, key, xrpl_account,
-};
+use super::{DSUSD, Delivery, START, Settling, Sim, XRP, key, xrpl_account};
 use crate::engine::EngineError;
 use crate::engine::core::Gas;
 use crate::hub::escrow::ISSUER_CHECK_EVERY_MS;
@@ -291,7 +284,6 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
     over_hub(sim)?;
     pay(sim, rng);
     sim.run_until_or(sim.now + PAID_WITHIN_MS, paid);
-    off_peg(sim, rng)?;
     // The freeze comes before the owner's moves, which pause the node's own
     // for longer than the run (`OWNER_PAUSE_MS`): a member that pays after
     // them could not fund its holds again.
@@ -336,85 +328,6 @@ fn over_hub(sim: &Sim) -> Result<(), Outcome> {
             }
         }
     }
-    Ok(())
-}
-
-/// How long the members' peg guards take to halt the conversions of the
-/// hub's ledger once the token's pool is off its peg, by the guard's rule
-/// at production timings (spec/areas/xrpl.md#the-peg-guard): the ledger
-/// that moves the pool, then the trip hold, timed between two readings as
-/// they come. Each of the two may come up to a read interval after it is
-/// due: the first reading off the peg up to one after the move, and the
-/// one that ends the hold up to one after the hold, since readings a
-/// minute apart rarely span it exactly. Each is asked at a settlement
-/// check, and may wait for one request the run loses: its timeout, the
-/// connection made anew, and the ledger it syncs on, where the pool is
-/// asked for again. The rates, learned every minute, stay fresh for the
-/// guard for ten (`MAX_RATE_AGE_MS`), so they add nothing.
-pub(super) const OFF_PEG_WITHIN_MS: u64 = super::LEDGER_CLOSE_MS
-    + TRIP_HOLD_MS
-    + 2 * (READ_EVERY_MS
-        + crate::node::Policies::DEFAULT.settlement_interval_ms
-        + REQUEST_TIMEOUT_MS
-        + super::LEDGER_RECONNECT_MS
-        + super::LEDGER_CLOSE_MS);
-
-/// The token's pool moves off its peg, 5% under a dollar: once each
-/// member's peg guard has held it off for its trip hold, the hub's ledger
-/// converts nothing, while the members still pay each other over the hub,
-/// in the token as it is (spec/decisions/token-hubs.md). Then the pool is
-/// back at a dollar; the guards resume after their recovery hold, which
-/// the run does not wait for: nothing in it converts.
-fn off_peg(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
-    let token = sim.token();
-    let tokens = TokenValue::from_units(POOL_TOKENS, 0).unwrap();
-    let par = 2 * POOL_TOKENS * DROPS_PER_XRP;
-    sim.ledger
-        .set_pool(token, par / 100 * 95, tokens, 300)
-        .unwrap();
-    sim.trace.push(format!(
-        "{} the token's pool moves 5% under a dollar",
-        sim.now
-    ));
-    let halted = |sim: &Sim| {
-        (0..sim.nodes.len()).all(|index| {
-            let core = sim.core(index);
-            let paused = core
-                .ledger_views()
-                .into_iter()
-                .find(|view| view.id == HUB_DSUSD)
-                .and_then(|view| view.peg)
-                .and_then(|peg| peg.paused);
-            paused == Some(PegPause::OffPeg) && core.price_table().halted(HUB_DSUSD)
-        })
-    };
-    if !sim.run_until_or(sim.now + OFF_PEG_WITHIN_MS, halted) {
-        return Err(Outcome::liveness(
-            "off-peg",
-            "the members' peg guards did not halt the hub's ledger in time",
-        ));
-    }
-    sim.count("conversions halted off the peg");
-    pay(sim, rng);
-    if !sim.run_until_or(sim.now + PAID_WITHIN_MS, paid) {
-        return Err(Outcome::liveness(
-            "off-peg",
-            format!(
-                "the members did not pay each other over the hub off its peg: {}",
-                hub_standing(sim)
-            ),
-        ));
-    }
-    if !halted(sim) {
-        return Err(Outcome::safety(
-            "off-peg",
-            "a member's guard resumed while the pool was still off its peg",
-        ));
-    }
-    sim.count("members paid each other off the peg");
-    sim.ledger.set_pool(token, par, tokens, 300).unwrap();
-    sim.trace
-        .push(format!("{} the token's pool is back at a dollar", sim.now));
     Ok(())
 }
 

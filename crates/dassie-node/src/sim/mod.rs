@@ -69,9 +69,7 @@
 //! mints each node its token once its line exists, then claws some back
 //! and freezes lines, deep or for every holder; each node's books count
 //! what the issuer did as its owner's deposits and withdrawals, and hold
-//! its line. The token's pool stays at a dollar at the run's rates, which
-//! nodes learn every minute, so its peg guard reads it throughout
-//! (spec/decisions/issued-assets.md).
+//! its line.
 //!
 //! A payer that never funds its hold in the hub costs its peer no more
 //! than the hold, and is ended for room (spec/decisions/own-fulfills.md).
@@ -120,7 +118,6 @@ use dassie_payments::amount::paid_in_full;
 use dassie_peer::{Bootstrap, Failure, InboundId, OwnInfo, RequestId, Response};
 use dassie_settlement::policy;
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
-use dassie_xrpl::DROPS_PER_XRP;
 use dassie_xrpl::account::{Doubt, LEDGER_SILENCE_MS, Proofs, REQUEST_TIMEOUT_MS, STALL_MS};
 use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::codec::TokenValue;
@@ -322,9 +319,6 @@ const VALIDATION_SECRET: [u8; 32] = *b"dassie simulation validations ok";
 /// What the fake ledger's issuer mints each node on its token's ledger once
 /// its line exists, in millionths of a dollar: as much as the stub gives.
 pub const MINT_MICROS: u64 = 100_000_000;
-/// What a token's pool holds of it, in whole tokens: beside twice as many
-/// XRP, a dollar at [`RATES`], and deep enough for either network's floor.
-pub const POOL_TOKENS: u64 = 100_000;
 
 impl Settling {
     /// The ledger a run of one ledger settles over.
@@ -557,8 +551,7 @@ pub enum IssuerFreeze {
 
 /// The rates of runs across currencies and on a token: a dollar buys two
 /// XRP. A node learns them when it starts, and again every minute, as a
-/// node fetches them, so a token's peg guard reads its pool at a fresh
-/// rate.
+/// node fetches them.
 pub const RATES: [(&str, u128); 2] = [
     ("USD", 1_000_000_000_000_000),
     ("XRP", 2_000_000_000_000_000),
@@ -1220,13 +1213,6 @@ impl Sim {
             swept: BTreeSet::new(),
             swaps_done: Vec::new(),
         };
-        // The token's pool, at a dollar at the run's rates.
-        if let Some((_, token)) = settling.token() {
-            let tokens = TokenValue::from_units(POOL_TOKENS, 0).unwrap();
-            sim.ledger
-                .set_pool(token, 2 * POOL_TOKENS * DROPS_PER_XRP, tokens, 300)
-                .unwrap();
-        }
         for &skew_ms in skews_ms {
             sim.nodes.push(SimNode {
                 store: Arc::new(Store::open_in_memory().unwrap()),
@@ -2116,8 +2102,10 @@ impl Sim {
         )
     }
 
-    /// Whether the run's nodes need rates: to convert across currencies,
-    /// or for a token's peg guard.
+    /// Whether the run's nodes learn rates: across currencies, which they
+    /// convert by, and on a token, whose nodes hold XRP or the stub's
+    /// dollars beside it, as a node has the rates of its ledgers'
+    /// currencies.
     const fn needs_rates(&self) -> bool {
         self.settling.across() || self.settling.token().is_some()
     }

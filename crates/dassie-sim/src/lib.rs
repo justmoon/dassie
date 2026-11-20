@@ -141,10 +141,9 @@ pub static SIMS: &[Sim] = &[
     Sim {
         name: "node-hub-dsusd",
         about: "whole nodes' engine cores peered over a settlement hub of DSUSD, funding it from \
-                their DSUSD owner books, paying off the token's peg, the escrow's XRP sent to it \
-                as gas and topped up before a withdrawal, through a freeze by the issuer and \
-                its thaw, until a clawback or a stall ends the hub and its escrow pays out in \
-                DSUSD",
+                their DSUSD owner books, the escrow's XRP sent to it as gas and topped up before \
+                a withdrawal, through a freeze by the issuer and its thaw, until a clawback or a \
+                stall ends the hub and its escrow pays out in DSUSD",
         describe: dassie_node::sim::hub_token::describe,
         run: dassie_node::sim::hub_token::run,
         // A script as long as node-hub's.
@@ -164,8 +163,7 @@ pub static SIMS: &[Sim] = &[
     Sim {
         name: "node-hub-rlusd",
         about: "the same over a hub of RLUSD, funded from the members' RLUSD owner books and its \
-                escrow's gas from their XRP books, paying each other over it while the token is \
-                off its peg",
+                escrow's gas from their XRP books",
         describe: dassie_node::sim::hub_live::describe_rlusd,
         run: dassie_node::sim::hub_live::run_rlusd,
         // A script over a hub, shorter than node-hub's.

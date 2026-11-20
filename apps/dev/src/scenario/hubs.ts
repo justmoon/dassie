@@ -206,13 +206,13 @@ export function sponsors(def: ScenarioDef): number[] {
  * that runs the owner book of XRP of the scenario's realm, which funds the
  * escrow; and members, each one of its nodes, once. No two hubs hold one
  * asset, and a token hub's token is one of the fake ledger's network of
- * the scenario's realm, the one it mints the scenario's nodes and prices
- * in its pool. A member runs its hubs' schemes and the owner
- * books they fund from, the book of XRP among them, and nothing else, so
- * it peers over hubs alone; no other node runs a hub's scheme, whose
- * config is the founded hub's rules, never the scenario's; and nodes
- * added later run what a member does. Every owner book a member runs peers
- * with nobody (spec/areas/xrpl.md#owner-books).
+ * the scenario's realm, the one it mints the scenario's nodes. A member
+ * runs its hubs' schemes and the owner books they fund from, the book of
+ * XRP among them, and nothing else, so it peers over hubs alone; no other
+ * node runs a hub's scheme, whose config is the founded hub's rules, never
+ * the scenario's; and nodes added later run what a member does. Every
+ * owner book a member runs peers with nobody
+ * (spec/areas/xrpl.md#owner-books).
  */
 export function invalidHubs(def: ScenarioDef): string | undefined {
   if (def.hubs === undefined) return undefined;
@@ -235,9 +235,6 @@ export function invalidHubs(def: ScenarioDef): string | undefined {
     if (hub.token !== undefined) {
       if (def.mint?.token !== hub.token) {
         return `the ${hub.token} hub's members are minted no ${hub.token}`;
-      }
-      if (def.pool?.token !== hub.token) {
-        return `no pool prices ${hub.token}, whose guard halts its hub's ledger`;
       }
     }
     const { validators, sponsor, members } = hub;

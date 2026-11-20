@@ -192,9 +192,9 @@
             as <code>USD</code> on ledger
             <code>xrpl-testnet-dsusd+usd</code>. It settles through
             <code>xrpl-testnet-account/0</code> too, and pays its fees in that
-            account's XRP. See
-            <a href="/docs/wallet/peg-guard/">Dollar tokens and the peg
-            guard</a>.
+            account's XRP. It converts at par with every other dollar, and
+            nothing checks that DSUSD is still worth one. See
+            <a href="/docs/concepts/ledgers/#at-par">Dollar tokens at par</a>.
           </p>
         </dd>
         <dt id="xrpl-xrp"><code>xrpl-xrp</code></dt>
@@ -212,7 +212,8 @@
             <code>rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De</code>, booked as
             <code>USD</code> on ledger <code>xrpl-rlusd+usd</code>, through
             <code>xrpl-account/0</code>. Real money, in the live realm, which
-            nodes refuse today.
+            nodes refuse today. Like DSUSD, it converts at par, and a de-peg is
+            not detected.
           </p>
         </dd>
       </dl>

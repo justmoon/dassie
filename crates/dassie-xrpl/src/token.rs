@@ -34,13 +34,9 @@
 //! a global freeze holds or a transfer fee is set, the owner's payments
 //! wait.
 //!
-//! A token its pool prices has a peg guard ([`crate::peg`]): the account
-//! reads the pool for it once a minute, and the node hands it its XRP/USD
-//! rate. While the guard pauses the scheme, off its peg or without a
-//! reading that counts, the connector converts nothing to or from its
-//! ledger ([`converts`](SettlementScheme::converts)); what the line shows is
-//! still booked, and the owner may still move it
-//! (spec/decisions/issued-assets.md).
+//! A dollar token converts at par, as any dollar ledger does, with no
+//! guard on its price: a token off its peg is not detected
+//! (spec/decisions/open-rate-sources.md).
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -48,8 +44,8 @@ use core::marker::PhantomData;
 
 use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
 use dassie_settlement::{
-    AssetId, DollarRate, Effect, ExternalAsset, LedgerStatus, OwnerPayment, OwnerPaymentState,
-    PegView, ReconcileCause, SchemeError, SettlementScheme,
+    AssetId, Effect, ExternalAsset, LedgerStatus, OwnerPayment, OwnerPaymentState, ReconcileCause,
+    SchemeError, SettlementScheme,
 };
 
 use crate::account::{News, Ours, XrplAccount};
@@ -58,10 +54,9 @@ use crate::amount::{Currency, TokenAmount, TokenValue};
 use crate::api::{AccountInfo, AccountSettings, LineView, TxRecord};
 use crate::codec::TF_SET_NO_RIPPLE;
 use crate::follower::{Follower, cancel_pending, failure_of, narrow};
-use crate::kept::{In, Out, SCHEME_VERSION};
+use crate::kept::{In, Out, SCHEME_VERSION, TOKEN_SCHEME_VERSION};
 use crate::keys::AccountId;
 use crate::network::Network;
-use crate::peg::{Guard, Peg, Timings};
 use crate::scheme::account_of;
 
 /// A dollar token the scheme books: what tells one token scheme from
@@ -79,10 +74,6 @@ pub struct Token {
     pub ledger: LedgerId,
     /// The network it is issued on, whose account the scheme books.
     pub network: &'static Network,
-    /// What prices it, for its peg guard: its pool of XRP on its network.
-    /// `None` for a token no pool prices at a dollar
-    /// (spec/decisions/issued-assets.md).
-    pub peg: Option<Peg>,
 }
 
 impl Token {
@@ -149,8 +140,6 @@ impl From<AccountSettings> for Issuer {
 pub struct TokenScheme<T: IssuedToken> {
     /// What it keeps of the account, as every scheme on it does.
     f: Follower,
-    /// Its peg guard, if its token has one; kept with the books.
-    guard: Option<Guard>,
     // Learnt from the account, as it told the scheme.
     /// Our line, as the ledger last said: `None` until it said, then the
     /// line from our side, or `None` if there is none.
@@ -192,7 +181,6 @@ impl<T: IssuedToken> TokenScheme<T> {
         }
         let mut scheme = Self {
             f: Follower::new(account, checkpoint, MAX_MICROS),
-            guard: token.peg.map(Guard::new),
             line: None,
             issuer: None,
             account_synced: false,
@@ -219,20 +207,6 @@ impl<T: IssuedToken> TokenScheme<T> {
     /// Whether the issuer froze our line, so that it pays only the issuer.
     fn frozen(&self) -> bool {
         matches!(self.line, Some(Some(view)) if view.theirs.freeze || view.theirs.deep_freeze)
-    }
-
-    /// Runs its peg guard, if it has one, on `timings`: the node's, which
-    /// are dev timers' in dev and the end-to-end tests
-    /// ([`Timings::DEV`]). What the guard keeps does not change.
-    pub fn set_peg_timings(&mut self, timings: Timings) {
-        self.guard = self.guard.take().map(|guard| guard.timed(timings));
-    }
-
-    /// Whether the peg guard pauses the scheme now.
-    fn paused(&self) -> bool {
-        self.guard
-            .as_ref()
-            .is_some_and(|guard| guard.paused().is_some())
     }
 
     /// Whether the scheme may pay out of the line now, as far as the line
@@ -269,27 +243,15 @@ impl<T: IssuedToken> TokenScheme<T> {
         micros * UNITS_PER_MICRO
     }
 
-    /// Takes one piece of news from the account, at `now_ms`.
-    fn tell(
-        &mut self,
-        now_ms: u64,
-        account: &mut XrplAccount,
-        news: &News,
-        effects: &mut Vec<Effect>,
-    ) {
+    /// Takes one piece of news from the account.
+    fn tell(&mut self, account: &mut XrplAccount, news: &News, effects: &mut Vec<Effect>) {
         let id = self.id();
         match news {
             News::Line { key, line } if *key == T::TOKEN.line() => {
                 self.line = Some(line.and_then(|line| line.view(self.f.account)));
             }
             News::Line { .. } => {}
-            News::Synced(info) => {
-                // A new connection: the pool is read at the next check.
-                if let Some(guard) = &mut self.guard {
-                    guard.ask_again();
-                }
-                self.synced_at(account, info, effects);
-            }
+            News::Synced(info) => self.synced_at(account, info, effects),
             News::Transaction { record, ours } => {
                 let mine = ours.filter(|ours| ours.scheme == id);
                 self.transaction(account, record, mine, effects);
@@ -315,12 +277,6 @@ impl<T: IssuedToken> TokenScheme<T> {
                 self.correct_line(account);
             }
             News::Issuer { .. } => {}
-            News::Pool { key, pool } if *key == T::TOKEN.line() => {
-                if let Some(guard) = &mut self.guard {
-                    guard.reading(now_ms, pool.as_ref());
-                }
-            }
-            News::Pool { .. } => {}
         }
     }
 
@@ -567,20 +523,33 @@ fn paid(ours: &Ours) -> u64 {
     micros * UNITS_PER_MICRO
 }
 
-/// What is kept with the books: what every scheme on the account keeps,
-/// and the peg guard.
+/// What is kept with the books: what every scheme on the account keeps.
 impl<T: IssuedToken> TokenScheme<T> {
-    /// Reads back what [`SettlementScheme::state`] wrote, of this version:
-    /// what every scheme on the account keeps, then the peg guard, for a
-    /// token that has one, and every byte of it.
+    /// Reads back what [`SettlementScheme::state`] wrote: what every scheme
+    /// on the account keeps, and every byte of it. It reads the version
+    /// before its own beside it, written while a dollar token had a peg
+    /// guard: the same, then the guard's part, which it reads whole and
+    /// drops (spec/areas/xrpl.md#state-and-restarts).
     fn restore(&mut self, state: &[u8]) -> Option<()> {
-        let mut input = In::state(state, SCHEME_VERSION)?;
+        let (mut input, version) = In::state_of(state, &[SCHEME_VERSION, TOKEN_SCHEME_VERSION])?;
         self.f.read(&mut input)?;
-        if let Some(peg) = T::TOKEN.peg {
-            self.guard = Some(Guard::read(peg, &mut input)?);
+        if version == SCHEME_VERSION {
+            skip_guard(&mut input)?;
         }
         input.finish()
     }
+}
+
+/// Reads the part of a token scheme's state of [`SCHEME_VERSION`] that its
+/// peg guard kept, and drops it: where it stood (a code up to 2), since
+/// when it was crossing, when a reading last counted, and the last price
+/// that did with its ledger. `None` for a part no guard wrote.
+fn skip_guard(input: &mut In<'_>) -> Option<()> {
+    (input.u8()? <= 2).then_some(())?;
+    input.option(In::u64)?;
+    input.option(In::u64)?;
+    input.option(|input| Some((input.u64()?, input.u32()?)))?;
+    Some(())
 }
 
 impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
@@ -627,38 +596,12 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         false
     }
 
-    fn converts(&self) -> bool {
-        !self.paused()
-    }
-
-    fn peg(&self) -> Option<PegView> {
-        self.guard.as_ref().map(Guard::view)
-    }
-
-    fn rate_currencies(&self) -> &'static [&'static str] {
-        if self.guard.is_some() { &["XRP"] } else { &[] }
-    }
-
-    fn on_rate(&mut self, code: &str, rate: Option<DollarRate>) {
-        if let (Some(guard), "XRP") = (&mut self.guard, code) {
-            guard.rate(rate);
-        }
-    }
-
     /// The issuer's account is read at each check: a global freeze and a
     /// transfer fee change only its account, which our account's stream
-    /// never carries. The pool is read once a minute, for the peg guard, or
-    /// once a second on dev timers.
-    fn on_check(&mut self, now_ms: u64, asset: &mut dyn ExternalAsset) {
-        let read_pool = self.guard.as_mut().is_some_and(|guard| {
-            guard.tick(now_ms);
-            guard.ask(now_ms)
-        });
+    /// never carries.
+    fn on_check(&mut self, _now_ms: u64, asset: &mut dyn ExternalAsset) {
         if let Some(account) = account_of(asset) {
             account.read_issuer(T::TOKEN.issuer);
-            if read_pool {
-                account.read_pool(T::TOKEN.line());
-            }
         }
     }
 
@@ -667,23 +610,16 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     }
 
     fn state(&self) -> Vec<u8> {
-        let mut out = Out::state(SCHEME_VERSION);
+        let mut out = Out::state(TOKEN_SCHEME_VERSION);
         self.f.write(&mut out);
-        if let Some(guard) = &self.guard {
-            guard.write(&mut out);
-        }
         out.0
     }
 
     fn state_version(&self) -> u64 {
-        self.f
-            .fingerprint(self.guard.as_ref().map_or(0, Guard::fingerprint))
+        self.f.fingerprint(0)
     }
 
-    fn on_asset(&mut self, now_ms: u64, asset: &mut dyn ExternalAsset, effects: &mut Vec<Effect>) {
-        if let Some(guard) = &mut self.guard {
-            guard.tick(now_ms);
-        }
+    fn on_asset(&mut self, _now_ms: u64, asset: &mut dyn ExternalAsset, effects: &mut Vec<Effect>) {
         let account = account_of(asset);
         assert!(account.is_some(), "the scheme books an XRPL account");
         let Some(account) = account else {
@@ -702,7 +638,7 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
             self.written_off(effects);
         }
         for item in &news {
-            self.tell(now_ms, account, item, effects);
+            self.tell(account, item, effects);
         }
         self.f.caught_up(account, self.id(), effects);
     }
@@ -746,9 +682,8 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     /// ([`owner_memos`](crate::scheme::owner_memos)),
     /// executed at once, as the XRP scheme pays one
     /// (spec/areas/xrpl.md#deposits-and-withdrawals). `Unavailable` while
-    /// the line or the issuer would stop it (the peg guard aside: a token
-    /// off its peg is still the owner's to move), or the account cannot
-    /// sign it now. Its fee is gas, on the books of the network's
+    /// the line or the issuer would stop it, or the account cannot sign it
+    /// now. Its fee is gas, on the books of the network's
     /// XRP scheme if that runs on the account, so nothing on this ledger
     /// is held for it.
     fn pay_owner(
@@ -780,14 +715,6 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     fn check_invariants(&self) {
         self.f.check_invariants();
         assert!((1..=MAX_TRUST_WAIT_LEDGERS).contains(&self.trust_wait));
-        assert_eq!(
-            self.guard.is_some(),
-            T::TOKEN.peg.is_some(),
-            "a guard for a token a pool prices"
-        );
-        if let Some(guard) = &self.guard {
-            guard.check_invariants();
-        }
         assert_eq!(self.f.booked % UNITS_PER_MICRO, 0, "whole units");
         // The books hold the line in whole units, once the scheme booked
         // from it and knows it.

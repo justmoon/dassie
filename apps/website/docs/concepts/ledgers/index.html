@@ -203,41 +203,24 @@
           href="https://github.com/justmoon/dassie/blob/main/spec/decisions/verified-ledgers.md">Why it works this way</a>
       </p>
 
-      <h2 id="peg-guard">The peg guard</h2>
+      <h2 id="at-par">Dollar tokens at par</h2>
       <p>
-        Your node books a dollar token at a dollar. If the token drifted off
-        its dollar and your node kept converting it at par, others could buy
-        it cheap elsewhere and trade it to your node for something worth
-        more. So the owner book of a dollar token has a guard.
+        Your node books a dollar token as <code>USD</code>, one to one with
+        every other dollar. DSUSD on the testnet and RLUSD on mainnet both
+        convert at par, on your own account and in their hubs, whatever the
+        market says they are worth.
       </p>
-      <ul>
-        <li>
-          Once a minute, it reads the token's price from its pool on the XRP
-          Ledger, proven like everything else, and turns it into dollars with
-          your node's own XRP rate. DSUSD reads the testnet's DSUSD/XRP pool.
-        </li>
-        <li>
-          When every reading for ten minutes is more than 3% off a dollar, up
-          or down, it pauses the token. It lets it go again once every reading
-          for an hour is within 1%.
-        </li>
-        <li>
-          With no reading it can count for ten minutes, it pauses too: it
-          fails closed.
-        </li>
-      </ul>
       <p>
-        While a token is paused, your node converts nothing to or from it,
-        or to or from its hub. You can still pay out of it, what arrives is
-        still booked, and settling over its hub goes on. The wallet shows the
-        last price, and why a token is paused.
-        <a href="/docs/wallet/peg-guard/">Dollar tokens and the peg guard</a>
-        says what you see.
+        No guard watches the peg. If a token drifted off its dollar, your
+        node would not notice, and would keep converting it at par. Others
+        could then buy it cheap elsewhere and trade it to your node for
+        something worth more. Your node takes XRP's price from mainnet's
+        XRP/RLUSD pool, so it has no dollar price for RLUSD of its own to
+        check against. A guard comes back once there is one.
       </p>
       <p class="why">
-        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/issued-assets.md">Why it works this way</a>,
-        and the guard in full in
-        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/xrpl.md#the-peg-guard">the spec</a>
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/open-rate-sources.md">Why there is no guard for now</a>,
+        and <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/issued-assets.md">why a dollar token is booked at par</a>
       </p>
     </main>
     <!-- footer -->

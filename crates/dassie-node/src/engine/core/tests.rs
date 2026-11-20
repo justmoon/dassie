@@ -2747,20 +2747,19 @@ pub(super) const DSUSD_HUB: &str = "dsusd-hub";
 pub(super) const XRP_HUB: &str = "xrp-hub";
 
 /// A scheme that books a hub's ledger, for the tests, with no account in a
-/// hub: it settles nothing and converts as any scheme does, so whether its
-/// ledger converts is up to its owner book's guard alone.
+/// hub: it settles nothing and converts as any scheme does.
 pub(super) struct HubStandIn {
     id: dassie_ledger::Name,
     ledger: dassie_ledger::LedgerId,
 }
 
 impl HubStandIn {
-    /// On the DSUSD hub's ledger, whose owner book has a peg guard.
+    /// On the DSUSD hub's ledger.
     pub(super) const DSUSD: Self = Self {
         id: dassie_ledger::name!(DSUSD_HUB),
         ledger: dassie_ledger::LedgerId::HubXrplTestnetDsusdUsd,
     };
-    /// On the XRP hub's ledger, whose owner book has none.
+    /// On the XRP hub's ledger.
     pub(super) const XRP: Self = Self {
         id: dassie_ledger::name!(XRP_HUB),
         ledger: dassie_ledger::LedgerId::HubXrplTestnetXrp,
@@ -2901,7 +2900,7 @@ fn count_stub_two_packet() {
 }
 
 /// The stub with commitments under another name, on a ledger of its own,
-/// the XRP hub's, whose owner book has no peg guard, and in a pretend hub
+/// the XRP hub's, and in a pretend hub
 /// of its own: what it does is the stub's. As the third stub, the same on
 /// the DSUSD hub's ledger, in a pretend hub of its own again.
 /// Its stub is in a cell: the commitments' reads take `&self`, and the
@@ -3625,27 +3624,21 @@ fn dsusd_beside_xrp_and_no_test_rlusd() {
     );
 }
 
-// spec/decisions/issued-assets.md: RLUSD's peg guard, in the node. The node
-// fetches XRP's rate for it beside its own ledgers', and hands it over at
-// each settlement check. Once mainnet's pool has priced RLUSD off its peg
-// for the trip hold, the price table leaves `xrpl-rlusd+usd` out, so nothing
-// converts to or from it, and the owner sees the guard and is told; what
-// arrives is still booked. Back at a dollar for the recovery hold, it comes
-// back. The link state never offers the scheme, an owner book
-// (spec/areas/xrpl.md#owner-books).
+// spec/decisions/open-rate-sources.md: RLUSD converts at par, with no
+// guard on its price. A node fetches the rates of its own ledgers'
+// currencies alone, no XRP for a token's sake; its RLUSD book is priced
+// with its rates whatever mainnet's pool says, and once the books stopped
+// the scheme, as any. The link state never offers the scheme, an owner
+// book (spec/areas/xrpl.md#owner-books).
 #[test]
 #[allow(clippy::too_many_lines)]
-fn rlusd_off_its_peg_converts_nothing() {
+fn rlusd_converts_at_par_whatever_its_pool_says() {
     use dassie_ledger::LedgerId;
     use dassie_node_core::config::LiveRealm;
-    use dassie_settlement::PegPause;
     use dassie_xrpl::amount::IssuedAsset;
     use dassie_xrpl::codec::TokenValue;
     use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger};
-    use dassie_xrpl::peg::{RECOVER_HOLD_MS, TRIP_HOLD_MS};
     use dassie_xrpl::{DROPS_PER_XRP, Wallet};
-
-    use super::events::{Event, SettlementEvent};
 
     let config = r#"{"server":"ws://ledger.test"}"#;
     let entropy =
@@ -3656,31 +3649,32 @@ fn rlusd_off_its_peg_converts_nothing() {
     ledger.close();
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_in(store, 12, Realm::Live, LiveRealm::DevSwitch).unwrap();
-    for scheme in ["xrpl-xrp", "xrpl-rlusd"] {
-        add_xrpl(&mut core, scheme, config).unwrap();
-        follow_xrpl(&mut core, &mut ledger);
-    }
+    add_xrpl(&mut core, "xrpl-rlusd", config).unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    assert_eq!(core.rate_currencies(), ["USD"]);
+    add_xrpl(&mut core, "xrpl-xrp", config).unwrap();
+    follow_xrpl(&mut core, &mut ledger);
     assert_eq!(core.rate_currencies(), ["USD", "XRP"]);
-    let token = |text: &str| TokenValue::parse(text).unwrap();
     ledger
-        .issue(address, IssuedAsset::RLUSD.amount(token("10")))
+        .issue(
+            address,
+            IssuedAsset::RLUSD.amount(TokenValue::parse("10").unwrap()),
+        )
         .unwrap();
-    // A dollar buys two XRP: a pool of 200,000 XRP and 100,000 RLUSD
-    // prices RLUSD at a dollar.
-    let pool = |ledger: &mut FakeLedger, xrp: u64| {
-        let drops = xrp * DROPS_PER_XRP;
-        let value = token("100000");
-        ledger
-            .set_pool(IssuedAsset::RLUSD, drops, value, 205)
-            .unwrap();
-    };
-    pool(&mut ledger, 200_000);
+    // 190,000 XRP for 100,000 RLUSD, at two XRP to the dollar: 5% under a
+    // dollar, which nothing reads.
+    ledger
+        .set_pool(
+            IssuedAsset::RLUSD,
+            190_000 * DROPS_PER_XRP,
+            TokenValue::parse("100000").unwrap(),
+            205,
+        )
+        .unwrap();
     let one = 10_u128.pow(dassie_connector::RATE_PRECISION);
     let mut now = NOW;
-    // Minutes pass, a ledger closing in each, with the rates fresh: what
-    // the steps put out.
+    // Minutes pass, a ledger closing in each, with the rates fresh.
     let mut minutes = |core: &mut Core, ledger: &mut FakeLedger, count: u64| {
-        let mut outputs = Vec::new();
         for _ in 0..count {
             now += 60_000;
             core.begin_step(now);
@@ -3692,9 +3686,8 @@ fn rlusd_off_its_peg_converts_nothing() {
                 let event = super::LedgerEvent::Message(message);
                 core.ledger_event(&asset.to_string(), epoch, &event);
             }
-            outputs.extend(follow_xrpl_outputs(core, ledger));
+            follow_xrpl_outputs(core, ledger);
         }
-        outputs
     };
     let rlusd = LedgerId::XrplRlusdUsd;
     let priced = |core: &Core| core.price_table().ledger(rlusd).is_some();
@@ -3704,71 +3697,12 @@ fn rlusd_off_its_peg_converts_nothing() {
             .iter()
             .any(|scheme| scheme.as_str() == "xrpl-rlusd")
     };
-    let peg = |core: &Core| {
-        let views = core.ledger_views();
-        views
-            .iter()
-            .find(|view| view.id == rlusd)
-            .unwrap()
-            .peg
-            .unwrap()
-    };
-    minutes(&mut core, &mut ledger, 2);
-    assert_eq!(peg(&core).paused, None);
-    assert_eq!(peg(&core).last.map(|(price, _)| price), Some(1_000_000));
+    minutes(&mut core, &mut ledger, 15);
     assert!(priced(&core) && !advertised(&core));
     assert!(core.price_table().price(LedgerId::XrplXrp, rlusd).is_some());
+    assert!(core.price_table().price(rlusd, LedgerId::XrplXrp).is_some());
 
-    // 5% under a dollar: priced on until the hold is over.
-    pool(&mut ledger, 190_000);
-    minutes(&mut core, &mut ledger, TRIP_HOLD_MS / 60_000);
-    assert!(priced(&core) && !advertised(&core));
-    let events = minutes(&mut core, &mut ledger, 1);
-    assert_eq!(peg(&core).paused, Some(PegPause::OffPeg));
-    assert_eq!(peg(&core).last.map(|(price, _)| price), Some(950_000));
-    assert!(!priced(&core), "converts while off its peg");
-    assert!(
-        core.price_table().halted(rlusd),
-        "converts at spot while off its peg"
-    );
-    assert!(core.price_table().ledger(LedgerId::XrplXrp).is_some());
-    assert!(!advertised(&core), "an owner book");
-    let told = |events: &[Output], paused: bool| {
-        events.iter().any(|output| match output {
-            Output::Event(Event::Settlement(SettlementEvent::PegPaused { scheme, .. })) => {
-                paused && scheme.as_str() == "xrpl-rlusd"
-            }
-            Output::Event(Event::Settlement(SettlementEvent::PegResumed { scheme })) => {
-                !paused && scheme.as_str() == "xrpl-rlusd"
-            }
-            _ => false,
-        })
-    };
-    assert!(told(&events, true));
-    // What arrives is still booked.
-    ledger
-        .issue(address, IssuedAsset::RLUSD.amount(token("1")))
-        .unwrap();
-    minutes(&mut core, &mut ledger, 1);
-    let view = core
-        .ledger_views()
-        .into_iter()
-        .find(|v| v.id == rlusd)
-        .unwrap();
-    assert_eq!(view.owner_balance, 11_000_000_000);
-
-    // Back at a dollar, for the recovery hold.
-    pool(&mut ledger, 200_000);
-    minutes(&mut core, &mut ledger, RECOVER_HOLD_MS / 60_000);
-    assert!(!priced(&core));
-    let events = minutes(&mut core, &mut ledger, 1);
-    assert_eq!(peg(&core).paused, None);
-    assert!(priced(&core) && !advertised(&core));
-    assert!(!core.price_table().halted(rlusd));
-    assert!(told(&events, false));
-
-    // Once the books stopped the scheme, its guard is fed nothing more and
-    // can no longer tell a token off its peg: its ledger converts nothing.
+    // Once the books stopped the scheme, its ledger is priced as any.
     let at = core.now_ms + 1_000;
     core.begin_step(at);
     let scheme = dassie_ledger::Name::new("xrpl-rlusd").unwrap();
@@ -3777,217 +3711,33 @@ fn rlusd_off_its_peg_converts_nothing() {
         super::EngineError::Internal("stopped by the test".into()),
     );
     core.finish_step(&mut Vec::new());
-    assert_eq!(peg(&core).paused, None);
-    assert!(!priced(&core) && core.price_table().halted(rlusd));
-    assert!(core.price_table().ledger(LedgerId::XrplXrp).is_some());
+    assert!(priced(&core) && !advertised(&core));
 }
 
-// On dev timers, as in dev and the end-to-end tests, the node runs RLUSD's
-// peg guard on the same rule in seconds: a reading a second, and the trip
-// hold ten of them (spec/areas/xrpl.md#the-peg-guard).
+// spec/decisions/open-rate-sources.md: peers settle only over hubs, so a
+// dollar token converts on its hub's ledger, which the price table prices
+// as the XRP hub's, without its owner book too.
 #[test]
-fn on_dev_timers_the_peg_guard_trips_in_seconds() {
+fn a_dollar_tokens_hub_ledger_converts_as_the_xrp_hubs() {
     use dassie_ledger::LedgerId;
-    use dassie_node_core::config::LiveRealm;
-    use dassie_settlement::PegPause;
-    use dassie_xrpl::amount::IssuedAsset;
-    use dassie_xrpl::codec::TokenValue;
-    use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger};
-    use dassie_xrpl::peg::Timings;
-    use dassie_xrpl::{DROPS_PER_XRP, Wallet};
 
-    let config = r#"{"server":"ws://ledger.test"}"#;
-    let entropy =
-        dassie_identity::TableKeygen::identity_key(&[7; 32]).xrpl_account_entropy(MAINNET.id, 0);
-    let address = Wallet::from_entropy(entropy.as_bytes()).account();
-    let mut ledger = fake_ledger(true);
-    ledger.deposit(address, FAUCET_DROPS);
-    ledger.close();
-    let store = Arc::new(Store::open_in_memory().unwrap());
-    let live = (Realm::Live, LiveRealm::DevSwitch);
-    let mut core = core_with(store, 12, live, Policies::DEV).unwrap();
-    add_xrpl(&mut core, "xrpl-rlusd", config).unwrap();
-    follow_xrpl(&mut core, &mut ledger);
-    let value = TokenValue::parse("100000").unwrap();
-    // 200,000 XRP for 100,000 RLUSD at two XRP to the dollar: a dollar.
-    let pool = |ledger: &mut FakeLedger, xrp: u64| {
-        let drops = xrp * DROPS_PER_XRP;
-        ledger
-            .set_pool(IssuedAsset::RLUSD, drops, value, 205)
-            .unwrap();
-    };
-    pool(&mut ledger, 200_000);
-    let one = 10_u128.pow(dassie_connector::RATE_PRECISION);
-    let mut now = NOW;
-    let mut seconds = |core: &mut Core, ledger: &mut FakeLedger, count: u64| {
-        for _ in 0..count {
-            now += Timings::DEV.read_every_ms;
-            core.begin_step(now);
-            core.set_rates(&[("USD", one, now), ("XRP", 2 * one, now)]);
-            let asset = ledger.network().first();
-            let epoch = core.assets[&asset].epoch;
-            let close_time = dassie_xrpl::unl::ledger_seconds(now);
-            for (_, message) in ledger.close_at(close_time) {
-                let event = super::LedgerEvent::Message(message);
-                core.ledger_event(&asset.to_string(), epoch, &event);
-            }
-            follow_xrpl_outputs(core, ledger);
-        }
-    };
-    let peg = |core: &Core| {
-        core.ledger_views()
-            .into_iter()
-            .find(|view| view.id == LedgerId::XrplRlusdUsd)
-            .and_then(|view| view.peg)
-            .unwrap()
-    };
-    seconds(&mut core, &mut ledger, 2);
-    assert_eq!(peg(&core).last.map(|(price, _)| price), Some(1_000_000));
-    pool(&mut ledger, 190_000);
-    let hold = Timings::DEV.trip_hold_ms / Timings::DEV.read_every_ms;
-    seconds(&mut core, &mut ledger, hold);
-    assert_eq!(peg(&core).paused, None, "within the hold");
-    seconds(&mut core, &mut ledger, 2);
-    assert_eq!(peg(&core).paused, Some(PegPause::OffPeg));
-    assert!(core.price_table().halted(LedgerId::XrplRlusdUsd));
-}
-
-// spec/decisions/issued-assets.md: peers settle only over hubs, so a dollar
-// token converts on its hub's ledger, and the token's peg guard halts that
-// ledger's conversions too. Without its owner book, the DSUSD hub's ledger
-// converts nothing, since nothing can tell the token is on its peg; with
-// the book running at a dollar, it converts; once the pool has priced DSUSD
-// off its peg for the trip hold, the price table leaves the hub's ledger out
-// and halts it, and the owner sees why on it; back at a dollar for the
-// recovery hold, it comes back; once the books stopped the book, it
-// converts nothing again. The XRP hub's ledger, whose book has no guard,
-// converts throughout, its book never active.
-#[test]
-#[allow(clippy::too_many_lines)]
-fn a_hub_ledger_converts_only_while_its_books_guard_runs() {
-    use dassie_ledger::LedgerId;
-    use dassie_settlement::{PegPause, PegView};
-    use dassie_xrpl::amount::IssuedAsset;
-    use dassie_xrpl::codec::TokenValue;
-    use dassie_xrpl::fake::FakeLedger;
-    use dassie_xrpl::peg::Timings;
-    use dassie_xrpl::{DROPS_PER_XRP, Wallet};
-
-    let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
-    let entropy =
-        dassie_identity::TableKeygen::identity_key(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
-    let address = Wallet::from_entropy(entropy.as_bytes()).account();
-    let mut ledger = fake_ledger(false);
-    ledger.fund(address);
-    ledger.close();
     let store = Arc::new(Store::open_in_memory().unwrap());
     let test = (Realm::Test, dassie_node_core::config::LiveRealm::Refused);
     let mut core = core_with(store, 12, test, Policies::DEV).unwrap();
-    let one = 10_u128.pow(dassie_connector::RATE_PRECISION);
-    let mut now = NOW;
-    let mut seconds = |core: &mut Core, ledger: &mut FakeLedger, count: u64| {
-        for _ in 0..count {
-            now += Timings::DEV.read_every_ms;
-            core.begin_step(now);
-            core.set_rates(&[("USD", one, now), ("XRP", 2 * one, now)]);
-            let asset = ledger.network().first();
-            if let Some(account) = core.assets.get(&asset) {
-                let epoch = account.epoch;
-                let close_time = dassie_xrpl::unl::ledger_seconds(now);
-                for (_, message) in ledger.close_at(close_time) {
-                    let event = super::LedgerEvent::Message(message);
-                    core.ledger_event(&asset.to_string(), epoch, &event);
-                }
-            }
-            follow_xrpl_outputs(core, ledger);
-        }
-    };
-    let dsusd_hub = LedgerId::HubXrplTestnetDsusdUsd;
-    let xrp_hub = LedgerId::HubXrplTestnetXrp;
-    let priced = |core: &Core, ledger: LedgerId| core.price_table().ledger(ledger).is_some();
-    let halted = |core: &Core| !priced(core, dsusd_hub) && core.price_table().halted(dsusd_hub);
-    let peg = |core: &Core, ledger: LedgerId| {
-        core.ledger_views()
-            .into_iter()
-            .find(|view| view.id == ledger)
-            .unwrap()
-            .peg
-    };
-    let paused = |core: &Core| peg(core, dsusd_hub).and_then(|peg| peg.paused);
-
-    // Without the DSUSD book, its hub's ledger converts nothing.
     for scheme in [DSUSD_HUB, XRP_HUB] {
         core.add_scheme(scheme, String::new()).unwrap();
     }
-    seconds(&mut core, &mut ledger, 1);
-    assert!(halted(&core), "converts without its book's guard");
-    assert_eq!(
-        peg(&core, dsusd_hub),
-        Some(PegView {
-            paused: Some(PegPause::Stale),
-            last: None
-        })
-    );
-    assert!(priced(&core, xrp_hub) && peg(&core, xrp_hub).is_none());
-
-    // With the book at a dollar, it converts: 2,000 XRP for 1,000 DSUSD at
-    // two XRP to the dollar.
-    add_xrpl(&mut core, "xrpl-testnet-dsusd", config).unwrap();
-    follow_xrpl(&mut core, &mut ledger);
-    let value = TokenValue::parse("1000").unwrap();
-    let pool = |ledger: &mut FakeLedger, xrp: u64| {
-        let drops = xrp * DROPS_PER_XRP;
-        ledger
-            .set_pool(IssuedAsset::DSUSD, drops, value, 205)
-            .unwrap();
-    };
-    pool(&mut ledger, 2_000);
-    seconds(&mut core, &mut ledger, 2);
-    let book = |core: &Core| peg(core, LedgerId::XrplTestnetDsusdUsd).unwrap();
-    assert_eq!(book(&core).last.map(|(price, _)| price), Some(1_000_000));
-    assert_eq!(peg(&core, dsusd_hub), Some(book(&core)));
-    assert!(priced(&core, dsusd_hub) && !core.price_table().halted(dsusd_hub));
-
-    // 5% under a dollar, past the trip hold: the book pauses, and its
-    // hub's ledger converts nothing, while the XRP hub's still does.
-    pool(&mut ledger, 1_900);
-    let trip = Timings::DEV.trip_hold_ms / Timings::DEV.read_every_ms;
-    seconds(&mut core, &mut ledger, trip);
-    assert!(priced(&core, dsusd_hub), "paused within the hold");
-    seconds(&mut core, &mut ledger, 2);
-    assert_eq!(book(&core).paused, Some(PegPause::OffPeg));
-    assert!(halted(&core), "converts while its token is off its peg");
-    assert_eq!(paused(&core), Some(PegPause::OffPeg));
-    assert_eq!(peg(&core, dsusd_hub), Some(book(&core)));
-    assert!(priced(&core, xrp_hub));
-
-    // Back at a dollar for the recovery hold, it converts again.
-    pool(&mut ledger, 2_000);
-    let recover = Timings::DEV.recover_hold_ms / Timings::DEV.read_every_ms;
-    seconds(&mut core, &mut ledger, recover);
-    assert!(halted(&core), "converts before the recovery hold is over");
-    seconds(&mut core, &mut ledger, 2);
-    assert_eq!(book(&core).paused, None);
-    assert_eq!(paused(&core), None);
-    assert!(priced(&core, dsusd_hub) && !core.price_table().halted(dsusd_hub));
-
-    // Once the books stopped the book, its guard can no longer tell, and
-    // the hub's ledger converts nothing, its last price still shown.
-    let at = core.now_ms + 1_000;
-    core.begin_step(at);
-    let scheme = dassie_ledger::Name::new("xrpl-testnet-dsusd").unwrap();
-    core.stop_scheme(
-        scheme,
-        super::EngineError::Internal("stopped by the test".into()),
-    );
+    let one = 10_u128.pow(dassie_connector::RATE_PRECISION);
+    let now = NOW + 1_000;
+    core.begin_step(now);
+    core.set_rates(&[("USD", one, now), ("XRP", 2 * one, now)]);
     core.finish_step(&mut Vec::new());
-    assert!(halted(&core), "converts once its book stopped");
-    assert_eq!(paused(&core), Some(PegPause::Stale));
-    assert_eq!(
-        peg(&core, dsusd_hub).and_then(|peg| peg.last),
-        book(&core).last
+    let (dsusd_hub, xrp_hub) = (
+        LedgerId::HubXrplTestnetDsusdUsd,
+        LedgerId::HubXrplTestnetXrp,
     );
-    assert!(priced(&core, xrp_hub));
+    let table = core.price_table();
+    assert!(table.ledger(dsusd_hub).is_some() && table.ledger(xrp_hub).is_some());
 }
 
 /// A periphery node, without a URL, on `store`, started at [`NOW`].

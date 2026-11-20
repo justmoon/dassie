@@ -17,7 +17,6 @@ import { Alert, Card, LiveNote, PageTitle, ValueCube } from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
 import { connectionText } from "../ledgers/connection.ts";
 import { Deposit } from "../ledgers/Deposit.tsx";
-import { PegGuard } from "../ledgers/PegGuard.tsx";
 import { removingNotice } from "../ledgers/removal.ts";
 import { ReceiveIcon, SendIcon } from "../payments/icons.tsx";
 import {
@@ -25,7 +24,6 @@ import {
   assetOf,
   assetTitle,
   breakdownRows,
-  isHubLedger,
   type Segment,
 } from "./assets.ts";
 import { Holdings } from "./Holdings.tsx";
@@ -237,10 +235,6 @@ function LedgerRow(props: { ledger: Ledger }): JSX.Element {
             {notice().text}
           </Alert>
         )}
-      </Show>
-      {/* The owner book's guard shows with its deposit. */}
-      <Show when={isHubLedger(props.ledger.id)}>
-        <PegGuard ledger={props.ledger} />
       </Show>
     </li>
   );

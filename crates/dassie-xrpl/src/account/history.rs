@@ -8,10 +8,8 @@
 //!   root, each line its schemes follow, those lines' issuers' roots and
 //!   the fee settings ([`View`]). That is what the account holds, its
 //!   sequence and the reserve, as of the anchor. A root proven absent is
-//!   the account gone. An issuer's account or a pool a scheme asks for is
-//!   read at once, in one state proof at the anchor: a pool is its `AMM`
-//!   object, which names the pool's account, and that account's root and
-//!   line, all at one ledger.
+//!   the account gone. An issuer's account a scheme asks for, or a balance
+//!   the node asks for, is read at once, in one state proof at the anchor.
 //! - **Transactions.** A transaction is told only once `tx_proof` proves
 //!   it: its bytes and metadata, which `tx` gives in binary once the proof
 //!   came, hash to it, and the leaf the account builds from them, with the
@@ -66,7 +64,6 @@ use crate::api::{
     self, AccountInfo, AccountSettings, ApiError, MAX_PROOF_KEYS, TrustLine, TxRecord,
 };
 use crate::keys::AccountId;
-use crate::pool::{self, PoolSeen};
 use crate::records::{self, Fees, Root, Thread};
 use crate::skip_list::{SkipList, recent_key};
 use crate::unl::Anchor;
@@ -102,15 +99,6 @@ const MAX_RESUMES: usize = MAX_WALKED;
 /// ends a chain, or tells one; a chain taken up again ends once more.
 const MAX_WALK_TURNS: usize = MAX_WALKED + MAX_RESUMES + MAX_SCHEMES + 2;
 
-/// A pool a scheme reads, and the account its `AMM` object last named.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct PoolWatch {
-    /// The pool's account, once its object named it.
-    pub account: Option<AccountId>,
-    /// Whether a scheme asked for the pool since it was last told.
-    pub asked: bool,
-}
-
 /// What the account follows, as proven at an anchor.
 #[derive(Clone, Debug)]
 pub(super) struct View {
@@ -129,7 +117,6 @@ pub(super) struct View {
     issuers: BTreeMap<AccountId, Option<AccountSettings>>,
     /// The fee settings, which every ledger holds.
     fees: Fees,
-    pools: BTreeMap<IssuedAsset, PoolSeen>,
 }
 
 /// A proven transaction, kept until it is told.
@@ -267,7 +254,7 @@ impl XrplAccount {
     /// The keys an anchoring round proves: the list of recent ledgers, the
     /// account's root, the fee settings, each line the schemes follow and
     /// the lines' issuers. What else the schemes ask for, an issuer's
-    /// account or a pool, is read at the anchor when they ask
+    /// account, is read at the anchor when they ask
     /// ([`read_asked`](Self::read_asked)).
     pub(super) fn followed_keys(&self) -> Vec<[u8; 32]> {
         let us = self.account();
@@ -347,7 +334,6 @@ impl XrplAccount {
             threads,
             issuers: self.read_issuers(anchor, proven)?,
             fees,
-            pools: self.read_pools(anchor, proven)?,
         })
     }
 
@@ -420,25 +406,6 @@ impl XrplAccount {
             }
             self.balances.insert(account, balance);
         }
-    }
-
-    /// What `proven` holds of each pool the schemes read: its `AMM`
-    /// object, and, where that names the account the account knew, the
-    /// account's root and its line to the issuer, all of one ledger.
-    fn read_pools(
-        &self,
-        anchor: Anchor,
-        proven: &ProvenState,
-    ) -> Result<BTreeMap<IssuedAsset, PoolSeen>, Doubt> {
-        let mut pools = BTreeMap::new();
-        for (key, watch) in &self.pools {
-            if let Some(seen) =
-                pool::seen(proven, key, watch.account, anchor.index, anchor.close_time)?
-            {
-                pools.insert(*key, seen);
-            }
-        }
-        Ok(pools)
     }
 }
 
@@ -735,12 +702,10 @@ impl XrplAccount {
             Phase::CatchingUp { info } => {
                 self.tell_issuers(&view.issuers, true);
                 self.synced(info, &view.lines);
-                self.tell_pools(&view.pools);
                 self.read_asked();
             }
             Phase::Synced => {
                 self.tell_issuers(&view.issuers, false);
-                self.tell_pools(&view.pools);
                 // A read that waited for a fresh anchor goes now, at the
                 // newest the server has, fresh or not.
                 self.read_at_anchor();
@@ -810,29 +775,8 @@ impl XrplAccount {
         }
     }
 
-    /// The pools the schemes asked for, as an anchor proves them in
-    /// `pools`; a pool whose account it proved only by name is read again.
-    fn tell_pools(&mut self, pools: &BTreeMap<IssuedAsset, PoolSeen>) {
-        for (key, seen) in pools {
-            let Some(watch) = self.pools.get_mut(key) else {
-                continue;
-            };
-            let (account, pool) = match seen {
-                PoolSeen::Gone => (None, Some(None)),
-                PoolSeen::Named(account) => (Some(*account), None),
-                PoolSeen::Read(reading) => (Some(reading.account), Some(Some(*reading))),
-            };
-            watch.account = account;
-            if let (true, Some(pool)) = (watch.asked, pool) {
-                watch.asked = false;
-                self.tell(News::Pool { key: *key, pool });
-            }
-        }
-    }
-
-    /// The keys a read at the anchor proves of what the schemes asked for:
-    /// each issuer's root, and each pool's `AMM` object, with its account's
-    /// root and line once known.
+    /// The keys a read at the anchor proves of what was asked for: each
+    /// issuer's root, and each account's whose balance was asked for.
     fn asked_keys(&self) -> Vec<[u8; 32]> {
         let mut keys = Vec::new();
         for issuer in &self.issuers_asked {
@@ -841,25 +785,20 @@ impl XrplAccount {
         for account in &self.balances_asked {
             push_new(&mut keys, records::account_key(*account));
         }
-        for (key, watch) in self.pools.iter().filter(|(_, watch)| watch.asked) {
-            pool::push_keys(&mut keys, key, watch.account);
-        }
         assert!(keys.len() <= MAX_PROOF_KEYS, "one state proof's worth");
         keys
     }
 
     /// Reads what the schemes asked for at the anchor, in one state proof,
-    /// unless a read is on its way. A pool or a balance is read at the
-    /// ledger's own pace: at the anchor while the account anchors on every
-    /// ledger and its anchor is fresh ([`super::FRESH_ANCHOR_MS`]); else a
-    /// round is asked for, and the read goes once it took an anchor, so a
-    /// peg guard's reading costs a round at the guard's own cadence. An
+    /// unless a read is on its way. A balance is read at the ledger's own
+    /// pace: at the anchor while the account anchors on every ledger and
+    /// its anchor is fresh ([`super::FRESH_ANCHOR_MS`]); else a round is
+    /// asked for, and the read goes once it took an anchor. An
     /// issuer's account, which the schemes ask for at every settlement
     /// check, is read at the anchor there is, however old: the anchor before
     /// a payment is fresh.
     pub(super) fn read_asked(&mut self) {
-        let needs_current =
-            !self.balances_asked.is_empty() || self.pools.values().any(|watch| watch.asked);
+        let needs_current = !self.balances_asked.is_empty();
         let current = self.hot() && self.anchor_fresh();
         if needs_current && self.phase == Phase::Synced && !current {
             self.want_fresh();
@@ -906,16 +845,14 @@ impl XrplAccount {
             Err(error) => return self.doubted(Doubt::of(error)),
         };
         let read = (self.read_issuers(anchor, &proven)).and_then(|issuers| {
-            let pools = self.read_pools(anchor, &proven)?;
             let balances = self.read_balances(anchor, &proven)?;
-            Ok((issuers, pools, balances))
+            Ok((issuers, balances))
         });
-        let (issuers, pools, balances) = match read {
+        let (issuers, balances) = match read {
             Ok(read) => read,
             Err(doubt) => return self.doubted(doubt),
         };
         self.tell_issuers(&issuers, false);
-        self.tell_pools(&pools);
         self.keep_balances(balances);
         self.read_asked();
     }
@@ -1527,7 +1464,6 @@ mod tests {
                 threads: BTreeMap::new(),
                 issuers: BTreeMap::new(),
                 fees: FEES,
-                pools: BTreeMap::new(),
             },
             told: (10, u32::MAX),
             chains: BTreeMap::new(),
@@ -1576,7 +1512,6 @@ mod tests {
             threads: BTreeMap::new(),
             issuers: BTreeMap::new(),
             fees: FEES,
-            pools: BTreeMap::new(),
         };
         account.walk = Some(Walk {
             view,

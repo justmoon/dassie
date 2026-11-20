@@ -5,8 +5,8 @@ use dassie_ledger::{
     AccountId, AccountName, AccountPath, LedgerId, Name, Realm, Reference, TransferSpec,
 };
 use dassie_settlement::{
-    Activation, AssetId, Detach, Effect, LedgerStatus, LossCause, PegPause, PegView, SchemeError,
-    SettlementScheme, activation,
+    Activation, AssetId, Detach, Effect, LedgerStatus, LossCause, SchemeError, SettlementScheme,
+    activation,
 };
 
 use super::Core;
@@ -31,11 +31,6 @@ pub(super) struct ActiveScheme {
     /// Whether its peers trust each other without limit
     /// ([`SettlementScheme::unlimited_trust`]).
     pub unlimited: bool,
-    /// Why its peg guard paused it, as the owner was last told.
-    pub paused: Option<PegPause>,
-    /// Whether it converted when the prices were last built
-    /// ([`ActiveScheme::converts_now`]).
-    pub converts: bool,
     /// Since when its owner removes it, while its settlement methods are
     /// wound down: it is offered to no peer, and runs until each is
     /// dropped, the packets on their slots are resolved and what the peers
@@ -56,16 +51,6 @@ pub(super) struct ActiveScheme {
 }
 
 impl ActiveScheme {
-    /// Whether the scheme lets the connector convert to and from its ledger
-    /// now ([`SettlementScheme::converts`]). A dollar token's scheme the
-    /// books stopped does not: its peg guard is fed nothing more, so it can
-    /// no longer tell a token off its peg (spec/decisions/issued-assets.md).
-    /// A hub's ledger also needs its owner book's guard
-    /// ([`Core::converts_now`]).
-    pub fn converts_now(&self) -> bool {
-        self.scheme.converts() && (self.failed.is_none() || self.scheme.peg().is_none())
-    }
-
     /// Whether a method on it would settle directly: it is neither over a
     /// hub nor of unlimited trust, as every XRPL scheme, an owner book. A
     /// method is only over a hub or of unlimited trust: one on such a
@@ -100,18 +85,6 @@ impl ActiveScheme {
     }
 }
 
-/// Whether the owner book on `book` has a peg guard: a dollar token that a
-/// pool prices (spec/areas/xrpl.md#the-peg-guard).
-fn guarded(book: LedgerId) -> bool {
-    [
-        dassie_xrpl::dsusd::TOKEN,
-        dassie_xrpl::rlusd::TOKEN,
-        dassie_xrpl::rlusd::TESTNET_TOKEN,
-    ]
-    .iter()
-    .any(|token| token.ledger == book && token.peg.is_some())
-}
-
 /// A ledger as the owner sees it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LedgerView {
@@ -143,10 +116,6 @@ pub struct LedgerView {
     /// What its asset waits for, if something keeps it from going on, such
     /// as a validator list.
     pub waiting: Option<&'static str>,
-    /// What its peg guard says, for a dollar token's scheme that has one,
-    /// or for a hub's ledger, its owner book's guard
-    /// ([`Core::hub_peg`]).
-    pub peg: Option<PegView>,
     /// What keeps the scheme from being removed now.
     pub removal_blockers: Vec<RemovalBlocker>,
     /// While its owner removes it: how many settlement methods of peerings
@@ -253,47 +222,6 @@ pub(super) const OWN_ACCOUNTS: usize =
     super::tokens::MAX_TOKEN_ROWS + LedgerId::ALL.len() * (COMMON_ACCOUNTS.len() + 2);
 
 impl Core {
-    /// Whether the connector converts to and from the ledger of `active`
-    /// now: the scheme lets it ([`ActiveScheme::converts_now`]), and on a
-    /// hub's ledger, the peg guard of its owner book does not pause it
-    /// ([`Self::hub_peg`]). Peers settle only over hubs, so a hub's ledger
-    /// is where a dollar token converts (spec/decisions/issued-assets.md).
-    pub(super) fn converts_now(&self, active: &ActiveScheme) -> bool {
-        active.converts_now() && !self.hub_halted(active.scheme.ledger())
-    }
-
-    /// Whether `ledger` is a hub's ledger whose conversions the peg guard of
-    /// its owner book halts ([`Self::hub_peg`]).
-    pub(super) fn hub_halted(&self, ledger: LedgerId) -> bool {
-        self.hub_peg(ledger).is_some_and(|peg| peg.paused.is_some())
-    }
-
-    /// The peg guard that the hub's ledger `ledger` follows: the guard of the
-    /// owner book of the hub's asset
-    /// ([`owner_book_ledger`](super::hub_moves::owner_book_ledger)), whose
-    /// pause halts the conversions on the hub's ledger too, though settling
-    /// over the hub goes on: the hub moves the token as it is
-    /// (spec/decisions/token-hubs.md). It fails closed: a book with a guard
-    /// that is not active, or that the books stopped, reads nothing, so the
-    /// hub's ledger is paused as by a guard without a reading. `None` for a
-    /// ledger that is no hub's, or whose book has no guard, as the XRP
-    /// hub's.
-    pub(super) fn hub_peg(&self, ledger: LedgerId) -> Option<PegView> {
-        let book = super::hub_moves::owner_book_ledger(ledger)?;
-        let active = self
-            .schemes
-            .values()
-            .find(|active| active.scheme.ledger() == book);
-        let peg = active.and_then(|active| active.scheme.peg());
-        match (active, peg) {
-            (Some(active), Some(peg)) if active.failed.is_none() => Some(peg),
-            _ => guarded(book).then(|| PegView {
-                paused: Some(PegPause::Stale),
-                last: peg.and_then(|peg| peg.last),
-            }),
-        }
-    }
-
     /// Activates the stored schemes, booking what changed while the node was
     /// down. One whose config or state no longer makes a scheme, such as a
     /// hub's whose rules no longer decode, or whose account's state is of
@@ -476,7 +404,6 @@ impl Core {
             over_hub || unlimited || (!scheme.peers() && !scheme.books_messages()),
             "a scheme that would settle directly is an owner book"
         );
-        let converts = scheme.converts();
         let ledger = scheme.ledger();
         if let Err(error) = self.open_ledger(id, scheme.as_ref(), checkpoint.as_ref()) {
             if let Some(asset) = asset {
@@ -499,9 +426,6 @@ impl Core {
                 failed: None,
                 over_hub,
                 unlimited,
-                // A guard paused before a restart is told again.
-                paused: None,
-                converts,
                 removing: None,
                 methods_gone_ms: None,
                 leaving: false,
@@ -1503,7 +1427,6 @@ impl Core {
                 None => self.scheme_status(active),
             },
             waiting: asset.and_then(|asset| asset.asset.waiting()),
-            peg: active.scheme.peg().or_else(|| self.hub_peg(ledger)),
             removal_blockers: self.removal_blockers(*id, ledger),
             removing: active
                 .removing
