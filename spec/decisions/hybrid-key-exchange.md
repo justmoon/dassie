@@ -8,7 +8,7 @@
 - **TLS has a standard hybrid,** X25519MLKEM768 (`0x11EC`, draft-ietf-tls-ecdhe-mlkem): the client sends an ML-KEM-768 encapsulation key (FIPS 203) and an X25519 key, the server a ciphertext and an X25519 key, and the secret is ML-KEM's shared key followed by X25519's. It holds while either holds. Chrome, Firefox, Safari and OpenSSL 3.5 offer it first by default.
 - **ring is the node's only crypto provider.** Two providers in one build make rustls refuse to pick one at runtime, and ring builds without cmake for the static musl binaries, x86_64 and cross-compiled aarch64 ([Release](../areas/release.md)). ring has no ML-KEM, and rustls offers the hybrid only with its aws-lc-rs backend, a C library built with cmake.
 - **A key exchange is a trait in rustls** (`SupportedKxGroup`) that any crate implements, and rustls builds its own hybrid as two groups side by side.
-- **RustCrypto's `ml-kem` is pure Rust,** checked against NIST's ACVP vectors and widely used.
+- **RustCrypto's `ml-kem` is pure Rust,** without `unsafe` code, checked against NIST's ACVP vectors and widely used, but never independently audited, as its README says.
 - **The hybrid is large:** the client's share is 1,216 bytes, the server's 1,120. A ClientHello grows by about 1.2 KB, past the 1,200 bytes of one QUIC Initial packet.
 - **TLS 1.3 signs the handshake,** the client's offer included, so a man in the middle who strips the hybrid from an offer breaks the server's signature, unless they can forge it.
 
@@ -23,6 +23,7 @@
 ## Accepted
 
 - **A ClientHello about 1.2 KB larger, and a server's first flight about 1.1 KB larger.** Over UDP, QUIC sends the hello in two Initial packets; a tunnel's datagrams hold it in one. The dev proxy reads a hello of up to 16 KiB ([Dev](../areas/dev.md)).
+- **An ML-KEM no one has audited.** A flaw in it costs only the post-quantum half: the secret holds while X25519 holds, as it did before the hybrid, and without `unsafe` code the crate cannot corrupt the node's memory.
 - **About two hundred lines of key exchange of our own,** where aws-lc-rs would have had none. They combine two implementations and split and join bytes, nothing more; they are reviewed against rustls's, and the vectors and the interop test check them.
 - **`ml-kem`'s `hazmat` feature,** which documents the encapsulation that takes its randomness as an argument. The group calls it with 32 fresh bytes each time.
 - **A key generation and a decapsulation per handshake** on a client, and an encapsulation on a server: well under a millisecond in optimized code.
