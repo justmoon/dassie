@@ -89,7 +89,11 @@
         mainnet's validators signed, with no key and no account of its own,
         whichever network it runs on. Its rate is the middle of the last five
         minutes' readings, so pushing the pool for less than half of that
-        moves nothing. A pool drained to under 100,000 XRP does not count.
+        moves nothing, as long as the server answers honestly. A server
+        that holds ledgers back can make a push count sooner, after about a
+        minute, but each reading stands for at least three ledgers,
+        so a push of a few ledgers never counts often. A pool drained to
+        under 100,000 XRP does not count.
         Your node needs a few minutes after it starts before this source has
         a rate.
       </p>

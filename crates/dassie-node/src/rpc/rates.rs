@@ -37,6 +37,13 @@ pub(super) async fn dispatch(node: &Arc<Node>, method: Method) -> Result<Reply, 
                 .iter()
                 .map(source)
                 .collect::<Result<Vec<_>, _>>()?;
+            // The node follows one pool: a second would only ever be silent.
+            let pools = (chosen.iter())
+                .filter(|source| source.kind == SourceKind::XrplPool)
+                .count();
+            if pools > 1 {
+                return Err(RpcError::invalid("at most one XRPL pool source"));
+            }
             store
                 .set_rate_sources(&chosen)
                 .map_err(RpcError::internal)?;

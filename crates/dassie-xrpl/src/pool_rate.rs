@@ -13,15 +13,23 @@
 //! - **Read often.** Every [`Timings::read_every_ms`] it anchors anew and
 //!   reads the pool at the anchor it holds, more often than the minute the
 //!   other rate sources are asked.
-//! - **What counts.** A reading counts only once per ledger, while the pool
-//!   holds at least [`MIN_POOL_DROPS`], and while its ledger closed within
-//!   [`MAX_ANCHOR_AGE_MS`] of when it was read.
-//! - **A median over a window.** The rate is the median of the readings
-//!   that counted within the last [`Timings::window_ms`], once at least
-//!   [`Timings::min_readings`] did, more than half of what the window
-//!   holds: so a pool pushed for less than half the window leaves it within
-//!   what the pool said while not pushed, and a window the server left
-//!   mostly unread gives no rate.
+//! - **What counts.** A reading counts while the pool holds at least
+//!   [`MIN_POOL_DROPS`], while its ledger closed within
+//!   [`MAX_ANCHOR_AGE_MS`] of when it was read, and only once its ledger is
+//!   [`Timings::min_ledgers_apart`] past the last counted one's: so however
+//!   late a server serves validated ledgers, each reading stands for that
+//!   many ledgers of the pool's history, and a pool pushed for a few
+//!   ledgers is a few readings at most.
+//! - **A median over a window of ledger time.** The rate is the median of
+//!   the readings whose ledgers closed within the last
+//!   [`Timings::window_ms`], once at least [`Timings::min_readings`] did,
+//!   more than half of what the window holds: so with an honest server a
+//!   pool pushed for less than half the window leaves it within what the
+//!   pool said while not pushed, and a window the server left mostly unread
+//!   gives no rate. A server that withholds ledgers can thin the window to
+//!   [`Timings::min_readings`], so that a push of their larger half moves
+//!   the rate: one held for half that many readings' worth of ledgers
+//!   spaced [`Timings::min_ledgers_apart`], about a minute on mainnet.
 //!
 //! Time is an input, every table has a bound, and nothing recurses
 //! (spec/decisions/tigerstyle.md).
@@ -64,6 +72,13 @@ pub const READ_EVERY_MS: u64 = 15_000;
 pub const WINDOW_MS: u64 = 5 * 60_000;
 /// The most readings kept: more than a window holds at the rate read.
 pub const MAX_READINGS: usize = 64;
+/// How many ledgers past the last counted reading's a reading's ledger must
+/// be to count: three. Mainnet closes a ledger every 3.5 to 4 seconds, so
+/// readings fifteen seconds apart are about four ledgers apart, and three
+/// keeps each of an honest server's; a server that serves ledgers late,
+/// each strictly newer, can show a push no more often than every three
+/// ledgers, over ten seconds of the pool's history.
+pub const MIN_LEDGERS_APART: u32 = 3;
 /// The most of the verifier's asks waiting on a connection: its own bound,
 /// with room for those of a round it gave up on, as a hub's link allows.
 const MAX_ASKS: usize = 4 * verifier::MAX_QUERIES;
@@ -78,15 +93,20 @@ pub struct Timings {
     /// How many readings the window must hold for a rate: more than half
     /// of what it holds at the rate read.
     pub min_readings: usize,
+    /// How many ledgers past the last counted reading's a reading's ledger
+    /// must be to count.
+    pub min_ledgers_apart: u32,
 }
 
 impl Timings {
-    /// The production values: [`READ_EVERY_MS`] and [`WINDOW_MS`].
-    pub const DEFAULT: Self = Self::reading_every(READ_EVERY_MS);
+    /// The production values: [`READ_EVERY_MS`], [`WINDOW_MS`] and
+    /// [`MIN_LEDGERS_APART`].
+    pub const DEFAULT: Self = Self::reading_every(READ_EVERY_MS, MIN_LEDGERS_APART);
 
     /// The production rule on dev timers: a reading a second, so a window
-    /// is as many readings long as in production.
-    pub const DEV: Self = Self::reading_every(1_000);
+    /// is as many readings long as in production, each a ledger apart, as
+    /// a dev ledger closes about once a second.
+    pub const DEV: Self = Self::reading_every(1_000, 1);
 
     /// Whether the rule holds on these timings: the pool read at all, a
     /// window of several readings, each kept, and more than half of them
@@ -95,6 +115,7 @@ impl Timings {
     pub const fn holds(&self) -> bool {
         let per_window = self.per_window();
         self.read_every_ms > 0
+            && self.min_ledgers_apart > 0
             && per_window > 2
             && per_window < MAX_READINGS
             && 2 * self.min_readings > per_window
@@ -112,12 +133,14 @@ impl Timings {
         readings
     }
 
-    /// The production rule with the pool read every `read_every_ms`.
-    const fn reading_every(read_every_ms: u64) -> Self {
+    /// The production rule with the pool read every `read_every_ms`, each
+    /// reading `min_ledgers_apart`.
+    const fn reading_every(read_every_ms: u64, min_ledgers_apart: u32) -> Self {
         let mut timings = Self {
             read_every_ms,
             window_ms: read_every_ms * (WINDOW_MS / READ_EVERY_MS),
             min_readings: 0,
+            min_ledgers_apart,
         };
         timings.min_readings = timings.per_window() / 2 + 1;
         timings
@@ -154,8 +177,9 @@ pub enum Seen {
     TooThin,
     /// Its ledger closed longer ago than [`MAX_ANCHOR_AGE_MS`].
     OldAnchor,
-    /// Its ledger was read already.
-    Again,
+    /// Its ledger is fewer than [`Timings::min_ledgers_apart`] past the
+    /// last counted reading's, or that one.
+    TooClose,
     /// A proven object did not read as what its key holds.
     Unreadable,
 }
@@ -164,8 +188,8 @@ pub enum Seen {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Counted {
     ledger_index: u32,
-    /// When it was read.
-    read_ms: u64,
+    /// When its ledger closed, by the close time its validators agreed on.
+    closed_ms: u64,
     /// XRP per dollar, at the reader's precision.
     rate: u128,
 }
@@ -298,14 +322,12 @@ impl PoolRate {
     }
 
     /// XRP's rate at `now_ms`, in XRP per dollar at the reader's
-    /// precision: the median of the readings that counted within the
-    /// window, once enough did. With an even number, the lower of the
-    /// middle two: a rate the pool had.
+    /// precision: the median of the readings that counted whose ledgers
+    /// closed within the window, once enough did. With an even number, the
+    /// lower of the middle two: a rate the pool had.
     #[must_use]
     pub fn rate(&self, now_ms: u64) -> Option<u128> {
-        let since = now_ms.saturating_sub(self.timings.window_ms);
-        let mut rates: Vec<u128> = (self.readings.iter())
-            .filter(|reading| reading.read_ms >= since && reading.read_ms <= now_ms)
+        let mut rates: Vec<u128> = (self.in_window(now_ms))
             .map(|reading| reading.rate)
             .collect();
         if rates.len() < self.timings.min_readings {
@@ -334,13 +356,18 @@ impl PoolRate {
         self.verifier.failed()
     }
 
-    /// How many readings counted within the window at `now_ms`.
+    /// How many readings counted whose ledgers closed within the window at
+    /// `now_ms`.
     #[must_use]
     pub fn readings(&self, now_ms: u64) -> usize {
+        self.in_window(now_ms).count()
+    }
+
+    /// The readings that counted whose ledgers closed within the window at
+    /// `now_ms`: one a clock behind sees close after it is in it too.
+    fn in_window(&self, now_ms: u64) -> impl Iterator<Item = &Counted> {
         let since = now_ms.saturating_sub(self.timings.window_ms);
-        (self.readings.iter())
-            .filter(|reading| reading.read_ms >= since && reading.read_ms <= now_ms)
-            .count()
+        (self.readings.iter()).filter(move |reading| reading.closed_ms >= since)
     }
 
     /// Checks what must always hold.
@@ -348,9 +375,11 @@ impl PoolRate {
         assert!(self.readings.len() <= MAX_READINGS);
         assert!(self.asks.len() <= MAX_ASKS);
         assert!(
-            (self.readings.iter().zip(self.readings.iter().skip(1)))
-                .all(|(a, b)| a.ledger_index < b.ledger_index && a.read_ms <= b.read_ms),
-            "readings go forward, one per ledger"
+            (self.readings.iter().zip(self.readings.iter().skip(1))).all(|(a, b)| b.ledger_index
+                >= a.ledger_index
+                    .saturating_add(self.timings.min_ledgers_apart)
+                && a.closed_ms <= b.closed_ms),
+            "readings go forward, the least ledgers apart"
         );
         self.verifier.check_invariants();
     }
@@ -453,18 +482,16 @@ impl PoolRate {
         if self.readings.len() >= MAX_READINGS {
             self.readings.pop_front();
         }
-        let read_ms =
-            (self.readings.back()).map_or(self.now_ms, |newest| newest.read_ms.max(self.now_ms));
         self.readings.push_back(Counted {
             ledger_index: reading.ledger_index,
-            read_ms,
+            closed_ms: reading.closed_ms,
             rate,
         });
         let since = self.now_ms.saturating_sub(self.timings.window_ms);
         while self
             .readings
             .front()
-            .is_some_and(|oldest| oldest.read_ms < since)
+            .is_some_and(|oldest| oldest.closed_ms < since)
         {
             self.readings.pop_front();
         }
@@ -478,10 +505,17 @@ impl PoolRate {
             Seen::TooThin
         } else if self.now_ms.saturating_sub(reading.closed_ms) > MAX_ANCHOR_AGE_MS {
             Seen::OldAnchor
-        } else if (self.readings.back())
-            .is_some_and(|newest| newest.ledger_index >= reading.ledger_index)
-        {
-            Seen::Again
+        } else if (self.readings.back()).is_some_and(|newest| {
+            // Close times grow along a chain, but by a second at least: a
+            // later ledger said to close earlier is none the verifier
+            // takes, and counts for nothing here either.
+            reading.ledger_index
+                < newest
+                    .ledger_index
+                    .saturating_add(self.timings.min_ledgers_apart)
+                || reading.closed_ms < newest.closed_ms
+        }) {
+            Seen::TooClose
         } else {
             Seen::Counted
         }
@@ -547,6 +581,7 @@ mod tests {
     #[test]
     fn timings_hold() {
         assert_eq!(Timings::DEFAULT.min_readings, 11);
+        assert_eq!(Timings::DEFAULT.min_ledgers_apart, MIN_LEDGERS_APART);
         assert_eq!(Timings::DEV.window_ms, 20_000);
         let broken = Timings {
             min_readings: 10,

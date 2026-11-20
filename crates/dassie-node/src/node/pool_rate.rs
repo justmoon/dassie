@@ -147,12 +147,29 @@ impl Task {
                     tracing::warn!(target: target::ENGINE, url = %self.url, %error, "cannot connect to the XRPL server for XRP's rate");
                 }
             }
-            self.tell();
-            tokio::select! {
-                () = stop.cancelled() => return,
-                () = tokio::time::sleep(backoff) => {}
+            if !self.back_off(backoff, &stop).await {
+                return;
             }
             backoff = (backoff * 2).min(BACKOFF_MAX);
+        }
+    }
+
+    /// Waits `backoff` before connecting again, telling the rate fetcher
+    /// the reader's rate all along: the readings it holds still count
+    /// until their ledgers leave the window. False once stopped.
+    async fn back_off(&mut self, backoff: Duration, stop: &CancellationToken) -> bool {
+        let sleep = tokio::time::sleep(backoff);
+        tokio::pin!(sleep);
+        let mut tick = tokio::time::interval(TICK);
+        let mut moves = self.clock.subscribe();
+        loop {
+            self.tell();
+            tokio::select! {
+                () = stop.cancelled() => return false,
+                () = &mut sleep => return true,
+                _ = tick.tick() => {}
+                () = clock_moved(&mut moves) => {}
+            }
         }
     }
 

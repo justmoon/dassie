@@ -29,6 +29,7 @@ const TIMINGS: Timings = Timings {
     read_every_ms: CLOSE_INTERVAL_S * 1_000,
     window_ms: 20 * CLOSE_INTERVAL_S * 1_000,
     min_readings: 11,
+    min_ledgers_apart: 1,
 };
 /// 0.4 XRP to the dollar.
 const RATE: u128 = 400_000_000_000_000;
@@ -54,6 +55,11 @@ impl Run {
     /// A reader that trusts the fake's publisher, connected, beside a pool
     /// of 1.86 million XRP and 4.65 million RLUSD: $2.50 an XRP.
     fn new() -> Self {
+        Self::on(TIMINGS)
+    }
+
+    /// The same, reading on `timings`.
+    fn on(timings: Timings) -> Self {
         let mut ledger = FakeLedger::mainnet();
         ledger
             .set_pool(IssuedAsset::RLUSD, 1_860_000_000_000, value("4650000"), 300)
@@ -67,7 +73,7 @@ impl Run {
             ledger.network().id,
             config,
             Box::new(Secp256k1Signatures),
-            TIMINGS,
+            timings,
             PRECISION,
         );
         let now_ms = ledger.now_ms() + 2_000;
@@ -252,5 +258,55 @@ fn what_a_lying_server_says_never_counts() {
             );
         }
         assert_eq!(run.rate(), None, "a rate from {lie:?}");
+    }
+}
+
+// A server may serve validated ledgers late, each strictly newer than the
+// last, one a read, so that a pool pushed for a few ledgers is read many
+// times while their validations stay fresh. Each reading stands for the
+// least ledgers apart of the pool's history: a push of six ledgers counts
+// twice at most, and leaves the rate.
+#[test]
+fn a_push_served_late_ledger_by_ledger_counts_once_per_spacing() {
+    // Read every three ledgers, each reading three ledgers apart.
+    let timings = Timings {
+        read_every_ms: 3 * CLOSE_INTERVAL_S * 1_000,
+        window_ms: 20 * 3 * CLOSE_INTERVAL_S * 1_000,
+        min_readings: 11,
+        min_ledgers_apart: 3,
+    };
+    let mut run = Run::on(timings);
+    let honest = |run: &mut Run| {
+        for _ in 0..3 {
+            run.ledger.close();
+        }
+        run.now_ms = (run.now_ms + timings.read_every_ms).max(run.ledger.now_ms() + 2_000);
+        run.reader.tick(run.now_ms);
+        run.pump();
+    };
+    for _ in 0..30 {
+        honest(&mut run);
+    }
+    assert_eq!(run.rate(), Some(RATE));
+    // Pushed to $5 an XRP for six ledgers, which the server shows one a
+    // read, ever later.
+    run.pool(1_860_000_000_000, "9300000");
+    let mut counted = 0;
+    for _ in 0..6 {
+        run.ledger.close();
+        run.now_ms += timings.read_every_ms;
+        run.reader.tick(run.now_ms);
+        run.pump();
+        counted += usize::from(run.reader.last() == Some(Seen::Counted));
+        assert_eq!(run.rate(), Some(RATE));
+    }
+    assert!(
+        counted <= 2,
+        "a push of six ledgers counted {counted} times"
+    );
+    run.pool(1_860_000_000_000, "4650000");
+    for _ in 0..30 {
+        honest(&mut run);
+        assert_eq!(run.rate(), Some(RATE));
     }
 }

@@ -195,12 +195,23 @@ async fn xrp_s_rate_follows_mainnet_s_pool() {
         .await;
     prepare(&node, &key(1)).await;
     let mut owner = node.ipc().await;
+    let pool = |url: &str| proto::RateSource {
+        kind: "xrpl-pool".into(),
+        url: url.into(),
+    };
+    // The node follows one pool: a second is refused.
+    let two = vec![pool(&server.url), pool("wss://s1.ripple.com")];
+    assert!(
+        owner
+            .call(Method::SetRateSources(proto::SetRateSourcesRequest {
+                sources: two
+            }))
+            .await
+            .is_err()
+    );
     owner
         .call(Method::SetRateSources(proto::SetRateSourcesRequest {
-            sources: vec![proto::RateSource {
-                kind: "xrpl-pool".into(),
-                url: server.url.clone(),
-            }],
+            sources: vec![pool(&server.url)],
         }))
         .await
         .unwrap();
