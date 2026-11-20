@@ -52,6 +52,7 @@ export function sourceName(kind: string, url: string): string {
 
 /** Each kind's own server, as a sentence names it. */
 const IN_A_SENTENCE: Record<string, string> = {
+  coinbase: "Coinbase",
   ecb: "the European Central Bank",
   "bank-of-canada": "the Bank of Canada",
   cnb: "the Czech National Bank",

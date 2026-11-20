@@ -22,7 +22,7 @@ export function RateSources(props: { class?: string }): JSX.Element {
   return (
     <Show when={text()}>
       {(line) => (
-        <p class={props.class ?? "muted"} data-testid="rate-sources">
+        <p class={props.class ?? "muted"} data-testid="rate-sources-line">
           {line()}
         </p>
       )}
