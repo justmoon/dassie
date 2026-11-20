@@ -258,11 +258,11 @@
         and test XRP: other tokens may be lost.
       </p>
       <p>
-        Your node watches DSUSD's price on its pool, and stops converting it
-        while the price is off a dollar. The Deposit section shows the guard's
-        last reading.
-        <a href="/docs/wallet/peg-guard/">Dollar tokens and the peg guard</a>
-        explains what that pause does.
+        Your node books DSUSD at par, one to one with every other dollar.
+        It does not watch DSUSD's price: if DSUSD leaves its peg, your node
+        keeps converting it at a dollar.
+        <a href="/docs/concepts/ledgers/#at-par">Dollar tokens at par</a>
+        says why.
       </p>
 
       <h2 id="what-the-ledger-holds">What the XRP Ledger holds</h2>

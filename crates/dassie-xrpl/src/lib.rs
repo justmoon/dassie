@@ -59,9 +59,8 @@
 //!   account's trust line to its issuer, with the account's XRP as gas;
 //!   [`rlusd`] is it in RLUSD on mainnet (`xrpl-rlusd`), and keeps disabled
 //!   test RLUSD's constants; [`dsusd`] is it in DSUSD on the testnet
-//!   (`xrpl-testnet-dsusd`); [`peg`] is the guard that stops conversions
-//!   to and from a dollar token's ledger while its AMM pool prices it off
-//!   a dollar.
+//!   (`xrpl-testnet-dsusd`). A dollar token converts at par, with no
+//!   guard on its price (spec/decisions/open-rate-sources.md).
 //! - `fake` (feature `fake`): a model of the ledger, with tokens, AMM
 //!   pools, an order book and signer lists, real headers and hash trees of each ledger it
 //!   closes, validators that sign them and a publisher that lists them, the
@@ -97,7 +96,6 @@ pub mod lists;
 pub mod manifest;
 pub mod network;
 pub mod offer;
-pub mod peg;
 pub mod pool;
 pub mod pool_rate;
 pub mod records;

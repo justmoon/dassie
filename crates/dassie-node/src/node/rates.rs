@@ -86,19 +86,22 @@ impl Node {
         }
         wanted.sort_unstable();
         wanted.dedup();
-        if wanted.iter().all(|code| *code == BASE) {
-            return;
-        }
-        let sources = match self.store.rate_sources() {
-            Ok(sources) => sources,
-            Err(error) => {
-                tracing::error!(target: target::ENGINE, %error, "reading the rate sources");
-                return;
-            }
-        };
-        let answers: Vec<Answer> =
+        // A node whose ledgers are all in dollars asks no source, but
+        // still takes the dollar at par afresh each cycle: its price table
+        // prices only ledgers with a fresh rate.
+        let answers: Vec<Answer> = if wanted.iter().all(|code| *code == BASE) {
+            Vec::new()
+        } else {
+            let sources = match self.store.rate_sources() {
+                Ok(sources) => sources,
+                Err(error) => {
+                    tracing::error!(target: target::ENGINE, %error, "reading the rate sources");
+                    return;
+                }
+            };
             futures_util::future::join_all((sources.iter()).map(|source| self.ask(source, pool)))
-                .await;
+                .await
+        };
         let now = self.now_ms();
         let fresh: Vec<StoredRate> = rates::combine(&wanted, &answers)
             .into_iter()

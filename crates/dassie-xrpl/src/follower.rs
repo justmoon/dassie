@@ -2,7 +2,7 @@
 //! books (spec/areas/xrpl.md#following-the-account): the XRP scheme
 //! ([`crate::XrpScheme`]) and the token scheme ([`crate::TokenScheme`])
 //! each embed one [`Follower`], and add only what their holding needs: the
-//! XRP and its reserve, or the line, its issuer and the peg guard.
+//! XRP and its reserve, or the line and its issuer.
 //!
 //! A follower keeps what the books hold of the holding, its cursor into the
 //! account's transactions, the count of write-offs it last saw and the
@@ -288,9 +288,8 @@ impl Follower {
 
     /// Writes what it keeps, in this order: the cursor, the count of
     /// write-offs, the owner's payment on its way and what became of the
-    /// last (spec/areas/xrpl.md#state-and-restarts). The scheme writes the
-    /// version before it, [`crate::kept::SCHEME_VERSION`], and what it
-    /// keeps of its own after it.
+    /// last (spec/areas/xrpl.md#state-and-restarts). The scheme writes its
+    /// version before it, and what it keeps of its own after it.
     pub(crate) fn write(&self, out: &mut Out) {
         out.option(self.cursor, |out, (ledger, index)| {
             out.u32(ledger);

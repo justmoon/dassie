@@ -199,13 +199,8 @@ pub fn env_on(network: &Network) -> Vec<(&'static str, String)> {
     env
 }
 
-/// The policies every daemon runs with: the dev ones, with production's
-/// peg guard, so that a token's guard, which reads no pool here, pauses
-/// none of its conversions within a test (spec/areas/xrpl.md#the-peg-guard).
-pub const POLICIES: Policies = Policies {
-    peg: dassie_xrpl::peg::Timings::DEFAULT,
-    ..Policies::DEV
-};
+/// The policies every daemon runs with: the dev ones.
+pub const POLICIES: Policies = Policies::DEV;
 
 /// The fake ledger, the validators, and the hubs they run, on one clock.
 pub struct HubNet {

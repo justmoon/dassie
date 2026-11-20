@@ -230,3 +230,30 @@ async fn xrp_s_rate_follows_mainnet_s_pool() {
     assert_eq!(rate(&ledgers(&node).await, "XRP").unwrap().per_usd, "0.4");
     node.stop().await;
 }
+
+/// A node whose ledgers are all in dollars asks no source, yet keeps the
+/// dollar's rate fresh: its price table prices only ledgers with a fresh
+/// rate, so a stale dollar would leave every one of them out.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dollar_only_node_keeps_the_dollar_fresh() {
+    let clock = ManualClock::new(START_MS);
+    let node = start(tempfile::tempdir().unwrap(), clock.clone()).await;
+    prepare(&node, &key(1)).await;
+    until(&clock, async || {
+        rate(&ledgers(&node).await, "USD").is_some_and(|rate| !rate.stale)
+    })
+    .await;
+    // Two hours on, past the connector's staleness bound, it is fresh still.
+    for _ in 0..120 {
+        clock.advance(60_000);
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    until(&clock, async || {
+        let usd = rate(&ledgers(&node).await, "USD").cloned();
+        usd.is_some_and(|rate| {
+            !rate.stale && u64::try_from(rate.as_of_unix_ms).unwrap() > START_MS + 60 * 60_000
+        })
+    })
+    .await;
+    node.stop().await;
+}

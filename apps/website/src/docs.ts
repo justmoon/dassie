@@ -102,10 +102,6 @@ export const SECTIONS: readonly Section[] = [
       { path: "/docs/wallet/receive/", title: "Receive money" },
       { path: "/docs/wallet/send/", title: "Send money" },
       { path: "/docs/wallet/names/", title: "Choose a name" },
-      {
-        path: "/docs/wallet/peg-guard/",
-        title: "Dollar tokens and the peg guard",
-      },
       { path: "/docs/wallet/activity/", title: "Activity and assets" },
       { path: "/docs/wallet/grants/", title: "Connect apps" },
       { path: "/docs/wallet/network/", title: "Network and peers" },

@@ -27,8 +27,7 @@
 //! reserve and the token's book its line; what the issuer did is booked as
 //! its owner's deposits and withdrawals; its XRP book moved by what its
 //! owner deposited and paid out, as the fake ledger has it; no XRP and no
-//! token was made or lost; the token's peg guard reads its pool at a
-//! dollar; every node anchored; and every ledger of every node is synced
+//! token was made or lost; every node anchored; and every ledger of every node is synced
 //! at the end.
 
 use std::collections::BTreeMap;
@@ -41,8 +40,8 @@ use dassie_xrpl::account::{LIST_REFRESH_MS, LIST_RETRY_MS, STALL_MS};
 use dassie_xrpl::fake::{FAUCET_DROPS, Lie, RESERVE_BASE};
 
 use super::checks::{
-    check, check_anchored, check_events, check_funded, check_held, check_ledgers, check_pegged,
-    check_settled, check_true, check_withdrawn, first_failure,
+    check, check_anchored, check_events, check_funded, check_held, check_ledgers, check_settled,
+    check_true, check_withdrawn, first_failure,
 };
 use super::scripted::{PAID_WITHIN_MS, READY_WITHIN_MS, ended, paid, script, size};
 use super::{IssuerFreeze, LONGEST_LIE_MS, START, Settling, Sim};
@@ -404,7 +403,6 @@ pub fn run_live(seed: u64) -> Run {
             check_true(&sim).map_err(|problem| Outcome::safety("proven", problem)),
             check_funded(&sim).map_err(|problem| Outcome::liveness("funded", problem)),
             check_anchored(&sim).map_err(|problem| Outcome::liveness("anchored", problem)),
-            check_pegged(&sim).map_err(|problem| Outcome::liveness("pegged", problem)),
             check_owner_books(&sim, &owners),
         ])
     });

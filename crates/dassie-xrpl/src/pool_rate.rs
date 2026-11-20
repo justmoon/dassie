@@ -50,17 +50,16 @@ use crate::verifier::{self, Ask, Query, QueryId, Verdict, Verifier, Waiting};
 
 /// The pool read: mainnet's of XRP and RLUSD.
 pub const POOL: IssuedAsset = crate::rlusd::LINE;
-/// The least XRP the pool must hold for a reading to count: as much as the
-/// peg guard asks of it ([`crate::rlusd::PEG`]). It held about 1.86 million
-/// XRP when measured; drained to a twentieth of that, its price moves too
-/// cheaply to be XRP's.
-pub const MIN_POOL_DROPS: u64 = crate::rlusd::PEG.min_pool_drops;
+/// The least XRP the pool must hold for a reading to count: 100,000 XRP.
+/// It held about 1.86 million XRP when measured; drained to a twentieth of
+/// that, it has lost the depth that makes its price costly to move, and its
+/// price is too cheap to push to be XRP's.
+pub const MIN_POOL_DROPS: u64 = 100_000 * DROPS_PER_XRP;
 /// The oldest a reading's ledger may be, by the close time its validators
 /// agreed on against the clock, when it is read: as long as a validation
-/// stays fresh ([`crate::unl::FRESH_FOR_MS`]), as for the peg guard's
-/// readings. The verifier takes no anchor whose validations are older, so
-/// a server that stops sending new ledgers and keeps proving the one held
-/// gives no reading that counts past it.
+/// stays fresh ([`crate::unl::FRESH_FOR_MS`]). The verifier takes no anchor
+/// whose validations are older, so a server that stops sending new ledgers
+/// and keeps proving the one held gives no reading that counts past it.
 pub const MAX_ANCHOR_AGE_MS: u64 = crate::unl::FRESH_FOR_MS;
 /// How often the pool is read: every fifteen seconds, four times a ledger
 /// minute's worth, so a window holds twenty readings.

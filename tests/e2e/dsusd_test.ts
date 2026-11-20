@@ -6,22 +6,18 @@
  * with nobody (spec/areas/xrpl.md#owner-books). The node is the real
  * binary; the XRP Ledger is the node's fake, over WebSocket, with its
  * faucet and the issuer of its test DSUSD over HTTPS: only the fake mints
- * DSUSD on demand, and only it lets a test freeze, claw back and move a
- * pool.
+ * DSUSD on demand, and only it lets a test freeze and claw back.
  *
  * The faucet gives the node XRP for gas, it sets its trust line to DSUSD's
  * issuer, never RLUSD's, and the issuer mints it DSUSD, which its book
- * takes as a deposit. Then the pool is moved off its peg: once the guard's
- * hold has passed, which dev timers make seconds, the node pauses the
- * book's conversions and says why, and still books what arrives on its
- * line (spec/areas/xrpl.md#the-peg-guard). Then the issuer freezes the
+ * takes as a deposit, and so is a second mint. Then the issuer freezes the
  * line, which the owner sees, and claws back some of the DSUSD, which the
  * book takes as a withdrawal: the books stay in step with the line.
  */
 
 import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
-import { LedgerConnection, PegPause } from "@dassie/rpc/proto";
+import { LedgerConnection } from "@dassie/rpc/proto";
 
 import {
   DASSIE,
@@ -29,12 +25,7 @@ import {
   missingScenarioTools,
   PORT_OFFSETS,
 } from "./harness.ts";
-import {
-  DEV_RATES,
-  poolDrops,
-  Scenario,
-  type ScenarioNode,
-} from "@dassie/dev/scenario";
+import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
 const LEDGER = "xrpl-testnet-dsusd+usd";
 /** DSUSD's issuer on the testnet, which the fake ledger issues it at. */
@@ -47,10 +38,6 @@ const DOLLAR = 1_000_000_000n;
 const CLAWED = 2_000_000_000n;
 /** The ledger's unit, a millionth of a dollar, in internal units. */
 const UNIT = 1_000n;
-/** The scenario's pool: as many dollars of DSUSD, and XRP worth as much at
- * the dev rate. */
-const POOL_VALUE = "50000";
-const POOL_FEE = 500;
 const PORT_OFFSET = PORT_OFFSETS["dsusd_test.ts"];
 
 const missing = await missingScenarioTools();
@@ -104,7 +91,7 @@ async function moves(node: ScenarioNode): Promise<string[]> {
 }
 
 test(
-  "dsusd-owner-book books the mint, keeps booking while the peg guard pauses it, and books the issuer's clawback as a withdrawal",
+  "dsusd-owner-book books the mints as deposits, shows the issuer's freeze, and books its clawback as a withdrawal",
   { skip: missing !== undefined },
   async () => {
     const scenario = await Scenario.temporary("dsusd-owner-book", {
@@ -129,35 +116,7 @@ test(
       // An owner book peers with nobody, and offers no peering.
       assertEquals((await node.rpc.call("listPeers", {})).peers, []);
 
-      const guard = async () => (await ledger(node)).peg;
-      await scenario.until(
-        "read at a dollar",
-        async () => {
-          const peg = await guard();
-          return peg?.paused === PegPause.UNSPECIFIED &&
-            peg.pricePpm === 1_000_000n;
-        },
-        60_000,
-      );
-
-      // The pool prices DSUSD 5% under a dollar: once every reading has
-      // been off for the hold, the node pauses the book's conversions and
-      // says why.
-      const par = poolDrops(POOL_VALUE, DEV_RATES.XRP);
-      await scenario.askIssuer({
-        action: "amm",
-        token: "DSUSD",
-        drops: `${par * 95n / 100n}`,
-        value: POOL_VALUE,
-        fee: POOL_FEE,
-      });
-      const offPeg = async () => {
-        const peg = await guard();
-        return peg?.paused === PegPause.OFF_PEG && peg.pricePpm === 950_000n;
-      };
-      await scenario.until("paused off its peg", offPeg, 60_000);
-
-      // What arrives on the line is still booked while paused.
+      // A second deposit on the line is booked as well.
       const owned = (await ledger(node)).ownerBalance;
       const { address } = (await node.rpc.call("listLedgers", {}))
         .externalAssets[0];
@@ -168,13 +127,12 @@ test(
         value: "1",
       });
       await scenario.until(
-        "the deposit booked while paused",
+        "the second deposit booked",
         async () =>
           (await ledger(node)).ownerBalance === owned + DOLLAR &&
           (await inStep(node)),
         60_000,
       );
-      assert(await offPeg(), "still paused");
 
       // The issuer freezes the line: its owner sees it, as the ledger
       // says, and the issuer lifts it again.

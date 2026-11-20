@@ -651,8 +651,8 @@ fn create_hub_scheme(
 
 /// Makes the scheme `id` with its config, what the books last kept for it,
 /// and the asset it settles through; a hub's scheme counts in the largest
-/// packet on its ledger, and a dollar token's peg guard runs on `peg`. The original's RPC dropped every key of the config, and it
-/// never passed on what it stored.
+/// packet on its ledger. The original's RPC dropped every key of the
+/// config, and it never passed on what it stored.
 ///
 /// # Errors
 ///
@@ -663,7 +663,6 @@ fn create(
     checkpoint: Option<&Checkpoint>,
     asset: Option<&dyn ExternalAsset>,
     max_packet: PerLedger<u64>,
-    peg: dassie_xrpl::peg::Timings,
 ) -> Result<Box<dyn SettlementScheme>, SchemeError> {
     let balance = checkpoint.map(|c| c.balance);
     let account = || {
@@ -691,15 +690,11 @@ fn create(
         }
         dassie_xrpl::rlusd::SCHEME_ID => {
             owner_book()?;
-            let mut scheme = RlusdScheme::new(account()?, balance, state)?;
-            scheme.set_peg_timings(peg);
-            Ok(Box::new(scheme))
+            Ok(Box::new(RlusdScheme::new(account()?, balance, state)?))
         }
         dassie_xrpl::dsusd::SCHEME_ID => {
             owner_book()?;
-            let mut scheme = DsusdScheme::new(account()?, balance, state)?;
-            scheme.set_peg_timings(peg);
-            Ok(Box::new(scheme))
+            Ok(Box::new(DsusdScheme::new(account()?, balance, state)?))
         }
         id if HUB_SCHEMES.contains(&id) => create_hub_scheme(id, asset, max_packet, balance, state),
         #[cfg(test)]
@@ -853,7 +848,6 @@ impl Core {
                 checkpoint,
                 None,
                 self.settle.max_packet,
-                self.settle.peg,
             )
             .map_err(invalid)?;
             return Ok((scheme, None));
@@ -896,7 +890,6 @@ impl Core {
                 checkpoint,
                 Some(active.asset.as_ref()),
                 self.settle.max_packet,
-                self.settle.peg,
             )
             .map_err(invalid),
             _ => Err(EngineError::Precondition(
@@ -1705,7 +1698,6 @@ mod tests {
             None,
             Some(made.as_ref()),
             PerLedger::splat(1_000_000),
-            dassie_xrpl::peg::Timings::DEFAULT,
         )
         .unwrap();
         assert_eq!(scheme.ledger(), LedgerId::HubXrplTestnetDsusdUsd);
@@ -1717,7 +1709,6 @@ mod tests {
                 None,
                 Some(made.as_ref()),
                 PerLedger::splat(1_000_000),
-                dassie_xrpl::peg::Timings::DEFAULT,
             ),
             Err(SchemeError::InvalidConfig)
         ));
@@ -1785,7 +1776,6 @@ mod tests {
                 None,
                 Some(made.as_ref()),
                 PerLedger::splat(1_000_000),
-                dassie_xrpl::peg::Timings::DEFAULT,
             )
             .unwrap();
             assert_eq!(scheme.ledger(), ledger);
@@ -1924,14 +1914,7 @@ mod tests {
         let key = dassie_identity::TableKeygen::identity_key(&[7; 32]);
         let asset = create_asset(dassie_xrpl::account::FIRST, "", &[], (&key, 0)).unwrap();
         assert!(matches!(
-            create(
-                id,
-                "",
-                None,
-                Some(asset.as_ref()),
-                PerLedger::splat(0),
-                dassie_xrpl::peg::Timings::DEFAULT
-            ),
+            create(id, "", None, Some(asset.as_ref()), PerLedger::splat(0),),
             Err(SchemeError::UnknownScheme)
         ));
         assert_eq!(asset_of(id), Some(dassie_xrpl::account::FIRST));

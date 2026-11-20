@@ -1,6 +1,6 @@
 # An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg
 
-**Areas:** [XRPL](../areas/xrpl.md#rlusd), [Settlement](../areas/settlement.md#when-peers-cannot-pay-us), [Connector](../areas/connector.md#inventory-pricing). Built in the token scheme, with test RLUSD disabled, and the peg guard, which reads its pool proven at the account's anchor ([XRPL](../areas/xrpl.md#the-peg-guard)) and shown in the wallet ([Wallet](../areas/wallet.md#pages)), and that halts its hub's ledger ([Settlement hubs](../areas/hubs.md#in-the-node)); transfer fees ([roadmap](../roadmap.md#not-built-yet)) are not. [open-rate-sources](open-rate-sources.md) turns the guard off once XRP's rate comes from mainnet's XRP/RLUSD pool, until a dollar token has a price of its own (not built).
+**Areas:** [XRPL](../areas/xrpl.md#rlusd), [Settlement](../areas/settlement.md#when-peers-cannot-pay-us), [Connector](../areas/connector.md#inventory-pricing). Built in the token scheme, with test RLUSD disabled; transfer fees ([roadmap](../roadmap.md#not-built-yet)) are not. The peg guard decided here is turned off by [open-rate-sources](open-rate-sources.md): once XRP's rate comes from mainnet's XRP/RLUSD pool, the guard could only read the token as pegged, so a dollar token converts at par with no guard until it has a price of its own ([roadmap](../roadmap.md#smaller-open-points)). The reasons for a guard below stand for when it runs again.
 
 ## Facts
 

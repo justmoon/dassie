@@ -73,7 +73,9 @@ test("every scenario's periphery nodes are pinned to its core nodes", () => {
 // Four validators found an XRP hub and a DSUSD hub; the core nodes join
 // both, and so does the market maker's one periphery node, if there is
 // one, pinned to every core node, its targets, each with the owner books
-// the hubs need. Only the fake ledger has the hubs, the mint and the pool.
+// the hubs need. The market maker reads its price from the fake ledger's
+// XRP/DSUSD pool, which only a scenario with a market maker makes. Only the
+// fake ledger has the hubs, the mint and the pool.
 async function swappingHubs(
   def: ScenarioDef,
   cores: readonly number[],
@@ -125,7 +127,10 @@ async function swappingHubs(
   assertEquals(joins(def, xrp, def.schemes.length), true);
   assertEquals(joins(def, dsusd, def.schemes.length), true);
   assertEquals(minted(def, def.addedSchemes), true);
-  assertEquals(def.pool?.token, "DSUSD");
+  assertEquals(
+    def.pool?.token,
+    marketMaker === undefined ? undefined : "DSUSD",
+  );
   assertEquals(resumes(def), false);
   assertEquals(
     unavailable(def, false)?.startsWith("needs the fake ledger"),
@@ -226,19 +231,18 @@ test("a live scenario runs mainnet's schemes on the fake ledger's mainnet only",
   );
   assertEquals(unavailable(books, true), undefined);
   assertEquals(
-    unavailable({ ...books, mint: undefined, pool: undefined }, false),
+    unavailable({ ...books, mint: undefined }, false),
     "needs the fake ledger: the live realm runs only against the fake ledger's mainnet, never with real money",
   );
 });
 
 // spec/areas/dev.md#scenarios: DSUSD's scenario is its owner book, which
-// peers with nobody, minted by the fake ledger's issuer beside its pool.
-test("the DSUSD owner book: minted, beside its pool, on the fake ledger only", () => {
+// peers with nobody, minted by the fake ledger's issuer.
+test("the DSUSD owner book: minted, on the fake ledger only", () => {
   const def = findScenario("dsusd-owner-book")!;
   assertEquals(invalid(def), undefined);
   assertEquals(def.schemes, [[TOKEN_SCHEMES.DSUSD]]);
   assertEquals(minted(def, def.schemes[0]), true);
-  assertEquals(def.pool?.token, "DSUSD");
   assertEquals(resumes(def), true);
   assertEquals(
     unavailable(def, false),
@@ -292,19 +296,6 @@ test("cross-currency: the unlimited stub, a hub, and a node in both", () => {
     "needs the fake ledger: each run founds a hub of its own, whose escrow stays off the public testnet",
   );
   assertEquals(unavailable(def, true), undefined);
-});
-
-// spec/areas/xrpl.md#the-peg-guard: a dollar token's guard fails closed
-// without a price, which dev timers make seconds, so every scenario whose
-// nodes settle in a token makes that token's pool, priced at the dev rates.
-test("every scenario that settles in a dollar token has its pool", () => {
-  for (const def of SCENARIOS) {
-    const schemes = [...def.schemes, def.addedSchemes].flat();
-    for (const [token, scheme] of Object.entries(TOKEN_SCHEMES)) {
-      if (!schemes.includes(scheme)) continue;
-      assertEquals(def.pool?.token, token, `${def.id} has no ${token} pool`);
-    }
-  }
 });
 
 // spec/areas/dev.md#scenarios: the hub scenario's four validators run the
@@ -489,8 +480,7 @@ test("a scenario that sets its nodes up otherwise does not resume", () => {
 // spec/areas/dev.md#scenarios: the two-hubs scenario's four validators run
 // an XRP hub and a DSUSD hub the first of them founds; one member is in
 // each alone and two in both, and the DSUSD hub's token is the one the fake
-// ledger mints them and prices in its pool. It starts from scratch, as
-// every hub scenario does.
+// ledger mints them. It starts from scratch, as every hub scenario does.
 test("the two-hubs scenario: an XRP hub, a DSUSD hub, two members in both", async () => {
   const { hubScheme, hubsOf, invalidHubs, joins, validatesAny } = await import(
     "./hubs.ts"
@@ -512,7 +502,6 @@ test("the two-hubs scenario: an XRP hub, a DSUSD hub, two members in both", asyn
   assertEquals(members(xrp), [4, 5, 6]);
   assertEquals(members(dsusd), [5, 6, 7]);
   assertEquals(def.mint?.token, "DSUSD");
-  assertEquals(def.pool?.token, "DSUSD");
   // An added node joins the XRP hub alone.
   assertEquals(joins(def, xrp, def.schemes.length), true);
   assertEquals(joins(def, dsusd, def.schemes.length), false);
@@ -527,8 +516,8 @@ test("the two-hubs scenario: an XRP hub, a DSUSD hub, two members in both", asyn
 // an XRP hub and an RLUSD hub on the fake ledger's mainnet, by the dev
 // switch; its two members join both with mainnet's hub schemes, funded
 // from their live books, and the RLUSD hub's token is the one the fake
-// ledger mints them and prices in its pool. It starts from scratch, as
-// every live and hub scenario does.
+// ledger mints them. It starts from scratch, as every live and hub scenario
+// does.
 test("the live-hub scenario: an XRP hub and an RLUSD hub on mainnet", async () => {
   const { hubOwnerBook, hubScheme, hubsOf, invalidHubs, joins, xrpOwnerBook } =
     await import("./hubs.ts");
@@ -545,7 +534,6 @@ test("the live-hub scenario: an XRP hub and an RLUSD hub on mainnet", async () =
   assertEquals(members(xrp), [4, 5]);
   assertEquals(members(rlusd), [4, 5]);
   assertEquals(def.mint?.token, "RLUSD");
-  assertEquals(def.pool?.token, "RLUSD");
   assertEquals(resumes(def), false);
   assertEquals(
     unavailable(def, false)?.startsWith("needs the fake ledger"),

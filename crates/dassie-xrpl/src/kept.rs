@@ -7,8 +7,8 @@
 //! state has one encoding: no field is optional to a reader, an option is
 //! a presence byte (`00` or `FF`), a list is its count (four bytes) and
 //! its entries, and a state with bytes left over is refused. A new layout
-//! is a new version. A reader reads only the version it writes, the only
-//! one a release since the testnet's reset wrote
+//! is a new version. A reader reads the version it writes, and the one
+//! before it where a release since the testnet's reset wrote that
 //! (spec/areas/xrpl.md#state-and-restarts,
 //! spec/decisions/database-continuity.md).
 
@@ -22,12 +22,20 @@ use crate::amount::TokenValue;
 /// The version of the account's state, and of a verifier's, which is written
 /// as the account's is.
 pub(crate) const ACCOUNT_VERSION: u8 = 1;
-/// The version of a scheme's state, the owner book's.
+/// The version of a scheme's state that releases before
+/// [`XRP_SCHEME_VERSION`] and [`TOKEN_SCHEME_VERSION`] wrote, which no
+/// scheme writes now: what every scheme on the account keeps, then, for a
+/// token scheme, its peg guard's part. Each scheme still reads it.
 pub(crate) const SCHEME_VERSION: u8 = 2;
 /// The version of the XRP scheme's state: [`SCHEME_VERSION`]'s, then the
 /// reserve the books were last matched to. It still reads a state of
 /// [`SCHEME_VERSION`], which knows no reserve.
 pub(crate) const XRP_SCHEME_VERSION: u8 = 3;
+/// The version of the token scheme's state: what every scheme on the
+/// account keeps, and nothing more, since a dollar token has no peg guard
+/// (spec/decisions/open-rate-sources.md). It still reads a state of
+/// [`SCHEME_VERSION`], whose guard's part it drops.
+pub(crate) const TOKEN_SCHEME_VERSION: u8 = 4;
 
 /// Bytes being written.
 pub(crate) struct Out(pub(crate) Vec<u8>);

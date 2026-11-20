@@ -149,8 +149,8 @@ fn a_snapshot_quotes_the_offered_methods_as_the_table_does() {
 // spec/areas/rate-feed.md#what-it-publishes: an owner book, which no peer
 // can pay the node on, is not listed, though the table prices it; a method
 // the node offers on a ledger the table does not price, as one without a
-// fresh rate or a dollar token's hub off its peg, is listed with both sides
-// closed, so a reader tells it from one the node does not offer.
+// fresh rate, is listed with both sides closed, so a reader tells it from
+// one the node does not offer.
 #[test]
 fn an_offered_method_the_table_does_not_price_is_listed_closed() {
     let inventories = [

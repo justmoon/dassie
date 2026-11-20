@@ -27,10 +27,7 @@
 //! drawn, on every connection their watchers make, while the members pay
 //! each other. After every ledger meanwhile, the validators attested
 //! nothing false: the escrow holds what the hub owes, but for what is on
-//! its way between them. In the RLUSD hub, the token's pool then moves off
-//! its peg: each member's peg guard must halt the conversions of
-//! `hub-xrpl-rlusd+usd`, while the members still pay each other over it
-//! (spec/areas/xrpl.md#the-peg-guard).
+//! its way between them.
 //!
 //! Once the network is calm, each node is judged by its own books
 //! (spec/decisions/own-books.md): they hold what its schemes hold, its XRP
@@ -47,10 +44,7 @@ use std::collections::BTreeMap;
 
 use dassie_hub::rules::Asset;
 use dassie_kit::sim::{Outcome, Run, SeededRng};
-use dassie_settlement::PegPause;
-use dassie_xrpl::DROPS_PER_XRP;
 use dassie_xrpl::account::STALL_MS;
-use dassie_xrpl::codec::TokenValue;
 use dassie_xrpl::fake::{FAUCET_DROPS, Lie};
 
 use super::checks::{
@@ -62,13 +56,9 @@ use super::hub_checks::{
     check_each, check_escrow_in, check_losses, check_settled_with_honest, hub_standing, idle_in,
     joined,
 };
-use super::hub_token::OFF_PEG_WITHIN_MS;
 use super::hubbed::{over_hub, paid, pay, routed};
 use super::scripted::{READY_WITHIN_MS, ended};
-use super::{
-    HUB_RLUSD, LEDGER_CLOSE_MS, LEDGER_RECONNECT_MS, LONGEST_LIE_MS, POOL_TOKENS, START, Settling,
-    Sim, key,
-};
+use super::{LEDGER_CLOSE_MS, LEDGER_RECONNECT_MS, LONGEST_LIE_MS, START, Settling, Sim, key};
 use crate::node::Policies;
 
 /// What the RLUSD hub holds: RLUSD, of its mainnet issuer.
@@ -226,9 +216,6 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, hub: LiveHub) -> Result<(), Outcom
         ));
     }
     sim.count("members paid each other under lying servers");
-    if hub == LiveHub::Rlusd {
-        off_peg(sim, rng)?;
-    }
     settle(sim);
     if sim.counts.get(hub.prepares()).copied().unwrap_or(0) == 0 {
         return Err(Outcome::liveness(
@@ -318,65 +305,6 @@ fn attested_truly(sim: &Sim) -> Result<(), Outcome> {
         return Ok(());
     }
     check_escrow_in(sim, 0).map_err(|problem| Outcome::safety("attested", problem))
-}
-
-/// The token's pool moves off its peg, 5% under a dollar: once each
-/// member's peg guard has held it off for its trip hold, the hub's ledger
-/// converts nothing, while the members still pay each other over the hub,
-/// in the token as it is. Then the pool is back at a dollar; the guards
-/// resume after their recovery hold, which the run does not wait for:
-/// nothing in it converts.
-fn off_peg(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
-    let token = sim.token();
-    let tokens = TokenValue::from_units(POOL_TOKENS, 0).unwrap();
-    let par = 2 * POOL_TOKENS * DROPS_PER_XRP;
-    sim.ledger
-        .set_pool(token, par / 100 * 95, tokens, 300)
-        .unwrap();
-    sim.trace.push(format!(
-        "{} the token's pool moves 5% under a dollar",
-        sim.now
-    ));
-    let halted = |sim: &Sim| {
-        (0..sim.nodes.len()).all(|index| {
-            let core = sim.core(index);
-            let paused = core
-                .ledger_views()
-                .into_iter()
-                .find(|view| view.id == HUB_RLUSD)
-                .and_then(|view| view.peg)
-                .and_then(|peg| peg.paused);
-            paused == Some(PegPause::OffPeg) && core.price_table().halted(HUB_RLUSD)
-        })
-    };
-    if !sim.run_until_or(sim.now + OFF_PEG_WITHIN_MS, halted) {
-        return Err(Outcome::liveness(
-            "off-peg",
-            "the members' peg guards did not halt the hub's ledger in time",
-        ));
-    }
-    sim.count("conversions halted off the peg");
-    pay(sim, rng);
-    if !sim.run_until_or(sim.now + PAID_WITHIN_MS, paid) {
-        return Err(Outcome::liveness(
-            "off-peg",
-            format!(
-                "the members did not pay each other over the hub off its peg: {}",
-                hub_standing(sim)
-            ),
-        ));
-    }
-    if !halted(sim) {
-        return Err(Outcome::safety(
-            "off-peg",
-            "a member's guard resumed while the pool was still off its peg",
-        ));
-    }
-    sim.count("members paid each other off the peg");
-    sim.ledger.set_pool(token, par, tokens, 300).unwrap();
-    sim.trace
-        .push(format!("{} the token's pool is back at a dollar", sim.now));
-    Ok(())
 }
 
 /// The network calms down: every move done, every account in step with

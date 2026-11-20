@@ -116,9 +116,6 @@ pub struct Policies {
     /// How often exchange rates are fetched
     /// (spec/decisions/exchange-rates.md).
     pub rates_every_ms: u64,
-    /// How often a dollar token's peg guard reads its pool, and how long
-    /// its holds are (spec/areas/xrpl.md#the-peg-guard).
-    pub peg: dassie_xrpl::peg::Timings,
     /// How often XRP's rate reads mainnet's XRP/RLUSD pool, and how long
     /// its window is (spec/areas/xrpl.md#xrps-rate).
     pub pool_rate: dassie_xrpl::pool_rate::Timings,
@@ -205,21 +202,19 @@ impl Policies {
         settlement_request_every_ms: 60_000,
         incoming: crate::engine::IncomingPolicy::DEFAULT,
         rates_every_ms: 60_000,
-        peg: dassie_xrpl::peg::Timings::DEFAULT,
         pool_rate: dassie_xrpl::pool_rate::Timings::DEFAULT,
         pool_rate_unl: None,
         feed: dassie_feed::AnswerLimits::DEFAULT,
         tunnel_bounds: crate::quic::tunnel::TunnelBounds::DEFAULT,
     };
 
-    /// The production values with the peer protocol's dev timers, the peg
-    /// guard's and the pool rate's, for what runs on a real clock: dev environments and the
+    /// The production values with the peer protocol's dev timers and the
+    /// pool rate's, for what runs on a real clock: dev environments and the
     /// end-to-end tests. The network simulation runs [`Policies::DEFAULT`].
     pub const DEV: Self = Self {
         peer: dassie_peer::Config::DEV,
         settlement_interval_ms: 1_000,
         settlement_request_every_ms: 5_000,
-        peg: dassie_xrpl::peg::Timings::DEV,
         pool_rate: dassie_xrpl::pool_rate::Timings::DEV,
         ..Self::DEFAULT
     };

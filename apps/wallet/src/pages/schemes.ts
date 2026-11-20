@@ -31,9 +31,6 @@ export interface TokenScheme {
   /** How the owner gets the token, when it is not simply sent: for
    * people, a sentence or two. */
   readonly obtain?: string;
-  /** The AMM pool whose price the node's peg guard reads, such as
-   * "XRP/RLUSD", for a token that has one. */
-  readonly pool?: string;
 }
 
 const TOKENS: Record<string, TokenScheme> = {
@@ -41,13 +38,11 @@ const TOKENS: Record<string, TokenScheme> = {
     token: "RLUSD",
     issuerName: "Ripple",
     gas: "XRP",
-    pool: "XRP/RLUSD",
   },
   "xrpl-testnet-dsusd": {
     token: "DSUSD",
     issuerName: "Dassie",
     gas: "XRP",
-    pool: "XRP/DSUSD",
     obtain:
       "DSUSD has no faucet: buy it with XRP on the testnet's XRP/DSUSD AMM pool, from any XRP Ledger wallet. A payment to this address whose amount is DSUSD, paid for with XRP, swaps through the pool and arrives here as DSUSD.",
   },

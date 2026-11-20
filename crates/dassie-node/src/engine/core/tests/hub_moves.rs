@@ -17,7 +17,7 @@ use dassie_xrpl::fake::FakeLedger;
 use dassie_xrpl::network::{MAINNET, TESTNET};
 
 use super::super::hub_moves::{gas_book_ledger, owner_book_ledger};
-use super::super::{Core, EngineError, Output};
+use super::super::{Core, EngineError};
 use super::{NOW, Policies, Store};
 use crate::rpc::proto::{self, request::Method, response};
 
@@ -904,17 +904,12 @@ async fn the_engine_waits_for_an_idle_rlusd_book_before_the_owners_hub_deposit()
     assert_eq!(calls, 3, "not ready, ready a round later, the deposit");
 }
 
-// spec/decisions/hub-scheme-names.md, spec/areas/xrpl.md#the-peg-guard: a
-// member scheme on a mainnet hub of RLUSD, made from its rules, books on
-// `hub-xrpl-rlusd+usd` through an account of its own, `hub-xrpl-rlusd`;
-// the owner's deposit into it leaves the live RLUSD book; and the
-// RLUSD book's peg guard reaches its ledger: while the book runs pegged,
-// the hub's ledger converts, and once the books stopped the book, it is
-// halted for want of a reading.
+// spec/decisions/hub-scheme-names.md: a member scheme on a mainnet hub of
+// RLUSD, made from its rules, books on `hub-xrpl-rlusd+usd` through an
+// account of its own, `hub-xrpl-rlusd`; the owner's deposit into it leaves
+// the live RLUSD book.
 #[test]
-fn a_mainnet_rlusd_hub_follows_the_rlusd_book() {
-    use dassie_settlement::PegPause;
-
+fn a_mainnet_rlusd_hub_is_funded_from_the_rlusd_book() {
     let mut ledger = super::fake_ledger(true);
     let mut core = super::rlusd_core(&mut ledger);
     let mut hub = Hub::new(RLUSD_SCHEME_ID, MAINNET.id, RLUSD);
@@ -925,11 +920,6 @@ fn a_mainnet_rlusd_hub_follows_the_rlusd_book() {
     assert_eq!(core.schemes[&scheme].asset, Some(hub.account));
     assert_eq!(hub.account, AssetId::sole(AssetKind::HubXrplRlusd));
     assert_eq!(hub.account.to_string(), RLUSD_SCHEME_ID);
-    let book = Name::new(dassie_xrpl::rlusd::SCHEME_ID).unwrap();
-    let book_peg = core.schemes[&book].scheme.peg();
-    assert!(book_peg.is_some_and(|peg| peg.paused.is_none()), "pegged");
-    assert_eq!(core.hub_peg(ledger_id), book_peg);
-    assert!(!core.hub_halted(ledger_id));
 
     // The owner's deposit opens the account from the RLUSD book, held
     // against the owner's funds there while on its way.
@@ -943,99 +933,7 @@ fn a_mainnet_rlusd_hub_follows_the_rlusd_book() {
         before - core.owner_available(LedgerId::XrplRlusdUsd),
         amount
     );
-
-    // Once the books stopped the book, the hub's ledger converts nothing.
-    let at = core.now_ms() + 1_000;
-    core.begin_step(at);
-    core.stop_scheme(book, EngineError::Internal("stopped by the test".into()));
-    let mut outputs: Vec<Output> = Vec::new();
-    core.finish_step(&mut outputs);
-    assert!(core.hub_halted(ledger_id));
-    assert_eq!(
-        core.hub_peg(ledger_id).and_then(|peg| peg.paused),
-        Some(PegPause::Stale)
-    );
     assert_eq!(core.hub_status().unwrap().scheme, scheme);
-}
-
-// spec/areas/xrpl.md#the-peg-guard: on mainnet, once the RLUSD/XRP pool
-// has priced RLUSD off its peg for the trip hold, the RLUSD book's guard
-// pauses it, and halts `hub-xrpl-rlusd+usd` with it, which carries the
-// book's guard; back at a dollar for the recovery hold, both run again.
-#[test]
-fn rlusd_off_its_peg_halts_the_mainnet_rlusd_hubs_ledger() {
-    use dassie_settlement::PegPause;
-    use dassie_xrpl::DROPS_PER_XRP;
-    use dassie_xrpl::amount::IssuedAsset;
-    use dassie_xrpl::codec::TokenValue;
-    use dassie_xrpl::peg::Timings;
-
-    let mut ledger = super::fake_ledger(true);
-    ledger.deposit(own_account(&MAINNET), dassie_xrpl::fake::FAUCET_DROPS);
-    ledger.close();
-    let store = Arc::new(Store::open_in_memory().unwrap());
-    let live = (Realm::Live, LiveRealm::DevSwitch);
-    let mut core = super::core_with(store, 12, live, Policies::DEV).unwrap();
-    super::add_xrpl(&mut core, "xrpl-rlusd", r#"{"server":"ws://ledger.test"}"#).unwrap();
-    super::follow_xrpl(&mut core, &mut ledger);
-    let hub = Hub::new(RLUSD_SCHEME_ID, MAINNET.id, RLUSD);
-    core.add_scheme(RLUSD_SCHEME_ID, hub.config()).unwrap();
-    let hub_ledger = LedgerId::HubXrplRlusdUsd;
-    let book = LedgerId::XrplRlusdUsd;
-    let one = 10_u128.pow(dassie_connector::RATE_PRECISION);
-    let mut now = NOW;
-    let mut seconds = |core: &mut Core, ledger: &mut FakeLedger, count: u64| {
-        for _ in 0..count {
-            now += Timings::DEV.read_every_ms;
-            core.begin_step(now);
-            core.set_rates(&[("USD", one, now), ("XRP", 2 * one, now)]);
-            let asset = ledger.network().first();
-            let epoch = core.assets[&asset].epoch;
-            let close_time = dassie_xrpl::unl::ledger_seconds(now);
-            for (_, message) in ledger.close_at(close_time) {
-                let event = super::super::LedgerEvent::Message(message);
-                core.ledger_event(&asset.to_string(), epoch, &event);
-            }
-            super::follow_xrpl(core, ledger);
-        }
-    };
-    let peg = |core: &Core, ledger: LedgerId| {
-        core.ledger_views()
-            .into_iter()
-            .find(|view| view.id == ledger)
-            .unwrap()
-            .peg
-    };
-    // 200,000 XRP for 100,000 RLUSD at two XRP to the dollar.
-    let value = TokenValue::parse("100000").unwrap();
-    let pool = |ledger: &mut FakeLedger, xrp: u64| {
-        let drops = xrp * DROPS_PER_XRP;
-        ledger
-            .set_pool(IssuedAsset::RLUSD, drops, value, 205)
-            .unwrap();
-    };
-    pool(&mut ledger, 200_000);
-    seconds(&mut core, &mut ledger, 2);
-    let at_par = peg(&core, book).unwrap();
-    assert_eq!(at_par.last.map(|(price, _)| price), Some(1_000_000));
-    assert_eq!(peg(&core, hub_ledger), Some(at_par));
-    assert!(!core.hub_halted(hub_ledger));
-
-    // 5% under a dollar, past the trip hold.
-    pool(&mut ledger, 190_000);
-    let trip = Timings::DEV.trip_hold_ms / Timings::DEV.read_every_ms;
-    seconds(&mut core, &mut ledger, trip + 2);
-    let off = peg(&core, book).unwrap();
-    assert_eq!(off.paused, Some(PegPause::OffPeg));
-    assert_eq!(peg(&core, hub_ledger), Some(off));
-    assert!(core.hub_halted(hub_ledger), "converts off its peg");
-
-    // Back at a dollar for the recovery hold.
-    pool(&mut ledger, 200_000);
-    let recover = Timings::DEV.recover_hold_ms / Timings::DEV.read_every_ms;
-    seconds(&mut core, &mut ledger, recover + 2);
-    assert_eq!(peg(&core, book).unwrap().paused, None);
-    assert!(!core.hub_halted(hub_ledger));
 }
 
 // spec/areas/hubs.md#in-the-node: the hubs the node is in are those of its

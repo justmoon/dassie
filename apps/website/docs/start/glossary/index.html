@@ -217,16 +217,17 @@
             Dassie's test dollar, a token on the XRP Ledger testnet. It has no
             faucet: you buy it with test XRP on the testnet's XRP/DSUSD pool.
             It stands in for Ripple's RLUSD on the test network.
-            <a href="/docs/wallet/peg-guard/">Dollar tokens and the peg guard</a>
+            <a href="/docs/concepts/ledgers/#at-par">Dollar tokens at par</a>
           </p>
         </dd>
-        <dt id="peg-guard">Peg guard</dt>
+        <dt id="at-par">At par</dt>
         <dd>
           <p>
-            What stops your node converting a dollar token while its pool on
-            the XRP Ledger prices it off a dollar, so nobody can drain your
-            node at the wrong price.
-            <a href="/docs/wallet/peg-guard/">Dollar tokens and the peg guard</a>
+            One to one. Your node books a dollar token such as DSUSD or RLUSD
+            at par with every other dollar. Nothing checks that the token is
+            still worth a dollar: if it leaves its peg, your node does not
+            notice.
+            <a href="/docs/concepts/ledgers/#at-par">Dollar tokens at par</a>
           </p>
         </dd>
       </dl>

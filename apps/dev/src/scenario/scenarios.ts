@@ -251,25 +251,21 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     id: "dsusd-owner-book",
     name: "DSUSD Owner Book",
     description:
-      "A node that holds test DSUSD on the XRP Ledger in its owner book, which peers with nobody, minted by the fake ledger's issuer, beside the fake ledger's XRP/DSUSD pool at the dev rate, which keeps DSUSD on its peg",
+      "A node that holds test DSUSD on the XRP Ledger in its owner book, which peers with nobody, minted by the fake ledger's issuer",
     schemes: [["xrpl-testnet-dsusd"]],
     addedSchemes: ["xrpl-testnet-dsusd"],
     bootstrap: [],
     mint: { token: "DSUSD", value: "100" },
-    pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
   },
   {
     id: "live-owner-books",
     name: "Mainnet Owner Books, Fake",
     description:
-      "A node in the live realm that holds XRP and RLUSD on the fake ledger's mainnet in its owner books, which peer with nobody, by the dev switch; its account is funded by a deposit, as mainnet has no faucet, and RLUSD's issuer mints it RLUSD beside its XRP/RLUSD pool at the dev rate, which keeps RLUSD on its peg",
+      "A node in the live realm that holds XRP and RLUSD on the fake ledger's mainnet in its owner books, which peer with nobody, by the dev switch; its account is funded by a deposit, as mainnet has no faucet, and RLUSD's issuer mints it RLUSD",
     schemes: [["xrpl-xrp", "xrpl-rlusd"]],
     addedSchemes: ["xrpl-xrp", "xrpl-rlusd"],
     bootstrap: [],
     mint: { token: "RLUSD", value: "100" },
-    // 200,000 XRP at the dev rate: deeper than RLUSD's floor of 100,000
-    // XRP, below which its peg guard reads no price, even 5% off its peg.
-    pool: { token: "RLUSD", value: "100000", tradingFee: 500 },
     realm: "live",
   },
   {
@@ -355,8 +351,6 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     // As in "market-maker": each holds about a twentieth of its value in
     // DSUSD, until a test mints one of them more.
     mint: { token: "DSUSD", value: "25" },
-    // DSUSD's peg guard reads its price from the pool.
-    pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
     hubs: bothHubs([4, 5]),
   },
   {
@@ -380,7 +374,7 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     id: "two-hubs",
     name: "XRP and DSUSD Hubs",
     description:
-      "Four nodes validate an XRP hub and a DSUSD hub that the first of them founds on the fake ledger, beside its XRP/DSUSD pool at the dev rate; one member joins the XRP hub alone, one the DSUSD hub alone, and two join both, peer over both and convert between them, each funding its accounts from its own XRP and DSUSD",
+      "Four nodes validate an XRP hub and a DSUSD hub that the first of them founds on the fake ledger; one member joins the XRP hub alone, one the DSUSD hub alone, and two join both, peer over both and convert between them, each funding its accounts from its own XRP and DSUSD",
     schemes: [
       [HUB_OWNER_BOOK],
       [],
@@ -404,7 +398,6 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     addedSchemes: [HUB_OWNER_BOOK, HUB_SCHEME],
     bootstrap: [5, 6],
     mint: { token: "DSUSD", value: "100" },
-    pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
     hubs: [
       { validators: [0, 1, 2, 3], sponsor: 0, members: [4, 5, 6] },
       {
@@ -419,7 +412,7 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     id: "live-hub",
     name: "Mainnet Hubs, Fake",
     description:
-      "Four nodes in the live realm, by the dev switch, validate an XRP hub and an RLUSD hub that the first of them founds on the fake ledger's mainnet, beside its XRP/RLUSD pool at the dev rate; every account is funded by a deposit, as mainnet has no faucet; two members join both hubs with the founded rules in their schemes' config, fund their accounts from their own XRP and RLUSD, and peer over both",
+      "Four nodes in the live realm, by the dev switch, validate an XRP hub and an RLUSD hub that the first of them founds on the fake ledger's mainnet; every account is funded by a deposit, as mainnet has no faucet; two members join both hubs with the founded rules in their schemes' config, fund their accounts from their own XRP and RLUSD, and peer over both",
     schemes: [
       ["xrpl-xrp"],
       [],
@@ -431,9 +424,6 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     addedSchemes: ["xrpl-xrp", "hub-xrpl-xrp"],
     bootstrap: [4, 5],
     mint: { token: "RLUSD", value: "100" },
-    // As deep as live-owner-books's: RLUSD's peg guard reads no price
-    // from a shallower one.
-    pool: { token: "RLUSD", value: "100000", tradingFee: 500 },
     realm: "live",
     hubs: [
       { validators: [0, 1, 2, 3], sponsor: 0, members: [4, 5] },

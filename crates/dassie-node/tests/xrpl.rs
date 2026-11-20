@@ -597,18 +597,7 @@ async fn the_dsusd_book_holds_across_a_restart() {
         ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
-    // The daemon has no rate source and the ledger no DSUSD pool, so
-    // DSUSD's peg guard never reads a price: on production timings it
-    // halts the token's conversions only after ten minutes, longer than
-    // this test's clock runs, where on dev timers it would after ten
-    // seconds. What the guard does is tested in
-    // `on_dev_timers_the_peg_guard_trips_in_seconds` and the end-to-end
-    // tests.
-    let policies = Policies {
-        peg: dassie_xrpl::peg::Timings::DEFAULT,
-        ..Policies::DEV
-    };
-    let a = bound.start(clock.clone(), 1, policies, &env).await;
+    let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
     prepare_on_xrpl(&a, &key_a, "xrpl-testnet-dsusd", &config).await;
     until(&clock, async || dsusd_in_step(&a, &key_a, &server).await).await;
     // No XRP ledger: the gas is off the books.
@@ -668,7 +657,7 @@ async fn the_dsusd_book_holds_across_a_restart() {
     let (dir, _) = a.stop().await;
     let a = Bound::bind_again(dir, ports)
         .await
-        .start(clock.clone(), 3, policies, &env)
+        .start(clock.clone(), 3, Policies::DEV, &env)
         .await;
     until(&clock, async || dsusd_in_step(&a, &key_a, &server).await).await;
     // A later read of the ledger books nothing twice in a few seconds more

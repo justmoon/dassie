@@ -304,11 +304,7 @@ impl<N: NativeXrp> XrpScheme<N> {
             News::Unread { hash, .. } if self.f.is_owner_payment(hash) => {
                 self.f.owner_done(OwnerPaymentState::Unknown, effects);
             }
-            News::Unread { .. }
-            | News::Found { .. }
-            | News::Line { .. }
-            | News::Issuer { .. }
-            | News::Pool { .. } => {}
+            News::Unread { .. } | News::Found { .. } | News::Line { .. } | News::Issuer { .. } => {}
         }
     }
 

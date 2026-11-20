@@ -896,9 +896,6 @@ impl Core {
         {
             self.prices.due = true;
         }
-        // A guard that paused or resumed its scheme on a reading: the
-        // prices leave its ledger out, or take it back.
-        self.follow_pegs();
         self.price_if_due();
     }
 
@@ -921,14 +918,7 @@ impl Core {
         };
         let mut inventories = [none; MAX_PRICED_LEDGERS];
         let mut count = 0;
-        // A ledger that converts nothing now, such as a dollar token's off
-        // its peg, or its hub's, is left out, as one whose rate is stale:
-        // its pairs convert nothing (spec/decisions/issued-assets.md).
-        let ledgers = self
-            .schemes
-            .values()
-            .filter(|active| self.converts_now(active))
-            .map(|active| active.scheme.ledger());
+        let ledgers = self.schemes.values().map(|active| active.scheme.ledger());
         for ledger in ledgers {
             let Ok(owner) = self.account(ledger, AccountName::EquityOwner) else {
                 continue;
@@ -963,15 +953,6 @@ impl Core {
         // asset reads as it would without the move.
         for (ledger, moving) in self.moves_on_their_way() {
             table.count_on_its_way(ledger, moving);
-        }
-        // Nor does it convert at spot into the owner's own endpoints, which
-        // in the same currency needs no rate.
-        for active in self
-            .schemes
-            .values()
-            .filter(|active| !self.converts_now(active))
-        {
-            table.halt(active.scheme.ledger());
         }
         self.prices.table = table;
     }
@@ -1019,17 +1000,12 @@ impl Core {
             .map(|(hop, ledger)| (ledger, !hop.is_peer()))
     }
 
-    /// The currencies of the active ledgers, and those their schemes read,
-    /// such as XRP for a dollar token's peg guard.
+    /// The currencies of the active ledgers.
     pub fn rate_currencies(&self) -> Vec<&'static str> {
         let mut codes: Vec<&'static str> = self
             .schemes
             .values()
-            .flat_map(|active| {
-                let own = active.scheme.ledger().asset().code;
-                let read = active.scheme.rate_currencies().iter().copied();
-                core::iter::once(own).chain(read)
-            })
+            .map(|active| active.scheme.ledger().asset().code)
             .collect();
         codes.sort_unstable();
         codes.dedup();

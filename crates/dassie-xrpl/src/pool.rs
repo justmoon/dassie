@@ -1,9 +1,8 @@
 //! An AMM pool of XRP and a token, as one state proof at a validated ledger
 //! holds it: the pool's `AMM` object, found by its asset pair, names the
 //! pool's account, whose root holds its XRP and whose line to the issuer its
-//! token. The account reads pools so for a dollar token's peg guard
-//! ([`crate::peg`]), and the node's XRP rate reads mainnet's XRP/RLUSD pool
-//! so ([`crate::pool_rate`]).
+//! token. The node's XRP rate reads mainnet's XRP/RLUSD pool so
+//! ([`crate::pool_rate`]).
 
 use alloc::vec::Vec;
 
