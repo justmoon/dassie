@@ -452,6 +452,20 @@ pub struct Dropped {
     pub signers: Signers,
 }
 
+/// A signed statement whose signature an [`Agreement`] checked
+/// ([`Agreement::check`]), which it takes in without checking it again
+/// ([`Agreement::add_checked`]).
+#[derive(Clone, Debug)]
+pub struct Checked(SignedStatement);
+
+impl Checked {
+    /// The signed statement.
+    #[must_use]
+    pub const fn signed(&self) -> &SignedStatement {
+        &self.0
+    }
+}
+
 /// A statement some validators signed.
 #[derive(Clone, Debug)]
 struct Pending {
@@ -516,13 +530,27 @@ impl Agreement {
         }
     }
 
+    /// `signed`, if its signer in the tally's set signed it for the
+    /// tally's hub: what [`Agreement::add_checked`] takes in.
+    #[must_use]
+    pub fn check(&self, signed: SignedStatement) -> Option<Checked> {
+        signed
+            .verifies(self.signatures, &self.hub, &self.set)
+            .then_some(Checked(signed))
+    }
+
     /// Takes in a signed statement. Returns the statement once f + 1
     /// validators signed it, exactly once while it is kept; a statement
     /// that does not verify is dropped.
     pub fn add(&mut self, signed: SignedStatement) -> Option<Statement> {
-        if !signed.verifies(self.signatures, &self.hub, &self.set) {
-            return None;
-        }
+        let checked = self.check(signed)?;
+        self.add_checked(checked)
+    }
+
+    /// Takes in a statement the tally checked ([`Agreement::check`]), as
+    /// [`Agreement::add`] does, without checking its signature again.
+    pub fn add_checked(&mut self, checked: Checked) -> Option<Statement> {
+        let Checked(signed) = checked;
         let signer = signed.validator;
         let height = signed.statement.height();
         if let Some(reached) = self.reached.get_mut(signer.get()) {

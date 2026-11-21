@@ -1365,9 +1365,11 @@ impl HubAccount {
         };
         self.heard = true;
         for signed in statements {
-            if !signed.verifies(self.signatures, &self.hub, &self.set) {
+            // Checked once, by the tally it goes to: its set is ours.
+            let Some(checked) = self.agreement.check(signed) else {
                 continue;
-            }
+            };
+            let signed = checked.signed();
             if let Statement::Final { height, .. } = signed.statement
                 && signed.validator.get() == endpoint
             {
@@ -1392,7 +1394,7 @@ impl HubAccount {
             {
                 self.trimmed_since = Some(self.now_ms);
             }
-            if let Some(agreed) = self.agreement.add(signed) {
+            if let Some(agreed) = self.agreement.add_checked(checked) {
                 self.agreed(agreed);
             }
             if let Some(dropped) = self.agreement.take_dropped() {

@@ -5,7 +5,9 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use dassie_identity::{Ed25519Signatures, NodeKey};
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+use dassie_identity::{Ed25519Signatures, NodeKey, NodeSignatures, PublicKey, Signature};
 use dassie_ledger::Name;
 use dassie_oer::Encode;
 use dassie_settlement::{
@@ -45,11 +47,17 @@ impl Hub {
 
     /// The account, restored from `state`.
     fn restored(&self, state: &[u8]) -> HubAccount {
+        self.checking_by(&Ed25519Signatures, state)
+    }
+
+    /// The account, restored from `state`, checking statements by
+    /// `signatures`.
+    fn checking_by(&self, signatures: &'static dyn NodeSignatures, state: &[u8]) -> HubAccount {
         HubAccount::new(
             ACCOUNT_ID,
             self.rules.clone(),
             Arc::clone(&self.key),
-            &Ed25519Signatures,
+            signatures,
             Destination {
                 account: [5; 20],
                 tag: None,
@@ -586,6 +594,46 @@ fn the_account_is_known_once_f_plus_one_agree() {
     assert_eq!(account.status(), LedgerStatus::Synced);
     assert!(matches!(account.news(), [News::Account { height: 5, .. }]));
     account.check_invariants();
+}
+
+/// Ed25519, counting the signatures it checks.
+#[derive(Debug)]
+struct Counting(AtomicUsize);
+
+impl NodeSignatures for Counting {
+    fn sign(&self, key: &NodeKey, message: &[u8]) -> Signature {
+        Ed25519Signatures.sign(key, message)
+    }
+
+    fn verify(
+        &self,
+        key: &PublicKey,
+        message: &[u8],
+        signature: &Signature,
+    ) -> Result<(), dassie_identity::Error> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        Ed25519Signatures.verify(key, message, signature)
+    }
+}
+
+// Each statement a validator sends is checked once, though the account
+// reads it before its tally takes it in: checking a signature is most of
+// what a member spends on reading its hub.
+#[test]
+fn each_statement_is_checked_once() {
+    static CHECKS: Counting = Counting(AtomicUsize::new(0));
+    let hub = Hub::new();
+    let mut account = hub.checking_by(&CHECKS, &[]);
+    let statements = [
+        hub.account_statement(5, true),
+        hub.transfer(1),
+        Statement::Final {
+            height: 12,
+            timestamp: 1_002,
+        },
+    ];
+    from(&mut account, 0, &hub.says(0, &statements));
+    assert_eq!(CHECKS.0.load(Ordering::Relaxed), statements.len());
 }
 
 // spec/decisions/settlement-methods.md: an account that was in step only
