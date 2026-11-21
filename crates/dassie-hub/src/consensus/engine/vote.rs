@@ -144,7 +144,15 @@ impl Engine {
     /// Signs and records a vote of ours, to persist before it is sent.
     fn sign(&mut self, kind: VoteKind, view: u64, block: Digest) -> Option<Vote> {
         let me = self.voter(view)?;
-        let vote = Vote::sign(&self.hub, &self.key, me, kind, (self.epoch(), view), block);
+        let vote = Vote::sign(
+            self.signatures,
+            &self.hub,
+            &self.key,
+            me,
+            kind,
+            (self.epoch(), view),
+            block,
+        );
         let round = self.round_mut(view)?;
         if round.own(kind).is_some() {
             return None;

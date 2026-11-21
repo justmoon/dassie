@@ -113,6 +113,7 @@ impl Hub {
                 .iter()
                 .map(|statement| {
                     SignedStatement::sign(
+                        &dassie_identity::Ed25519Signatures,
                         &self.rules.id(),
                         ValidatorIndex::new(i).unwrap(),
                         statement.clone(),

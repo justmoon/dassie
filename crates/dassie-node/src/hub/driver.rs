@@ -25,7 +25,7 @@ use dassie_hub::service::payload::Payload;
 use dassie_hub::service::wire::Message;
 use dassie_hub::service::{Action, CatchUpError, MAX_WAITING_DEPOSITS, Validator, genesis_block};
 use dassie_hub::{HubId, Millis};
-use dassie_identity::{IdentityKey, NodeId, NodeIdentity};
+use dassie_identity::{IdentityKey, NodeId, NodeIdentity, NodeSignatures};
 use dassie_oer::{Decode, Encode};
 use dassie_xrpl::codec::Signer;
 
@@ -253,7 +253,8 @@ impl std::fmt::Debug for Driver {
 impl Driver {
     /// The validator of the hub of `rules` for the node of `node_key`: as
     /// it was stored, or from genesis at `genesis_ms` if it never ran, and
-    /// then stored before anything else happens.
+    /// then stored before anything else happens. It signs and checks votes
+    /// and statements by `signatures`: a node's are Ed25519.
     ///
     /// # Errors
     ///
@@ -263,6 +264,7 @@ impl Driver {
         rules: &Rules,
         genesis_ms: Millis,
         node_key: &IdentityKey,
+        signatures: &'static dyn NodeSignatures,
         now: Millis,
     ) -> Result<Self, DriverError> {
         let keys = ValidatorKeys::derive(node_key, rules.terms.network, &rules.terms.nonce)
@@ -279,7 +281,7 @@ impl Driver {
             if *ledger.hub() != hub {
                 return Err(DriverError::Stored("its ledger is another hub's"));
             }
-            let validator = Validator::resume(keys, stored.clone(), ledger, now)
+            let validator = Validator::resume(keys, signatures, stored.clone(), ledger, now)
                 .map_err(|_| DriverError::Stored("its ledger is not its tip's"))?;
             let chain = validator.ledger().written_off_at();
             return Ok(Self {
@@ -297,7 +299,7 @@ impl Driver {
                 warned: Warned::default(),
             });
         }
-        let validator = Validator::genesis(rules.clone(), keys, genesis_ms, now)
+        let validator = Validator::genesis(rules.clone(), keys, signatures, genesis_ms, now)
             .map_err(|_| DriverError::NotAValidator)?;
         let set = validator.ledger().validators().clone();
         let stored = Stored::genesis(genesis_block(rules, genesis_ms), set);
@@ -838,7 +840,15 @@ mod tests {
             self.drivers.clear();
             for (dir, key) in self.dirs.iter().zip(&self.nodes) {
                 let store = Arc::new(Store::open(dir.path()).unwrap());
-                let driver = Driver::open(store, &self.rules, START, key, self.now).unwrap();
+                let driver = Driver::open(
+                    store,
+                    &self.rules,
+                    START,
+                    key,
+                    &dassie_identity::Ed25519Signatures,
+                    self.now,
+                )
+                .unwrap();
                 self.drivers.push(driver);
             }
         }

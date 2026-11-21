@@ -11,7 +11,7 @@
 //! scheme that fails fails alone, where the original's start waited for
 //! every ledger and a module's failure reached them all.
 
-use dassie_identity::NodeKey;
+use dassie_identity::{NodeKey, NodeSignatures};
 use dassie_ledger::{AccountName, LedgerId, Name, PerLedger, Realm};
 use dassie_settlement::{
     AssetEffect, AssetId, AssetKind, Detach, Effect, ExternalAsset, Holding, LedgerInput,
@@ -459,12 +459,14 @@ fn decode_rules(hex: &str) -> Result<dassie_hub::Rules, SchemeError> {
 /// config, so a hub's terms are always on the network of its scheme's
 /// realm. A hub whose legs between members do not fit in the connector's
 /// message window is not joined: it is too far apart for a peering over it
-/// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+/// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). The account
+/// checks its validators' statements, and its scheme signs and checks key
+/// proofs, by `signatures`.
 fn create_hub_account(
     id: AssetId,
     config: &str,
     state: &[u8],
-    (key, window_ms): (&NodeKey, u64),
+    (key, signatures, window_ms): (&NodeKey, &'static dyn NodeSignatures, u64),
 ) -> Result<Box<dyn ExternalAsset>, SchemeError> {
     let scheme = HUB_SCHEMES
         .into_iter()
@@ -498,6 +500,7 @@ fn create_hub_account(
         id,
         rules,
         std::sync::Arc::new(member),
+        signatures,
         disbursal,
         scheme,
         state,
@@ -583,7 +586,7 @@ fn create_asset(
     id: AssetId,
     config: &str,
     state: &[u8],
-    (key, window_ms): (&NodeKey, u64),
+    (key, signatures, window_ms): (&NodeKey, &'static dyn NodeSignatures, u64),
 ) -> Result<Box<dyn ExternalAsset>, SchemeError> {
     match (id.kind(), id.index()) {
         (AssetKind::XrplTestnetAccount | AssetKind::XrplAccount, Some(index @ 0)) => {
@@ -604,7 +607,7 @@ fn create_asset(
             | AssetKind::HubXrplXrp
             | AssetKind::HubXrplRlusd,
             None,
-        ) => create_hub_account(id, config, state, (key, window_ms)),
+        ) => create_hub_account(id, config, state, (key, signatures, window_ms)),
         _ => Err(SchemeError::UnknownScheme),
     }
 }
@@ -864,8 +867,13 @@ impl Core {
             check_hub_state(asset, &asset_config, &state)?;
             let window_ms = self.connector.config().message_window_ms;
             #[allow(unused_mut)]
-            let mut made = create_asset(asset, &asset_config, &state, (&self.key, window_ms))
-                .map_err(invalid)?;
+            let mut made = create_asset(
+                asset,
+                &asset_config,
+                &state,
+                (&self.key, self.signatures, window_ms),
+            )
+            .map_err(invalid)?;
             #[cfg(feature = "testing")]
             if let Some(secret) = self.settle.validation_secret {
                 check_validations_with(made.as_mut(), secret);
@@ -1511,6 +1519,7 @@ impl Core {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use dassie_identity::Ed25519Signatures;
 
     // spec/decisions/mainnet-schemes.md: each XRPL scheme settles through
     // the first account on its own network, whose keys are at that
@@ -1522,7 +1531,8 @@ mod tests {
         use dassie_xrpl::network::{MAINNET, Network, TESTNET};
         let key = dassie_identity::TableKeygen::identity_key(&[7; 32]);
         for network in [&TESTNET, &MAINNET] {
-            let asset = create_asset(network.first(), "", &[], (&key, 0)).unwrap();
+            let asset =
+                create_asset(network.first(), "", &[], (&key, &Ed25519Signatures, 0)).unwrap();
             let any: &dyn core::any::Any = asset.as_ref();
             let account = any.downcast_ref::<XrplAccount>().unwrap();
             assert_eq!(account.network(), network);
@@ -1553,7 +1563,7 @@ mod tests {
         }
         let further = AssetId::numbered(AssetKind::XrplAccount, 1);
         assert!(matches!(
-            create_asset(further, "", &[], (&key, 0)),
+            create_asset(further, "", &[], (&key, &Ed25519Signatures, 0)),
             Err(SchemeError::UnknownScheme)
         ));
     }
@@ -1662,7 +1672,8 @@ mod tests {
         use dassie_hub::member::{DSUSD_SCHEME_ID, SCHEME_ID};
 
         let key = dassie_identity::TableKeygen::identity_key(&[7; 32]);
-        let window = u64::MAX;
+        let node: (&NodeKey, &'static dyn NodeSignatures, u64) =
+            (&key, &Ed25519Signatures, u64::MAX);
         let xrp = super::super::tests::hub_config(600, 300);
         let dsusd = dsusd_hub_config();
         let xrp_account = asset_of(SCHEME_ID).unwrap();
@@ -1673,23 +1684,23 @@ mod tests {
             schemes_on(dsusd_account),
             [Name::new(DSUSD_SCHEME_ID).unwrap()]
         );
-        assert!(create_hub_account(xrp_account, &xrp, &[], (&key, window)).is_ok());
-        let made = create_hub_account(dsusd_account, &dsusd, &[], (&key, window)).unwrap();
+        assert!(create_hub_account(xrp_account, &xrp, &[], node).is_ok());
+        let made = create_hub_account(dsusd_account, &dsusd, &[], node).unwrap();
         for (account, config) in [(xrp_account, &dsusd), (dsusd_account, &xrp)] {
             assert!(matches!(
-                create_hub_account(account, config, &[], (&key, window)),
+                create_hub_account(account, config, &[], node),
                 Err(SchemeError::InvalidConfig)
             ));
         }
         // An empty config names no hub: a scheme added without rules is
         // stored with the default hub's (spec/decisions/hub-named-when-added.md).
         assert!(matches!(
-            create_hub_account(dsusd_account, "", &[], (&key, window)),
+            create_hub_account(dsusd_account, "", &[], node),
             Err(SchemeError::InvalidConfig)
         ));
         // An XRPL account is no hub's.
         assert!(matches!(
-            create_hub_account(dassie_xrpl::account::FIRST, &xrp, &[], (&key, window)),
+            create_hub_account(dassie_xrpl::account::FIRST, &xrp, &[], node),
             Err(SchemeError::UnknownScheme)
         ));
         let scheme = create(
@@ -1740,7 +1751,8 @@ mod tests {
         use dassie_xrpl::network::MAINNET;
 
         let key = dassie_identity::TableKeygen::identity_key(&[7; 32]);
-        let window = u64::MAX;
+        let node: (&NodeKey, &'static dyn NodeSignatures, u64) =
+            (&key, &Ed25519Signatures, u64::MAX);
         let rlusd = Asset::Token {
             currency: dassie_xrpl::rlusd::CURRENCY,
             issuer: dassie_xrpl::rlusd::ISSUER,
@@ -1759,12 +1771,12 @@ mod tests {
             assert_eq!(account.index(), None, "{id}");
             assert_eq!(schemes_on(account), [Name::new(id).unwrap()]);
             accounts.push(account);
-            let made = create_hub_account(account, config, &[], (&key, window)).unwrap();
+            let made = create_hub_account(account, config, &[], node).unwrap();
             let built_in = default_hub(id, &DEFAULT_HUBS).flatten().is_some();
             for wrong in [other.as_str(), testnet.as_str(), ""] {
                 assert!(
                     matches!(
-                        create_hub_account(account, wrong, &[], (&key, window)),
+                        create_hub_account(account, wrong, &[], node),
                         Err(SchemeError::InvalidConfig)
                     ),
                     "{id}: {wrong}"
@@ -1790,7 +1802,7 @@ mod tests {
         let testnet_account = asset_of(SCHEME_ID).unwrap();
         assert!(!accounts.contains(&testnet_account));
         assert!(matches!(
-            create_hub_account(testnet_account, &xrp, &[], (&key, window)),
+            create_hub_account(testnet_account, &xrp, &[], node),
             Err(SchemeError::InvalidConfig)
         ));
     }
@@ -1819,7 +1831,8 @@ mod tests {
         let built_in: DefaultHubs = [None, None, Some(xrp), Some(rlusd)];
         let none: DefaultHubs = [None; HUB_SCHEMES.len()];
         let key = dassie_identity::TableKeygen::identity_key(&[7; 32]);
-        let window = u64::MAX;
+        let node: (&NodeKey, &'static dyn NodeSignatures, u64) =
+            (&key, &Ed25519Signatures, u64::MAX);
         for (id, hex) in [(MAINNET_SCHEME_ID, xrp), (RLUSD_SCHEME_ID, rlusd)] {
             let info = SCHEMES.iter().find(|info| info.id == id).unwrap();
             assert_eq!(default_hub(id, &built_in), Some(Some(hex)));
@@ -1829,7 +1842,7 @@ mod tests {
             let account = asset_of(id).unwrap();
             let stored = config_to_store(id, String::new(), &built_in).unwrap();
             assert_eq!(stored, serde_json::json!({ "rules": hex }).to_string());
-            let made = create_hub_account(account, &stored, &[], (&key, window)).unwrap();
+            let made = create_hub_account(account, &stored, &[], node).unwrap();
             let any: &dyn core::any::Any = made.as_ref();
             let member = any
                 .downcast_ref::<dassie_hub::member::HubAccount>()
@@ -1848,7 +1861,7 @@ mod tests {
         let account = asset_of(MAINNET_SCHEME_ID).unwrap();
         let stored = config_to_store(MAINNET_SCHEME_ID, String::new(), &swapped).unwrap();
         assert!(matches!(
-            create_hub_account(account, &stored, &[], (&key, window)),
+            create_hub_account(account, &stored, &[], node),
             Err(SchemeError::InvalidConfig)
         ));
         // Not a hub's scheme: its config is stored as it is.
@@ -1912,7 +1925,13 @@ mod tests {
             assert!(SCHEMES.iter().all(|info| info.id != *disabled));
         }
         let key = dassie_identity::TableKeygen::identity_key(&[7; 32]);
-        let asset = create_asset(dassie_xrpl::account::FIRST, "", &[], (&key, 0)).unwrap();
+        let asset = create_asset(
+            dassie_xrpl::account::FIRST,
+            "",
+            &[],
+            (&key, &Ed25519Signatures, 0),
+        )
+        .unwrap();
         assert!(matches!(
             create(id, "", None, Some(asset.as_ref()), PerLedger::splat(0),),
             Err(SchemeError::UnknownScheme)

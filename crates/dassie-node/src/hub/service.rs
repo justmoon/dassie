@@ -178,6 +178,7 @@ fn start(
         &hub.rules,
         hub.genesis_ms,
         key,
+        &dassie_identity::Ed25519Signatures,
         node.now_ms(),
     );
     let driver = match opened {

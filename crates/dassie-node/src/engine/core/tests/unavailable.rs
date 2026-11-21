@@ -181,6 +181,7 @@ fn started(sim: &Sim, index: usize) -> crate::engine::Core {
     let parts = crate::engine::CoreParts {
         store: std::sync::Arc::clone(&sim.nodes[index].store),
         key: key(index),
+        signatures: &dassie_identity::Ed25519Signatures,
         realm: dassie_node_core::config::Realm::Test,
         live: dassie_node_core::config::LiveRealm::Refused,
         policies: crate::node::Policies::DEFAULT,

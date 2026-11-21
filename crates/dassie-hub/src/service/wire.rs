@@ -310,6 +310,7 @@ mod tests {
     use crate::client::Statement;
     use crate::consensus::wire::MAX_MESSAGE_BYTES;
     use crate::validators::ValidatorIndex;
+    use dassie_identity::Ed25519Signatures;
 
     #[test]
     fn the_largest_consensus_message_travels() {
@@ -324,6 +325,7 @@ mod tests {
         let key = dassie_identity::NodeKey::from_bytes(&[1; 32]);
         let hub = crate::rules::HubId(crate::digest::Digest([1; 32]));
         let statement = SignedStatement::sign(
+            &Ed25519Signatures,
             &hub,
             ValidatorIndex::new(0).unwrap(),
             Statement::Final {

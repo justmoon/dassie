@@ -5,7 +5,7 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use dassie_identity::NodeKey;
+use dassie_identity::{Ed25519Signatures, NodeKey};
 use dassie_ledger::Name;
 use dassie_oer::Encode;
 use dassie_settlement::{
@@ -49,6 +49,7 @@ impl Hub {
             ACCOUNT_ID,
             self.rules.clone(),
             Arc::clone(&self.key),
+            &Ed25519Signatures,
             Destination {
                 account: [5; 20],
                 tag: None,
@@ -65,6 +66,7 @@ impl Hub {
             .iter()
             .map(|s| {
                 SignedStatement::sign(
+                    &Ed25519Signatures,
                     &self.rules.id(),
                     ValidatorIndex::new(index).unwrap(),
                     s.clone(),
@@ -907,6 +909,7 @@ fn an_operation_on_its_way_waits_for_the_restored_account_to_sync() {
         ACCOUNT_ID,
         hub.rules.clone(),
         Arc::clone(&hub.key),
+        &Ed25519Signatures,
         Destination {
             account: [5; 20],
             tag: None,
@@ -1483,6 +1486,7 @@ fn an_unread_pay_waits_for_the_hub_across_a_restart() {
         ACCOUNT_ID,
         hub.rules.clone(),
         Arc::clone(&hub.key),
+        &Ed25519Signatures,
         Destination {
             account: [5; 20],
             tag: None,
@@ -1813,6 +1817,7 @@ fn a_thaw_moves_no_reduction_made_after_it() {
         ACCOUNT_ID,
         hub.rules.clone(),
         Arc::clone(&hub.key),
+        &Ed25519Signatures,
         Destination {
             account: [5; 20],
             tag: None,
@@ -2053,6 +2058,7 @@ fn the_freeze_is_kept_across_a_restart() {
             ACCOUNT_ID,
             hub.rules.clone(),
             Arc::clone(&hub.key),
+            &Ed25519Signatures,
             Destination {
                 account: [5; 20],
                 tag: None,
@@ -2085,6 +2091,7 @@ fn an_account_restores_only_its_own_hubs_state() {
             ACCOUNT_ID,
             hub.rules.clone(),
             Arc::clone(&hub.key),
+            &Ed25519Signatures,
             Destination {
                 account: [5; 20],
                 tag: None,
@@ -2732,6 +2739,7 @@ fn a_hub_shutting_down_cannot_receive() {
         ACCOUNT_ID,
         hub.rules.clone(),
         Arc::clone(&hub.key),
+        &Ed25519Signatures,
         Destination {
             account: [5; 20],
             tag: None,

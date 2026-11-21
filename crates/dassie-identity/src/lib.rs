@@ -41,6 +41,7 @@ mod phrase;
 mod reed_solomon;
 mod secret;
 mod seed;
+mod signatures;
 mod slh_dsa;
 mod test_keys;
 mod wordlist;
@@ -56,6 +57,7 @@ pub use phrase::{
     PhraseSecret, PhraseText, Positions, Reading, Realm, Words, word_named,
 };
 pub use seed::{DerivedSecret, LoginSecret, MasterSeed};
+pub use signatures::{Ed25519Signatures, HashSignatures, NodeSignatures};
 pub use slh_dsa::{
     Fips205Keygen, IdentityKey, NodeIdentity, SLH_DSA_PUBLIC_KEY_BYTES, SLH_DSA_SEED_BYTES,
     SlhDsaKeygen, SlhDsaPublicKey,

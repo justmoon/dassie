@@ -18,7 +18,7 @@ use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use dassie_identity::{NodeIdentity, NodeKey, PublicKey};
+use dassie_identity::{NodeIdentity, NodeKey, NodeSignatures, PublicKey};
 use dassie_oer::Encode;
 use dassie_xrpl::codec::{Signer, Transact};
 
@@ -195,6 +195,9 @@ pub struct Validator {
     /// set in force.
     consensus_public: PublicKey,
     consensus_key: Arc<NodeKey>,
+    /// How votes and statements are signed and checked: a node's are
+    /// Ed25519 (spec/decisions/hashed-signatures-in-simulations.md).
+    signatures: &'static dyn NodeSignatures,
     keys: ValidatorKeys,
     engine: Engine,
     chain: Chain,
@@ -254,7 +257,7 @@ pub fn genesis_block(rules: &Rules, timestamp: Millis) -> Block {
 
 impl Validator {
     /// A validator of the hub of `rules` from genesis, whose keys `keys`
-    /// are those of its acceptance.
+    /// are those of its acceptance, signing by `signatures`.
     ///
     /// # Errors
     ///
@@ -262,6 +265,7 @@ impl Validator {
     pub fn genesis(
         rules: Rules,
         keys: ValidatorKeys,
+        signatures: &'static dyn NodeSignatures,
         timestamp: Millis,
         now: Millis,
     ) -> Result<Self, RulesError> {
@@ -275,12 +279,20 @@ impl Validator {
         let written_off_at = ledger.written_off_at();
         let stored = Stored::genesis(block, set);
         let consensus_key = Arc::new(NodeKey::from_bytes(keys.consensus.as_bytes()));
-        let engine = Engine::new(Config::DEFAULT, hub.0, consensus_key.clone(), stored, now);
+        let engine = Engine::new(
+            Config::DEFAULT,
+            hub.0,
+            consensus_key.clone(),
+            signatures,
+            stored,
+            now,
+        );
         let tip = *engine.tip_digest();
         Ok(Self {
             hub,
             consensus_public,
             consensus_key,
+            signatures,
             keys,
             engine,
             chain: Chain::new(ledger, tip),
@@ -310,7 +322,8 @@ impl Validator {
     /// (and restored against the root that block names). It knows no
     /// history from before, so it answers a `Since` from further back with
     /// `Trimmed`, and members read their state anew
-    /// (spec/areas/hubs.md#when-the-history-is-gone).
+    /// (spec/areas/hubs.md#when-the-history-is-gone). It signs by
+    /// `signatures`, as it did before.
     ///
     /// # Errors
     ///
@@ -318,6 +331,7 @@ impl Validator {
     /// a validator's of it: what a host wrote together never is.
     pub fn resume(
         keys: ValidatorKeys,
+        signatures: &'static dyn NodeSignatures,
         stored: Stored,
         ledger: Ledger,
         now: Millis,
@@ -346,7 +360,14 @@ impl Validator {
         }
         let hub = *ledger.hub();
         let consensus_key = Arc::new(NodeKey::from_bytes(keys.consensus.as_bytes()));
-        let engine = Engine::new(Config::DEFAULT, hub.0, consensus_key.clone(), stored, now);
+        let engine = Engine::new(
+            Config::DEFAULT,
+            hub.0,
+            consensus_key.clone(),
+            signatures,
+            stored,
+            now,
+        );
         let tip = *engine.tip_digest();
         // Our operations' sequence only grows, across restarts too.
         let sequence = ledger
@@ -360,6 +381,7 @@ impl Validator {
             hub,
             consensus_public,
             consensus_key,
+            signatures,
             keys,
             engine,
             chain: Chain::new(ledger, tip),
@@ -910,7 +932,13 @@ impl Validator {
         let signed: Vec<SignedStatement> = statements
             .into_iter()
             .map(|statement| {
-                SignedStatement::sign(&self.hub, index, statement, &self.consensus_key)
+                SignedStatement::sign(
+                    self.signatures,
+                    &self.hub,
+                    index,
+                    statement,
+                    &self.consensus_key,
+                )
             })
             .collect();
         for chunk in wire::split_statements(signed) {
@@ -1240,6 +1268,7 @@ mod tests {
     use crate::digest::Digest;
     use crate::ledger::{Detail, Outcome, Refusal};
     use crate::operation::{MemberOperation, SignedMemberOperation};
+    use dassie_identity::Ed25519Signatures;
 
     // spec/decisions/hub-protocol-version.md: a validator votes to move
     // its hub only where the ledger would count the vote, so it never signs
@@ -1363,7 +1392,7 @@ mod tests {
             escrow: dassie_xrpl::keys::Wallet::from_seed([1; 16]),
             payout: crate::escrow::bip32::ExtendedPrivate::master(&[1; 32]).unwrap(),
         };
-        Validator::genesis(rules, keys, 1_000, 1_000).unwrap()
+        Validator::genesis(rules, keys, &Ed25519Signatures, 1_000, 1_000).unwrap()
     }
 
     /// The statements of the messages validator `v` sent `to`.

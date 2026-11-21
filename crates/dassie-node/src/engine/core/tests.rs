@@ -86,6 +86,7 @@ fn core_with(
     let parts = CoreParts {
         store,
         key: Arc::new(dassie_identity::TableKeygen::identity_key(&[7; 32])),
+        signatures: &dassie_identity::Ed25519Signatures,
         realm,
         live,
         policies,
@@ -3746,6 +3747,7 @@ fn periphery_core(store: Arc<Store>) -> Core {
         CoreParts {
             store,
             key: Arc::new(dassie_identity::TableKeygen::identity_key(&[7; 32])),
+            signatures: &dassie_identity::Ed25519Signatures,
             realm: Realm::Test,
             live: dassie_node_core::config::LiveRealm::Refused,
             policies: Policies::DEFAULT,
@@ -3789,6 +3791,7 @@ fn core_parts_taking_downlinks(store: Arc<Store>) -> CoreParts {
     CoreParts {
         store,
         key: Arc::new(dassie_identity::TableKeygen::identity_key(&[7; 32])),
+        signatures: &dassie_identity::Ed25519Signatures,
         realm: Realm::Test,
         live: dassie_node_core::config::LiveRealm::Refused,
         policies: Policies::DEFAULT,
@@ -3893,6 +3896,7 @@ fn a_periphery_node_refuses_an_uplink_it_has_not() {
         CoreParts {
             store: Arc::new(Store::open_in_memory().unwrap()),
             key: Arc::new(dassie_identity::TableKeygen::identity_key(&[7; 32])),
+            signatures: &dassie_identity::Ed25519Signatures,
             realm: Realm::Test,
             live: dassie_node_core::config::LiveRealm::Refused,
             policies: Policies::DEFAULT,
@@ -4803,6 +4807,7 @@ fn hub_core_with_downlink_on(store: Arc<Store>, seed: u64) -> (Core, dassie_iden
         CoreParts {
             store,
             key: Arc::new(dassie_identity::TableKeygen::identity_key(&[7; 32])),
+            signatures: &dassie_identity::Ed25519Signatures,
             realm: Realm::Test,
             live: dassie_node_core::config::LiveRealm::Refused,
             policies: Policies::DEFAULT,
@@ -5143,6 +5148,7 @@ impl Validators {
                 .iter()
                 .map(|statement| {
                     SignedStatement::sign(
+                        &dassie_identity::Ed25519Signatures,
                         &self.rules.id(),
                         ValidatorIndex::new(i).unwrap(),
                         statement.clone(),
@@ -6499,6 +6505,7 @@ fn asks_a_core_node_to_peer_on(
         CoreParts {
             store: Arc::new(Store::open_in_memory().unwrap()),
             key: Arc::new(dassie_identity::TableKeygen::identity_key(&[7; 32])),
+            signatures: &dassie_identity::Ed25519Signatures,
             realm: Realm::Test,
             live: dassie_node_core::config::LiveRealm::Refused,
             policies: Policies::DEFAULT,
@@ -6768,6 +6775,7 @@ fn a_registration_is_on_disk_before_its_commitment_leaves() {
     let parts = |bootstrap: Vec<dassie_peer::Bootstrap>| CoreParts {
         store: Arc::clone(&store),
         key: Arc::new(dassie_identity::TableKeygen::identity_key(&[7; 32])),
+        signatures: &dassie_identity::Ed25519Signatures,
         realm: Realm::Test,
         live: dassie_node_core::config::LiveRealm::Refused,
         policies: Policies::DEFAULT,
@@ -6843,6 +6851,7 @@ fn a_live_realm_node_takes_no_part_in_names() {
         CoreParts {
             store: Arc::new(Store::open_in_memory().unwrap()),
             key: Arc::new(own),
+            signatures: &dassie_identity::Ed25519Signatures,
             realm: Realm::Live,
             live: dassie_node_core::config::LiveRealm::DevSwitch,
             policies: Policies::DEFAULT,

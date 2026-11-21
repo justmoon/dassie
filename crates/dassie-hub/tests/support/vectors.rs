@@ -24,7 +24,7 @@ use dassie_hub::rules::Rules;
 use dassie_hub::service::genesis_block;
 use dassie_hub::service::payload::Payload;
 use dassie_hub::{Digest, Millis, ValidatorIndex};
-use dassie_identity::{IdentityKey, NodeKey};
+use dassie_identity::{Ed25519Signatures, IdentityKey, NodeKey};
 use dassie_oer::Encode;
 use dassie_xrpl::codec::{Amount, Memo, Payment, Signing, Transact};
 use dassie_xrpl::{AccountId, Wallet, hex_upper};
@@ -432,6 +432,7 @@ fn block_vector(rules: &Rules) -> Value {
     };
     let digest = block.digest(&hub.0);
     let vote = Vote::sign(
+        &Ed25519Signatures,
         &hub.0,
         &validator_keys()[0].consensus,
         ValidatorIndex::new(0).unwrap(),
@@ -448,6 +449,7 @@ fn block_vector(rules: &Rules) -> Value {
     ]
     .map(|statement| {
         SignedStatement::sign(
+            &Ed25519Signatures,
             &hub,
             ValidatorIndex::new(2).unwrap(),
             statement,
@@ -686,6 +688,7 @@ fn releases_vector(rules: &Rules) -> Value {
         .chain(Statement::protocol(&state))
         .map(|statement| {
             SignedStatement::sign(
+                &Ed25519Signatures,
                 &hub,
                 ValidatorIndex::new(1).unwrap(),
                 statement,

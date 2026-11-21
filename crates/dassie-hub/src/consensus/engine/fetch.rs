@@ -488,7 +488,7 @@ impl Engine {
         if self.epochs.for_height(last.height) != set {
             return None;
         }
-        verify_certificate(&self.hub, set, finalization).ok()?;
+        verify_certificate(self.signatures, &self.hub, set, finalization).ok()?;
         Some(digests)
     }
 

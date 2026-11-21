@@ -17,7 +17,7 @@
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-use dassie_identity::{NodeKey, PublicKey, Signature};
+use dassie_identity::{NodeKey, NodeSignatures, PublicKey, Signature};
 use dassie_oer::{Encode, Reader, Writer, size};
 
 use crate::codec::{HubDecodeError, read_key, read_signature, write_key, write_signature};
@@ -366,15 +366,18 @@ impl Statement {
 }
 
 impl SignedStatement {
-    /// Signs `statement` as validator `validator`.
+    /// Signs `statement` as validator `validator`, by `signatures`: a
+    /// node's are [`Ed25519Signatures`](dassie_identity::Ed25519Signatures)
+    /// (spec/decisions/hashed-signatures-in-simulations.md).
     #[must_use]
     pub fn sign(
+        signatures: &dyn NodeSignatures,
         hub: &HubId,
         validator: ValidatorIndex,
         statement: Statement,
         key: &NodeKey,
     ) -> Self {
-        let signature = key.sign(statement.digest(hub).as_bytes());
+        let signature = signatures.sign(key, statement.digest(hub).as_bytes());
         Self {
             validator,
             statement,
@@ -382,11 +385,17 @@ impl SignedStatement {
         }
     }
 
-    /// Whether validator `validator` of `set` signed it.
+    /// Whether validator `validator` of `set` signed it, by `signatures`.
     #[must_use]
-    pub fn verifies(&self, hub: &HubId, set: &ValidatorSet) -> bool {
+    pub fn verifies(
+        &self,
+        signatures: &dyn NodeSignatures,
+        hub: &HubId,
+        set: &ValidatorSet,
+    ) -> bool {
         set.key(self.validator).is_some_and(|key| {
-            key.verify(self.statement.digest(hub).as_bytes(), &self.signature)
+            signatures
+                .verify(key, self.statement.digest(hub).as_bytes(), &self.signature)
                 .is_ok()
         })
     }
@@ -468,6 +477,8 @@ struct Pending {
 pub struct Agreement {
     hub: HubId,
     set: ValidatorSet,
+    /// How statements are checked.
+    signatures: &'static dyn NodeSignatures,
     capacity: usize,
     quota: usize,
     pending: BTreeMap<(u64, Digest), Pending>,
@@ -480,15 +491,21 @@ pub struct Agreement {
 }
 
 impl Agreement {
-    /// A collector for statements of hub `hub` by `set`, keeping at most
-    /// `capacity` statements that agreed and `capacity / n` signatures per
-    /// validator on statements that wait.
+    /// A collector for statements of hub `hub` by `set`, signed by
+    /// `signatures`, keeping at most `capacity` statements that agreed and
+    /// `capacity / n` signatures per validator on statements that wait.
     #[must_use]
-    pub fn new(hub: HubId, set: ValidatorSet, capacity: usize) -> Self {
+    pub fn new(
+        hub: HubId,
+        set: ValidatorSet,
+        signatures: &'static dyn NodeSignatures,
+        capacity: usize,
+    ) -> Self {
         let n = set.len();
         let capacity = capacity.max(1);
         Self {
             hub,
+            signatures,
             quota: (capacity / n.max(1)).max(1),
             capacity,
             pending: BTreeMap::new(),
@@ -503,7 +520,7 @@ impl Agreement {
     /// validators signed it, exactly once while it is kept; a statement
     /// that does not verify is dropped.
     pub fn add(&mut self, signed: SignedStatement) -> Option<Statement> {
-        if !signed.verifies(&self.hub, &self.set) {
+        if !signed.verifies(self.signatures, &self.hub, &self.set) {
             return None;
         }
         let signer = signed.validator;
@@ -1092,6 +1109,7 @@ impl Request {
 mod tests {
     use super::*;
     use crate::ledger::Detail;
+    use dassie_identity::Ed25519Signatures;
 
     fn set() -> (ValidatorSet, Vec<NodeKey>) {
         let keys: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
@@ -1105,7 +1123,7 @@ mod tests {
     fn f_plus_one_matching_statements_make_an_agreement() {
         let hub = HubId(Digest([1; 32]));
         let (set, keys) = set();
-        let mut agreement = Agreement::new(hub, set, 16);
+        let mut agreement = Agreement::new(hub, set, &Ed25519Signatures, 16);
         let fact = Statement::Final {
             height: 5,
             timestamp: 100,
@@ -1115,7 +1133,13 @@ mod tests {
             timestamp: 999,
         };
         let sign = |i: usize, s: &Statement| {
-            SignedStatement::sign(&hub, ValidatorIndex::new(i).unwrap(), s.clone(), &keys[i])
+            SignedStatement::sign(
+                &Ed25519Signatures,
+                &hub,
+                ValidatorIndex::new(i).unwrap(),
+                s.clone(),
+                &keys[i],
+            )
         };
         assert_eq!(agreement.add(sign(0, &lie)), None);
         assert_eq!(agreement.add(sign(1, &fact)), None);
@@ -1133,9 +1157,15 @@ mod tests {
     fn one_validators_flood_never_pushes_out_anothers_signatures() {
         let hub = HubId(Digest([1; 32]));
         let (set, keys) = set();
-        let mut agreement = Agreement::new(hub, set, 16);
+        let mut agreement = Agreement::new(hub, set, &Ed25519Signatures, 16);
         let sign = |i: usize, s: Statement| {
-            SignedStatement::sign(&hub, ValidatorIndex::new(i).unwrap(), s, &keys[i])
+            SignedStatement::sign(
+                &Ed25519Signatures,
+                &hub,
+                ValidatorIndex::new(i).unwrap(),
+                s,
+                &keys[i],
+            )
         };
         let fact = Statement::Final {
             height: 5,
@@ -1206,9 +1236,15 @@ mod tests {
     fn one_validators_large_statements_stay_within_its_bytes() {
         let hub = HubId(Digest([1; 32]));
         let (set, keys) = set();
-        let mut agreement = Agreement::new(hub, set, 4 * 4096);
+        let mut agreement = Agreement::new(hub, set, &Ed25519Signatures, 4 * 4096);
         let sign = |i: usize, s: Statement| {
-            SignedStatement::sign(&hub, ValidatorIndex::new(i).unwrap(), s, &keys[i])
+            SignedStatement::sign(
+                &Ed25519Signatures,
+                &hub,
+                ValidatorIndex::new(i).unwrap(),
+                s,
+                &keys[i],
+            )
         };
         let size = large(&hub, 1).encoded_len();
         let flood = MAX_SIGNER_BYTES / size + 4;
@@ -1230,13 +1266,19 @@ mod tests {
         let hub = HubId(Digest([1; 32]));
         let (set, keys) = set();
         // Four signatures per validator wait at most.
-        let mut agreement = Agreement::new(hub, set, 16);
+        let mut agreement = Agreement::new(hub, set, &Ed25519Signatures, 16);
         let final_at = |height: u64| Statement::Final {
             height,
             timestamp: height,
         };
         let sign = |i: usize, s: Statement| {
-            SignedStatement::sign(&hub, ValidatorIndex::new(i).unwrap(), s, &keys[i])
+            SignedStatement::sign(
+                &Ed25519Signatures,
+                &hub,
+                ValidatorIndex::new(i).unwrap(),
+                s,
+                &keys[i],
+            )
         };
         for height in 10..14 {
             assert_eq!(agreement.add(sign(1, final_at(height))), None);
@@ -1305,7 +1347,13 @@ mod tests {
         let signed: Vec<SignedStatement> = statements
             .iter()
             .map(|s| {
-                SignedStatement::sign(&hub, ValidatorIndex::new(2).unwrap(), s.clone(), &keys[2])
+                SignedStatement::sign(
+                    &Ed25519Signatures,
+                    &hub,
+                    ValidatorIndex::new(2).unwrap(),
+                    s.clone(),
+                    &keys[2],
+                )
             })
             .collect();
         let bytes = SignedStatement::encode_list(&signed);
@@ -1392,7 +1440,15 @@ mod tests {
             },
         ]
         .into_iter()
-        .map(|s| SignedStatement::sign(&hub, ValidatorIndex::new(1).unwrap(), s, &keys[1]))
+        .map(|s| {
+            SignedStatement::sign(
+                &Ed25519Signatures,
+                &hub,
+                ValidatorIndex::new(1).unwrap(),
+                s,
+                &keys[1],
+            )
+        })
         .collect();
         let bytes = SignedStatement::encode_list(&signed);
         assert_eq!(SignedStatement::decode_list(&bytes).unwrap(), signed);
@@ -1419,7 +1475,15 @@ mod tests {
             },
         ]
         .into_iter()
-        .map(|s| SignedStatement::sign(&hub, ValidatorIndex::new(1).unwrap(), s, &keys[1]))
+        .map(|s| {
+            SignedStatement::sign(
+                &Ed25519Signatures,
+                &hub,
+                ValidatorIndex::new(1).unwrap(),
+                s,
+                &keys[1],
+            )
+        })
         .collect();
         let bytes = SignedStatement::encode_list(&signed);
         assert_eq!(SignedStatement::decode_list(&bytes).unwrap(), signed);

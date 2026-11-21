@@ -71,7 +71,7 @@ impl Engine {
         if held.is_some_and(|round| round.proposal.is_some_and(|p| p.block == digest)) {
             return;
         }
-        if vote.verify(&self.hub, self.set()).is_err() {
+        if vote.verify(self.signatures, &self.hub, self.set()).is_err() {
             return self.refuse();
         }
         self.hold_block(proposal.block, Hold::Proposal);
@@ -107,7 +107,7 @@ impl Engine {
         {
             return;
         }
-        if vote.verify(&self.hub, self.set()).is_err() {
+        if vote.verify(self.signatures, &self.hub, self.set()).is_err() {
             return self.refuse();
         }
         self.take_vote(vote);
@@ -133,7 +133,7 @@ impl Engine {
         let Some(set) = self.epochs.for_epoch(vote.epoch) else {
             return;
         };
-        if vote.verify(&self.hub, set).is_err() {
+        if vote.verify(self.signatures, &self.hub, set).is_err() {
             return self.refuse();
         }
         if self.vote_log.len() >= MAX_VOTE_LOG {
@@ -211,7 +211,9 @@ impl Engine {
             .get(&view)
             .and_then(|round| round.certificate(certificate.kind))
             .is_some_and(|held| held.block == certificate.block);
-        if !held && verify_certificate(&self.hub, self.set(), &certificate).is_err() {
+        if !held
+            && verify_certificate(self.signatures, &self.hub, self.set(), &certificate).is_err()
+        {
             return self.refuse();
         }
         if let Some(block) = block
@@ -305,7 +307,7 @@ impl Engine {
                 .is_some_and(|ours| ours != certificate.block && ours != block.parent)
             && block.digest(&self.hub) == certificate.block
             && block.epoch == certificate.epoch
-            && verify_certificate(&self.hub, &set, certificate).is_ok()
+            && verify_certificate(self.signatures, &self.hub, &set, certificate).is_ok()
         {
             self.check_finalized(block, certificate);
         }
@@ -321,7 +323,7 @@ impl Engine {
         if !ours.conflicts_with(certificate) || self.settled_conflicts.contains(&at) {
             return;
         }
-        if verify_certificate(&self.hub, &set, certificate).is_err() {
+        if verify_certificate(self.signatures, &self.hub, &set, certificate).is_err() {
             return self.refuse();
         }
         self.settled_conflicts.insert(at);

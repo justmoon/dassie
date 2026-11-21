@@ -51,7 +51,7 @@ use dassie_connector::{
     Config as ConnectorConfig, Connector, Holding, Inventory, PacketRecord, PriceTable, Rates,
     TraceEvent,
 };
-use dassie_identity::IdentityKey;
+use dassie_identity::{IdentityKey, NodeSignatures};
 use dassie_ilp::MAX_PACKET_LENGTH;
 use dassie_ledger::{Account, AccountId, AccountName, Ledger, Name, PerLedger, TraceId};
 use dassie_node_core::config::{LiveRealm, Realm};
@@ -348,6 +348,12 @@ pub struct CoreParts {
     pub store: Arc<Store>,
     /// The node's key.
     pub key: Arc<IdentityKey>,
+    /// How its hub accounts check their validators' statements, and sign
+    /// and check key proofs: a node's are
+    /// [`Ed25519Signatures`](dassie_identity::Ed25519Signatures), a
+    /// simulation's hashes
+    /// (spec/decisions/hashed-signatures-in-simulations.md).
+    pub signatures: &'static dyn NodeSignatures,
     /// The realm: the node's address, and the only ledgers it runs.
     pub realm: Realm,
     /// Whether it may be the live realm: by the dev switch only
@@ -376,6 +382,7 @@ pub struct Core {
     /// The time of the current step.
     now_ms: u64,
     key: Arc<IdentityKey>,
+    signatures: &'static dyn NodeSignatures,
     ledger: Ledger,
     connector: Connector,
     /// The exchange rates, and what the connector converts at.
@@ -585,6 +592,7 @@ impl Core {
             rng: parts.rng,
             now_ms,
             key: parts.key,
+            signatures: parts.signatures,
             ledger,
             connector,
             prices: Prices::default(),

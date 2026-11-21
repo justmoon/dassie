@@ -254,7 +254,15 @@ fn start_voting(
 ) -> Running {
     let now = clock.now_ms();
     let clock = Arc::new(clock.clone());
-    let driver = Driver::open(Arc::clone(&node.store), rules, genesis, &node.key, now).unwrap();
+    let driver = Driver::open(
+        Arc::clone(&node.store),
+        rules,
+        genesis,
+        &node.key,
+        &dassie_identity::Ed25519Signatures,
+        now,
+    )
+    .unwrap();
     let client = HubClient::new(Some(Arc::clone(&node.quic)), client());
     let (task, links) = HubTask::new(driver, client, Arc::clone(&node.hubs), clock);
     let task = task.voting_for(version);
@@ -284,8 +292,15 @@ fn start_sharing(
         .map(|rules| {
             let now = clock.now_ms();
             let clock = Arc::new(clock.clone());
-            let driver =
-                Driver::open(Arc::clone(&node.store), rules, genesis, &node.key, now).unwrap();
+            let driver = Driver::open(
+                Arc::clone(&node.store),
+                rules,
+                genesis,
+                &node.key,
+                &dassie_identity::Ed25519Signatures,
+                now,
+            )
+            .unwrap();
             let client = HubClient::new(Some(Arc::clone(&node.quic)), client());
             let (task, links) = HubTask::new(driver, client, Arc::clone(&node.hubs), clock);
             let task = task.sharing(&shared);
@@ -399,7 +414,7 @@ async fn ask(
 ) -> Statement {
     let hub = rules.id();
     let set = rules.validator_set().unwrap();
-    let mut agreement = Agreement::new(hub, set, 4096);
+    let mut agreement = Agreement::new(hub, set, &dassie_identity::Ed25519Signatures, 4096);
     let message = Message::Request(request).to_vec();
     for _ in 0..50 {
         // An exchange over loopback ends at once; its timeout is QUIC's

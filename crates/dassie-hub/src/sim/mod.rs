@@ -27,7 +27,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use dassie_identity::{NodeKey, PublicKey};
+use dassie_identity::{HashSignatures, NodeKey, NodeSignatures, PublicKey};
 use dassie_kit::sim::SeededRng;
 use dassie_oer::Encode;
 
@@ -50,6 +50,12 @@ const FLOOD: u64 = 160;
 
 /// The marker of a payload no honest validator accepts.
 const INVALID: u8 = 0xff;
+
+/// How the simulated validators sign and check their votes: by hashes,
+/// which cost a hundredth of Ed25519 signatures and fail as they do on
+/// any change (spec/decisions/hashed-signatures-in-simulations.md). A test
+/// that signs votes for the simulated hub signs by these.
+pub const SIGNATURES: &dyn NodeSignatures = &HashSignatures;
 
 /// Validator `index`'s consensus key, the same in every run.
 #[must_use]
@@ -606,7 +612,14 @@ impl Network {
     pub fn start(&mut self, index: usize) {
         let now = self.local_now(index);
         let sim = &mut self.validators[index];
-        let engine = Engine::new(self.config, hub(), key(index), sim.stored.clone(), now);
+        let engine = Engine::new(
+            self.config,
+            hub(),
+            key(index),
+            SIGNATURES,
+            sim.stored.clone(),
+            now,
+        );
         sim.engine = Some(engine);
         self.trace.push(format!("{} start {index}", self.now));
         self.drain(index);
@@ -934,6 +947,7 @@ impl Network {
                 block.payload = at.to_be_bytes().to_vec();
                 let digest = block.digest(&hub());
                 let vote = Vote::sign(
+                    SIGNATURES,
                     &hub(),
                     &key(leader),
                     index,
@@ -1026,6 +1040,7 @@ impl Network {
         for ((block, digest), half) in blocks.into_iter().zip(digests).zip(halves) {
             let leader_index = ValidatorIndex::new(leader).unwrap();
             let signature = Vote::sign(
+                SIGNATURES,
                 &hub(),
                 &key(leader),
                 leader_index,
@@ -1042,8 +1057,15 @@ impl Network {
             for signer in colluding {
                 let index = ValidatorIndex::new(*signer).unwrap();
                 for kind in [VoteKind::Notarize, VoteKind::Finalize] {
-                    let vote =
-                        Vote::sign(&hub(), &key(*signer), index, kind, (epoch, view), digest);
+                    let vote = Vote::sign(
+                        SIGNATURES,
+                        &hub(),
+                        &key(*signer),
+                        index,
+                        kind,
+                        (epoch, view),
+                        digest,
+                    );
                     self.send_all(*signer, &half, &Message::Vote(vote).to_vec());
                 }
             }

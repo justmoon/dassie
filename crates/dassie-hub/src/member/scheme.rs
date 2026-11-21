@@ -62,7 +62,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::any::Any;
 
-use dassie_identity::{NodeKey, PublicKey};
+use dassie_identity::{NodeKey, NodeSignatures, PublicKey};
 use dassie_ledger::{LedgerId, Name};
 use dassie_oer::{Encode, Reader};
 use dassie_settlement::policy::redeem_threshold;
@@ -230,6 +230,8 @@ pub struct HubScheme {
     asset: AssetId,
     pub(super) hub: HubId,
     pub(super) key: Arc<NodeKey>,
+    /// How key proofs are signed and checked: its account's.
+    signatures: &'static dyn NodeSignatures,
     pub(super) terms: Terms,
     /// The largest packet on the ledger, in internal units: what the
     /// threshold to redeem is counted in.
@@ -383,6 +385,7 @@ impl HubScheme {
             asset: ExternalAsset::id(account),
             hub: account.hub(),
             key: account.signer(),
+            signatures: account.signatures(),
             terms: account.terms().clone(),
             max_packet,
             booked: checkpoint.unwrap_or(0),
@@ -1965,7 +1968,9 @@ impl SettlementScheme for HubScheme {
         let digest = super::key_proof_digest(&self.hub, peer.as_str());
         let proven = proof.is_some_and(|proof| {
             let signature = dassie_identity::Signature::from_bytes(*proof);
-            known.key.verify(digest.as_bytes(), &signature).is_ok()
+            self.signatures
+                .verify(&known.key, digest.as_bytes(), &signature)
+                .is_ok()
         });
         Some(if proven { units(funds) } else { 0 })
     }
@@ -2224,7 +2229,12 @@ impl Commitments for HubScheme {
     /// Signed by our account key, so that it is ours alone.
     fn key_proof(&self, node: Name) -> Option<[u8; 64]> {
         let digest = super::key_proof_digest(&self.hub, node.as_str());
-        Some(*self.key.sign(digest.as_bytes()).as_bytes())
+        Some(
+            *self
+                .signatures
+                .sign(&self.key, digest.as_bytes())
+                .as_bytes(),
+        )
     }
 
     fn membership(&self) -> Option<dassie_settlement::Membership> {
@@ -2283,6 +2293,7 @@ mod tests {
     use crate::operation::Destination;
     use crate::rules::Rules;
     use crate::rules::tests::{rules, token_terms};
+    use dassie_identity::Ed25519Signatures;
 
     /// `rules` with `terms`, each acceptance signed again.
     fn with_terms(rules: &Rules, terms: Terms) -> Rules {
@@ -2305,6 +2316,7 @@ mod tests {
             super::super::account_id(id).unwrap(),
             rules,
             Arc::new(NodeKey::from_bytes(&[42; 32])),
+            &Ed25519Signatures,
             Destination {
                 account: [5; 20],
                 tag: None,

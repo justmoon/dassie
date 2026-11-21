@@ -20,7 +20,9 @@ use dassie_hub::consensus::wire::{Message, Proposal};
 use dassie_hub::consensus::{
     Config, Engine, Evidence, PeerId, Recipient, Vote, VoteKind, verify_certificate,
 };
-use dassie_hub::sim::{Faults, Network, Role, START, SimApp, genesis, hub, key, roles, set};
+use dassie_hub::sim::{
+    Faults, Network, Role, SIGNATURES, START, SimApp, genesis, hub, key, roles, set,
+};
 use dassie_hub::{Digest, ValidatorIndex};
 use dassie_identity::{NodeKey, Signature};
 use dassie_oer::Encode;
@@ -242,7 +244,7 @@ fn a_leader_flooding_proposals_crowds_out_no_honest_block() {
 fn flooded_proposals_take_only_their_views_room() {
     let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
     let mut app = SimApp::default();
-    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let mut engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored, START);
     // Validator 1 leads views 1, 5, 9, 13 and 17, all within reach: a
     // thousand proposals each, plausible and not.
     for view in [1u64, 5, 9, 13, 17] {
@@ -263,6 +265,7 @@ fn flooded_proposals_take_only_their_views_room() {
             };
             let digest = block.digest(&hub());
             let vote = Vote::sign(
+                SIGNATURES,
                 &hub(),
                 &key(1),
                 index(1),
@@ -364,6 +367,7 @@ fn a_validator_that_knows_of_a_fork_still_follows_its_own_chain() {
         .map(|at| {
             let view = (other.epoch, other.view);
             Vote::sign(
+                SIGNATURES,
                 &hub(),
                 &key(at),
                 index(at),
@@ -409,6 +413,7 @@ fn conflicting_votes_are_evidence() {
     let view = network.engine(0).view() + 1;
     let signer = index(3);
     let nullify = Vote::sign(
+        SIGNATURES,
         &hub(),
         &key(3),
         signer,
@@ -417,6 +422,7 @@ fn conflicting_votes_are_evidence() {
         Digest::default(),
     );
     let finalize = Vote::sign(
+        SIGNATURES,
         &hub(),
         &key(3),
         signer,
@@ -440,6 +446,7 @@ fn invalid_and_impersonated_votes_are_refused() {
     let view = network.engine(0).view();
     let refused = network.engine(0).stats().refused;
     let mut forged = Vote::sign(
+        SIGNATURES,
         &hub(),
         &key(2),
         index(2),
@@ -453,6 +460,7 @@ fn invalid_and_impersonated_votes_are_refused() {
     let impersonated = Vote {
         signer: index(1),
         ..Vote::sign(
+            SIGNATURES,
             &hub(),
             &key(2),
             index(2),
@@ -464,6 +472,7 @@ fn invalid_and_impersonated_votes_are_refused() {
     inject(&mut network, 0, &Message::Vote(impersonated));
     // Another hub's vote.
     let elsewhere = Vote::sign(
+        SIGNATURES,
         &Digest([9; 32]),
         &key(2),
         index(2),
@@ -491,6 +500,7 @@ fn outdated_messages_are_ignored() {
     let mut network = honest(4);
     run_for(&mut network, 2_000);
     let old = Vote::sign(
+        SIGNATURES,
         &hub(),
         &key(1),
         index(1),
@@ -525,6 +535,7 @@ fn proposal_on(view: u64, parent: &dassie_hub::consensus::Block, stamp: u64) -> 
     };
     let leader = usize::try_from(view % 4).unwrap();
     let vote = Vote::sign(
+        SIGNATURES,
         &hub(),
         &key(leader),
         index(leader),
@@ -542,7 +553,17 @@ fn proposal_on(view: u64, parent: &dassie_hub::consensus::Block, stamp: u64) -> 
 /// The certificate of validators 1 to 3 of `kind` for `view` and `block`.
 fn certificate_of(kind: VoteKind, view: u64, block: Digest) -> Vec<u8> {
     let votes: Vec<Vote> = (1..4)
-        .map(|at| Vote::sign(&hub(), &key(at), index(at), kind, (0, view), block))
+        .map(|at| {
+            Vote::sign(
+                SIGNATURES,
+                &hub(),
+                &key(at),
+                index(at),
+                kind,
+                (0, view),
+                block,
+            )
+        })
         .collect();
     Message::Certificate(dassie_hub::consensus::Certificate {
         epoch: 0,
@@ -570,6 +591,7 @@ fn proposed(block: &dassie_hub::consensus::Block, leader: usize) -> Message {
     let digest = block.digest(&hub());
     let at = (block.epoch, block.view);
     let vote = Vote::sign(
+        SIGNATURES,
         &hub(),
         &key(leader),
         index(leader),
@@ -604,7 +626,7 @@ fn split_at_the_boundary() -> (
 ) {
     let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
     let mut app = SimApp::default();
-    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let mut engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored, START);
     let keys = [0, 1, 2, 5]
         .iter()
         .map(|at| key(*at).public_key())
@@ -629,7 +651,15 @@ fn split_at_the_boundary() -> (
         (2, VoteKind::Nullify),
         (3, VoteKind::Nullify),
     ] {
-        let vote = Vote::sign(&hub(), &key(at), index(at), kind, (0, 2), b2_digest);
+        let vote = Vote::sign(
+            SIGNATURES,
+            &hub(),
+            &key(at),
+            index(at),
+            kind,
+            (0, 2),
+            b2_digest,
+        );
         hand(
             &mut engine,
             &mut app,
@@ -711,7 +741,7 @@ fn scheduled_at_one() -> (Engine, SimApp, dassie_hub::sim::Schedule) {
     };
     let mut app = SimApp::default();
     app.schedule = Some(schedule.clone());
-    let engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored, START);
     (engine, app, schedule)
 }
 
@@ -947,7 +977,7 @@ fn a_long_stall_keeps_the_chain_and_lets_go_of_the_rest() {
     // final, so is the whole chain.
     let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
     let mut app = SimApp::default();
-    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let mut engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored, START);
     let views = dassie_hub::consensus::MAX_ROUNDS as u64 + 50;
     let mut parent = genesis();
     for view in 1..views {
@@ -985,7 +1015,7 @@ fn a_quorum_that_skips_a_height_stalls_the_engine_without_a_panic() {
     // panic.
     let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
     let mut app = SimApp::default();
-    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let mut engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored, START);
     let b1 = block_of(&proposal_on(1, &genesis(), START + 100));
     let b2 = block_of(&proposal_on(2, &b1, START + 200));
     for (block, leader) in [(&b1, 1u64), (&b2, 2)] {
@@ -1041,7 +1071,7 @@ fn a_block_whose_state_was_let_go_of_is_verified_again() {
     let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
     let mut app = SimApp::default();
     app.keep_states = Some(2);
-    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let mut engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored, START);
     let b1 = block_of(&proposal_on(1, &genesis(), START));
     hand(&mut engine, &mut app, START + 1, 1, &proposed(&b1, 1));
     certify(&mut engine, &mut app, &b1, false);
@@ -1369,7 +1399,7 @@ fn a_repeat_is_valid_only_of_an_epochs_last_block() {
     assert!(notarized(&mut engine).is_empty());
     // A repeat in epoch 0 of a block that is not its last.
     let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
-    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let mut engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored, START);
     let b1 = block_of(&proposal_on(1, &genesis(), START));
     hand(&mut engine, &mut app, START + 1, 1, &proposed(&b1, 1));
     let notarization = certificate_of(VoteKind::Notarize, 1, b1.digest(&hub()));
@@ -1399,7 +1429,7 @@ fn notarized(engine: &mut Engine) -> Vec<Digest> {
 fn a_block_skips_a_notarized_view_only_once_it_is_nullified() {
     let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
     let mut app = SimApp::default();
-    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let mut engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored, START);
     let first = proposal_on(1, &genesis(), START);
     engine.handle_message(START + 2, &mut app, PeerId(1), &first);
     let Ok(Message::Proposal(Proposal { block: b1, .. })) = Message::decode_message(&first) else {
@@ -1453,7 +1483,7 @@ fn a_block_is_notarized_only_if_its_stamp_is_timely() {
         (START - precision - delay - 1, false),
     ] {
         let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
-        let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+        let mut engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored, START);
         let proposal = proposal_on(1, &genesis(), stamp);
         engine.handle_message(START, &mut SimApp::default(), PeerId(1), &proposal);
         engine.check_invariants();
@@ -1478,7 +1508,7 @@ fn a_restart_never_signs_a_second_notarize_in_a_view() {
     let stored = dassie_hub::consensus::Stored::genesis(genesis(), validators);
     let mut app = SimApp::default();
     let now = START;
-    let mut engine = Engine::new(CONFIG, hub(), key(0), stored.clone(), now);
+    let mut engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored.clone(), now);
     let mut stored = stored;
     // View 1 is led by validator 1.
     let proposal = |payload: u8| {
@@ -1493,6 +1523,7 @@ fn a_restart_never_signs_a_second_notarize_in_a_view() {
         };
         let digest = block.digest(&hub());
         let vote = Vote::sign(
+            SIGNATURES,
             &hub(),
             &key(1),
             index(1),
@@ -1519,7 +1550,7 @@ fn a_restart_never_signs_a_second_notarize_in_a_view() {
     assert_eq!(notarized, 1);
     assert_eq!(stored.votes.len(), 1);
     // A crash, and the leader's second block for the same view.
-    let mut engine = Engine::new(CONFIG, hub(), key(0), stored.clone(), now + 5);
+    let mut engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored.clone(), now + 5);
     engine.handle_message(now + 6, &mut app, PeerId(1), &proposal(2));
     engine.check_invariants();
     stored.apply(engine.take_batch());
@@ -1578,8 +1609,11 @@ fn a_new_validator_set_takes_over_at_a_height() {
     // Blocks from the boundary are certified by the new set alone.
     let tip = network.engine(4).tip().clone();
     let finalization = tip.finalization.unwrap();
-    assert_eq!(verify_certificate(&hub(), &next, &finalization), Ok(()));
-    assert!(verify_certificate(&hub(), &set(0..4), &finalization).is_err());
+    assert_eq!(
+        verify_certificate(SIGNATURES, &hub(), &next, &finalization),
+        Ok(())
+    );
+    assert!(verify_certificate(SIGNATURES, &hub(), &set(0..4), &finalization).is_err());
     // The validator that left signs nothing in the new set's views.
     let first_view = network.engine(1).tip().block.view;
     assert!(
@@ -1671,6 +1705,7 @@ fn forged(height: u64, view: u64) -> (dassie_hub::consensus::Finalized, dassie_h
     let votes: Vec<Vote> = (0..4)
         .map(|at| {
             Vote::sign(
+                SIGNATURES,
                 &hub(),
                 &attacker(at),
                 index(at),
@@ -1700,7 +1735,7 @@ fn forged(height: u64, view: u64) -> (dassie_hub::consensus::Finalized, dassie_h
 fn a_set_named_by_data_no_known_set_signed_is_never_taken_in() {
     let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
     let mut app = SimApp::default();
-    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let mut engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored, START);
     let _ = std::iter::from_fn(|| engine.poll_output()).count();
     let (finalized, keys) = forged(500, 600);
     // Delivered as the end of our epoch: refused, and no Behind.
@@ -1751,13 +1786,13 @@ fn members_check_certificates_alone() {
     let finalization = tip.finalization.unwrap();
     assert_eq!(finalization.block, tip.block.digest(&hub()));
     assert_eq!(
-        verify_certificate(&hub(), &set(0..4), &finalization),
+        verify_certificate(SIGNATURES, &hub(), &set(0..4), &finalization),
         Ok(())
     );
-    assert!(verify_certificate(&Digest([1; 32]), &set(0..4), &finalization).is_err());
+    assert!(verify_certificate(SIGNATURES, &Digest([1; 32]), &set(0..4), &finalization).is_err());
     let mut fewer = finalization.clone();
     fewer.signatures.truncate(2);
-    assert!(verify_certificate(&hub(), &set(0..4), &fewer).is_err());
+    assert!(verify_certificate(SIGNATURES, &hub(), &set(0..4), &fewer).is_err());
 }
 
 #[test]
@@ -1820,7 +1855,7 @@ impl Validator0 {
     fn new() -> Self {
         let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
         Self {
-            engine: Engine::new(CONFIG, hub(), key(0), stored.clone(), START),
+            engine: Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored.clone(), START),
             app: SimApp::default(),
             stored,
             signed: Vec::new(),
@@ -1860,7 +1895,7 @@ impl Validator0 {
 
     /// Starts it again from what it persisted.
     fn restart(&mut self, at: u64) {
-        self.engine = Engine::new(CONFIG, hub(), key(0), self.stored.clone(), at);
+        self.engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, self.stored.clone(), at);
         self.settle();
     }
 
@@ -2097,7 +2132,7 @@ fn a_block_we_lack_is_asked_for_by_key_until_it_comes() {
     };
     let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
     let mut app = SimApp::default();
-    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let mut engine = Engine::new(CONFIG, hub(), key(0), SIGNATURES, stored, START);
     let b1 = block_of(&proposal_on(1, &genesis(), START + 100));
     let notarization = Message::Certificate(certificate(VoteKind::Notarize, 1, b1.digest(&hub())));
     hand(&mut engine, &mut app, START + 101, 1, &notarization);
