@@ -90,13 +90,13 @@ pub fn pool_account(token: IssuedAsset) -> AccountId {
     AccountId(account)
 }
 
-/// The most digits a token's price is rounded up by, one at a time: past a
+/// The most digits a token's price is rounded by, one at a time: past a
 /// mantissa's sixteen and a balance's exponent apart from the price's.
-const MAX_ROUNDING_DIGITS: i32 = 48;
+pub(super) const MAX_ROUNDING_DIGITS: i32 = 48;
 
 /// `cost` rounded up to a whole number of `10^exponent`, if the ledger can
 /// express that.
-fn round_up_to(cost: TokenValue, exponent: i32) -> Option<TokenValue> {
+pub(super) fn round_up_to(cost: TokenValue, exponent: i32) -> Option<TokenValue> {
     let down = exponent.checked_sub(cost.exponent())?;
     if down <= 0 {
         return Some(cost);
@@ -106,6 +106,19 @@ fn round_up_to(cost: TokenValue, exponent: i32) -> Option<TokenValue> {
         Some(unit) => cost.mantissa().div_ceil(unit),
         None => 1,
     };
+    TokenValue::new(false, units, exponent)
+}
+
+/// `value` rounded down to a whole number of `10^exponent`: zero past its
+/// sixteen digits.
+pub(super) fn round_down_to(value: TokenValue, exponent: i32) -> Option<TokenValue> {
+    let down = exponent.checked_sub(value.exponent())?;
+    if down <= 0 {
+        return Some(value);
+    }
+    let units = 10_u64
+        .checked_pow(down.unsigned_abs())
+        .map_or(0, |unit| value.mantissa() / unit);
     TokenValue::new(false, units, exponent)
 }
 
