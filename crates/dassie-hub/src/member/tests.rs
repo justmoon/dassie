@@ -11,8 +11,8 @@ use dassie_identity::{Ed25519Signatures, NodeKey, NodeSignatures, PublicKey, Sig
 use dassie_ledger::Name;
 use dassie_oer::Encode;
 use dassie_settlement::{
-    AssetEffect, Effect, ExternalAsset, LedgerInput, LedgerStatus, LossCause, SchemeError,
-    SettlementScheme,
+    AssetEffect, Commitments, Effect, ExternalAsset, LedgerInput, LedgerStatus, LossCause,
+    SchemeError, SettlementScheme,
 };
 
 use super::*;
@@ -596,12 +596,19 @@ fn the_account_is_known_once_f_plus_one_agree() {
     account.check_invariants();
 }
 
-/// Ed25519, counting the signatures it checks.
+/// Ed25519, counting the signatures it checks, and those it makes.
 #[derive(Debug)]
-struct Counting(AtomicUsize);
+struct Counting(AtomicUsize, AtomicUsize);
+
+impl Counting {
+    const fn new() -> Self {
+        Self(AtomicUsize::new(0), AtomicUsize::new(0))
+    }
+}
 
 impl NodeSignatures for Counting {
     fn sign(&self, key: &NodeKey, message: &[u8]) -> Signature {
+        self.1.fetch_add(1, Ordering::Relaxed);
         Ed25519Signatures.sign(key, message)
     }
 
@@ -621,7 +628,7 @@ impl NodeSignatures for Counting {
 // what a member spends on reading its hub.
 #[test]
 fn each_statement_is_checked_once() {
-    static CHECKS: Counting = Counting(AtomicUsize::new(0));
+    static CHECKS: Counting = Counting::new();
     let hub = Hub::new();
     let mut account = hub.checking_by(&CHECKS, &[]);
     let statements = [
@@ -634,6 +641,30 @@ fn each_statement_is_checked_once() {
     ];
     from(&mut account, 0, &hub.says(0, &statements));
     assert_eq!(CHECKS.0.load(Ordering::Relaxed), statements.len());
+}
+
+// spec/decisions/promotion-to-core.md: the key proof a member offers each
+// peer is signed once, and is the same signature each time.
+#[test]
+fn the_key_proof_is_signed_once() {
+    static SIGNS: Counting = Counting::new();
+    let hub = Hub::new();
+    let account = hub.checking_by(&SIGNS, &[]);
+    let scheme = HubScheme::new(&account, 100_000_000, None, &[]).unwrap();
+    let node = Name::new("node").unwrap();
+    let proof = scheme.key_proof(node).unwrap();
+    assert_eq!(scheme.key_proof(node), Some(proof));
+    assert_eq!(SIGNS.1.load(Ordering::Relaxed), 1);
+    let digest = key_proof_digest(&hub.rules.id(), node.as_str());
+    assert_eq!(
+        hub.key
+            .public_key()
+            .verify(digest.as_bytes(), &Signature::from_bytes(proof)),
+        Ok(())
+    );
+    // Another node's, should anyone ask, is its own.
+    let other = Name::new("other").unwrap();
+    assert_ne!(scheme.key_proof(other), Some(proof));
 }
 
 // spec/decisions/settlement-methods.md: an account that was in step only

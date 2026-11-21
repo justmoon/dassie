@@ -61,6 +61,7 @@ use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::any::Any;
+use core::cell::OnceCell;
 
 use dassie_identity::{NodeKey, NodeSignatures, PublicKey};
 use dassie_ledger::{LedgerId, Name};
@@ -281,6 +282,9 @@ pub struct HubScheme {
     /// for the hold's notice, as its validators last told the account
     /// (spec/decisions/signed-rejects.md).
     takes_releases: bool,
+    /// Our key proof, and the node it names: signed once, since it never
+    /// changes, and offered to each peer again and again.
+    signed_key_proof: OnceCell<(Name, [u8; 64])>,
 }
 
 /// Whether `news` says the hub is shutting down or ended: an operation
@@ -353,6 +357,16 @@ pub(super) fn operation_hash(operation: &SignedMemberOperation) -> Digest {
 }
 
 impl HubScheme {
+    /// Our account key's signature that it is the key of the node `node`
+    /// ([`Commitments::key_proof`]).
+    fn prove_key(&self, node: Name) -> [u8; 64] {
+        let digest = super::key_proof_digest(&self.hub, node.as_str());
+        *self
+            .signatures
+            .sign(&self.key, digest.as_bytes())
+            .as_bytes()
+    }
+
     /// Whether a `settlement` message on this scheme books what it states
     /// ([`SettlementScheme::books_messages`]): never. Its message is a
     /// bare notice, with no data, which only moves the settlement channel
@@ -408,6 +422,7 @@ impl HubScheme {
             shut_down: false,
             stalled: false,
             takes_releases: false,
+            signed_key_proof: OnceCell::new(),
         };
         if !state.is_empty() {
             super::state::restore_scheme(&mut scheme, state).ok_or(SchemeError::InvalidData)?;
@@ -2228,13 +2243,14 @@ impl Commitments for HubScheme {
     /// presents us. None before either.
     /// Signed by our account key, so that it is ours alone.
     fn key_proof(&self, node: Name) -> Option<[u8; 64]> {
-        let digest = super::key_proof_digest(&self.hub, node.as_str());
-        Some(
-            *self
-                .signatures
-                .sign(&self.key, digest.as_bytes())
-                .as_bytes(),
-        )
+        let (proven, proof) = *self
+            .signed_key_proof
+            .get_or_init(|| (node, self.prove_key(node)));
+        Some(if proven == node {
+            proof
+        } else {
+            self.prove_key(node)
+        })
     }
 
     fn membership(&self) -> Option<dassie_settlement::Membership> {
