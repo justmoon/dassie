@@ -17,7 +17,7 @@ use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use dassie_identity::{NodeKey, PublicKey};
+use dassie_identity::{NodeKey, NodeSignatures, PublicKey};
 use dassie_oer::Encode;
 
 use super::config::Config;
@@ -123,6 +123,9 @@ pub struct Engine {
     hub: Digest,
     key: Arc<NodeKey>,
     public: PublicKey,
+    /// How votes are signed and checked: a node's are Ed25519
+    /// (spec/decisions/hashed-signatures-in-simulations.md).
+    signatures: &'static dyn NodeSignatures,
     epochs: Epochs,
     now_ms: u64,
     /// The view we are in.
@@ -195,7 +198,8 @@ struct Stuck {
 
 impl Engine {
     /// Starts from what was persisted: a new hub's [`Stored::genesis`], or
-    /// the state the batches built.
+    /// the state the batches built. Votes are signed and checked by
+    /// `signatures`.
     ///
     /// # Panics
     ///
@@ -206,6 +210,7 @@ impl Engine {
         config: Config,
         hub: Digest,
         key: Arc<NodeKey>,
+        signatures: &'static dyn NodeSignatures,
         stored: Stored,
         now_ms: u64,
     ) -> Self {
@@ -223,6 +228,7 @@ impl Engine {
             hub,
             key,
             public,
+            signatures,
             epochs,
             now_ms,
             view: stored.view.max(tip_view.saturating_add(1)),

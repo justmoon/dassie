@@ -27,7 +27,7 @@ use dassie_hub::rules::{Acceptance, Fees, Limits, Rules, Terms, Timers};
 use dassie_hub::service::payload::Payload;
 use dassie_hub::service::wire::Message;
 use dassie_hub::service::{Action, ResumeError, Validator, genesis_block};
-use dassie_identity::{IdentityKey, NodeIdentity, NodeKey, SlhDsaPublicKey};
+use dassie_identity::{Ed25519Signatures, IdentityKey, NodeIdentity, NodeKey, SlhDsaPublicKey};
 use dassie_oer::{Decode, Encode};
 
 const NONCE: [u8; 32] = [7; 32];
@@ -153,7 +153,7 @@ impl Network {
             .iter()
             .map(|node| {
                 let keys = ValidatorKeys::derive(node, TESTNET_NETWORK, &NONCE).unwrap();
-                Validator::genesis(rules.clone(), keys, START, START).unwrap()
+                Validator::genesis(rules.clone(), keys, &Ed25519Signatures, START, START).unwrap()
             })
             .collect();
         let set = rules.validator_set().unwrap();
@@ -263,7 +263,8 @@ impl Network {
                 .state;
             Ledger::restore(snapshot, &root).unwrap()
         };
-        self.validators[index] = Validator::resume(keys, stored, ledger, self.now).unwrap();
+        self.validators[index] =
+            Validator::resume(keys, &Ed25519Signatures, stored, ledger, self.now).unwrap();
         self.collect(index);
     }
 
@@ -438,7 +439,7 @@ fn validators_agree_and_tell_the_member() {
         from: 1,
     });
     let set = net.validators[0].ledger().validators().clone();
-    let mut agreement = Agreement::new(hub, set, 4096);
+    let mut agreement = Agreement::new(hub, set, &Ed25519Signatures, 4096);
     let mut agreed = Vec::new();
     for bytes in &net.member {
         let Ok(Message::Statements(list)) = Message::decode_exact(bytes) else {
@@ -473,7 +474,7 @@ fn issuer_heard(net: &mut Network, number: AccountNumber) -> Vec<(u64, Option<u6
     });
     let hub = *net.validators[0].ledger().hub();
     let set = net.validators[0].ledger().validators().clone();
-    let mut agreement = Agreement::new(hub, set, 4096);
+    let mut agreement = Agreement::new(hub, set, &Ed25519Signatures, 4096);
     let mut heard = Vec::new();
     for bytes in &net.member {
         let Ok(Message::Statements(list)) = Message::decode_exact(bytes) else {
@@ -555,7 +556,15 @@ fn a_validator_reports_the_evidence_its_engine_finds() {
         .consensus;
     let signer = ValidatorIndex::new(2).unwrap();
     for block in [Digest([1; 32]), Digest([2; 32])] {
-        let vote = Vote::sign(&hub, &liar, signer, VoteKind::Notarize, (0, 1), block);
+        let vote = Vote::sign(
+            &Ed25519Signatures,
+            &hub,
+            &liar,
+            signer,
+            VoteKind::Notarize,
+            (0, 1),
+            block,
+        );
         let bytes = Message::Consensus(Consensus::Vote(vote).to_vec()).to_vec();
         let node = net.nodes[2];
         net.validators[0].handle(net.now, PeerId(2), Some(&node), &bytes);
@@ -1007,7 +1016,15 @@ fn another_finalized_at_the_tip(net: &Network, to: usize) -> Vec<u8> {
             .consensus;
         let signer = ValidatorIndex::new(index).unwrap();
         let view = (other.epoch, other.view);
-        let vote = Vote::sign(&hub, &key, signer, VoteKind::Finalize, view, digest);
+        let vote = Vote::sign(
+            &Ed25519Signatures,
+            &hub,
+            &key,
+            signer,
+            VoteKind::Finalize,
+            view,
+            digest,
+        );
         signers = signers.with(signer);
         signatures.push(vote.signature);
     }
@@ -1285,21 +1302,21 @@ fn what_a_host_did_not_write_together_does_not_resume() {
     let mut ahead = stored.clone();
     ahead.tip.block.height += 1;
     assert_eq!(
-        Validator::resume(keys(), ahead, ledger.clone(), net.now).err(),
+        Validator::resume(keys(), &Ed25519Signatures, ahead, ledger.clone(), net.now).err(),
         Some(ResumeError::Height)
     );
     // Of the same height, but another state.
     let mut other = stored.clone();
     other.tip.block.payload = Vec::new();
     assert_eq!(
-        Validator::resume(keys(), other, ledger.clone(), net.now).err(),
+        Validator::resume(keys(), &Ed25519Signatures, other, ledger.clone(), net.now).err(),
         Some(ResumeError::State)
     );
     // Keys that are no validator's of the hub.
     let stranger =
         ValidatorKeys::derive(&NodeKey::from_bytes(&[99; 32]), TESTNET_NETWORK, &NONCE).unwrap();
     assert_eq!(
-        Validator::resume(stranger, stored, ledger, net.now).err(),
+        Validator::resume(stranger, &Ed25519Signatures, stored, ledger, net.now).err(),
         Some(ResumeError::NotAValidator)
     );
 }

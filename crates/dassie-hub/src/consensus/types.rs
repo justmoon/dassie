@@ -11,7 +11,7 @@
 
 use alloc::vec::Vec;
 
-use dassie_identity::{NodeKey, Signature};
+use dassie_identity::{NodeKey, NodeSignatures, Signature};
 use dassie_oer::Encode;
 
 use crate::digest::{Digest, Domain};
@@ -154,9 +154,12 @@ pub enum Invalid {
 }
 
 impl Vote {
-    /// Signs a vote with `key` as validator `signer` of epoch `epoch`.
+    /// Signs a vote with `key` as validator `signer` of epoch `epoch`, by
+    /// `signatures`: a node's are [`Ed25519Signatures`](dassie_identity::Ed25519Signatures)
+    /// (spec/decisions/hashed-signatures-in-simulations.md).
     #[must_use]
     pub fn sign(
+        signatures: &dyn NodeSignatures,
         hub: &Digest,
         key: &NodeKey,
         signer: ValidatorIndex,
@@ -176,22 +179,29 @@ impl Vote {
             view,
             block,
             signer,
-            signature: key.sign(digest.as_bytes()),
+            signature: signatures.sign(key, digest.as_bytes()),
         }
     }
 
-    /// Checks the vote against the validator set of its epoch.
+    /// Checks the vote against the validator set of its epoch, by
+    /// `signatures`.
     ///
     /// # Errors
     ///
     /// Why it does not verify.
-    pub fn verify(&self, hub: &Digest, set: &ValidatorSet) -> Result<(), Invalid> {
+    pub fn verify(
+        &self,
+        signatures: &dyn NodeSignatures,
+        hub: &Digest,
+        set: &ValidatorSet,
+    ) -> Result<(), Invalid> {
         if self.kind == VoteKind::Nullify && self.block != Digest::default() {
             return Err(Invalid::NullifyWithBlock);
         }
         let key = set.key(self.signer).ok_or(Invalid::UnknownSigner)?;
         let digest = vote_digest(hub, self.epoch, self.kind, self.view, &self.block);
-        key.verify(digest.as_bytes(), &self.signature)
+        signatures
+            .verify(key, digest.as_bytes(), &self.signature)
             .map_err(|_| Invalid::BadSignature(self.signer))
     }
 
@@ -270,14 +280,15 @@ impl Certificate {
 }
 
 /// Checks a certificate against the validator set of its epoch: at least q
-/// distinct signers of the set, each signature valid. Members check the
-/// certificates in receipts with it too
+/// distinct signers of the set, each signature valid by `signatures`.
+/// Members check the certificates in receipts with it too
 /// (spec/designs/settlement-hubs.md#3-the-ledger, "Receipts").
 ///
 /// # Errors
 ///
 /// Why it does not verify.
 pub fn verify_certificate(
+    signatures: &dyn NodeSignatures,
     hub: &Digest,
     set: &ValidatorSet,
     certificate: &Certificate,
@@ -303,7 +314,8 @@ pub fn verify_certificate(
     );
     for (signer, signature) in certificate.signers.iter().zip(&certificate.signatures) {
         let key = set.key(signer).ok_or(Invalid::UnknownSigner)?;
-        key.verify(digest.as_bytes(), signature)
+        signatures
+            .verify(key, digest.as_bytes(), signature)
             .map_err(|_| Invalid::BadSignature(signer))?;
     }
     Ok(())
@@ -349,6 +361,7 @@ impl Finalized {
 mod tests {
     use super::*;
     use alloc::vec;
+    use dassie_identity::Ed25519Signatures;
     use dassie_identity::PublicKey;
 
     fn keys(n: u8) -> Vec<NodeKey> {
@@ -374,8 +387,16 @@ mod tests {
         let set = set(&keys);
         let hub = Digest([1; 32]);
         let block = Digest([2; 32]);
-        let vote = Vote::sign(&hub, &keys[0], index(0), VoteKind::Notarize, (0, 5), block);
-        assert_eq!(vote.verify(&hub, &set), Ok(()));
+        let vote = Vote::sign(
+            &Ed25519Signatures,
+            &hub,
+            &keys[0],
+            index(0),
+            VoteKind::Notarize,
+            (0, 5),
+            block,
+        );
+        assert_eq!(vote.verify(&Ed25519Signatures, &hub, &set), Ok(()));
         for changed in [
             Vote { view: 6, ..vote },
             Vote { epoch: 1, ..vote },
@@ -392,9 +413,12 @@ mod tests {
                 ..vote
             },
         ] {
-            assert!(changed.verify(&hub, &set).is_err());
+            assert!(changed.verify(&Ed25519Signatures, &hub, &set).is_err());
         }
-        assert!(vote.verify(&Digest([9; 32]), &set).is_err());
+        assert!(
+            vote.verify(&Ed25519Signatures, &Digest([9; 32]), &set)
+                .is_err()
+        );
     }
 
     #[test]
@@ -404,7 +428,17 @@ mod tests {
         let hub = Digest([1; 32]);
         let block = Digest([2; 32]);
         let votes: Vec<Vote> = (0..3)
-            .map(|i| Vote::sign(&hub, &keys[i], index(i), VoteKind::Finalize, (0, 7), block))
+            .map(|i| {
+                Vote::sign(
+                    &Ed25519Signatures,
+                    &hub,
+                    &keys[i],
+                    index(i),
+                    VoteKind::Finalize,
+                    (0, 7),
+                    block,
+                )
+            })
             .collect();
         let mut certificate = Certificate {
             kind: VoteKind::Finalize,
@@ -414,13 +448,16 @@ mod tests {
             signers: votes.iter().fold(Signers::NONE, |s, v| s.with(v.signer)),
             signatures: votes.iter().map(|v| v.signature).collect(),
         };
-        assert_eq!(verify_certificate(&hub, &set, &certificate), Ok(()));
+        assert_eq!(
+            verify_certificate(&Ed25519Signatures, &hub, &set, &certificate),
+            Ok(())
+        );
         assert_eq!(certificate.votes().collect::<Vec<_>>(), votes);
         certificate.signatures.swap(0, 1);
-        assert!(verify_certificate(&hub, &set, &certificate).is_err());
+        assert!(verify_certificate(&Ed25519Signatures, &hub, &set, &certificate).is_err());
         certificate.signatures.pop();
         assert_eq!(
-            verify_certificate(&hub, &set, &certificate),
+            verify_certificate(&Ed25519Signatures, &hub, &set, &certificate),
             Err(Invalid::SignatureCount)
         );
         let two = Certificate {
@@ -429,7 +466,7 @@ mod tests {
             ..certificate.clone()
         };
         assert_eq!(
-            verify_certificate(&hub, &set, &two),
+            verify_certificate(&Ed25519Signatures, &hub, &set, &two),
             Err(Invalid::TooFewSigners)
         );
     }
@@ -439,7 +476,17 @@ mod tests {
         let keys = keys(4);
         let hub = Digest([1; 32]);
         let (a, b) = (Digest([2; 32]), Digest([3; 32]));
-        let vote = |kind, view, block| Vote::sign(&hub, &keys[0], index(0), kind, (0, view), block);
+        let vote = |kind, view, block| {
+            Vote::sign(
+                &Ed25519Signatures,
+                &hub,
+                &keys[0],
+                index(0),
+                kind,
+                (0, view),
+                block,
+            )
+        };
         let notarize_a = vote(VoteKind::Notarize, 1, a);
         assert!(notarize_a.conflicts_with(&vote(VoteKind::Notarize, 1, b)));
         assert!(notarize_a.conflicts_with(&vote(VoteKind::Finalize, 1, b)));

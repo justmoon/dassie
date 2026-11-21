@@ -5,12 +5,14 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use dassie_identity::NodeKey;
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+use dassie_identity::{Ed25519Signatures, NodeKey, NodeSignatures, PublicKey, Signature};
 use dassie_ledger::Name;
 use dassie_oer::Encode;
 use dassie_settlement::{
-    AssetEffect, Effect, ExternalAsset, LedgerInput, LedgerStatus, LossCause, SchemeError,
-    SettlementScheme,
+    AssetEffect, Commitments, Effect, ExternalAsset, LedgerInput, LedgerStatus, LossCause,
+    SchemeError, SettlementScheme,
 };
 
 use super::*;
@@ -45,10 +47,17 @@ impl Hub {
 
     /// The account, restored from `state`.
     fn restored(&self, state: &[u8]) -> HubAccount {
+        self.checking_by(&Ed25519Signatures, state)
+    }
+
+    /// The account, restored from `state`, checking statements by
+    /// `signatures`.
+    fn checking_by(&self, signatures: &'static dyn NodeSignatures, state: &[u8]) -> HubAccount {
         HubAccount::new(
             ACCOUNT_ID,
             self.rules.clone(),
             Arc::clone(&self.key),
+            signatures,
             Destination {
                 account: [5; 20],
                 tag: None,
@@ -65,6 +74,7 @@ impl Hub {
             .iter()
             .map(|s| {
                 SignedStatement::sign(
+                    &Ed25519Signatures,
                     &self.rules.id(),
                     ValidatorIndex::new(index).unwrap(),
                     s.clone(),
@@ -586,6 +596,77 @@ fn the_account_is_known_once_f_plus_one_agree() {
     account.check_invariants();
 }
 
+/// Ed25519, counting the signatures it checks, and those it makes.
+#[derive(Debug)]
+struct Counting(AtomicUsize, AtomicUsize);
+
+impl Counting {
+    const fn new() -> Self {
+        Self(AtomicUsize::new(0), AtomicUsize::new(0))
+    }
+}
+
+impl NodeSignatures for Counting {
+    fn sign(&self, key: &NodeKey, message: &[u8]) -> Signature {
+        self.1.fetch_add(1, Ordering::Relaxed);
+        Ed25519Signatures.sign(key, message)
+    }
+
+    fn verify(
+        &self,
+        key: &PublicKey,
+        message: &[u8],
+        signature: &Signature,
+    ) -> Result<(), dassie_identity::Error> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        Ed25519Signatures.verify(key, message, signature)
+    }
+}
+
+// Each statement a validator sends is checked once, though the account
+// reads it before its tally takes it in: checking a signature is most of
+// what a member spends on reading its hub.
+#[test]
+fn each_statement_is_checked_once() {
+    static CHECKS: Counting = Counting::new();
+    let hub = Hub::new();
+    let mut account = hub.checking_by(&CHECKS, &[]);
+    let statements = [
+        hub.account_statement(5, true),
+        hub.transfer(1),
+        Statement::Final {
+            height: 12,
+            timestamp: 1_002,
+        },
+    ];
+    from(&mut account, 0, &hub.says(0, &statements));
+    assert_eq!(CHECKS.0.load(Ordering::Relaxed), statements.len());
+}
+
+// spec/decisions/promotion-to-core.md: the key proof a member offers each
+// peer is signed once, and is the same signature each time.
+#[test]
+fn the_key_proof_is_signed_once() {
+    static SIGNS: Counting = Counting::new();
+    let hub = Hub::new();
+    let account = hub.checking_by(&SIGNS, &[]);
+    let scheme = HubScheme::new(&account, 100_000_000, None, &[]).unwrap();
+    let node = Name::new("node").unwrap();
+    let proof = scheme.key_proof(node).unwrap();
+    assert_eq!(scheme.key_proof(node), Some(proof));
+    assert_eq!(SIGNS.1.load(Ordering::Relaxed), 1);
+    let digest = key_proof_digest(&hub.rules.id(), node.as_str());
+    assert_eq!(
+        hub.key
+            .public_key()
+            .verify(digest.as_bytes(), &Signature::from_bytes(proof)),
+        Ok(())
+    );
+    // Another node's, should anyone ask, is its own.
+    let other = Name::new("other").unwrap();
+    assert_ne!(scheme.key_proof(other), Some(proof));
+}
+
 // spec/decisions/settlement-methods.md: an account that was in step only
 // lags in reading the newest block it heard of, and keeps up: its method
 // stays available, though it is not in step for moves; one that has not
@@ -907,6 +988,7 @@ fn an_operation_on_its_way_waits_for_the_restored_account_to_sync() {
         ACCOUNT_ID,
         hub.rules.clone(),
         Arc::clone(&hub.key),
+        &Ed25519Signatures,
         Destination {
             account: [5; 20],
             tag: None,
@@ -1483,6 +1565,7 @@ fn an_unread_pay_waits_for_the_hub_across_a_restart() {
         ACCOUNT_ID,
         hub.rules.clone(),
         Arc::clone(&hub.key),
+        &Ed25519Signatures,
         Destination {
             account: [5; 20],
             tag: None,
@@ -1813,6 +1896,7 @@ fn a_thaw_moves_no_reduction_made_after_it() {
         ACCOUNT_ID,
         hub.rules.clone(),
         Arc::clone(&hub.key),
+        &Ed25519Signatures,
         Destination {
             account: [5; 20],
             tag: None,
@@ -2053,6 +2137,7 @@ fn the_freeze_is_kept_across_a_restart() {
             ACCOUNT_ID,
             hub.rules.clone(),
             Arc::clone(&hub.key),
+            &Ed25519Signatures,
             Destination {
                 account: [5; 20],
                 tag: None,
@@ -2085,6 +2170,7 @@ fn an_account_restores_only_its_own_hubs_state() {
             ACCOUNT_ID,
             hub.rules.clone(),
             Arc::clone(&hub.key),
+            &Ed25519Signatures,
             Destination {
                 account: [5; 20],
                 tag: None,
@@ -2732,6 +2818,7 @@ fn a_hub_shutting_down_cannot_receive() {
         ACCOUNT_ID,
         hub.rules.clone(),
         Arc::clone(&hub.key),
+        &Ed25519Signatures,
         Destination {
             account: [5; 20],
             tag: None,

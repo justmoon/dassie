@@ -40,7 +40,7 @@ use dassie_hub::rules::{Asset, Fees, LEAST_TOKEN_GAS_DROPS, Limits, Rules, Terms
 use dassie_hub::service::wire::Message;
 use dassie_hub::validators::{Signers, ValidatorIndex};
 use dassie_hub::{Digest, Ledger, Millis};
-use dassie_identity::{IdentityKey, NodeKey, PublicKey};
+use dassie_identity::{Ed25519Signatures, IdentityKey, NodeKey, PublicKey};
 use dassie_kit::sim::SeededRng;
 use dassie_ledger::Name;
 use dassie_oer::{Encode, Reader};
@@ -461,6 +461,7 @@ impl Validators {
             .into_iter()
             .map(|statement| {
                 SignedStatement::sign(
+                    &Ed25519Signatures,
                     self.ledger.hub(),
                     ValidatorIndex::new(index).unwrap(),
                     statement,
@@ -676,6 +677,7 @@ impl World {
             ACCOUNT_ID,
             self.validators.rules(),
             Arc::clone(&key),
+            &Ed25519Signatures,
             disbursal,
             scheme_name(),
             &[],
@@ -1018,6 +1020,7 @@ impl World {
             ACCOUNT_ID,
             rules,
             Arc::clone(&member.key),
+            &Ed25519Signatures,
             member.disbursal,
             scheme_name(),
             &account_state,

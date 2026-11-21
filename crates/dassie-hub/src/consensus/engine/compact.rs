@@ -123,7 +123,9 @@ impl Engine {
         let finalizes =
             certificate.kind == VoteKind::Finalize && self.kept().contains(&certificate.block);
         let view = certificate.view;
-        if !(gap || finalizes) || verify_certificate(&self.hub, self.set(), certificate).is_err() {
+        if !(gap || finalizes)
+            || verify_certificate(self.signatures, &self.hub, self.set(), certificate).is_err()
+        {
             return false;
         }
         if !self.rounds.contains_key(&view) && self.rounds.len() >= MAX_ROUNDS {

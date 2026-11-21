@@ -61,8 +61,9 @@ use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::any::Any;
+use core::cell::OnceCell;
 
-use dassie_identity::{NodeKey, PublicKey};
+use dassie_identity::{NodeKey, NodeSignatures, PublicKey};
 use dassie_ledger::{LedgerId, Name};
 use dassie_oer::{Encode, Reader};
 use dassie_settlement::policy::redeem_threshold;
@@ -230,6 +231,8 @@ pub struct HubScheme {
     asset: AssetId,
     pub(super) hub: HubId,
     pub(super) key: Arc<NodeKey>,
+    /// How key proofs are signed and checked: its account's.
+    signatures: &'static dyn NodeSignatures,
     pub(super) terms: Terms,
     /// The largest packet on the ledger, in internal units: what the
     /// threshold to redeem is counted in.
@@ -279,6 +282,9 @@ pub struct HubScheme {
     /// for the hold's notice, as its validators last told the account
     /// (spec/decisions/signed-rejects.md).
     takes_releases: bool,
+    /// Our key proof, and the node it names: signed once, since it never
+    /// changes, and offered to each peer again and again.
+    signed_key_proof: OnceCell<(Name, [u8; 64])>,
 }
 
 /// Whether `news` says the hub is shutting down or ended: an operation
@@ -351,6 +357,16 @@ pub(super) fn operation_hash(operation: &SignedMemberOperation) -> Digest {
 }
 
 impl HubScheme {
+    /// Our account key's signature that it is the key of the node `node`
+    /// ([`Commitments::key_proof`]).
+    fn prove_key(&self, node: Name) -> [u8; 64] {
+        let digest = super::key_proof_digest(&self.hub, node.as_str());
+        *self
+            .signatures
+            .sign(&self.key, digest.as_bytes())
+            .as_bytes()
+    }
+
     /// Whether a `settlement` message on this scheme books what it states
     /// ([`SettlementScheme::books_messages`]): never. Its message is a
     /// bare notice, with no data, which only moves the settlement channel
@@ -383,6 +399,7 @@ impl HubScheme {
             asset: ExternalAsset::id(account),
             hub: account.hub(),
             key: account.signer(),
+            signatures: account.signatures(),
             terms: account.terms().clone(),
             max_packet,
             booked: checkpoint.unwrap_or(0),
@@ -405,6 +422,7 @@ impl HubScheme {
             shut_down: false,
             stalled: false,
             takes_releases: false,
+            signed_key_proof: OnceCell::new(),
         };
         if !state.is_empty() {
             super::state::restore_scheme(&mut scheme, state).ok_or(SchemeError::InvalidData)?;
@@ -1965,7 +1983,9 @@ impl SettlementScheme for HubScheme {
         let digest = super::key_proof_digest(&self.hub, peer.as_str());
         let proven = proof.is_some_and(|proof| {
             let signature = dassie_identity::Signature::from_bytes(*proof);
-            known.key.verify(digest.as_bytes(), &signature).is_ok()
+            self.signatures
+                .verify(&known.key, digest.as_bytes(), &signature)
+                .is_ok()
         });
         Some(if proven { units(funds) } else { 0 })
     }
@@ -2223,8 +2243,14 @@ impl Commitments for HubScheme {
     /// presents us. None before either.
     /// Signed by our account key, so that it is ours alone.
     fn key_proof(&self, node: Name) -> Option<[u8; 64]> {
-        let digest = super::key_proof_digest(&self.hub, node.as_str());
-        Some(*self.key.sign(digest.as_bytes()).as_bytes())
+        let (proven, proof) = *self
+            .signed_key_proof
+            .get_or_init(|| (node, self.prove_key(node)));
+        Some(if proven == node {
+            proof
+        } else {
+            self.prove_key(node)
+        })
     }
 
     fn membership(&self) -> Option<dassie_settlement::Membership> {
@@ -2283,6 +2309,7 @@ mod tests {
     use crate::operation::Destination;
     use crate::rules::Rules;
     use crate::rules::tests::{rules, token_terms};
+    use dassie_identity::Ed25519Signatures;
 
     /// `rules` with `terms`, each acceptance signed again.
     fn with_terms(rules: &Rules, terms: Terms) -> Rules {
@@ -2305,6 +2332,7 @@ mod tests {
             super::super::account_id(id).unwrap(),
             rules,
             Arc::new(NodeKey::from_bytes(&[42; 32])),
+            &Ed25519Signatures,
             Destination {
                 account: [5; 20],
                 tag: None,

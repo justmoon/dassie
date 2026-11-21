@@ -316,6 +316,13 @@ const XRPL_LIVE_CONFIG: &str = r#"{"server":"ws://ledger.test"}"#;
 /// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
 const VALIDATION_SECRET: [u8; 32] = *b"dassie simulation validations ok";
 
+/// How the nodes sign and check their hubs' votes, statements and key
+/// proofs: by hashes, which cost a hundredth of Ed25519 signatures, and
+/// fail as they do on any change
+/// (spec/decisions/hashed-signatures-in-simulations.md). Everything else
+/// a node signs is signed for real.
+pub const SIGNATURES: &dyn dassie_identity::NodeSignatures = &dassie_identity::HashSignatures;
+
 /// What the fake ledger's issuer mints each node on its token's ledger once
 /// its line exists, in millionths of a dollar: as much as the stub gives.
 pub const MINT_MICROS: u64 = 100_000_000;
@@ -1283,6 +1290,7 @@ impl Sim {
         let parts = CoreParts {
             store: Arc::clone(&node.store),
             key: key(index),
+            signatures: SIGNATURES,
             realm,
             live,
             policies: Policies {

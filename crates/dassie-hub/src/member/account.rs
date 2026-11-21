@@ -79,7 +79,7 @@ use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use dassie_identity::{NodeKey, PublicKey};
+use dassie_identity::{NodeKey, NodeSignatures, PublicKey};
 use dassie_ledger::Name;
 use dassie_oer::Encode;
 use dassie_settlement::{
@@ -148,9 +148,19 @@ fn max_news(terms: &Terms) -> usize {
 /// is never refused. The message more also holds what ends each of the two
 /// answers a buffer holds, the issuer's hold, the version and the final
 /// block.
-fn agreement(hub: HubId, set: &ValidatorSet, terms: &Terms) -> Agreement {
+fn agreement(
+    hub: HubId,
+    set: &ValidatorSet,
+    signatures: &'static dyn NodeSignatures,
+    terms: &Terms,
+) -> Agreement {
     let quota = max_buffered(terms).saturating_add(MAX_STATEMENTS);
-    Agreement::new(hub, set.clone(), quota.saturating_mul(set.len()))
+    Agreement::new(
+        hub,
+        set.clone(),
+        signatures,
+        quota.saturating_mul(set.len()),
+    )
 }
 
 const _: () = assert!(MAX_STATEMENTS >= 2 * SINCE_TAIL);
@@ -410,6 +420,10 @@ pub struct HubAccount {
     pub(super) set: ValidatorSet,
     pub(super) endpoints: Vec<String>,
     pub(super) key: Arc<NodeKey>,
+    /// How the validators' statements and the scheme's key proofs are
+    /// signed and checked: a node's are Ed25519
+    /// (spec/decisions/hashed-signatures-in-simulations.md).
+    pub(super) signatures: &'static dyn NodeSignatures,
     pub(super) disbursal: Destination,
     pub(super) scheme: Name,
     // Kept with the books.
@@ -525,7 +539,8 @@ impl HubAccount {
     /// The account `id` in the hub of `rules`, whose key is `key` (the node
     /// derives it at `node/hub/member/<hub ID>/account`), through which `scheme`
     /// settles, paying out to `disbursal` at shutdown, from the state the
-    /// books kept.
+    /// books kept. The validators' statements are checked, and the
+    /// scheme's key proofs signed and checked, by `signatures`.
     ///
     /// # Errors
     ///
@@ -535,6 +550,7 @@ impl HubAccount {
         id: AssetId,
         rules: Rules,
         key: Arc<NodeKey>,
+        signatures: &'static dyn NodeSignatures,
         disbursal: Destination,
         scheme: Name,
         state: &[u8],
@@ -552,11 +568,12 @@ impl HubAccount {
         let mut account = Self {
             id,
             hub,
-            agreement: agreement(hub, &set, &rules.terms),
+            agreement: agreement(hub, &set, signatures, &rules.terms),
             set,
             rules,
             endpoints,
             key,
+            signatures,
             disbursal,
             scheme,
             number: None,
@@ -654,6 +671,12 @@ impl HubAccount {
     #[must_use]
     pub fn key(&self) -> PublicKey {
         self.key.public_key()
+    }
+
+    /// How the account's statements and key proofs are signed and checked.
+    #[must_use]
+    pub fn signatures(&self) -> &'static dyn NodeSignatures {
+        self.signatures
     }
 
     /// The key the account signs with, for the scheme's promises.
@@ -1342,9 +1365,11 @@ impl HubAccount {
         };
         self.heard = true;
         for signed in statements {
-            if !signed.verifies(&self.hub, &self.set) {
+            // Checked once, by the tally it goes to: its set is ours.
+            let Some(checked) = self.agreement.check(signed) else {
                 continue;
-            }
+            };
+            let signed = checked.signed();
             if let Statement::Final { height, .. } = signed.statement
                 && signed.validator.get() == endpoint
             {
@@ -1369,7 +1394,7 @@ impl HubAccount {
             {
                 self.trimmed_since = Some(self.now_ms);
             }
-            if let Some(agreed) = self.agreement.add(signed) {
+            if let Some(agreed) = self.agreement.add_checked(checked) {
                 self.agreed(agreed);
             }
             if let Some(dropped) = self.agreement.take_dropped() {
@@ -1426,7 +1451,7 @@ impl HubAccount {
     fn start_over(&mut self) {
         self.kept_up = false;
         self.buffer.clear();
-        self.agreement = agreement(self.hub, &self.set, &self.rules.terms);
+        self.agreement = agreement(self.hub, &self.set, self.signatures, &self.rules.terms);
         let cursor = self.cursor;
         self.uncover(0..self.set.len(), cursor.saturating_add(1));
     }

@@ -45,6 +45,13 @@ Tests make node keys from fixed seeds by the hundred, and a node key's SLH-DSA k
 - **Simulations take the table too:** their nodes' keys are the node keys of a byte repeated, and the generator always writes the keys of all 256, so a run from any seed finds its keys.
 - **A binary a test spawns makes its keys for real,** as `dassie` in the CLI's and the end-to-end tests: nothing passes it a keygen.
 
+## Hashed signatures in simulations
+
+A simulation over a hub signs and checks the hub's votes, the validators' statements and the members' key proofs by the hundred thousand, and Ed25519 on them took most of a campaign's time. So those three kinds are signed and checked through `NodeSignatures` (`dassie-identity`), which whatever signs or checks them takes when it is made: the hub's consensus engine, its validator and the node's driver of it, a member's hub account, and the node's engine core (`CoreParts`), which passes it to its hub accounts ([hashed-signatures-in-simulations](../decisions/hashed-signatures-in-simulations.md)). A node passes `Ed25519Signatures`. The simulations pass `HashSignatures` (`SIGNATURES` in each crate's `sim` module), SHA-512 over the signer's public key and the message, which fails on any change as a signature does, so a test that signs a vote or a statement for a simulated hub signs by those. Every other kind of message is signed with Ed25519, in a simulation too.
+
+- **Ed25519 on these messages is still tested:** by every test that is not built on a simulation's harness, which passes `Ed25519Signatures`, by the hub's golden vectors, which carry real signatures, and by the end-to-end tests, whose nodes are real.
+- **A hash is no signature outside a simulation:** anyone who knows a public key can make one, so nothing in a node passes `HashSignatures`.
+
 ## Interop
 
 Dassie runs against the reference implementations, which are the oracle for the standards: STREAM against `ilp-protocol-stream` in both directions, natively and in WASM; the BTP server against `ilp-plugin-btp`; Open Payments against `@interledger/open-payments`, which validates every response against the specs, with the node both as server and as a client of another node. The WASM build is also run in a headless browser, as the wallet and the website load it.

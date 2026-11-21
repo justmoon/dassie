@@ -15,10 +15,23 @@ mod vectors;
 
 use dassie_hub::escrow::{OPEN_MEMO_TYPE, deposit_of};
 use dassie_hub::founding::starting_terms;
+use dassie_identity::Ed25519Signatures;
 use dassie_xrpl::api::TxRecord;
 use dassie_xrpl::codec::{Amount, Payment, Transact};
 use dassie_xrpl::from_hex;
 use serde_json::Value;
+
+/// Whether the validators of `rules` signed each of `statements`, as
+/// vectors are signed: by Ed25519.
+fn signed_by_validators(
+    statements: &[dassie_hub::client::SignedStatement],
+    rules: &dassie_hub::rules::Rules,
+) -> bool {
+    let set = rules.validator_set().unwrap();
+    statements
+        .iter()
+        .all(|s| s.verifies(&Ed25519Signatures, &rules.id(), &set))
+}
 
 fn committed(version: u16) -> Value {
     let path = format!(
@@ -170,11 +183,11 @@ fn read_as_they_say(version: u16) {
         read(&vectors["block"]["blockDigest"])
     );
     let set = rules.validator_set().unwrap();
-    assert!(vote.verify(&rules.id().0, &set).is_ok());
+    assert!(vote.verify(&Ed25519Signatures, &rules.id().0, &set).is_ok());
     let statements =
         dassie_hub::client::SignedStatement::decode_list(&read(&vectors["block"]["statements"]))
             .unwrap();
-    assert!(statements.iter().all(|s| s.verifies(&rules.id(), &set)));
+    assert!(signed_by_validators(&statements, &rules));
     // The token hub whose states pin a freeze and a clawback is a token
     // hub of its own ID.
     let token_bytes = read(&vectors["token"]["rules"]);
@@ -217,8 +230,7 @@ fn releases_read_as_they_say() {
     let root = Digest(bytes(&releases["returned"]).try_into().unwrap());
     assert!(Ledger::restore(&snapshot, &root).is_ok());
     let statements = SignedStatement::decode_list(&bytes(&releases["statements"])).unwrap();
-    let set = rules.validator_set().unwrap();
-    assert!(statements.iter().all(|s| s.verifies(&rules.id(), &set)));
+    assert!(signed_by_validators(&statements, &rules));
     let upgrade = &vectors["upgrade"];
     let old = Rules::decode(&mut Reader::new(&bytes(&upgrade["rules"]))).unwrap();
     assert_eq!(old.terms.version, 1);

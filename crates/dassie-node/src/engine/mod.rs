@@ -826,6 +826,25 @@ impl Engine {
     }
 }
 
+/// What the node's core starts from: its store, its key and its config,
+/// and Ed25519 for its hubs' statements and key proofs, as every node.
+fn core_parts(node: &Node, key: &Arc<dassie_identity::IdentityKey>) -> CoreParts {
+    CoreParts {
+        store: node.store_handle(),
+        key: Arc::clone(key),
+        signatures: &dassie_identity::Ed25519Signatures,
+        realm: node.config().realm,
+        live: node.live_realm(),
+        policies: *node.policies(),
+        rng: node.shared_rng(),
+        peer_rng: node.shared_rng(),
+        own_info: own_info(node),
+        bootstrap: bootstrap(node),
+        uplinks: node.pinned_uplinks(),
+        dev_core: node.dev_core(),
+    }
+}
+
 /// What the node's link state says about it.
 fn own_info(node: &Node) -> dassie_peer::OwnInfo {
     node.own_info()
@@ -857,20 +876,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken, now: Cancellation
     let Some(key) = key else { return };
     // Subscribed before our info is read, so no change in between is lost.
     let config = node.subscribe_config();
-    let parts = CoreParts {
-        store: node.store_handle(),
-        key: Arc::clone(&key),
-        realm: node.config().realm,
-        live: node.live_realm(),
-        policies: *node.policies(),
-        rng: node.shared_rng(),
-        peer_rng: node.shared_rng(),
-        own_info: own_info(&node),
-        bootstrap: bootstrap(&node),
-        uplinks: node.pinned_uplinks(),
-        dev_core: node.dev_core(),
-    };
-    let mut core = match Core::start(parts, node.now_ms()) {
+    let mut core = match Core::start(core_parts(&node, &key), node.now_ms()) {
         Ok(core) => core,
         Err(error) => {
             tracing::error!(target: target::ENGINE, %error, "the ledger could not start");

@@ -775,6 +775,7 @@ impl Sim {
             &rules,
             genesis,
             &validator.node,
+            super::SIGNATURES,
             now,
         )
         .unwrap();
@@ -1125,6 +1126,7 @@ impl Sim {
         .unwrap();
         let digest = block.digest(&hub.id().0);
         Vote::sign(
+            super::SIGNATURES,
             &hub.id().0,
             &keys.consensus,
             ValidatorIndex::new(split(index).1).unwrap(),
