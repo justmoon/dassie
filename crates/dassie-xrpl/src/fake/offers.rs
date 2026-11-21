@@ -15,11 +15,13 @@
 //!
 //! What a crossing meets at its price that is past its expiration, the
 //! taker's own, or whose owner holds nothing of what it gives, it takes
-//! away. A move the
-//! fake cannot make (a freeze, a line's limit, a balance it would have to
-//! round) ends the crossing there. The fake takes no offer flags, crosses
-//! no AMM pool, and sends no Payment through the book. Its arithmetic is
-//! exact ([`crate::offer`]).
+//! away. Where a line would have to round its balance, a crossing takes
+//! less of a token and pays more of one, a digit at a time, until both
+//! lines hold their balances exactly, never beyond the taker's own price; a
+//! move the fake still cannot make (a freeze, a line's limit) ends the
+//! crossing there. The fake takes no offer flags, crosses no AMM pool, and
+//! sends no Payment through the book. Its arithmetic is exact
+//! ([`crate::offer`]).
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -31,6 +33,7 @@ use super::objects::{self, amount_json};
 use super::pools;
 use super::tokens::TokenMove;
 use super::{Account, FakeLedger, Touched};
+use crate::amm::Round;
 use crate::amount::Asset;
 use crate::api::account_flags;
 use crate::codec::{Amount, Currency, OfferCancel, OfferCreate, TokenAmount, TokenValue};
@@ -437,7 +440,7 @@ impl FakeLedger {
                 self.delete_offer(touched, key, resting);
                 continue;
             }
-            match self.step(taker, key.0, &resting, left) {
+            match self.step(taker, key.0, &resting, left, (wants, gives)) {
                 Step::Unfunded => self.delete_offer(touched, key, resting),
                 Step::Stop => break,
                 Step::Fill(fill) => {
@@ -483,12 +486,18 @@ impl FakeLedger {
     /// What `taker`, which still asks for `left.0` and gives `left.1`,
     /// takes from `maker`'s resting offer at its price: as much as the
     /// taker asks for and the maker holds, or what the taker can pay for.
+    /// Where a line would have to round its balance, the ledger rounds the
+    /// move; the fake instead takes less of a token, and pays more of one,
+    /// a digit at a time, until both lines hold their balances exactly, as
+    /// for a pool's price ([`FakeLedger::quote`]), and never beyond the
+    /// taker's own price, `limit`, its first terms.
     fn step(
         &self,
         taker: AccountId,
         maker: AccountId,
         resting: &Offer,
         left: (Amount, Amount),
+        limit: (Amount, Amount),
     ) -> Step {
         let (pays, gets) = (resting.taker_pays, resting.taker_gets);
         let maker_has = self.funds(maker, gets);
@@ -515,12 +524,25 @@ impl FakeLedger {
         if taken.is_zero() {
             return Step::Stop;
         }
-        let (Some(pays_left), Some(gets_left)) = (sub(pays, paid), sub(gets, taken)) else {
+        let Some((rounded, to_taker)) = self.exact_leg(maker, taker, taken, Round::Down) else {
             return Step::Stop;
         };
-        let (Some(to_maker), Some(to_taker)) =
-            (self.leg(taker, maker, paid), self.leg(maker, taker, taken))
-        else {
+        if rounded != taken {
+            let Ok(cost) = offer::cost(rounded, pays, gets) else {
+                return Step::Stop;
+            };
+            (taken, paid) = (rounded, cost);
+        }
+        let Some((rounded, to_maker)) = self.exact_leg(taker, maker, paid, Round::Up) else {
+            return Step::Stop;
+        };
+        if rounded != paid {
+            paid = rounded;
+            if less(budget, paid) || offer::crosses(paid, taken, limit.0, limit.1) != Some(true) {
+                return Step::Stop;
+            }
+        }
+        let (Some(pays_left), Some(gets_left)) = (sub(pays, paid), sub(gets, taken)) else {
             return Step::Stop;
         };
         let rest = (!pays_left.is_zero() && !gets_left.is_zero()).then_some((pays_left, gets_left));
@@ -534,11 +556,37 @@ impl FakeLedger {
 
     /// `amount` from `from` to `to`, checked as a Payment's move is: XRP,
     /// which the caller checked `from` holds, or a token over the lines.
-    fn leg(&self, from: AccountId, to: AccountId, amount: Amount) -> Option<Leg> {
-        match amount {
-            Amount::Xrp(drops) => Some(Leg::Xrp { from, to, drops }),
-            Amount::Token(token) => self.plan_token(from, to, token).ok().map(Leg::Token),
+    /// A token's value the lines cannot hold exactly is rounded as `round`
+    /// says, a digit at a time, until they can: the amount moved, and its
+    /// leg. Nothing that fails for any other reason is rounded.
+    fn exact_leg(
+        &self,
+        from: AccountId,
+        to: AccountId,
+        amount: Amount,
+        round: Round,
+    ) -> Option<(Amount, Leg)> {
+        let token = match amount {
+            Amount::Xrp(drops) => return Some((amount, Leg::Xrp { from, to, drops })),
+            Amount::Token(token) => token,
+        };
+        let first = token.value.exponent();
+        for exponent in first..first.saturating_add(pools::MAX_ROUNDING_DIGITS) {
+            let value = match round {
+                Round::Up => pools::round_up_to(token.value, exponent)?,
+                Round::Down => pools::round_down_to(token.value, exponent)?,
+            };
+            if value.is_zero() {
+                return None;
+            }
+            let rounded = TokenAmount { value, ..token };
+            match self.plan_token(from, to, rounded) {
+                Ok(planned) => return Some((Amount::Token(rounded), Leg::Token(planned))),
+                Err("tecPRECISION_LOSS") => {}
+                Err(_) => return None,
+            }
         }
+        None
     }
 
     /// Makes a leg on the ledger as it now is.

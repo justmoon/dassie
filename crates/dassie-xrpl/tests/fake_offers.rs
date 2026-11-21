@@ -734,3 +734,97 @@ fn an_issuer_offers_its_own_token_without_bound() {
         usd_of("500000")
     );
 }
+
+#[test]
+fn a_cost_a_line_cannot_hold_exactly_is_rounded_up_until_it_can() {
+    let mut ledger = FakeLedger::new();
+    let wallets = traders(&mut ledger, &[1, 2], "50");
+    let (maker, taker) = (&wallets[0], &wallets[1]);
+    ledger
+        .issue(
+            maker.account(),
+            IssuedAsset::DSUSD.amount(value("392.79991")),
+        )
+        .unwrap();
+    ledger.deposit(maker.account(), 900 * DROPS_PER_XRP);
+    close(&mut ledger);
+    // The maker, with 442.79991 DSUSD, gives 50.499995 XRP for 25.249997.
+    let (_, _, resting) = offer(
+        &mut ledger,
+        maker,
+        dsusd("25.249997"),
+        Amount::Xrp(50_499_995),
+    );
+    // 19 XRP of it cost 9.49999981188116… DSUSD at its price, which the
+    // maker's line cannot add to 442.79991 in sixteen digits: the ledger
+    // rounds the sum, the fake the cost, up, to its line's last digit.
+    let (record, meta, _) = offer(&mut ledger, taker, Amount::Xrp(19_000_000), dsusd("10"));
+    assert!(record.succeeded(), "{}", record.result);
+    assert_eq!(
+        offer_nodes(&meta),
+        [(
+            "ModifiedNode".to_string(),
+            maker.account().to_address(),
+            u64::from(resting)
+        )]
+    );
+    assert_eq!(
+        ledger.token_balance(maker.account(), IssuedAsset::DSUSD),
+        Some(value("452.2999098118812"))
+    );
+    assert_eq!(
+        ledger.token_balance(taker.account(), IssuedAsset::DSUSD),
+        Some(value("40.5000001881188"))
+    );
+    let left = ledger.offer(maker.account(), resting).unwrap();
+    assert_eq!(
+        (left.taker_pays, left.taker_gets),
+        (dsusd("15.7499971881188"), Amount::Xrp(31_499_995))
+    );
+    assert!(offers_of(&mut ledger, taker.account()).offers.is_empty());
+}
+
+#[test]
+fn a_take_a_line_cannot_hold_exactly_is_rounded_down_until_it_can() {
+    let mut ledger = FakeLedger::new();
+    let wallets = traders(&mut ledger, &[1, 2], "10");
+    let (maker, taker) = (&wallets[0], &wallets[1]);
+    ledger
+        .issue(
+            taker.account(),
+            IssuedAsset::DSUSD.amount(value("432.79991")),
+        )
+        .unwrap();
+    close(&mut ledger);
+    let (_, _, resting) = offer(&mut ledger, maker, xrp(20), dsusd("10"));
+    let (maker_xrp, taker_xrp) = (
+        ledger.balance(maker.account()).unwrap(),
+        ledger.balance(taker.account()).unwrap(),
+    );
+    // The taker, with 442.79991 DSUSD, asks for sixteen digits of it, which
+    // its line cannot add: it takes them rounded down to its line's last
+    // digit, and pays for that at the resting price, rounded up to a drop.
+    let (record, _, _) = offer(&mut ledger, taker, dsusd("9.499999811881169"), xrp(20));
+    assert!(record.succeeded(), "{}", record.result);
+    assert_eq!(
+        ledger.token_balance(taker.account(), IssuedAsset::DSUSD),
+        Some(value("452.2999098118811"))
+    );
+    assert_eq!(
+        ledger.token_balance(maker.account(), IssuedAsset::DSUSD),
+        Some(value("0.5000001881189"))
+    );
+    assert_eq!(
+        ledger.balance(maker.account()),
+        Some(maker_xrp + 19_000_000)
+    );
+    assert_eq!(
+        ledger.balance(taker.account()),
+        Some(taker_xrp - 19_000_000 - FEE_BASE)
+    );
+    let left = ledger.offer(maker.account(), resting).unwrap();
+    assert_eq!(
+        (left.taker_pays, left.taker_gets),
+        (Amount::Xrp(1_000_000), dsusd("0.5000001881189"))
+    );
+}
