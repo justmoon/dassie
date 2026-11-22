@@ -650,6 +650,9 @@ impl Core {
         self.orphaned_swaps();
         self.swap_outcomes();
         self.read_snapshots();
+        // It values what it gets at the curve from what the books hold now:
+        // the table must count the moves on their way as they are now.
+        self.price_if_moved();
         let room = self.room_returned();
         let seen = Seen {
             table: self.prices.table,

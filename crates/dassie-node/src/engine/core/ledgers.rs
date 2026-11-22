@@ -917,6 +917,7 @@ impl Core {
                 Effect::Cancel { settlement: id } => self.settlement_cancelled(scheme, *id),
             }
         }
+        self.follow_landings(scheme, ledger, effects);
         self.take_journal();
         self.checkpoint_if_changed(scheme);
         Ok(())
@@ -1448,9 +1449,11 @@ impl Core {
                 balance.pays_from = Some(view.id);
             }
         }
-        // A deposit into the hub is the owner's still, on its way: once gone
-        // from the book it counts toward the balance, and while the book
-        // holds it, it is no packet in flight.
+        // A move between the hub and the book is the owner's still, on its
+        // way: once gone from the ledger it leaves, a deposit from the book
+        // or a withdrawal the hub executed, it counts toward the balance
+        // until the other books it, and while the ledger it leaves holds
+        // it, it is no packet in flight.
         for (ledger, on_its_way) in self.moves_on_their_way() {
             if let Some(balance) = balances
                 .iter_mut()

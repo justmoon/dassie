@@ -422,6 +422,36 @@ pub enum GasNext {
     },
 }
 
+/// A withdrawal the hub executed, on its way to the owner book's account:
+/// gone from the hub's ledger, and not yet on the book's, which books it
+/// once its account sees the escrow's payment arrive, a ledger or two
+/// after it applied (spec/decisions/passive-rebalancing.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Landing {
+    /// What arrives, in the hub asset's smallest unit.
+    pub drops: u64,
+    /// When the hub executed it.
+    pub since_ms: u64,
+    /// The account's `returned` counter, in step with the hub, when the
+    /// move started, before the hub can have executed it: once it grows, a
+    /// withdrawal the escrow could not pay came back to the hub, as this
+    /// one may have, and it no longer counts.
+    pub returned: u64,
+}
+
+impl Landing {
+    /// Whether it still counts toward its asset at `now_ms`, with the
+    /// account's `returned` counter now at `returned`: until it is late
+    /// (`CREDIT_WAIT_MS`), and while no withdrawal came back, which the
+    /// node cannot tell from this one. What it cannot tell, it counts on
+    /// neither ledger.
+    #[must_use]
+    pub fn counts(&self, now_ms: u64, returned: Option<u64>) -> bool {
+        now_ms < self.since_ms.saturating_add(CREDIT_WAIT_MS)
+            && returned.is_some_and(|returned| returned <= self.returned)
+    }
+}
+
 /// The node's moves between its XRPL account and its hub account.
 #[derive(Debug)]
 pub struct Funding {
@@ -450,6 +480,18 @@ pub struct Funding {
     /// What a failed top-up holds back: the next check of the gas, and no
     /// other move.
     gas_backoff: Backoff,
+    /// The withdrawal the hub executed last, until the owner book's
+    /// account books it arriving. Kept in memory only: after a restart,
+    /// what is still on its way counts on neither ledger.
+    pub landing: Option<Landing>,
+    /// The payment of the withdrawal on its way whose arrival the owner
+    /// book booked before the hub's execution of it reached the node.
+    landed_early: Option<Name>,
+    /// The account's `returned` counter, in step with the hub, when the
+    /// move on its way started: what a withdrawal's landing counts a return
+    /// from. Kept in memory only: none for a move restored after a
+    /// restart, whose withdrawal never lands.
+    returned_at_start: Option<u64>,
 }
 
 impl Funding {
@@ -467,7 +509,71 @@ impl Funding {
             interval_ms,
             gas: Gas::Unchecked,
             gas_backoff: Backoff::new(),
+            landing: None,
+            landed_early: None,
+            returned_at_start: None,
         }
+    }
+
+    /// The hub executed the owner's payment `id`, as the node read it at
+    /// `now_ms`: if it is the withdrawal on its way, it is landing now,
+    /// counting a return from the account's `returned` counter when the move
+    /// started, unless the owner book booked it arriving already or that
+    /// counter is unknown. The node may read the execution together with a
+    /// newer state of the account, in which the withdrawal came back
+    /// already: a counter read then would count that return as before it.
+    /// Returns whether the landing changed.
+    pub fn executed(&mut self, now_ms: u64, id: Name) -> bool {
+        let Some(moving) = self
+            .moving
+            .filter(|moving| moving.direction == Direction::Withdraw && moving.payment == id)
+        else {
+            return false;
+        };
+        if self.landed_early.take() == Some(id) {
+            return false;
+        }
+        let Some(returned) = self.returned_at_start else {
+            return false;
+        };
+        self.landing = Some(Landing {
+            drops: moving.drops,
+            since_ms: now_ms,
+            returned,
+        });
+        true
+    }
+
+    /// The owner book booked `drops` arriving: the landing withdrawal of
+    /// that much has landed; or, while a withdrawal of that much is on its
+    /// way and not executed as far as the node heard, it landed early.
+    /// Returns whether the landing changed.
+    pub fn arrived(&mut self, drops: u64) -> bool {
+        if self.landing.is_some_and(|landing| landing.drops == drops) {
+            self.landing = None;
+            return true;
+        }
+        if let Some(moving) = self
+            .moving
+            .filter(|moving| moving.direction == Direction::Withdraw && moving.drops == drops)
+            && self.landing.is_none()
+        {
+            self.landed_early = Some(moving.payment);
+        }
+        false
+    }
+
+    /// Forgets the landing withdrawal once it no longer counts
+    /// ([`Landing::counts`]). Returns whether it did.
+    pub fn landing_over(&mut self, now_ms: u64, returned: Option<u64>) -> bool {
+        if self
+            .landing
+            .is_some_and(|landing| !landing.counts(now_ms, returned))
+        {
+            self.landing = None;
+            return true;
+        }
+        false
     }
 
     /// What a failure of a move `direction` holds back.
@@ -501,6 +607,11 @@ impl Funding {
         assert!(
             self.interval_ms > 0 && self.at_ms <= now_ms.saturating_add(self.interval_ms),
             "the next check is at most an interval away"
+        );
+        assert!(
+            self.landing
+                .is_none_or(|landing| landing.since_ms <= now_ms),
+            "a withdrawal lands after the hub executed it"
         );
     }
 
@@ -705,10 +816,12 @@ impl Funding {
         None
     }
 
-    /// Starts `planned`, paid as `payment`; an owner's pauses the automatic
-    /// moves.
-    pub fn start(&mut self, now_ms: u64, planned: Planned, payment: Name) {
+    /// Starts `planned`, paid as `payment`, the account's `returned`
+    /// counter, in step with the hub, at `returned`; an owner's pauses the
+    /// automatic moves.
+    pub fn start(&mut self, now_ms: u64, planned: Planned, payment: Name, returned: Option<u64>) {
         assert!(self.moving.is_none(), "one move at a time");
+        self.returned_at_start = returned;
         if planned.direction == Direction::Withdraw {
             self.gas = Gas::Unchecked;
         }
@@ -1272,6 +1385,59 @@ mod tests {
         assert_eq!(funding.due(1, &none), None, "too little to open it");
     }
 
+    // spec/decisions/passive-rebalancing.md: a withdrawal the hub executed
+    // is landing until the owner book books it arriving, a while passed,
+    // or a withdrawal came back to the hub; one the book booked before the
+    // execution reached the node never lands again; and a deposit is never
+    // landing.
+    #[test]
+    fn an_executed_withdrawal_lands_until_the_book_books_it() {
+        let other = Name::new("other").unwrap();
+        let mut funding = Funding::new(0, 4_000);
+        funding.start(1, Planned::withdraw(700, 100, 0, true), payment(), Some(3));
+        assert!(!funding.executed(2, other), "another payment");
+        assert!(!funding.arrived(699), "another amount");
+        assert!(funding.executed(2, payment()));
+        let landing = funding.landing.unwrap();
+        assert_eq!((landing.drops, landing.since_ms), (700, 2));
+        assert!(landing.counts(2 + CREDIT_WAIT_MS - 1, Some(3)));
+        assert!(!landing.counts(2 + CREDIT_WAIT_MS, Some(3)), "late");
+        assert!(!landing.counts(3, Some(4)), "a withdrawal came back");
+        assert!(!landing.counts(3, None), "cannot tell");
+        assert!(!funding.landing_over(3, Some(3)));
+        assert!(funding.arrived(700), "landed");
+        assert_eq!(funding.landing, None);
+        assert!(!funding.arrived(700), "once");
+
+        // Booked before the node heard the hub execute it.
+        let mut funding = Funding::new(0, 4_000);
+        funding.start(1, Planned::withdraw(700, 100, 0, true), payment(), Some(3));
+        assert!(!funding.arrived(700));
+        assert!(!funding.executed(2, payment()), "landed already");
+        assert_eq!(funding.landing, None);
+
+        // Past its while, forgotten.
+        let mut funding = Funding::new(0, 4_000);
+        funding.start(1, Planned::withdraw(700, 100, 0, true), payment(), Some(3));
+        assert!(funding.executed(2, payment()));
+        assert!(funding.landing_over(2 + CREDIT_WAIT_MS, Some(3)));
+        assert_eq!(funding.landing, None);
+
+        // A move whose counter is unknown, restored after a restart, never
+        // lands.
+        let mut funding = Funding::new(0, 4_000);
+        funding.start(1, Planned::withdraw(700, 100, 0, true), payment(), None);
+        assert!(!funding.executed(2, payment()));
+        assert_eq!(funding.landing, None);
+
+        // A deposit's payment applying lands nothing.
+        let mut funding = Funding::new(0, 4_000);
+        funding.start(1, Planned::deposit(700, 0, true), payment(), Some(3));
+        assert!(!funding.executed(2, payment()));
+        assert!(!funding.arrived(700));
+        assert_eq!(funding.landing, None);
+    }
+
     // One at a time, done only once the counter reaches its target,
     // however long that takes: late after a while, never paid again. A
     // payment that moved nothing fails the move, and the next waits a
@@ -1281,7 +1447,7 @@ mod tests {
         let mut funding = Funding::new(0, 4_000);
         let low = standing(100_000, 300_000);
         let planned = funding.due(1, &low).unwrap();
-        funding.start(1, planned, payment());
+        funding.start(1, planned, payment(), None);
         assert_eq!(funding.due(2, &low), None, "one on its way");
         let mut applied = low;
         applied.paying = OwnerPaymentState::Applied;
@@ -1302,14 +1468,14 @@ mod tests {
         assert!(funding.moving.is_none());
 
         let planned = funding.due(much_later, &low).unwrap();
-        funding.start(much_later, planned, payment());
+        funding.start(much_later, planned, payment(), None);
         let mut failed = low;
         failed.paying = OwnerPaymentState::Failed(dassie_settlement::PaymentFailure::Other);
         assert!(funding.follow(much_later, &failed));
         assert_eq!(funding.due(much_later + 1, &low), None, "backing off");
         let after = much_later + FIRST_BACKOFF_MS;
         let again = funding.due(after, &low).unwrap();
-        funding.start(after, again, payment());
+        funding.start(after, again, payment(), None);
         funding.follow(after, &failed);
         assert_eq!(
             funding.due(after + FIRST_BACKOFF_MS, &low),
@@ -1326,7 +1492,7 @@ mod tests {
         let mut funding = Funding::new(0, 4_000);
         let high = standing(12_000_000, 14_000_000);
         let planned = funding.due(1, &high).unwrap();
-        funding.start(1, planned, payment());
+        funding.start(1, planned, payment(), None);
         let mut executed = high;
         executed.paying = OwnerPaymentState::Applied;
         assert!(!funding.follow(2, &executed), "not shown yet");
@@ -1341,7 +1507,7 @@ mod tests {
         let low = standing(100_000, 300_000);
         let mut funding = Funding::new(0, 4_000);
         let planned = funding.due(1, &low).unwrap();
-        funding.start(1, planned, payment());
+        funding.start(1, planned, payment(), None);
         assert_eq!(funding.give_up(2), None, "not late yet");
         let late = 1 + CREDIT_WAIT_MS;
         let given_up = funding.give_up(late).unwrap();
@@ -1351,7 +1517,7 @@ mod tests {
         assert!(!funding.follow(late, &counted(low, planned.target, 3)));
         funding.owner_acted();
         assert!(funding.due(late, &low).is_some());
-        funding.start(late, Planned::deposit(5, 7, true), payment());
+        funding.start(late, Planned::deposit(5, 7, true), payment(), None);
         assert_eq!(funding.given_up, None);
     }
 
@@ -1421,7 +1587,7 @@ mod tests {
         assert_eq!(deposit.direction, Direction::Deposit, "the floor's goes");
 
         // The deposit fails as well: each way waits its own backoff.
-        funding.start(11, deposit, payment());
+        funding.start(11, deposit, payment(), None);
         let mut failed = low;
         failed.paying = OwnerPaymentState::Cancelled;
         assert!(funding.follow(12, &failed));
@@ -1443,7 +1609,7 @@ mod tests {
         );
         let later = 12 + FIRST_BACKOFF_MS;
         let deposit = funding.due(later, &low).unwrap();
-        funding.start(later, deposit, payment());
+        funding.start(later, deposit, payment(), None);
         assert!(funding.follow(later, &counted(low, deposit.target, 3)));
         funding.failed(later, Direction::Deposit);
         assert_eq!(
@@ -1459,7 +1625,12 @@ mod tests {
     fn the_owner_decides_first() {
         let low = standing(100_000, 300_000);
         let mut funding = Funding::new(0, 4_000);
-        funding.start(5, Planned::withdraw(1_000_000, 100, 3, true), payment());
+        funding.start(
+            5,
+            Planned::withdraw(1_000_000, 100, 3, true),
+            payment(),
+            None,
+        );
         funding.follow(6, &counted(low, 7, 1_000_103));
         assert!(funding.moving.is_none());
         assert_eq!(funding.due(7, &low), None);
@@ -1708,7 +1879,7 @@ mod tests {
         seen.proven = Some((Some(LEAST_ESCROW_GAS_DROPS), 10));
         assert_eq!(funding.gas_step(3, &seen), GasNext::Ready, "at the anchor");
         assert!(funding.gas_ready(3) && !funding.gas_ready(3 + GAS_CHECK_LASTS_MS));
-        funding.start(4, Planned::withdraw(1_000_000, 0, 3, true), payment());
+        funding.start(4, Planned::withdraw(1_000_000, 0, 3, true), payment(), None);
         assert!(!funding.gas_ready(5), "each withdrawal checks again");
         funding.moving = None;
 
