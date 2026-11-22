@@ -40,6 +40,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     MIGRATION_15,
     MIGRATION_16,
     MIGRATION_17,
+    MIGRATION_18,
 ];
 
 /// The schema version this code writes.
@@ -817,6 +818,27 @@ WHERE (SELECT stock FROM rate_sources_stock_17);
 DROP TABLE rate_sources_stock_17;
 ";
 
+/// Migration 18: method offers (spec/decisions/method-offers.md). Each
+/// settlement channel keeps the newest version of our offer to its node and
+/// of its offer to us; each peering, the newest version of ours its peer
+/// has seen, the schemes of our offer (NULL until written: its methods),
+/// and the newest of the peer's versions taken in when it was made; each
+/// method, the version the peer must have seen before our packets take it,
+/// 0 for one made before, so that none waits.
+const MIGRATION_18: &str = "
+ALTER TABLE settlement_channels ADD COLUMN offer_out INTEGER NOT NULL DEFAULT 0
+  CHECK (offer_out >= 0);
+ALTER TABLE settlement_channels ADD COLUMN offer_in INTEGER NOT NULL DEFAULT 0
+  CHECK (offer_in >= 0);
+ALTER TABLE peers ADD COLUMN offer_acked INTEGER NOT NULL DEFAULT 0
+  CHECK (offer_acked >= 0);
+ALTER TABLE peers ADD COLUMN offered TEXT;
+ALTER TABLE peers ADD COLUMN offer_floor INTEGER NOT NULL DEFAULT 0
+  CHECK (offer_floor >= 0);
+ALTER TABLE peer_methods ADD COLUMN confirm_at INTEGER NOT NULL DEFAULT 0
+  CHECK (confirm_at >= 0);
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1031,6 +1053,9 @@ pub const TABLES: &[Table] = &[
             ("depeering_since_ms", "INTEGER", false, false),
             ("depeering_reason", "INTEGER", false, false),
             ("was_core", "INTEGER", true, false),
+            ("offer_acked", "INTEGER", true, false),
+            ("offered", "TEXT", false, false),
+            ("offer_floor", "INTEGER", true, false),
         ],
     },
     Table {
@@ -1045,6 +1070,7 @@ pub const TABLES: &[Table] = &[
             ("short_for_ms", "INTEGER", true, false),
             ("short_reached_ms", "INTEGER", true, false),
             ("winding_since_ms", "INTEGER", false, false),
+            ("confirm_at", "INTEGER", true, false),
         ],
     },
     Table {
@@ -1082,6 +1108,8 @@ pub const TABLES: &[Table] = &[
             ("outbox_attempts", "INTEGER", false, false),
             ("closed", "INTEGER", true, false),
             ("paid_us", "INTEGER", true, false),
+            ("offer_out", "INTEGER", true, false),
+            ("offer_in", "INTEGER", true, false),
         ],
     },
     Table {

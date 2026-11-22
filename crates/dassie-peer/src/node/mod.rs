@@ -9,6 +9,7 @@ mod lifecycle;
 mod membership;
 mod methods;
 mod names;
+mod offers;
 mod peering;
 mod promotion;
 mod settle;
@@ -271,11 +272,10 @@ pub(crate) enum Purpose {
     PeeringInfo,
     /// Asking a node to peer.
     PeeringRequest,
-    /// Asking a peer for its peering info on a scheme, to add a method.
-    MethodInfo,
-    /// Asking a peer to add a method.
-    MethodAdd,
-    /// Telling a peer we dropped a method, on this scheme.
+    /// Sending a peer our offer (spec/decisions/method-offers.md).
+    Offer,
+    /// Telling a peer of the release before we dropped a method, on this
+    /// scheme.
     MethodDrop(SchemeId),
     /// Checking that an inbound request's sender is reachable at its URL.
     Probe(Box<inbound::Probe>),
@@ -415,10 +415,15 @@ pub struct PeerNode {
     /// Peers we are telling that we end the peering, and when to try
     /// next (`u64::MAX` while a message is in flight).
     pub(crate) telling: BTreeMap<NodeId, u64>,
-    /// Methods we dropped and are telling the peer of, and when to try
-    /// next (`u64::MAX` while a message is in flight): at most
-    /// [`MAX_METHODS`] per peering, gone with it.
+    /// Methods we dropped and are telling a peer of the release before of,
+    /// one that takes no offers, and when to try next (`u64::MAX` while a
+    /// message is in flight): at most [`MAX_METHODS`] per peering, gone
+    /// with it (spec/decisions/method-offers.md).
     pub(crate) dropping: BTreeMap<(NodeId, SchemeId), u64>,
+    /// What the node keeps of its offers with each peer, beside what is
+    /// persisted (spec/decisions/method-offers.md): at most one per
+    /// peering, gone with it.
+    pub(crate) talks: BTreeMap<NodeId, offers::Talk>,
     /// Peers our messages surely do not reach: an ILP packet of ours to
     /// each surely did not arrive, and nothing we sent it since was
     /// answered (spec/decisions/unreachable-peers.md). Only peers are kept,
@@ -519,6 +524,7 @@ impl PeerNode {
             unbanned: Vec::new(),
             telling: BTreeMap::new(),
             dropping: BTreeMap::new(),
+            talks: BTreeMap::new(),
             unreached: BTreeSet::new(),
             told_not_peered: BTreeMap::new(),
             pinned: Vec::new(),
@@ -823,6 +829,7 @@ impl PeerNode {
             self.stats.requests_failed += 1;
         } else if !url_check {
             self.settlement_reachable(&outstanding.to);
+            self.offer_reachable(&outstanding.to);
             if self.peering_of(&outstanding.to).is_some() {
                 self.saw(&outstanding.to);
             }
@@ -937,8 +944,7 @@ impl PeerNode {
             Purpose::Sweep(ids) => self.on_sweep(&ids, result),
             Purpose::PeeringInfo => self.on_peering_info(hooks, to, result),
             Purpose::PeeringRequest => self.on_peering_response(hooks, to, result),
-            Purpose::MethodInfo => self.on_method_info(hooks, to, result),
-            Purpose::MethodAdd => self.on_method_response(hooks, to, result),
+            Purpose::Offer => self.on_offer(hooks, to, result),
             Purpose::MethodDrop(scheme) => self.on_method_drop(to, scheme, &result),
             Purpose::Probe(probe) => self.on_probe(hooks, to, probe, result),
             Purpose::UrlCheck(sequence) => self.on_url_check(to, sequence, result),
@@ -1037,7 +1043,8 @@ impl PeerNode {
         self.seek_peers(hooks);
         self.read_funds();
         self.check_urls(hooks);
-        self.seek_methods(hooks);
+        self.refresh_offers(hooks);
+        self.send_offers();
         self.tend_snapshots(hooks);
         self.update_routes();
         self.follow_own_address();
@@ -1093,6 +1100,7 @@ impl PeerNode {
             self.registrar.as_ref().and_then(Registrar::next_due),
             self.registrant.next_due(&self.holders, self.now_ms),
             self.next_snapshot_check(),
+            self.next_offer(),
         ];
         candidates.into_iter().flatten().min()
     }
@@ -1187,7 +1195,7 @@ impl PeerNode {
         );
         self.advance(now_ms);
         let peering = self.peering_of(peer).ok_or(SendError::NotPeered)?;
-        if !peering.has(scheme) {
+        if !peering.confirmed(scheme) {
             return Err(SendError::NoMethod);
         }
         let content = Content::MethodPacket {
@@ -1556,6 +1564,7 @@ impl PeerNode {
         // Out of the majority set too, so the node is added again if it
         // still has a majority.
         self.lists.majority.remove(node);
+        self.talks.remove(node);
         if self.table.remove(node).is_some() {
             self.dirty.remove(node);
             self.removed.push(*node);
@@ -1570,7 +1579,8 @@ impl PeerNode {
 pub enum SendError {
     /// The node is not a peer.
     NotPeered,
-    /// The peering has no method on the scheme.
+    /// The peering has no method on the scheme, or the peer has not yet
+    /// seen an offer of ours that carried it (spec/decisions/method-offers.md).
     NoMethod,
     /// Too many requests are in flight.
     Busy,

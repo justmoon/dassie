@@ -407,6 +407,7 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
                 owed: owed.map_or(0, saturate),
                 withdrawn: *withdrawn,
                 winding_down: method.winding_down(),
+                confirmed: peering.confirms(method),
             })
             .collect(),
         promotion: view

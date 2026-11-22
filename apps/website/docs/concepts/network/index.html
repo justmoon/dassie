@@ -191,14 +191,15 @@
         </li>
         <li>
           <strong>Every shared hub counts.</strong> Two nodes in more than one
-          hub together settle over each of them, within one peering. A hub
-          they both join later is added; a hub that has failed for a day is
-          dropped, and a peering left with no hub ends.
+          hub together settle over each of them, within one peering: each
+          tells the other the hubs it settles over with it, and they use those
+          both name. A hub they both join later is added; a hub that has
+          failed for a day is dropped, and a peering left with no hub ends.
         </li>
         <li>
           <strong>When it fails.</strong> A refused or failed request waits
           longer before each new try. When two nodes ask each other at the
-          same moment, the request of the lower node ID wins.
+          same moment, both requests are taken, and they make one peering.
         </li>
       </ul>
       <p>

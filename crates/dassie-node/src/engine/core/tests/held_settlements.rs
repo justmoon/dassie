@@ -64,6 +64,8 @@ fn store_with_channel(busy: Option<&str>) -> Arc<Store> {
             settled_out: u64::from(busy.is_some()),
             outbox,
             paid_us: false,
+            offer_out: 0,
+            offer_in: 0,
         },
     };
     let batch = LedgerBatch {

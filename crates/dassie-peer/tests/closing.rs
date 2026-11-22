@@ -100,12 +100,21 @@ fn an_idle_channel_closes() {
     assert_eq!(closed(&network, 1, &a), 1);
     assert!(!network.holds_channel(&a, 1), "no longer stored open");
     assert_eq!(
-        network.nodes[0].hooks.closed.get(&b),
-        Some(&Closed {
-            settled_in: 0,
-            settled_out: 1,
-            paid_us: false,
-        })
+        network.nodes[0].hooks.closed.get(&b).map(|closed| (
+            closed.settled_in,
+            closed.settled_out,
+            closed.paid_us
+        )),
+        Some((0, 1, false))
+    );
+    // The versions of the offers stay with the channel
+    // (spec/decisions/method-offers.md).
+    assert!(
+        network.nodes[0]
+            .hooks
+            .closed
+            .get(&b)
+            .is_some_and(|closed: &Closed| closed.offer_out >= 1 && closed.offer_in >= 1)
     );
     assert_eq!(
         network.nodes[1].hooks.closed.get(&a).map(|c| c.settled_in),

@@ -20,7 +20,7 @@ use dassie_settlement::{
 
 use super::super::Core;
 use super::super::hubs::{HubSent, Joining, paid_in_credit};
-use super::{COMMITTING, NOW, add_stub, core, downlink_request, scheme_id};
+use super::{COMMITTING, NOW, add_stub, core, downlink_request, offer_from, scheme_id};
 
 /// The hub's minimum for a new account, in the stub's units.
 const MINIMUM: u64 = 3_000_000_000;
@@ -42,6 +42,7 @@ fn joining_core(seed: u64, side: Side) -> (Core, NodeId, Arc<Mutex<Vec<u64>>>) {
     core.begin_step(at);
     let body = downlink_request(&downlink, at);
     core.peer_inbound(dassie_peer::InboundId(1), downlink.identity(), &body, None);
+    offer_from(&mut core, &downlink, 2);
     let peer = downlink.node_id();
     assert!(core.peer.peering_of(&peer).is_some());
     assert!(core.open_downlink_accounts(peer, STUB));

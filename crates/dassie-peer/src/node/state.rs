@@ -224,6 +224,13 @@ impl PeerNode {
             first
         });
         peering.methods.truncate(super::MAX_METHODS);
+        // Our offer carries every method, as one stored before offers had
+        // its methods for its offer (spec/decisions/method-offers.md).
+        for scheme in peering.schemes().collect::<Vec<_>>() {
+            if !peering.offered.contains(&scheme) {
+                peering.offered.push(scheme);
+            }
+        }
         // A method being wound down keeps its decision, and takes its steps
         // again (spec/decisions/settlement-methods.md); whether its scheme
         // can receive is looked at afresh.
@@ -737,22 +744,16 @@ impl PeerNode {
                 .all(|(node, _)| self.peering_of(node).is_some()),
             "only methods of peerings are dropped"
         );
+        assert!(
+            self.talks
+                .keys()
+                .all(|node| self.peering_of(node).is_some()),
+            "offers are kept only with peers"
+        );
         for (id, entry) in &self.table {
             if let Some(peering) = entry.peering() {
                 let methods = &peering.methods;
-                assert!(
-                    (1..=super::MAX_METHODS).contains(&methods.len()),
-                    "a peering has a method, within the bound"
-                );
-                assert!(
-                    methods.iter().enumerate().all(|(index, method)| {
-                        methods
-                            .iter()
-                            .skip(index + 1)
-                            .all(|other| other.scheme != method.scheme)
-                    }),
-                    "a method per scheme"
-                );
+                self.check_offer(id, peering);
                 for method in methods {
                     if let Some(winding) = method.winding {
                         assert!(
@@ -790,6 +791,44 @@ impl PeerNode {
                 "a peer's key is known"
             );
         }
+    }
+
+    /// A peering's offer (spec/decisions/method-offers.md): it carries
+    /// every method, each scheme once; the peer has seen no version of ours
+    /// we never took; and the peering's floor is a version of the peer's we
+    /// took.
+    fn check_offer(&self, id: &NodeId, peering: &crate::table::Peering) {
+        let channel = self.channels.get(id);
+        let out = channel.map_or(0, |channel| channel.offer_out);
+        assert!(
+            peering
+                .methods
+                .iter()
+                .all(|method| peering.offered.contains(&method.scheme)),
+            "our offer carries every method"
+        );
+        assert!(
+            peering.offered.len() <= super::MAX_SCHEMES + super::MAX_METHODS
+                && peering.offered.iter().enumerate().all(|(index, scheme)| {
+                    peering
+                        .offered
+                        .get(index + 1..)
+                        .is_none_or(|rest| !rest.contains(scheme))
+                }),
+            "an offer names a scheme once, within the bound"
+        );
+        assert!(
+            peering.offer_acked <= out
+                && peering
+                    .methods
+                    .iter()
+                    .all(|method| method.confirm_at <= out),
+            "no version of our offer is seen before we took it"
+        );
+        assert!(
+            channel.is_none_or(|channel| peering.offer_floor <= channel.offer_in),
+            "a peering's floor is a version of the peer's we took"
+        );
     }
 
     /// The periphery's invariants (spec/areas/network.md#periphery-nodes):

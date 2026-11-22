@@ -611,7 +611,9 @@ impl PeerNode {
                     .peering_of(&id)
                     .map(|peering| peering.schemes().collect())
                     .unwrap_or_default();
-                hooks.open_core_accounts(now, id, &schemes)
+                // Not the pairs our offers keep (spec/decisions/method-offers.md).
+                let reserved = self.reserved_pairs(hooks, None);
+                hooks.open_core_accounts(now, id, &schemes, reserved)
             }
         };
         // A core peer's place in the table, made only once it is sure.
@@ -923,6 +925,7 @@ impl PeerNode {
         }
         self.telling.remove(&peer);
         self.dropping.retain(|(node, _), _| *node != peer);
+        self.forget_talk(&peer);
         self.unreached.remove(&peer);
         self.drop_peer_source(&peer);
         self.gossip.routes_dirty = true;

@@ -10,10 +10,10 @@ use dassie_identity::IdentityKey;
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::Name;
 use dassie_peer::wire::{
-    Content, EXTENSION_FEED, Entry, HubDetails, LinkStateResponse, MethodResponse, NameHolding,
-    NameListResponse, NameReceipt, NodeInfo, NodeListResponse, PeeringResponse, RefusalReason,
-    SchemeId, SettlementOffer, SignedNodeInfo, SubscriptionResponse, encode_expiry, encode_octets,
-    encode_settling, sign_node_info,
+    Content, EXTENSION_FEED, Entry, HubDetails, LinkStateResponse, MethodOffer, MethodResponse,
+    NameHolding, NameListResponse, NameReceipt, NodeInfo, NodeListResponse, OfferedMethod,
+    PeeringResponse, RefusalReason, SchemeId, SettlementOffer, SignedNodeInfo,
+    SubscriptionResponse, encode_expiry, encode_octets, encode_settling, sign_node_info,
 };
 
 use super::inputs::{KINDS, content};
@@ -162,6 +162,18 @@ pub fn answers() -> BTreeMap<String, Vec<u8>> {
         ("registered", encode_expiry(1_700_086_400_000)),
         ("peeringInfo", encode_octets(&[0xab; 20])),
         ("settling", encode_settling(1_000)),
+        (
+            "methodOffer",
+            MethodOffer {
+                version: 4,
+                seen: 7,
+                methods: vec![OfferedMethod {
+                    scheme: SchemeId::parse("stub").unwrap(),
+                    data: &[],
+                }],
+            }
+            .to_vec(),
+        ),
     ]
     .into_iter()
     .map(|(name, bytes)| (name.to_owned(), bytes))

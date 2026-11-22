@@ -51,11 +51,13 @@ pub trait PeeringHooks {
         out: &mut Vec<u8>,
     ) -> Result<(), Declined>;
 
-    /// Accepts a request from `peer`: opens its accounts. `downlink` says
-    /// it peers as our downlink, whose accounts take the downlinks' room,
-    /// never the core peers' (spec/decisions/account-budgets.md). Called
-    /// again for a peer already peered (spec/decisions/peering-lifecycle.md),
-    /// which must change nothing.
+    /// Accepts a request from `peer`, or adopts a method both offer, with
+    /// the peer's data: opens its accounts. `downlink` says it peers as our
+    /// downlink, whose accounts take the downlinks' room, never the core
+    /// peers' (spec/decisions/account-budgets.md). Called again for a peer
+    /// already peered (spec/decisions/peering-lifecycle.md), or one whose
+    /// data on a method changed (spec/decisions/method-offers.md), which
+    /// must change nothing but what the data says.
     ///
     /// # Errors
     ///
@@ -73,10 +75,37 @@ pub trait PeeringHooks {
     /// place, on `schemes`, the methods of its peering: a core peer's are
     /// open on each, in the core peers' share, where a downlink's open
     /// only once value moves with it
-    /// (spec/decisions/lazy-downlink-accounts.md). Returns whether they
-    /// are; if not, the peering ends instead.
-    fn open_core_accounts(&mut self, _now_ms: u64, _peer: NodeId, _schemes: &[SchemeId]) -> bool {
+    /// (spec/decisions/lazy-downlink-accounts.md). `reserved` pairs of
+    /// the core peers' share are kept for methods the node offers and has
+    /// not adopted yet, and are not this peer's to take
+    /// (spec/decisions/method-offers.md). Returns whether they are; if
+    /// not, the peering ends instead.
+    fn open_core_accounts(
+        &mut self,
+        _now_ms: u64,
+        _peer: NodeId,
+        _schemes: &[SchemeId],
+        _reserved: usize,
+    ) -> bool {
         true
+    }
+
+    /// Whether `peer` has its accounts on the ledger of `scheme` already,
+    /// so that a method on it opens none. A method that would open a core
+    /// peer's accounts is offered only within the core peers' share, each
+    /// one keeping its pair until it is adopted or leaves the offer
+    /// (spec/decisions/method-offers.md). Every peer has them by default.
+    fn has_accounts(&self, peer: NodeId, scheme: SchemeId) -> bool {
+        let _ = (peer, scheme);
+        true
+    }
+
+    /// How many more core peers' pairs of accounts the core peers' share
+    /// has room for now, before what offers keep
+    /// (spec/decisions/account-budgets.md,
+    /// spec/decisions/method-offers.md). Without bound by default.
+    fn free_core_pairs(&self) -> usize {
+        usize::MAX
     }
 
     /// Whether `peer`'s own account in the hub `scheme` settles over could
@@ -151,13 +180,13 @@ pub trait PeeringHooks {
 
     /// Whether the node takes a further settlement method on `scheme` with
     /// `peer`, beside those their peering has
-    /// (spec/decisions/settlement-methods.md): whether it asks for one, as
-    /// the node that made the peering, and whether it takes the peer's
-    /// request for one. A method it takes opens its accounts as a
-    /// peering's first does, through [`accept`](Self::accept) or
-    /// [`finalize`](Self::finalize). `downlink` says the peer is our
-    /// downlink, whose accounts take the downlinks' room, never the core
-    /// peers' (spec/decisions/account-budgets.md).
+    /// (spec/decisions/settlement-methods.md): whether it offers it to the
+    /// peer (spec/decisions/method-offers.md). A method it takes opens its
+    /// accounts as a peering's first does, through
+    /// [`accept`](Self::accept). `downlink` says the peer is our downlink,
+    /// whose accounts take the downlinks' room, never the core peers'
+    /// (spec/decisions/account-budgets.md); the core peers' room is the
+    /// peer node's to share out ([`free_core_pairs`](Self::free_core_pairs)).
     fn wants_method(&self, peer: NodeId, downlink: bool, scheme: SchemeId) -> bool;
 
     /// Whether the node takes a newcomer on `scheme` now, a new peering or

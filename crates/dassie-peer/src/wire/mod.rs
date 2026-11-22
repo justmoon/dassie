@@ -6,6 +6,7 @@
 
 mod content;
 mod node_info;
+mod offer;
 mod response;
 mod scheme;
 mod url;
@@ -18,6 +19,7 @@ pub use node_info::{
     Entry, HubDetails, InvalidNodeInfo, NodeInfo, SettlementOffer, SignedNodeInfo,
     max_node_info_bytes, sign_node_info,
 };
+pub use offer::{MethodOffer, OfferedMethod};
 pub use response::{
     LinkStateResponse, MethodResponse, NameHolding, NameListResponse, NameReceipt,
     NodeListResponse, PeeringResponse, RefusalReason, SubscriptionResponse, decode_expiry,
@@ -188,6 +190,8 @@ pub enum Kind {
     Snapshot,
     /// `hubReject [21]`.
     HubReject,
+    /// `methodOffer [22]`.
+    MethodOffer,
 }
 
 impl Kind {
@@ -217,6 +221,7 @@ impl Kind {
             19 => Self::Subscription,
             20 => Self::Snapshot,
             21 => Self::HubReject,
+            22 => Self::MethodOffer,
             _ => return None,
         })
     }
@@ -247,6 +252,7 @@ impl Kind {
             Self::Subscription => 19,
             Self::Snapshot => 20,
             Self::HubReject => 21,
+            Self::MethodOffer => 22,
         }
     }
 

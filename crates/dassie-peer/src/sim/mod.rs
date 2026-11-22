@@ -109,9 +109,27 @@ pub struct StubHooks {
     pub funds: BTreeMap<NodeId, bool>,
     /// The peers whose funds the node read ([`Event::CheckFunds`]).
     pub funds_read: BTreeSet<NodeId>,
+    /// The core peers' pairs of accounts opened, by peer and scheme, which
+    /// stay for good (spec/decisions/account-budgets.md).
+    pub pairs: BTreeSet<(NodeId, SchemeId)>,
+    /// How many pairs the core peers' share has room for, if it is
+    /// bounded: unbounded, every peer counts as having its accounts.
+    pub max_pairs: Option<usize>,
 }
 
 impl StubHooks {
+    /// Opens a core peer's pair on `scheme`, if it has none and one fits.
+    fn open_pair(&mut self, peer: NodeId, scheme: SchemeId) -> bool {
+        if self.pairs.contains(&(peer, scheme)) {
+            return true;
+        }
+        if self.max_pairs.is_some_and(|max| self.pairs.len() >= max) {
+            return false;
+        }
+        self.pairs.insert((peer, scheme));
+        true
+    }
+
     /// The reply to a packet: its claim, where one goes.
     fn reply(&self, answer: crate::PacketAnswer) -> crate::Reply {
         let claim: &[u8] = if answer.takes_claim() {
@@ -163,13 +181,16 @@ impl PeeringHooks for StubHooks {
     fn accept(
         &mut self,
         _: u64,
-        _: NodeId,
-        _: bool,
-        _: SchemeId,
+        peer: NodeId,
+        downlink: bool,
+        scheme: SchemeId,
         _: &[u8],
     ) -> Result<Agreed, RefusalReason> {
         if let Some(reason) = self.refuse {
             return Err(reason);
+        }
+        if !downlink && !self.open_pair(peer, scheme) {
+            return Err(RefusalReason::Capacity);
         }
         Ok(Agreed {
             state: Vec::new(),
@@ -177,7 +198,16 @@ impl PeeringHooks for StubHooks {
         })
     }
 
-    fn finalize(&mut self, _: u64, _: NodeId, _: SchemeId, _: &[u8]) -> Result<Agreed, Declined> {
+    fn finalize(
+        &mut self,
+        _: u64,
+        peer: NodeId,
+        scheme: SchemeId,
+        _: &[u8],
+    ) -> Result<Agreed, Declined> {
+        if !self.open_pair(peer, scheme) {
+            return Err(Declined);
+        }
         Ok(Agreed {
             state: Vec::new(),
             credit_out: CREDIT,
@@ -208,6 +238,39 @@ impl PeeringHooks for StubHooks {
 
     fn takes_newcomer(&self, scheme: SchemeId, downlink: bool) -> bool {
         !self.shut.contains(&(scheme, downlink))
+    }
+
+    fn has_accounts(&self, peer: NodeId, scheme: SchemeId) -> bool {
+        self.max_pairs.is_none() || self.pairs.contains(&(peer, scheme))
+    }
+
+    fn free_core_pairs(&self) -> usize {
+        self.max_pairs
+            .map_or(usize::MAX, |max| max.saturating_sub(self.pairs.len()))
+    }
+
+    fn open_core_accounts(
+        &mut self,
+        _: u64,
+        peer: NodeId,
+        schemes: &[SchemeId],
+        reserved: usize,
+    ) -> bool {
+        let wanted: Vec<SchemeId> = schemes
+            .iter()
+            .copied()
+            .filter(|scheme| !self.pairs.contains(&(peer, *scheme)))
+            .collect();
+        if self
+            .max_pairs
+            .is_some_and(|max| self.pairs.len() + wanted.len() + reserved > max)
+        {
+            return false;
+        }
+        for scheme in wanted {
+            self.pairs.insert((peer, scheme));
+        }
+        true
     }
 
     fn drained(&self, peer: NodeId) -> bool {
@@ -349,6 +412,67 @@ impl Role {
     #[must_use]
     pub const fn is_honest(self) -> bool {
         matches!(self, Self::Honest)
+    }
+}
+
+/// A fault set up for the next request of a kind from one node to another
+/// ([`Network::script`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Scripted {
+    /// The sender, by index.
+    pub from: usize,
+    /// The recipient, by index.
+    pub to: usize,
+    /// The request's kind.
+    pub kind: Kind,
+    /// How long it takes to arrive, if not the network's latency.
+    pub delay_ms: Option<u64>,
+    /// A copy that arrives this long after it, if any.
+    pub copy_after_ms: Option<u64>,
+    /// Whether its answer is lost: the request arrives and is acted upon,
+    /// and its sender learns nothing of the outcome.
+    pub lose_answer: bool,
+}
+
+impl Scripted {
+    /// No fault yet, for the next request of `kind` from `from` to `to`.
+    #[must_use]
+    pub const fn on(from: usize, to: usize, kind: Kind) -> Self {
+        Self {
+            from,
+            to,
+            kind,
+            delay_ms: None,
+            copy_after_ms: None,
+            lose_answer: false,
+        }
+    }
+
+    /// It arrives `ms` after it was sent.
+    #[must_use]
+    pub const fn delayed(self, ms: u64) -> Self {
+        Self {
+            delay_ms: Some(ms),
+            ..self
+        }
+    }
+
+    /// A copy arrives `ms` after it.
+    #[must_use]
+    pub const fn copied(self, ms: u64) -> Self {
+        Self {
+            copy_after_ms: Some(ms),
+            ..self
+        }
+    }
+
+    /// Its answer is lost.
+    #[must_use]
+    pub const fn answer_lost(self) -> Self {
+        Self {
+            lose_answer: true,
+            ..self
+        }
     }
 }
 
@@ -553,6 +677,16 @@ pub struct Network {
     sent: BTreeMap<(usize, u64, RequestId), Sent>,
     /// Copies of requests the forger sent ([`Faults::forgery`]).
     pub forgeries: usize,
+    /// Faults set up for particular requests, by sender, recipient and
+    /// kind: each applies to the next such request, once, so that a test
+    /// can lay out a schedule.
+    pub script: Vec<Scripted>,
+    /// Nodes that act as of the release before offers: they answer an
+    /// offer with 400, as an unknown message, and send none.
+    pub refuse_offers: BTreeSet<usize>,
+    /// The requests whose answers are lost, by sender, its generation and
+    /// the request's ID ([`Scripted::lose_answer`]).
+    lost_answers: BTreeSet<(usize, u64, RequestId)>,
     /// What was taken from the forger that only a node holding something
     /// with the recipient may send: a safety failure.
     pub forgeries_taken: Vec<String>,
@@ -691,6 +825,9 @@ impl Network {
             forge: None,
             sent: BTreeMap::new(),
             forgeries: 0,
+            script: Vec::new(),
+            refuse_offers: BTreeSet::new(),
+            lost_answers: BTreeSet::new(),
             forgeries_taken: Vec::new(),
             periphery: (count..count + periphery).collect(),
             pinned: BTreeMap::new(),
@@ -773,6 +910,24 @@ impl Network {
         self.trace.push(format!("{} start {index}", self.now));
         self.name_changes
             .extend(changes.into_iter().map(|change| (index, change)));
+    }
+
+    /// Changes what node `index`, while down, persisted of its peering
+    /// with `peer`, as a node of an earlier release would have left it.
+    pub fn edit_stored_peering(
+        &mut self,
+        index: usize,
+        peer: &NodeId,
+        edit: impl FnOnce(&mut crate::Peering),
+    ) {
+        assert!(self.nodes[index].node.is_none(), "the node is down");
+        if let Some(peering) = self.nodes[index]
+            .stored_nodes
+            .get_mut(peer)
+            .and_then(|stored| stored.peering.as_mut())
+        {
+            edit(peering);
+        }
     }
 
     /// Crashes node `index`: what it did not persist is lost.
@@ -1173,13 +1328,18 @@ impl Network {
                     body: reply.body,
                 };
                 let delay = self.latency();
+                let result = if self.lost_answers.remove(&(to, generation, request)) {
+                    Err(Failure::Unknown)
+                } else {
+                    Ok(response)
+                };
                 self.schedule(
                     delay,
                     Delivery::Result {
                         to,
                         generation,
                         request,
-                        result: Ok(response),
+                        result,
                     },
                 );
             }
@@ -1238,6 +1398,48 @@ impl Network {
                     result: Err(Failure::NotDelivered),
                 },
             );
+            return;
+        }
+        if request.kind == Kind::MethodOffer && self.refuse_offers.contains(&from) {
+            self.schedule(
+                1,
+                Delivery::Result {
+                    to: from,
+                    generation,
+                    request: request.id,
+                    result: Err(Failure::NotDelivered),
+                },
+            );
+            return;
+        }
+        let scripted = self
+            .script
+            .iter()
+            .position(|script| {
+                script.from == from && script.to == to && script.kind == request.kind
+            })
+            .map(|at| self.script.remove(at));
+        if let Some(scripted) = scripted {
+            if scripted.lose_answer {
+                self.lost_answers.insert((from, generation, request.id));
+            }
+            let first = scripted.delay_ms.unwrap_or_else(|| self.latency());
+            let mut delays = vec![first];
+            if let Some(after) = scripted.copy_after_ms {
+                delays.push(first.saturating_add(after));
+            }
+            for delay in delays {
+                self.schedule(
+                    delay,
+                    Delivery::Request {
+                        from,
+                        to,
+                        request: request.id,
+                        kind: request.kind,
+                        body: request.body.clone(),
+                    },
+                );
+            }
             return;
         }
         let copies = if self.chance(self.faults.duplication) {
@@ -1388,6 +1590,22 @@ impl Network {
 
     fn arrive(&mut self, from: usize, to: usize, request: RequestId, kind: Kind, body: &[u8]) {
         let generation = self.nodes[from].generation;
+        if kind == Kind::MethodOffer && self.refuse_offers.contains(&to) {
+            let delay = self.latency();
+            self.schedule(
+                delay,
+                Delivery::Result {
+                    to: from,
+                    generation,
+                    request,
+                    result: Ok(Response {
+                        status: 400,
+                        body: Vec::new(),
+                    }),
+                },
+            );
+            return;
+        }
         let now = self.local_now(to);
         let sim = &mut self.nodes[to];
         let Some(node) = sim.node.as_mut() else {
@@ -1483,13 +1701,18 @@ impl Network {
                 status: reply.status,
                 body: reply.body,
             };
+            let result = if self.lost_answers.remove(&(from, generation, request)) {
+                Err(Failure::Unknown)
+            } else {
+                Ok(response)
+            };
             self.schedule(
                 delay,
                 Delivery::Result {
                     to: from,
                     generation,
                     request,
-                    result: Ok(response),
+                    result,
                 },
             );
         }

@@ -2331,8 +2331,38 @@ fn peer_as_downlink(core: &mut Core, downlink: &Arc<IdentityKey>, at: u64) {
     core.begin_step(at);
     let body = stub_downlink_request(core, downlink, at);
     core.peer_inbound(dassie_peer::InboundId(1), downlink.identity(), &body, None);
+    offer_from(core, downlink, 3);
     core.finish_step(&mut outputs);
     assert!(core.peer.is_downlink(&downlink.node_id()));
+}
+
+/// `peer`'s offer to `core` (spec/decisions/method-offers.md): the methods
+/// of their peering, having seen `core`'s newest offer, as a peer sends one
+/// once peered. Within a step. A peering made on `peer`'s request waits
+/// for it before `core`'s packets take a method.
+pub(super) fn offer_from(core: &mut Core, peer: &IdentityKey, inbound: u64) {
+    use dassie_peer::wire::{Content, MethodOffer, OfferedMethod, SchemeId};
+    let id = peer.node_id();
+    let schemes: Vec<SchemeId> = core.peer.peering_of(&id).unwrap().schemes().collect();
+    let channel = core.peer.channel(&id).unwrap();
+    let (seen, version) = (channel.offer_out, channel.offer_in + 1);
+    let offer = Content::MethodOffer(MethodOffer {
+        version,
+        seen,
+        methods: schemes
+            .iter()
+            .map(|scheme| OfferedMethod {
+                scheme: *scheme,
+                data: &[],
+            })
+            .collect(),
+    });
+    core.peer_inbound(
+        dassie_peer::InboundId(inbound),
+        peer.identity(),
+        &offer.to_vec(),
+        None,
+    );
 }
 
 /// `node` sends `core` its link state, at `at`, with `url` or without one.
@@ -4530,6 +4560,7 @@ fn stub_core_with_downlink_on(store: Arc<Store>, config: &str) -> (Core, dassie_
     core.begin_step(at);
     let body = stub_downlink_request(&mut core, &downlink, at);
     core.peer_inbound(dassie_peer::InboundId(1), downlink.identity(), &body, None);
+    offer_from(&mut core, &downlink, 3);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     let id = downlink.node_id();
@@ -7202,7 +7233,17 @@ fn a_dropped_method_takes_its_slot_and_brings_it_back() {
     }
     // The stub's method comes back, after the other, with its slot.
     let usd = dassie_ledger::LedgerId::StubUsd;
-    let back = |sim: &crate::sim::Sim| (0..2).all(|index| ledgers(sim, index) == [hub, usd]);
+    let back = |sim: &crate::sim::Sim| {
+        (0..2).all(|index| {
+            let other = crate::sim::key(1 - index).node_id();
+            ledgers(sim, index) == [hub, usd]
+                && sim
+                    .core(index)
+                    .peer
+                    .peering_of(&other)
+                    .is_some_and(|peering| peering.confirmed(scheme_id("stub")))
+        })
+    };
     assert!(
         sim.run_until_or(sim.now + 600_000, back),
         "the stub's method did not come back with its slot"
@@ -7268,6 +7309,9 @@ mod promotion;
 
 // Fewer peer slots when a hub's pool is too short.
 mod liquidity;
+
+// The room an offer keeps for a core peer's accounts, at the last pair.
+mod offer_room;
 
 // Leaving a hub that ended, and books a move by hand left behind.
 mod leaving;

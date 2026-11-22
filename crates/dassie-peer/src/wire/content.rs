@@ -8,7 +8,7 @@ use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Size, Wri
 
 use super::{
     Kind, MAX_COMMITMENT_BYTES, MAX_LINK_STATE_REQUEST_IDS, MAX_RELEASE_BYTES, MAX_SNAPSHOT_BYTES,
-    SchemeId, SignedNodeInfo, node_id_len, read_fixed, read_node_id, write_node_id,
+    MethodOffer, SchemeId, SignedNodeInfo, node_id_len, read_fixed, read_node_id, write_node_id,
 };
 use crate::names::{
     COMMITMENT_BYTES, Commitment, Name, SALT_BYTES, Salt, name_len, read_name, write_name,
@@ -175,6 +175,12 @@ pub enum Content<'a> {
         /// Not empty, and at most [`MAX_RELEASE_BYTES`].
         release: &'a [u8],
     },
+    /// `methodOffer [22]`: the settlement methods the sender settles on
+    /// with the recipient, with each scheme's data
+    /// (spec/decisions/method-offers.md). Its answer is the recipient's own
+    /// offer. It joined version 2 once releases spoke it: a node that does
+    /// not know it answers 400, and is taken as of the release before.
+    MethodOffer(MethodOffer<'a>),
 }
 
 /// Why a peering is terminated. Unknown codes read as
@@ -268,6 +274,7 @@ impl Content<'_> {
             Self::Subscription { .. } => Kind::Subscription,
             Self::Snapshot(_) => Kind::Snapshot,
             Self::HubReject { .. } => Kind::HubReject,
+            Self::MethodOffer(_) => Kind::MethodOffer,
         }
     }
 
@@ -313,6 +320,7 @@ impl Content<'_> {
             Self::HubReject {
                 packet, release, ..
             } => 4 + size::prefixed(packet.len()) + size::prefixed(release.len()),
+            Self::MethodOffer(offer) => offer.encoded_len(),
         }
     }
 }
@@ -385,6 +393,7 @@ impl Encode for Content<'_> {
             }
             Self::Subscription { subscribe } => writer.write_bool(*subscribe),
             Self::Snapshot(snapshot) => writer.write_octets(snapshot, SNAPSHOT_SIZE),
+            Self::MethodOffer(offer) => offer.encode_to(writer),
         }
     }
 }
@@ -447,6 +456,7 @@ impl<'a> Decode<'a> for Content<'a> {
                 packet: reader.read_octets(Size::ANY)?,
                 release: reader.read_octets(RELEASE_SIZE)?,
             },
+            Kind::MethodOffer => Self::MethodOffer(MethodOffer::decode(reader)?),
         })
     }
 }
