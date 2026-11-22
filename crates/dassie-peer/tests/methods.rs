@@ -68,10 +68,20 @@ fn wait(network: &mut Network, done: impl Fn(&Network) -> bool) {
     assert!(done(network), "never came to pass");
 }
 
-/// The node of the two that made the peering: the one that asks for its
-/// further methods.
+/// The node of the two whose request made the peering, as far as node 0
+/// recorded it: no role rests on it any more
+/// (spec/decisions/method-offers.md), so a test picks one side by it.
 fn requester(network: &Network, b: &NodeId) -> usize {
     usize::from(network.node(0).peering_of(b).unwrap().inbound)
+}
+
+/// How many offers node `index` sent.
+fn offers_sent(network: &Network, index: usize) -> usize {
+    network
+        .trace
+        .iter()
+        .filter(|line| line.contains(&format!(" {index} -> ")) && line.ends_with("MethodOffer"))
+        .count()
 }
 
 /// The events of node `index` that `wanted` picks.
@@ -83,9 +93,10 @@ fn events(network: &Network, index: usize, wanted: impl Fn(&Event) -> bool) -> u
         .count()
 }
 
-// A pair that runs two schemes peers on the first, and the node that asked
-// for the peering asks for the second as a further method; the other takes
-// it. The first is the one the peering was made on.
+// A pair that runs two schemes peers on the first, and both offer the
+// second: each adopts it as a further method, nobody asking
+// (spec/decisions/method-offers.md). The first is the one the peering was
+// made on.
 #[test]
 fn a_pair_that_runs_two_schemes_settles_on_both() {
     let (network, a, b) = both(71);
@@ -95,15 +106,20 @@ fn a_pair_that_runs_two_schemes_settles_on_both() {
         let peering = network.node(index).peering_of(&peer).unwrap();
         assert_eq!(peering.first().scheme, scheme(STUB));
     }
-    let asked = requester(&network, &b);
-    let added = |index, inbound| {
-        events(&network, index, |event| {
-            matches!(event, Event::MethodAdded { scheme: s, inbound: i, .. }
-                if *s == scheme(SECOND) && *i == inbound)
-        })
+    let added = |index| {
+        events(
+            &network,
+            index,
+            |event| matches!(event, Event::MethodAdded { scheme: s, .. } if *s == scheme(SECOND)),
+        )
     };
-    assert_eq!((added(asked, false), added(1 - asked, true)), (1, 1));
-    assert_eq!(network.node(asked).stats().methods_added, 1);
+    assert_eq!((added(0), added(1)), (1, 1));
+    assert_eq!(network.node(0).stats().methods_added, 1);
+    assert_eq!(network.node(1).stats().methods_added, 1);
+    assert!(
+        !network.trace.iter().any(|line| line.ends_with("MethodAdd")),
+        "nobody asks for a method"
+    );
 }
 
 /// Two nodes that run both schemes, where each of `direct` would settle
@@ -299,8 +315,10 @@ fn a_node_that_takes_no_further_method_keeps_one() {
     wait(&mut network, |network| {
         network.node(0).is_advertised(&b) && network.node(1).is_advertised(&a)
     });
-    // The responder alone refuses: the requester asks, and backs off.
+    // One alone takes it: it offers it, the other does not, and no method
+    // comes of it; nothing is sent again and again meanwhile.
     let asked = requester(&network, &b);
+    let before = offers_sent(&network, asked);
     network.nodes[asked].hooks.refuse_methods = false;
     settle(&mut network, 60_000);
     assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
@@ -312,13 +330,11 @@ fn a_node_that_takes_no_further_method_keeps_one() {
         )),
         0
     );
-    let asks = network
-        .trace
-        .iter()
-        .filter(|line| line.contains(&format!(" {asked} -> ")) && line.ends_with("MethodAdd"))
-        .count();
-    // Backing off: a few times, not at every heartbeat.
-    assert!((1..=6).contains(&asks), "asked {asks} times in a minute");
+    let offered = offers_sent(&network, asked) - before;
+    assert!(
+        (1..=2).contains(&offered),
+        "offered {offered} times in a minute"
+    );
     for index in 0..2 {
         network.crash(index);
         network.start(index);
@@ -330,8 +346,8 @@ fn a_node_that_takes_no_further_method_keeps_one() {
 
 // spec/decisions/slots-by-liquidity.md: a node whose pool over a scheme's
 // hub would not cover one more peer takes no newcomer on it, of the kind it
-// refuses: it asks none, and refuses one for capacity, a peering as a
-// further method; once it takes newcomers again, they come.
+// refuses: it asks none, refuses a peering on it for capacity, and offers it
+// as no further method; once both take newcomers again, it comes.
 #[test]
 fn a_scheme_that_takes_no_newcomer_is_neither_asked_nor_taken() {
     let mut network = Network::new(76, 2, 1, Config::DEV);
@@ -359,12 +375,12 @@ fn a_scheme_that_takes_no_newcomer_is_neither_asked_nor_taken() {
         0,
         "nobody asks on a scheme it takes none on"
     );
-    // The one that asks takes newcomers again, the other not yet: it asks,
-    // and is refused.
+    // One takes newcomers again, the other not yet: it offers the scheme,
+    // and no method comes of it.
     let asked = requester(&network, &b);
     network.nodes[asked].hooks.shut.clear();
     settle(&mut network, 60_000);
-    assert!(asks(&network) >= 1);
+    assert_eq!(asks(&network), 0);
     assert_eq!(methods(&network, 0, &b), [scheme(SECOND)]);
     assert_eq!(methods(&network, 1, &a), [scheme(SECOND)]);
     network.nodes[1 - asked].hooks.shut.clear();
@@ -413,11 +429,12 @@ fn a_method_only_one_side_holds_is_repaired() {
     assert!(network.node(asked).peering_of(&ids[other]).is_some());
 }
 
-// The same for a request to settle on a method only one side holds: it is
-// refused, and its sender told, so it drops its side too
-// (spec/areas/network.md#one-sided-peerings).
+// A method one side dropped while cut off from the other, persisted with
+// the offer it has not yet seen, is dropped by the other once that offer
+// reaches it after a restart: nothing waits for a Prepare or a request to
+// settle to find it (spec/decisions/method-offers.md).
 #[test]
-fn a_request_to_settle_on_a_method_only_one_side_holds_repairs_it() {
+fn a_drop_the_peer_never_saw_reaches_it_after_a_restart() {
     let (mut network, _, b) = both(87);
     let asked = requester(&network, &b);
     let other = 1 - asked;
@@ -425,16 +442,10 @@ fn a_request_to_settle_on_a_method_only_one_side_holds_repairs_it() {
     network.cut.insert((other, asked));
     network.set_running(other, scheme(SECOND), false);
     settle(&mut network, 500);
+    assert_eq!(methods(&network, asked, &ids[other]), two());
     network.crash(other);
     network.cut.clear();
     network.start(other);
-    settle(&mut network, 5_000);
-    assert_eq!(methods(&network, asked, &ids[other]), two());
-    assert_eq!(methods(&network, other, &ids[asked]), [scheme(STUB)]);
-    network.act(asked, |node, now| {
-        node.request_settlement(now, &ids[other], scheme(SECOND))
-            .unwrap();
-    });
     settle(&mut network, 5_000);
     assert_eq!(methods(&network, asked, &ids[other]), [scheme(STUB)]);
     assert_eq!(methods(&network, other, &ids[asked]), [scheme(STUB)]);
@@ -443,6 +454,7 @@ fn a_request_to_settle_on_a_method_only_one_side_holds_repairs_it() {
             if *s == scheme(SECOND))
     });
     assert_eq!(dropped, 1);
+    assert_eq!(network.one_sided, 0, "no Prepare found it first");
 }
 
 // A peer that takes our request for a method and drops the method before
@@ -476,7 +488,7 @@ fn a_method_dropped_before_its_acceptance_arrives_is_not_added() {
     network.set_running(asked, scheme(SECOND), true);
     let accepted = |network: &Network| {
         events(network, other, |event| {
-            matches!(event, Event::MethodAdded { scheme: s, inbound: true, .. }
+            matches!(event, Event::MethodAdded { scheme: s, .. }
                 if *s == scheme(SECOND))
         }) == 1
     };
@@ -533,7 +545,7 @@ fn a_late_acceptance_answers_no_later_request() {
     network.set_running(asked, scheme(SECOND), true);
     let accepted = |network: &Network| {
         events(network, other, |event| {
-            matches!(event, Event::MethodAdded { scheme: s, inbound: true, .. }
+            matches!(event, Event::MethodAdded { scheme: s, .. }
                 if *s == scheme(SECOND))
         }) == 1
     };

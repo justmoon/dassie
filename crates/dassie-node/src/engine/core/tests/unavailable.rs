@@ -133,7 +133,18 @@ fn pair_with_owner_books(seed: u64) -> Sim {
             core.add_scheme(OWNER_BOOK, String::new()).unwrap();
         });
     }
-    let peered = |sim: &Sim| (0..2).all(|index| methods(sim, index, 1 - index) == ["stub"]);
+    // Peered, and each side's method confirmed
+    // (spec/decisions/method-offers.md).
+    let peered = |sim: &Sim| {
+        (0..2).all(|index| {
+            methods(sim, index, 1 - index) == ["stub"]
+                && sim
+                    .core(index)
+                    .peer
+                    .peering_of(&key(1 - index).node_id())
+                    .is_some_and(|peering| peering.confirmed(scheme_id("stub")))
+        })
+    };
     assert!(
         sim.run_until_or(START + 600_000, peered),
         "the pair did not peer"

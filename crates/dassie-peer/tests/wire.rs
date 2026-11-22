@@ -22,11 +22,11 @@ use dassie_peer::wire::{
     Content, EXTENSION_FEED, EXTENSION_PERIPHERY, EXTENSION_POST_QUANTUM, Entry, HubDetails,
     InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_NAME_LIST,
     MAX_NAME_LIST_BYTES, MAX_OFFER_DETAILS, MAX_OFFERS, MAX_SNAPSHOT_BYTES, MAX_URL_BYTES,
-    MethodResponse, NameHolding, NameListResponse, NameReceipt, NodeInfo, NodeListResponse,
-    PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SettlementOffer, SignedNodeInfo,
-    SubscriptionResponse, TerminationReason, decode_expiry, decode_hash, decode_octets,
-    decode_settling, encode_expiry, encode_octets, encode_settling, is_valid_url, peek_kind,
-    sign_node_info,
+    MethodOffer, MethodResponse, NameHolding, NameListResponse, NameReceipt, NodeInfo,
+    NodeListResponse, OfferedMethod, PeeringRequest, PeeringResponse, RefusalReason, SchemeId,
+    SettlementOffer, SignedNodeInfo, SubscriptionResponse, TerminationReason, decode_expiry,
+    decode_hash, decode_octets, decode_settling, encode_expiry, encode_octets, encode_settling,
+    is_valid_url, peek_kind, sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -1081,8 +1081,8 @@ fn settlement_method_messages_are_pinned_and_bounded() {
         assert_eq!(kind.carries_packet(), kind == Kind::MethodPacket);
     }
     assert_eq!(Content::decode_exact(&direct.to_vec()).unwrap(), direct);
-    assert_eq!(Kind::from_tag(22), None);
-    assert!(Content::decode_exact(&[0x96]).is_err());
+    assert_eq!(Kind::from_tag(23), None);
+    assert!(Content::decode_exact(&[0x97]).is_err());
 
     // A commitment past the bound is malformed; one at it is not.
     let at_bound = Content::MethodPacket {
@@ -1103,6 +1103,97 @@ fn settlement_method_messages_are_pinned_and_bounded() {
         trailing.push(0);
         assert!(Content::decode_exact(&trailing).is_err());
     }
+}
+
+// spec/areas/peer-protocol.md#message-set: `methodOffer` is tag 22
+// (spec/decisions/method-offers.md): its version, what the sender has seen
+// of ours, and each method with the scheme's data, no scheme twice and
+// within the bounds. It changes state, and needs authentication. Its answer
+// is an offer in the same layout.
+#[test]
+fn method_offers_are_pinned_and_bounded() {
+    let offer = MethodOffer {
+        version: 2,
+        seen: 1,
+        methods: vec![OfferedMethod {
+            scheme: stub(),
+            data: &[0xab],
+        }],
+    };
+    let content = Content::MethodOffer(offer.clone());
+    assert_eq!(
+        to_hex(&content.to_vec()),
+        "96000000000000000200000000000000010101047374756201ab"
+    );
+    assert_eq!(
+        Content::decode_exact(&content.to_vec()),
+        Ok(content.clone())
+    );
+    let kind = Kind::from_tag(22).unwrap();
+    assert_eq!((content.kind(), kind.tag()), (kind, 22));
+    assert!(!kind.is_read_only() && !kind.carries_packet());
+    assert_eq!(
+        MethodOffer::decode_exact(&offer.to_vec()),
+        Ok(offer.clone())
+    );
+    // A scheme twice is malformed, and so is anything after it.
+    let twice = MethodOffer {
+        version: 2,
+        seen: 1,
+        methods: vec![
+            OfferedMethod {
+                scheme: stub(),
+                data: &[],
+            },
+            OfferedMethod {
+                scheme: stub(),
+                data: &[],
+            },
+        ],
+    };
+    assert!(MethodOffer::decode_exact(&twice.to_vec()).is_err());
+    let mut trailing = content.to_vec();
+    trailing.push(0);
+    assert!(Content::decode_exact(&trailing).is_err());
+    an_offer_past_its_bound_is_malformed();
+}
+
+/// As many methods as the bound, each with data at its bound, reads; one
+/// more does not.
+fn an_offer_past_its_bound_is_malformed() {
+    // As many methods as the bound, each with data at its bound, and one more.
+    let schemes: Vec<SchemeId> = (0..=MAX_OFFERS)
+        .map(|index| SchemeId::parse(&format!("s{index}")).unwrap())
+        .collect();
+    let data = [0u8; MAX_OFFER_DETAILS];
+    let full = MethodOffer {
+        version: 1,
+        seen: 0,
+        methods: schemes[..MAX_OFFERS]
+            .iter()
+            .map(|scheme| OfferedMethod {
+                scheme: *scheme,
+                data: &data,
+            })
+            .collect(),
+    };
+    assert_eq!(MethodOffer::decode_exact(&full.to_vec()), Ok(full.clone()));
+    let mut over = full.to_vec();
+    // The count, after the two versions and its length, one more; and a
+    // method more.
+    assert_eq!(over[16..18], [0x01, 0x20]);
+    over[17] += 1;
+    let one = MethodOffer {
+        version: 0,
+        seen: 0,
+        methods: vec![OfferedMethod {
+            scheme: schemes[MAX_OFFERS],
+            data: &[],
+        }],
+    }
+    .to_vec();
+    over.extend(&one[18..]);
+    assert!(MethodOffer::decode_exact(&over).is_err());
 }
 
 // The answer to a `methodAdd` is shaped as a peering answer's.

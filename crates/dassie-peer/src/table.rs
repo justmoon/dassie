@@ -291,6 +291,12 @@ pub struct Method {
     /// once. Not kept across a restart: counted from the node's start, as a
     /// peer's silence is.
     pub unpayable_since_ms: Option<u64>,
+    /// The version of our offer to the peer that the peer must have seen
+    /// before our packets take the method: the one we held when we adopted
+    /// it, which offered it (spec/decisions/method-offers.md). Kept across
+    /// a restart. 0 for a method the peer took first, as the first method
+    /// of a peering we asked for, which its acceptance confirms.
+    pub confirm_at: u64,
 }
 
 impl Method {
@@ -306,6 +312,7 @@ impl Method {
             short_checked_ms: None,
             winding: None,
             unpayable_since_ms: None,
+            confirm_at: 0,
         }
     }
 
@@ -381,7 +388,10 @@ pub struct Peering {
     pub methods: Vec<Method>,
     /// When it began.
     pub since_ms: u64,
-    /// Whether the peer asked.
+    /// Whether it takes one of our inbound places: we were not asking the
+    /// peer when it was made, so it is not one we chose
+    /// (spec/decisions/method-offers.md). Both ends of a crossing count it
+    /// as their own.
     pub inbound: bool,
     /// The last message from it.
     pub last_seen_ms: u64,
@@ -395,6 +405,23 @@ pub struct Peering {
     /// the peer's, so that neither costs a promoted node a new promotion
     /// (spec/decisions/promotion-to-core.md).
     pub was_core: bool,
+    /// The newest version of our offer to the peer that the peer has seen
+    /// ([`Method::confirm_at`]): it said so in an offer of its own, or, for
+    /// a peer of the release before, which takes no offers, our whole
+    /// offer as soon as we knew (spec/decisions/method-offers.md). Kept
+    /// across a restart, so neither a restart nor a peer's stalls our
+    /// methods again.
+    pub offer_acked: u64,
+    /// The schemes of our offer to the peer, as of the version we last took
+    /// ([`Channel::offer_out`](crate::channel::Channel::offer_out)): at
+    /// most [`MAX_SCHEMES`](crate::MAX_SCHEMES). Kept across a restart, so
+    /// a node takes a new version only when its offer changed.
+    pub offered: Vec<SchemeId>,
+    /// The newest version of the peer's offer we had taken in when the
+    /// peering was made, on its channel: one no newer is of an earlier
+    /// peering, and is not taken (spec/decisions/method-offers.md). Kept
+    /// across a restart.
+    pub offer_floor: u64,
 }
 
 /// Our decision to end a peering, kept to ourselves while we collect what
@@ -452,6 +479,9 @@ impl Peering {
             last_seen_ms: now_ms,
             depeering: None,
             was_core: false,
+            offer_acked: 0,
+            offered: Vec::new(),
+            offer_floor: 0,
         }
     }
 
@@ -536,14 +566,31 @@ impl Peering {
         self.methods.iter().all(|method| method.withdrawn(grace_ms))
     }
 
-    /// Whether every method is withdrawn for room or being wound down, so
-    /// that the peer is no longer listed as our neighbor
-    /// (spec/decisions/settlement-methods.md).
+    /// Whether every method is withdrawn for room, being wound down, or
+    /// not yet confirmed, so that the peer is not listed as our neighbor
+    /// (spec/decisions/settlement-methods.md,
+    /// spec/decisions/method-offers.md).
     #[must_use]
     pub fn unavailable(&self, grace_ms: u64) -> bool {
-        self.methods
-            .iter()
-            .all(|method| method.withdrawn(grace_ms) || method.winding_down())
+        self.methods.iter().all(|method| {
+            method.withdrawn(grace_ms) || method.winding_down() || !self.confirms(method)
+        })
+    }
+
+    /// Whether our packets may take `method`: the peer has seen an offer of
+    /// ours that carried it once we had adopted it, so it holds it too
+    /// (spec/decisions/method-offers.md).
+    #[must_use]
+    pub const fn confirms(&self, method: &Method) -> bool {
+        self.offer_acked >= method.confirm_at
+    }
+
+    /// Whether our packets may take the method on `scheme`
+    /// ([`Self::confirms`]).
+    #[must_use]
+    pub fn confirmed(&self, scheme: SchemeId) -> bool {
+        self.method(scheme)
+            .is_some_and(|method| self.confirms(method))
     }
 
     /// Whether a method has been short, while the peer could be reached,
@@ -854,14 +901,6 @@ pub struct Entry {
     pub peering_at_ms: u64,
     /// Failed peering attempts in a row, for backoff.
     pub peering_failures: u32,
-    /// When to try adding a method to our peering with it again. Not kept
-    /// across a restart.
-    pub method_at_ms: u64,
-    /// Failed attempts to add a method in a row, for backoff.
-    pub method_failures: u32,
-    /// The scheme of our last request for a method, so the next asks for
-    /// the one after it: a scheme the peer refuses holds up no other.
-    pub method_tried: Option<SchemeId>,
     /// Since when routes have not reached it.
     pub unreachable_ms: Option<u64>,
     /// Its link states' rate limit.
@@ -896,9 +935,6 @@ impl Entry {
             refresh_failures: 0,
             peering_at_ms: now_ms,
             peering_failures: 0,
-            method_at_ms: now_ms,
-            method_failures: 0,
-            method_tried: None,
             unreachable_ms: None,
             bucket: Bucket::full(rate, now_ms),
             advertise: Advertise {
@@ -1065,6 +1101,16 @@ pub fn backoff(min_ms: u64, max_ms: u64, failures: u32) -> u64 {
         .min(max_ms)
 }
 
+/// `delay_ms` with jitter: somewhere from half of it to all of it, by
+/// `random`, so that two nodes that back off from each other at once do not
+/// try again in step (spec/decisions/method-offers.md).
+#[must_use]
+pub const fn jittered(delay_ms: u64, random: u64) -> u64 {
+    let half = delay_ms / 2;
+    let spread = delay_ms - half;
+    half + random % (spread + 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1163,6 +1209,16 @@ mod tests {
             "net 1 kept its empty bucket"
         );
         assert!(buckets.take(net(1), rate, 100), "and it refills");
+    }
+
+    #[test]
+    fn jitter_keeps_between_half_and_all() {
+        assert_eq!(jittered(0, 7), 0);
+        assert_eq!(jittered(100, 0), 50);
+        assert_eq!(jittered(100, 50), 100);
+        assert_eq!(jittered(100, 51), 50);
+        assert!((0..1000).all(|random| (50..=100).contains(&jittered(100, random))));
+        assert!(jittered(u64::MAX, u64::MAX) >= u64::MAX / 2);
     }
 
     #[test]

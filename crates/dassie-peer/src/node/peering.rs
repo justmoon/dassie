@@ -29,22 +29,23 @@ pub(crate) struct Peering {
     bridge_at_ms: u64,
     /// The node we are asking, if any: one attempt at a time.
     attempt: Option<NodeId>,
-    /// The method we are asking a peer for, if any: one at a time.
-    pub(crate) method_attempt: Option<MethodAttempt>,
+    /// Our request that a crossing overtook: the node's own request made
+    /// the peering while ours was on its way, on the scheme we asked on,
+    /// with the peering info it gave. Its acceptance, when it comes, says
+    /// the node holds that scheme too, so it is finalized as a further
+    /// method then (spec/decisions/method-offers.md). Its pair stays kept
+    /// meanwhile. One at a time, as attempts are.
+    pub(crate) crossed: Option<Crossed>,
 }
 
-/// Our request for a further method of a peering
-/// (spec/decisions/settlement-methods.md).
-pub(crate) struct MethodAttempt {
-    /// The peer asked.
+/// Our peering request overtaken by a crossing ([`Peering::crossed`]).
+pub(crate) struct Crossed {
+    /// The node asked.
     pub node: NodeId,
-    /// The method's scheme.
+    /// The scheme we asked on.
     pub scheme: SchemeId,
-    /// The peer's peering info on the scheme, once it gave it.
-    pub info: Option<Vec<u8>>,
-    /// Whether the peer dropped a method on the scheme while we asked: its
-    /// answer, when it comes, ends the request and adds nothing.
-    pub dropped: bool,
+    /// The node's peering info on it, which finalizing takes.
+    pub info: Vec<u8>,
 }
 
 impl Peering {
@@ -53,13 +54,18 @@ impl Peering {
             check_at_ms: now_ms,
             bridge_at_ms: now_ms,
             attempt: None,
-            method_attempt: None,
+            crossed: None,
         }
     }
 
     /// Whether we are asking `node` to peer.
     pub(crate) fn is_asking(&self, node: &NodeId) -> bool {
         self.attempt == Some(*node)
+    }
+
+    /// The node we are asking to peer, if any.
+    pub(crate) const fn attempt(&self) -> Option<NodeId> {
+        self.attempt
     }
 
     /// When the next check for peers is due, whether or not one is wanted.
@@ -253,13 +259,12 @@ impl PeerNode {
                 continue;
             }
             // A peer we ask is a core node, and a newcomer over the scheme
-            // we ask on: the first that takes one
-            // (spec/decisions/slots-by-liquidity.md).
-            let Some(scheme) = self
-                .methods_with(hooks, link)
-                .into_iter()
-                .find(|scheme| hooks.takes_newcomer(*scheme, false))
-            else {
+            // we ask on (spec/decisions/slots-by-liquidity.md): the first
+            // that opens no accounts, or else, while the core peers' share
+            // keeps room, the lowest scheme ID, so two nodes short of room
+            // that ask each other at once ask on the same one
+            // (spec/decisions/method-offers.md).
+            let Some(scheme) = self.scheme_to_ask(hooks, *id, link) else {
                 continue;
             };
             let unreachable = !self.routes.contains_key(id);
@@ -280,6 +285,31 @@ impl PeerNode {
         best.retain(|(score, _, _)| *score == top);
         let index = usize::try_from(self.rng.next_u64() % (best.len() as u64)).unwrap_or(0);
         best.get(index).map(|(_, id, scheme)| (*id, *scheme))
+    }
+
+    /// The scheme to ask `node`, of `link`, to peer on, if any: of the
+    /// schemes a peering with it would settle on that take a newcomer, the
+    /// first in our order that opens no accounts, else the lowest scheme ID,
+    /// if the core peers' share has a pair free for it.
+    fn scheme_to_ask(
+        &self,
+        hooks: &dyn PeeringHooks,
+        node: NodeId,
+        link: &LinkState,
+    ) -> Option<SchemeId> {
+        let taken: Vec<SchemeId> = self
+            .methods_with(hooks, link)
+            .into_iter()
+            .filter(|scheme| hooks.takes_newcomer(*scheme, false))
+            .collect();
+        if let Some(open) = taken
+            .iter()
+            .find(|scheme| hooks.has_accounts(node, **scheme))
+        {
+            return Some(*open);
+        }
+        let lowest = taken.into_iter().min()?;
+        (hooks.free_core_pairs() > self.reserved_pairs(hooks, None)).then_some(lowest)
     }
 
     /// The schemes a peering with the node of `link` settles on, in the
@@ -432,7 +462,7 @@ impl PeerNode {
         result: Result<Vec<u8>, Problem>,
     ) {
         let Some(scheme) = self.requesting(&node) else {
-            return;
+            return self.on_crossed_response(hooks, node, &result);
         };
         let Ok(body) = result else {
             return self.fail_attempt(node, "no answer");
@@ -463,6 +493,47 @@ impl PeerNode {
             }
             Ok(PeeringResponse::Refused(reason)) => self.refused(node, reason),
             _ => self.fail_attempt(node, "an invalid answer"),
+        }
+    }
+
+    /// The answer to our request that a crossing overtook
+    /// ([`Peering::crossed`]): accepted, the node holds the scheme we asked
+    /// on, so we finalize it as a further method, confirmed by the
+    /// acceptance as a peering's first is, unless the peering has it
+    /// already. A node of the release before, which takes no offers, would
+    /// otherwise keep a method we never hear of, and the first Prepare on
+    /// it would end the peering. One we cannot take is left out of our
+    /// offer, and such a node is told with a drop.
+    fn on_crossed_response(
+        &mut self,
+        hooks: &mut dyn PeeringHooks,
+        node: NodeId,
+        result: &Result<Vec<u8>, Problem>,
+    ) {
+        let Some(crossed) = self.peering.crossed.take_if(|crossed| crossed.node == node) else {
+            return;
+        };
+        let accepted = result.as_ref().is_ok_and(|body| {
+            matches!(
+                PeeringResponse::decode_exact(body),
+                Ok(PeeringResponse::Accepted)
+            )
+        });
+        let lacks = self
+            .table
+            .get(&node)
+            .and_then(Entry::active_peering)
+            .is_some_and(|peering| {
+                !peering.has(crossed.scheme) && peering.methods.len() < crate::MAX_METHODS
+            });
+        if !accepted || !lacks {
+            return;
+        }
+        if !self.finalize_crossed(hooks, &crossed) {
+            self.exclude(node, crossed.scheme);
+            if self.speaks_offers(&node) != Some(true) {
+                self.queue_drop(node, crossed.scheme);
+            }
         }
     }
 
@@ -513,16 +584,36 @@ impl PeerNode {
 
     /// Records the peering with `node`, with its channel. Returns whether
     /// it is peered: not when its channel does not fit, since a peer we can
-    /// reach always has one.
+    /// reach always has one. `theirs` says it is the node's request we
+    /// accepted, rather than ours it accepted. The peering takes one of our
+    /// inbound places only if we were not asking the node meanwhile: one we
+    /// asked for, whichever request made it, is ours
+    /// (spec/decisions/method-offers.md).
     fn become_peered(
         &mut self,
         hooks: &dyn PeeringHooks,
         node: NodeId,
         scheme: SchemeId,
         agreed: crate::hooks::Agreed,
-        inbound: bool,
+        theirs: bool,
     ) -> bool {
         let now = self.now_ms;
+        let inbound = theirs && !self.peering.is_asking(&node);
+        // Our own request, if it went out, is overtaken: its acceptance is
+        // still to come ([`Peering::crossed`]).
+        let overtaken = match self.table.get(&node).map(|entry| &entry.peer) {
+            Some(PeerState::Requesting {
+                scheme: ours,
+                info: Some(info),
+            }) if theirs && self.peering.attempt == Some(node) && *ours != scheme => {
+                Some(Crossed {
+                    node,
+                    scheme: *ours,
+                    info: info.clone(),
+                })
+            }
+            _ => None,
+        };
         if self.peering.attempt == Some(node) {
             self.peering.attempt = None;
         }
@@ -541,12 +632,6 @@ impl PeerNode {
         let Some(entry) = self.table.get_mut(&node) else {
             return false;
         };
-        let fresh = true;
-        entry.advertise = Advertise {
-            on: true,
-            on_since_ms: now,
-            ..Advertise::default()
-        };
         let first = Method::new(scheme, agreed.state, agreed.credit_out);
         let mut peering = PeeringState::new(first, now, inbound);
         peering.was_core = !entry.is_downlink();
@@ -556,24 +641,37 @@ impl PeerNode {
             ..crate::table::Standing::NEW
         };
         entry.peering_failures = 0;
-        // Its further methods are asked for at once.
-        entry.method_at_ms = now;
-        entry.method_failures = 0;
-        entry.method_tried = None;
         self.dirty.insert(node);
-        if fresh {
-            // It just answered us, or we it after probing its URL: what an
-            // earlier peering left of our reach to it is gone
-            // (spec/decisions/unreachable-peers.md).
-            self.unreached.remove(&node);
-            self.stats.peerings += 1;
-            self.gossip.heartbeat_soon(now);
-            self.advertised_changed();
-            self.event(Event::Peered {
-                node,
-                scheme,
-                inbound,
-            });
+        self.offers_begin(node, scheme, theirs);
+        if overtaken.is_some() {
+            self.peering.crossed = overtaken;
+        }
+        // Listed once the peer has seen its first method: at once when it
+        // accepted ours, after its first offer when we accepted its.
+        let listed = self
+            .peering_of(&node)
+            .is_some_and(|peering| peering.confirmed(scheme));
+        if let Some(entry) = self.table.get_mut(&node) {
+            entry.advertise = Advertise {
+                on: listed,
+                on_since_ms: now,
+                ..Advertise::default()
+            };
+        }
+        // It just answered us, or we it after probing its URL: what an
+        // earlier peering left of our reach to it is gone
+        // (spec/decisions/unreachable-peers.md).
+        self.unreached.remove(&node);
+        self.stats.peerings += 1;
+        self.gossip.heartbeat_soon(now);
+        self.advertised_changed();
+        self.event(Event::Peered {
+            node,
+            scheme,
+            inbound,
+        });
+        if listed {
+            self.event(Event::MethodConfirmed { peer: node, scheme });
         }
         true
     }
@@ -616,15 +714,12 @@ impl PeerNode {
         if let Some(entry) = self.table.get_mut(&sender) {
             entry.key.get_or_insert(key.key());
         }
-        // A repeat, after an answer that got lost: the stored peering, as
-        // it is (spec/decisions/peering-lifecycle.md).
-        if self
-            .table
-            .get(&sender)
-            .and_then(Entry::active_peering)
-            .is_some_and(|peering| peering.has(request.scheme))
-        {
-            return Inbound::Reply(ok(&PeeringResponse::Accepted.to_vec()));
+        // A request on a peering we hold already: a repeat after an answer
+        // that got lost, a copy, or the second half of a crossing. The
+        // peering stays as it was made (spec/decisions/peering-lifecycle.md),
+        // and the request offers its scheme (spec/decisions/method-offers.md).
+        if let Some(reply) = self.request_on_peering(hooks, &sender, &request) {
+            return Inbound::Reply(reply);
         }
         // A periphery node is reached only over the connection its request
         // came on, which shows it is there: no URL of its is probed
@@ -700,20 +795,14 @@ impl PeerNode {
         if !self.channel_room_for(sender, downlink) {
             return Err(RefusalReason::Capacity);
         }
-        if let Some(peering) = entry.peering() {
-            return if peering.has(request.scheme) {
-                Ok(())
-            } else {
-                Err(RefusalReason::Unspecified)
-            };
+        if entry.peering().is_some() {
+            // Taken as an offer of its scheme ([`Self::request_on_peering`]).
+            return Ok(());
         }
-        if matches!(entry.peer, PeerState::Requesting { .. }) {
-            // Both asked at once: the lower node ID's request wins.
-            if self.own < *sender {
-                return Err(RefusalReason::Concurrent);
-            }
-            self.abandon_attempt(*sender);
-        }
+        // Both asked at once: both requests are taken, and the peering is
+        // ours, as one we asked for (spec/decisions/method-offers.md). It
+        // takes the outbound place our attempt took, and no inbound one.
+        let ours = matches!(entry.peer, PeerState::Requesting { .. });
         // A newcomer the node's pool over the scheme's hub would not cover
         // is refused as past the caps (spec/decisions/slots-by-liquidity.md).
         if !hooks.takes_newcomer(request.scheme, downlink) {
@@ -723,9 +812,14 @@ impl PeerNode {
             return self.downlink_room(hooks, sender);
         }
         let inbound = self.core_peers().filter(|(_, p)| p.inbound).count();
-        if inbound >= self.config.max_inbound()
+        if (!ours && inbound >= self.config.max_inbound())
             || self.core_peers().count() >= self.config.max_peers
         {
+            return Err(RefusalReason::Capacity);
+        }
+        // Its accounts, if it opens them, take a pair of the core peers'
+        // share that no offer of ours keeps.
+        if !self.core_pair_free(hooks, *sender, request.scheme) {
             return Err(RefusalReason::Capacity);
         }
         Ok(())
@@ -801,6 +895,11 @@ impl PeerNode {
         if let Err(reason) = self.check_request(hooks, &sender, &request) {
             return refused(reason);
         }
+        // Peered meanwhile, as when our own request was accepted while we
+        // probed its URL.
+        if let Some(reply) = self.request_on_peering(hooks, &sender, &request) {
+            return reply;
+        }
         // Its channel opens as the kind its room was checked for: the link
         // state we hold for it says which kind that is.
         let downlink = !self.is_core_node(&sender, !request.node_info.info.is_periphery());
@@ -819,6 +918,27 @@ impl PeerNode {
             return refused(RefusalReason::Capacity);
         }
         ok(&PeeringResponse::Accepted.to_vec())
+    }
+
+    /// The answer to a request from `sender` on a peering we hold already,
+    /// if we do: accepted if the peering has, or now adopts, a method on
+    /// its scheme, so the requester takes its acceptance as the truth;
+    /// otherwise refused, and the offers settle the rest
+    /// (spec/decisions/method-offers.md). `None` if we hold no peering.
+    fn request_on_peering(
+        &mut self,
+        hooks: &mut dyn PeeringHooks,
+        sender: &NodeId,
+        request: &PeeringRequest<'_>,
+    ) -> Option<Reply> {
+        self.peering_of(sender)?;
+        Some(
+            if self.requested_on_peering(hooks, *sender, request.scheme, request.data) {
+                ok(&PeeringResponse::Accepted.to_vec())
+            } else {
+                refused(RefusalReason::UnsupportedScheme)
+            },
+        )
     }
 }
 

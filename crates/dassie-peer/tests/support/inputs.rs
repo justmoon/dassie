@@ -4,7 +4,10 @@
 
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::{Commitment, Name, Salt};
-use dassie_peer::wire::{Content, PeeringRequest, SchemeId, SignedNodeInfo, TerminationReason};
+use dassie_peer::wire::{
+    Content, MethodOffer, OfferedMethod, PeeringRequest, SchemeId, SignedNodeInfo,
+    TerminationReason,
+};
 use proptest::prelude::*;
 use proptest::sample::Index;
 
@@ -89,8 +92,27 @@ pub fn mutate(bytes: &[u8], mutations: &[Mutation]) -> Vec<u8> {
     bytes
 }
 
-/// How many tags of content there are: 0 to 21, without gaps.
-pub const KINDS: usize = 22;
+/// An offer over a hub and on the stub, each scheme with its data: a
+/// membership's length over the hub, none on the stub.
+fn offer(stub: SchemeId) -> MethodOffer<'static> {
+    MethodOffer {
+        version: 7,
+        seen: 3,
+        methods: vec![
+            OfferedMethod {
+                scheme: SchemeId::parse("hub-stub").unwrap(),
+                data: &[0x6d; 68],
+            },
+            OfferedMethod {
+                scheme: stub,
+                data: &[],
+            },
+        ],
+    }
+}
+
+/// How many tags of content there are: 0 to 22, without gaps.
+pub const KINDS: usize = 23;
 
 /// A valid encoding of the content with CHOICE tag `tag`, carrying the
 /// link state `info` where it has one.
@@ -157,6 +179,7 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
             packet: &[14, 0x10, 0, 0, 0, 0, 0, 0, 0, 1],
             release: &[0x5e; 80],
         },
+        22 => Content::MethodOffer(offer(stub)),
         _ => panic!("no content has tag {tag}"),
     };
     assert_eq!(content.kind().tag(), u64::try_from(tag).unwrap());

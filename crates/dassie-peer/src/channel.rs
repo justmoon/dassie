@@ -48,6 +48,13 @@ pub struct Channel {
     /// free receiver, and free receivers take at most half of the
     /// downlinks' places (spec/decisions/free-receivers-half.md).
     pub paid_us: bool,
+    /// The newest version of our offer to the node: offers to it take the
+    /// next, and none starts again, so a copy from any earlier peering is
+    /// never newer (spec/decisions/method-offers.md).
+    pub offer_out: u64,
+    /// The newest version of the node's offer to us that we took in: an
+    /// older one, or a copy, is not taken again.
+    pub offer_in: u64,
 }
 
 impl Channel {
@@ -68,6 +75,8 @@ impl Channel {
             settled_out: closed.settled_out,
             outbox: None,
             paid_us: closed.paid_us,
+            offer_out: closed.offer_out,
+            offer_in: closed.offer_in,
         }
     }
 
@@ -83,14 +92,17 @@ impl Channel {
             settled_in: self.settled_in,
             settled_out: self.settled_out,
             paid_us: self.paid_us,
+            offer_out: self.offer_out,
+            offer_in: self.offer_in,
         }
     }
 }
 
 /// What stays of a closed channel, on disk only: its sequences, so that a
 /// settlement is applied once however late it comes and the next one we
-/// send follows the last, and whether it ever paid us, which is for good
-/// (spec/decisions/free-receivers-half.md).
+/// send follows the last, whether it ever paid us, which is for good
+/// (spec/decisions/free-receivers-half.md), and the versions of the
+/// offers either way (spec/decisions/method-offers.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Closed {
     /// The highest sequence applied from the node.
@@ -99,6 +111,10 @@ pub struct Closed {
     pub settled_out: u64,
     /// Whether the node ever paid us.
     pub paid_us: bool,
+    /// The newest version of our offer to the node.
+    pub offer_out: u64,
+    /// The newest version of its offer to us that we took in.
+    pub offer_in: u64,
 }
 
 impl Closed {
@@ -107,6 +123,8 @@ impl Closed {
         settled_in: 0,
         settled_out: 0,
         paid_us: false,
+        offer_out: 0,
+        offer_in: 0,
     };
 }
 

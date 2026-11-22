@@ -126,6 +126,9 @@ impl PeerNode {
             Content::MethodDrop { scheme } => {
                 Inbound::Reply(self.method_drop_request(&accepted, scheme))
             }
+            Content::MethodOffer(offer) => {
+                Inbound::Reply(self.method_offer_request(hooks, &accepted, &offer))
+            }
             Content::Registration(info) => self.registration_request(accepted, &info, id, network),
             Content::PeeringRequest(_) => self.peering_request(hooks, accepted, body, id, network),
             Content::Settlement {
@@ -171,10 +174,12 @@ impl PeerNode {
             return refuse(409, "not peered on that scheme");
         };
         if !has {
-            // Its side of the method is left over, as when our drop of it
-            // was lost with a restart: it is told, as for a Prepare on it
-            // (spec/areas/network.md#one-sided-peerings).
-            self.queue_drop(accepted.sender, scheme);
+            // Its side of the method is left over: a peer of the release
+            // before is told, as for a Prepare on it; one that takes offers
+            // has ours on its way (spec/decisions/method-offers.md).
+            if self.speaks_offers(&accepted.sender) != Some(true) {
+                self.queue_drop(accepted.sender, scheme);
+            }
             return refuse(409, "not peered on that scheme");
         }
         // Nor for one we are ending, which the peer does not know yet: it
@@ -300,7 +305,9 @@ impl PeerNode {
             // Its side of the method is left over, as when our drop of it
             // was lost with a restart: it is told, as a node not peered is
             // (spec/areas/network.md#one-sided-peerings).
-            if entry.is_some_and(|entry| entry.active_peering().is_some()) {
+            if entry.is_some_and(|entry| entry.active_peering().is_some())
+                && self.speaks_offers(&accepted.sender) != Some(true)
+            {
                 self.queue_drop(accepted.sender, scheme);
             }
             return refuse(409, "no method on that scheme");
@@ -414,6 +421,7 @@ impl PeerNode {
             | Content::MethodPacket { .. }
             | Content::MethodAdd { .. }
             | Content::MethodDrop { .. }
+            | Content::MethodOffer(_)
             | Content::Subscription { .. }
             | Content::Snapshot(_) => Reply::refuse(400, "unexpected"),
         }

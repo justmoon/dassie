@@ -83,7 +83,7 @@ message NetworkPeer {
   int64 since_unix_ms = 6;
   // The last authenticated message from the peer.
   int64 last_seen_unix_ms = 7;
-  // Whether the peer asked.
+  // Whether it takes an inbound place: we were not asking the peer when it was made.
   bool inbound = 8;
   // "peered", or "terminating" while it is being ended
   // (spec/decisions/peering-lifecycle.md).
@@ -157,6 +157,10 @@ message PeerMethod {
   // it takes no new packets from the peer, and is dropped once the peer
   // was asked to settle on it, within a bounded time.
   bool winding_down = 5;
+  // Whether the peer has seen an offer of this node's that carried it, so
+  // it holds the method too: only then do this node's packets take it
+  // (spec/decisions/method-offers.md).
+  bool confirmed = 6;
 }
 
 message ListPeersRequest {}

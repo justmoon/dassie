@@ -32,6 +32,7 @@ fn node(seed: u8) -> StoredNode {
                 short_checked_ms: None,
                 winding: None,
                 unpayable_since_ms: None,
+                confirm_at: 5,
             }],
             since_ms: 14,
             inbound: true,
@@ -44,6 +45,14 @@ fn node(seed: u8) -> StoredNode {
             // The others a peering that has been core, which a
             // restart keeps listed by its health (spec/areas/network.md#promotion).
             was_core: !seed.is_multiple_of(2),
+            // What a peering keeps of the offers
+            // (spec/decisions/method-offers.md).
+            offer_acked: 6,
+            offered: vec![
+                SchemeId::parse("stub").unwrap(),
+                SchemeId::parse("stub-two").unwrap(),
+            ],
+            offer_floor: 2,
         }),
         termination: None,
     }
@@ -92,6 +101,7 @@ fn method(scheme: &str, credit_out: u64) -> Method {
         short_checked_ms: None,
         winding: None,
         unpayable_since_ms: None,
+        confirm_at: credit_out / 300,
     }
 }
 
@@ -268,6 +278,8 @@ fn terminations_channels_and_bans_round_trip() {
                 attempts: 2,
             }),
             paid_us: true,
+            offer_out: 8,
+            offer_in: 3,
         },
     };
     commit(
@@ -328,6 +340,8 @@ fn a_closed_channel_stays_on_disk() {
             settled_out: 5,
             outbox: None,
             paid_us: true,
+            offer_out: 8,
+            offer_in: 3,
         },
     };
     commit(

@@ -51,7 +51,8 @@ impl Store {
                     n.registered_url, n.registered_network,
                     p.node, p.since_ms, p.inbound, p.last_seen_ms,
                     t.since_ms, t.reason, t.by_us, t.acknowledged,
-                    p.depeering_since_ms, p.depeering_reason, p.was_core
+                    p.depeering_since_ms, p.depeering_reason, p.was_core,
+                    p.offer_acked, p.offered, p.offer_floor
              FROM peer_nodes n LEFT JOIN peers p ON p.node = n.id
                LEFT JOIN peer_terminations t ON t.node = n.id
              ORDER BY n.id",
@@ -80,8 +81,8 @@ impl Store {
     pub fn closed_channel(&self, node: &NodeId) -> Result<Option<Closed>, StoreError> {
         let connection = self.lock();
         let mut statement = connection.prepare_cached(
-            "SELECT settled_in, settled_out, paid_us FROM settlement_channels
-             WHERE node = ?1 AND closed = 1",
+            "SELECT settled_in, settled_out, paid_us, offer_out, offer_in
+             FROM settlement_channels WHERE node = ?1 AND closed = 1",
         )?;
         let mut rows = statement.query([node.as_str()])?;
         let Some(row) = rows.next()? else {
@@ -91,6 +92,8 @@ impl Store {
             settled_in: from_sql_amount(row.get(0)?)?,
             settled_out: from_sql_amount(row.get(1)?)?,
             paid_us: row.get(2)?,
+            offer_out: from_sql_amount(row.get(3)?)?,
+            offer_in: from_sql_amount(row.get(4)?)?,
         }))
     }
 }
@@ -100,7 +103,8 @@ impl Store {
 fn load_channels(connection: &Connection) -> Result<Vec<StoredChannel>, StoreError> {
     let mut statement = connection.prepare_cached(
         "SELECT node, public_key, url, settled_in, settled_out, outbox_sequence,
-                outbox_scheme, outbox_amount, outbox_data, outbox_attempts, paid_us
+                outbox_scheme, outbox_amount, outbox_data, outbox_attempts, paid_us,
+                offer_out, offer_in
          FROM settlement_channels WHERE closed = 0 ORDER BY node",
     )?;
     let rows = statement.query_map([], |row| Ok(read_channel(row)))?;
@@ -145,6 +149,8 @@ fn read_channel(row: &Row<'_>) -> Result<StoredChannel, StoreError> {
             settled_out: from_sql_amount(row.get(4)?)?,
             outbox,
             paid_us: row.get(10)?,
+            offer_out: from_sql_amount(row.get(11)?)?,
+            offer_in: from_sql_amount(row.get(12)?)?,
         },
     })
 }
@@ -396,7 +402,31 @@ fn read_peering(row: &Row<'_>) -> Result<Peering, StoreError> {
             None => None,
         },
         was_core: row.get::<_, i64>(19)? != 0,
+        offer_acked: from_sql_amount(row.get(20)?)?,
+        offered: read_offered(row.get(21)?)?,
+        offer_floor: from_sql_amount(row.get(22)?)?,
     })
+}
+
+/// The schemes of our offer to a peer, as `offered` keeps them: their IDs,
+/// space-separated; NULL, as a peering stored before offers had, for none
+/// yet, which the peer node takes for its methods.
+fn read_offered(text: Option<String>) -> Result<Vec<SchemeId>, StoreError> {
+    let Some(text) = text else {
+        return Ok(Vec::new());
+    };
+    text.split_whitespace()
+        .map(|id| SchemeId::parse(id).ok_or(StoreError::Corrupt("offered scheme ID")))
+        .collect()
+}
+
+/// `offered` as stored ([`read_offered`]).
+fn write_offered(offered: &[SchemeId]) -> String {
+    offered
+        .iter()
+        .map(SchemeId::as_str)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The methods of a stored peering, in the order the pair agreed them
@@ -411,7 +441,7 @@ fn load_methods(connection: &Connection, nodes: &mut [StoredNode]) -> Result<(),
         .collect();
     let mut statement = connection.prepare_cached(
         "SELECT node, scheme, state, credit_out, short_for_ms, short_reached_ms,
-           winding_since_ms
+           winding_since_ms, confirm_at
          FROM peer_methods ORDER BY node, position",
     )?;
     let mut rows = statement.query([])?;
@@ -437,6 +467,7 @@ fn load_methods(connection: &Connection, nodes: &mut [StoredNode]) -> Result<(),
                 .get::<_, Option<i64>>(6)?
                 .map(|since| Winding::new(from_sql_time(since))),
             unpayable_since_ms: None,
+            confirm_at: from_sql_amount(row.get(7)?)?,
         };
         let peering = at
             .get(&node)
@@ -629,11 +660,12 @@ fn write_channel(transaction: &Transaction<'_>, stored: &StoredChannel) -> Resul
     transaction.execute_cached(
         "INSERT INTO settlement_channels (node, public_key, url, settled_in, settled_out,
            outbox_sequence, outbox_scheme, outbox_amount, outbox_data, outbox_attempts,
-           paid_us)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+           paid_us, offer_out, offer_in)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT (node) DO UPDATE SET public_key = ?2, url = ?3, settled_in = ?4,
            settled_out = ?5, outbox_sequence = ?6, outbox_scheme = ?7, outbox_amount = ?8,
-           outbox_data = ?9, outbox_attempts = ?10, paid_us = ?11, closed = 0",
+           outbox_data = ?9, outbox_attempts = ?10, paid_us = ?11, closed = 0,
+           offer_out = ?12, offer_in = ?13",
         params![
             stored.node.as_str(),
             channel.key.as_bytes().to_vec(),
@@ -650,6 +682,8 @@ fn write_channel(transaction: &Transaction<'_>, stored: &StoredChannel) -> Resul
             outbox.map(|o| o.data.as_slice()),
             outbox.map(|o| i64::from(o.attempts)),
             channel.paid_us,
+            to_sql_amount(channel.offer_out)?,
+            to_sql_amount(channel.offer_in)?,
         ],
     )?;
     Ok(())
@@ -662,13 +696,16 @@ fn write_closed(transaction: &Transaction<'_>, stored: &StoredClosed) -> Result<
     let changed = transaction.execute_cached(
         "UPDATE settlement_channels SET closed = 1, settled_in = ?2, settled_out = ?3,
            paid_us = ?4, outbox_sequence = NULL, outbox_scheme = NULL,
-           outbox_amount = NULL, outbox_data = NULL, outbox_attempts = NULL
+           outbox_amount = NULL, outbox_data = NULL, outbox_attempts = NULL,
+           offer_out = ?5, offer_in = ?6
          WHERE node = ?1",
         params![
             stored.node.as_str(),
             to_sql_amount(closed.settled_in)?,
             to_sql_amount(closed.settled_out)?,
             closed.paid_us,
+            to_sql_amount(closed.offer_out)?,
+            to_sql_amount(closed.offer_in)?,
         ],
     )?;
     if changed == 1 {
@@ -707,11 +744,11 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
     };
     transaction.execute_cached(
         "INSERT INTO peers (node, since_ms, inbound, last_seen_ms, depeering_since_ms,
-           depeering_reason, was_core)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+           depeering_reason, was_core, offer_acked, offered, offer_floor)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
          ON CONFLICT (node) DO UPDATE SET since_ms = ?2, inbound = ?3,
            last_seen_ms = ?4, depeering_since_ms = ?5, depeering_reason = ?6,
-           was_core = ?7",
+           was_core = ?7, offer_acked = ?8, offered = ?9, offer_floor = ?10",
         params![
             node.id.as_str(),
             to_sql_time(peering.since_ms),
@@ -720,6 +757,9 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
             peering.depeering.map(|d| to_sql_time(d.since_ms)),
             peering.depeering.map(|d| i64::from(d.reason.code())),
             i64::from(peering.was_core),
+            to_sql_amount(peering.offer_acked)?,
+            write_offered(&peering.offered),
+            to_sql_amount(peering.offer_floor)?,
         ],
     )?;
     write_methods(transaction, node.id, peering)?;
@@ -742,8 +782,8 @@ fn write_methods(
     for (position, method) in peering.methods.iter().enumerate() {
         transaction.execute_cached(
             "INSERT INTO peer_methods (node, scheme, position, state, credit_out,
-               short_for_ms, short_reached_ms, winding_since_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+               short_for_ms, short_reached_ms, winding_since_ms, confirm_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 node.as_str(),
                 method.scheme.as_str(),
@@ -755,6 +795,7 @@ fn write_methods(
                 i64::try_from(method.short_reached_ms)
                     .map_err(|_| StoreError::Corrupt("time short of room while reached"))?,
                 method.winding.map(|winding| to_sql_time(winding.since_ms)),
+                to_sql_amount(method.confirm_at)?,
             ],
         )?;
     }

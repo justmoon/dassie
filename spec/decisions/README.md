@@ -56,6 +56,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [market-maker-inventory](market-maker-inventory.md) | The market maker prices by its own inventory, on a flatter curve than the nodes, and rebalances on the pool back to even | rate-feed, market-maker-vm |
 | [market-maker-order-book](market-maker-order-book.md) | The market maker prices by the order book and the pool together, and rebalances through a standing offer of its own | rate-feed, xrpl |
 | [membership-economics](membership-economics.md) | Network membership economics (fee not built) | network |
+| [method-offers](method-offers.md) | A peering's methods are what both nodes offer each other, and crossed requests are both taken | network, peer-protocol, settlement |
 | [named-decisions](named-decisions.md) | Decisions are named, not numbered | engineering |
 | [names-by-earliest-commitment](names-by-earliest-commitment.md) | A name goes to its earliest sealed commitment, held by a quorum of the bootstrap nodes' lists (design, partly built) | designs/names, network, peer-protocol |
 | [nix-flake-on-the-mirror](nix-flake-on-the-mirror.md) | NixOS takes a release from a flake on the mirror | release |

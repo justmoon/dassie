@@ -204,10 +204,31 @@ pub async fn settle(clock: &ManualClock) {
     }
 }
 
-/// Whether `a` holds accounts for `b` on the stub's ledger: a core peer's
-/// open as its peering is made.
+/// Whether `a` holds accounts for `b` on the stub's ledger, a core peer's
+/// open as its peering is made, and its packets may take each method of
+/// the peering: `b` has seen `a`'s offer of it
+/// (spec/decisions/method-offers.md).
 pub async fn peered(a: &TestNode, b: &IdentityKey) -> bool {
-    peered_on(a, b, "stub+usd").await
+    peered_on(a, b, "stub+usd").await && confirmed(a, b).await
+}
+
+/// Whether `a`'s packets may take every method of its peering with `b`:
+/// `b` has seen `a`'s offer of each (spec/decisions/method-offers.md).
+pub async fn confirmed(a: &TestNode, b: &IdentityKey) -> bool {
+    let reply = a
+        .ipc()
+        .await
+        .call(Method::ListPeers(proto::ListPeersRequest {}))
+        .await;
+    let Ok(response::Method::ListPeers(list)) = reply else {
+        panic!("{reply:?}")
+    };
+    let id = b.node_id().to_string();
+    list.peers.iter().any(|peer| {
+        peer.node == id
+            && !peer.methods.is_empty()
+            && peer.methods.iter().all(|method| method.confirmed)
+    })
 }
 
 /// Whether `uplink` holds a peering with its downlink `downlink`. Its
@@ -224,9 +245,13 @@ pub async fn peered_downlink(uplink: &TestNode, downlink: &IdentityKey) -> bool 
         panic!("{reply:?}")
     };
     let id = downlink.node_id().to_string();
-    list.peers
-        .iter()
-        .any(|peer| peer.node == id && peer.inbound && peer.state == "peered")
+    list.peers.iter().any(|peer| {
+        peer.node == id
+            && peer.inbound
+            && peer.state == "peered"
+            && !peer.methods.is_empty()
+            && peer.methods.iter().all(|method| method.confirmed)
+    })
 }
 
 /// Whether `a` holds accounts for `b` on `ledger`.

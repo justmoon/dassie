@@ -62,9 +62,10 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         } => {
             emit!(severity, target: target::PEER, %node, %scheme, inbound, "peered");
         }
-        Event::MethodAdded { .. } | Event::MethodWinding { .. } | Event::MethodDropped { .. } => {
-            peer_method(severity, event);
-        }
+        Event::MethodAdded { .. }
+        | Event::MethodConfirmed { .. }
+        | Event::MethodWinding { .. }
+        | Event::MethodDropped { .. } => peer_method(severity, event),
         Event::RoutesChanged
         | Event::CoreChanged
         | Event::OwnAddress { .. }
@@ -272,12 +273,11 @@ fn peer_packet(severity: Severity, event: &dassie_peer::Event) {
 fn peer_method(severity: Severity, event: &dassie_peer::Event) {
     use dassie_peer::Event;
     match event {
-        Event::MethodAdded {
-            peer,
-            scheme,
-            inbound,
-        } => {
-            emit!(severity, target: target::PEER, %peer, %scheme, inbound, "settlement method added");
+        Event::MethodAdded { peer, scheme } => {
+            emit!(severity, target: target::PEER, %peer, %scheme, "settlement method added: both offer it");
+        }
+        Event::MethodConfirmed { peer, scheme } => {
+            emit!(severity, target: target::PEER, %peer, %scheme, "settlement method confirmed: the peer has seen our offer of it");
         }
         Event::MethodWinding { peer, scheme } => {
             emit!(severity, target: target::PEER, %peer, %scheme, "winding a settlement method down: collecting on it before it is dropped");

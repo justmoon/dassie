@@ -325,7 +325,13 @@ impl PeeringHooks for Hooks<'_> {
     /// methods' ledgers where it has none, in the core peers' share, which
     /// must have room for them all; a downlink's opened only once value
     /// moved with it (spec/decisions/lazy-downlink-accounts.md).
-    fn open_core_accounts(&mut self, now_ms: u64, peer: NodeId, schemes: &[SchemeId]) -> bool {
+    fn open_core_accounts(
+        &mut self,
+        now_ms: u64,
+        peer: NodeId,
+        schemes: &[SchemeId],
+        reserved: usize,
+    ) -> bool {
         let Some(name) = name(peer) else {
             return false;
         };
@@ -337,10 +343,12 @@ impl PeeringHooks for Hooks<'_> {
         }
         wanted.retain(|(ledger, _)| !has_accounts(self.ledger, *ledger, name));
         // All of them, or none: a peering that ends instead leaves no
-        // accounts behind in the core peers' share.
+        // accounts behind in the core peers' share. The pairs the peer
+        // node's offers keep are not this peer's
+        // (spec/decisions/method-offers.md).
         let room = peer_budget(self.ledger.config().max_accounts, false);
         let taken = peer_accounts(self.ledger).saturating_sub(2 * self.downlinks.opened.len());
-        if taken + 2 * wanted.len() > room {
+        if taken + 2 * (wanted.len() + reserved) > room {
             return false;
         }
         wanted
@@ -443,13 +451,30 @@ impl PeeringHooks for Hooks<'_> {
         let Some(peer_name) = name(peer) else {
             return false;
         };
+        // A core peer's room is the peer node's to share out among its
+        // offers ([`Self::free_core_pairs`]).
         let max_accounts = self.ledger.config().max_accounts;
         has_accounts(self.ledger, active.scheme.ledger(), peer_name)
-            || if downlink {
-                self.downlinks.fit(max_accounts, &peer)
-            } else {
-                room_for_core_peer(self.ledger, &self.downlinks.opened)
-            }
+            || !downlink
+            || self.downlinks.fit(max_accounts, &peer)
+    }
+
+    fn has_accounts(&self, peer: NodeId, scheme: SchemeId) -> bool {
+        let Some(peer) = name(peer) else {
+            return false;
+        };
+        Name::new(scheme.as_str())
+            .ok()
+            .and_then(|id| self.schemes.get(&id))
+            .is_some_and(|active| has_accounts(self.ledger, active.scheme.ledger(), peer))
+    }
+
+    /// The core peers' share of the peers' accounts, less those opened for
+    /// core peers, in pairs (spec/decisions/account-budgets.md).
+    fn free_core_pairs(&self) -> usize {
+        let room = peer_budget(self.ledger.config().max_accounts, false);
+        let taken = peer_accounts(self.ledger).saturating_sub(2 * self.downlinks.opened.len());
+        room.saturating_sub(taken) / 2
     }
 
     /// None over a hub whose pool would not cover one more of its kind
@@ -1019,13 +1044,17 @@ impl Core {
     /// packet would otherwise leave its ledger now and then for another
     /// method.
     pub(super) fn method_available(&self, peer: &NodeId, scheme: SchemeId) -> bool {
-        let Some(method) = self
-            .peer
-            .peering_of(peer)
-            .and_then(|peering| peering.method(scheme))
-        else {
+        let Some(peering) = self.peer.peering_of(peer) else {
             return false;
         };
+        let Some(method) = peering.method(scheme) else {
+            return false;
+        };
+        // Not before the peer has seen an offer of ours that carried it
+        // (spec/decisions/method-offers.md).
+        if !peering.confirms(method) {
+            return false;
+        }
         let Some((id, active)) = Name::new(scheme.as_str())
             .ok()
             .and_then(|id| Some((id, self.schemes.get(&id)?)))
@@ -1484,6 +1513,7 @@ impl Core {
             // A method added gets a slot of its own; one withdrawn, or no
             // longer, or being wound down, is available no more, or again.
             Event::MethodAdded { peer, .. }
+            | Event::MethodConfirmed { peer, .. }
             | Event::MethodWinding { peer, .. }
             | Event::Advertised { peer, .. } => {
                 self.resync_slots(peer);

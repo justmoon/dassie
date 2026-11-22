@@ -1,237 +1,26 @@
 //! Settlement methods (spec/decisions/settlement-methods.md,
-//! spec/areas/network.md#settlement-methods): the further methods of a
-//! peering, which the node that made it asks for, one at a time, as it
-//! asked for the peering; and methods dropped, which the node that drops
-//! one tells the peer of until it hears back.
+//! spec/areas/network.md#settlement-methods): adding them, which offers
+//! decide ([`offers`](super::offers)), winding them down and dropping
+//! them. A peer of the release before, which takes no offers, asks for a
+//! method (`methodAdd`) and is told of one dropped (`methodDrop`), again
+//! until it hears back (spec/decisions/method-offers.md).
 
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
-use dassie_oer::{Decode, Encode};
+use dassie_oer::Encode;
 
 use super::inbound::{Accepted, ok};
-use super::peering::MethodAttempt;
 use super::{MAX_METHODS, PeerNode, Problem, Purpose};
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Reply};
-use crate::table::{Entry, Method, PeerState, Peering, Winding, backoff};
-use crate::wire::{
-    Content, MethodResponse, RefusalReason, SchemeId, TerminationReason, decode_octets,
-};
+use crate::table::{Entry, Method, PeerState, Peering, Winding};
+use crate::wire::{Content, MethodResponse, RefusalReason, SchemeId, TerminationReason};
 
 impl PeerNode {
-    /// Asks a peer for a further method, if a peering we made lacks one:
-    /// a scheme a peering with it settles on ([`Self::methods_with`]) that
-    /// it has no method on, and the node wants one on. One request at a
-    /// time; a peer that refused, or that the node does not want a method
-    /// with, is asked again only after a backoff, and then for the next
-    /// scheme it lacks, so one refused holds up no other. Looked at
-    /// whenever the node does what is due, which a node with peers does at
-    /// least once a heartbeat, so nothing waits on a timer of its own.
-    pub(super) fn seek_methods(&mut self, hooks: &mut dyn PeeringHooks) {
-        if self.peering.method_attempt.is_some() {
-            return;
-        }
-        let now = self.now_ms;
-        let mut wanted = None;
-        for (id, entry) in &self.table {
-            let (Some(peering), Some(link)) = (entry.active_peering(), entry.link.as_ref()) else {
-                continue;
-            };
-            // Only the node that made the peering asks, so the two never
-            // ask for one at once.
-            if peering.inbound
-                || peering.depeering.is_some()
-                || peering.methods.len() >= MAX_METHODS
-                || entry.method_at_ms > now
-                || self.bans.contains(id)
-            {
-                continue;
-            }
-            // Not while we are telling the peer we dropped it: the drop
-            // could arrive after the request.
-            // Nor on a scheme that takes no newcomer of the peer's kind now
-            // (spec/decisions/slots-by-liquidity.md): asked again once it
-            // does.
-            let downlink = entry.is_downlink();
-            let missing: Vec<SchemeId> = self
-                .methods_with(hooks, link)
-                .into_iter()
-                .filter(|scheme| {
-                    !peering.has(*scheme)
-                        && !self.dropping.contains_key(&(*id, *scheme))
-                        && hooks.takes_newcomer(*scheme, downlink)
-                })
-                .collect();
-            // The one after the scheme asked for last, round the list.
-            let after = entry
-                .method_tried
-                .and_then(|tried| missing.iter().position(|scheme| *scheme == tried))
-                .map_or(0, |at| at + 1);
-            if let Some(scheme) = missing.iter().cycle().nth(after) {
-                wanted = Some((*id, *scheme));
-                break;
-            }
-        }
-        let Some((node, scheme)) = wanted else {
-            return;
-        };
-        if let Some(entry) = self.table.get_mut(&node) {
-            entry.method_tried = Some(scheme);
-        }
-        let downlink = self.is_downlink(&node);
-        if !hooks.speaks(scheme) || !hooks.wants_method(node, downlink, scheme) {
-            self.method_failed(node);
-            return;
-        }
-        self.peering.method_attempt = Some(MethodAttempt {
-            node,
-            scheme,
-            info: None,
-            dropped: false,
-        });
-        let content = Content::PeeringInfoRequest { scheme };
-        let timeout = self.config.request_timeout_ms;
-        if self
-            .send(node, &content, Purpose::MethodInfo, timeout)
-            .is_none()
-        {
-            self.method_failed(node);
-        }
-    }
-
-    /// The scheme of our request for a method from `node`, if one is under
-    /// way, the peer dropped no method on it since, and the peering still
-    /// takes one.
-    fn method_asking(&self, node: &NodeId) -> Option<SchemeId> {
-        let attempt = self.peering.method_attempt.as_ref()?;
-        let peering = self.table.get(node).and_then(Entry::active_peering)?;
-        (attempt.node == *node && !attempt.dropped && !peering.has(attempt.scheme))
-            .then_some(attempt.scheme)
-    }
-
-    /// The peer's peering info on the scheme we ask a method on: the
-    /// scheme builds its request from it.
-    pub(super) fn on_method_info(
-        &mut self,
-        hooks: &mut dyn PeeringHooks,
-        node: NodeId,
-        result: Result<Vec<u8>, Problem>,
-    ) {
-        let Some(scheme) = self.method_asking(&node) else {
-            return self.method_failed(node);
-        };
-        let Ok(info) = result.and_then(|body| {
-            decode_octets(&body)
-                .map(<[u8]>::to_vec)
-                .map_err(|_| Problem::Invalid)
-        }) else {
-            return self.method_failed(node);
-        };
-        let mut data = Vec::new();
-        if hooks
-            .create_request(node, scheme, &info, &mut data)
-            .is_err()
-        {
-            return self.method_failed(node);
-        }
-        if let Some(attempt) = self.peering.method_attempt.as_mut() {
-            attempt.info = Some(info);
-        }
-        let content = Content::MethodAdd {
-            scheme,
-            data: &data,
-        };
-        let timeout = self.config.request_timeout_ms;
-        if self
-            .send(node, &content, Purpose::MethodAdd, timeout)
-            .is_none()
-        {
-            self.method_failed(node);
-        }
-    }
-
-    /// The peer's answer to our request for a method. Once it accepted,
-    /// the scheme finalizes the method and opens its accounts, as for a
-    /// peering's first; a method the peer took but we cannot, the peer is
-    /// told we dropped, so the two keep the same methods.
-    pub(super) fn on_method_response(
-        &mut self,
-        hooks: &mut dyn PeeringHooks,
-        node: NodeId,
-        result: Result<Vec<u8>, Problem>,
-    ) {
-        let scheme = self.method_asking(&node);
-        let info = match self.peering.method_attempt.take() {
-            Some(attempt) if attempt.node == node => attempt.info.unwrap_or_default(),
-            other => {
-                self.peering.method_attempt = other;
-                return;
-            }
-        };
-        let Some(scheme) = scheme else {
-            return self.method_failed(node);
-        };
-        let accepted = result.is_ok_and(|body| {
-            matches!(
-                MethodResponse::decode_exact(&body),
-                Ok(MethodResponse::Accepted)
-            )
-        });
-        if !accepted {
-            return self.method_failed(node);
-        }
-        // A Prepare of the peer's on the method reached us before its
-        // acceptance did, and we told the peer we have no such method: it
-        // drops it, so we add none, and ask again once it heard.
-        if self.dropping.contains_key(&(node, scheme)) {
-            return self.method_failed(node);
-        }
-        let room = self
-            .peering_of(&node)
-            .is_some_and(|peering| peering.methods.len() < MAX_METHODS);
-        let agreed = if room && hooks.speaks(scheme) {
-            hooks.finalize(self.now_ms, node, scheme, &info).ok()
-        } else {
-            None
-        };
-        match agreed {
-            Some(agreed) => {
-                let method = Method::new(scheme, agreed.state, agreed.credit_out);
-                self.add_method(node, method, false);
-            }
-            None => {
-                self.queue_drop(node, scheme);
-                self.method_failed(node);
-            }
-        }
-    }
-
-    /// Ends our request for a method from `node`, if it is under way, and
-    /// backs off from asking it again.
-    fn method_failed(&mut self, node: NodeId) {
-        if self
-            .peering
-            .method_attempt
-            .as_ref()
-            .is_some_and(|attempt| attempt.node == node)
-        {
-            self.peering.method_attempt = None;
-        }
-        let (now, min, max) = (
-            self.now_ms,
-            self.config.min_backoff_ms,
-            self.config.max_backoff_ms,
-        );
-        if let Some(entry) = self.table.get_mut(&node) {
-            entry.method_failures = entry.method_failures.saturating_add(1);
-            entry.method_at_ms = now.saturating_add(backoff(min, max, entry.method_failures));
-        }
-    }
-
     /// Adds `method` to our peering with `node`, which has room for it and
     /// none on its scheme.
-    fn add_method(&mut self, node: NodeId, method: Method, inbound: bool) {
+    pub(super) fn add_method(&mut self, node: NodeId, method: Method) {
         let scheme = method.scheme;
         let Some(entry) = self.table.get_mut(&node) else {
             return;
@@ -243,21 +32,22 @@ impl PeerNode {
             !peering.has(scheme) && peering.methods.len() < MAX_METHODS,
             "a method the peering has room for"
         );
+        let confirmed = peering.confirms(&method);
         peering.methods.push(method);
-        entry.method_failures = 0;
         self.dirty.insert(node);
         self.stats.methods_added += 1;
-        self.event(Event::MethodAdded {
-            peer: node,
-            scheme,
-            inbound,
-        });
+        self.event(Event::MethodAdded { peer: node, scheme });
+        if confirmed {
+            self.event(Event::MethodConfirmed { peer: node, scheme });
+        }
     }
 
-    /// A peer asks to add a method to our peering (`methodAdd`): answered
+    /// A peer of the release before asks to add a method to our peering
+    /// (`methodAdd`), as the node that asked for the peering did: answered
     /// as a peering request is, with the method recorded before the
     /// acceptance goes out. A repeat, after an answer that got lost, is
-    /// accepted again, as it is.
+    /// accepted again, as it is. Kept for one release, while such nodes
+    /// run (spec/decisions/method-offers.md).
     pub(super) fn method_add_request(
         &mut self,
         hooks: &mut dyn PeeringHooks,
@@ -280,6 +70,7 @@ impl PeerNode {
             }
         };
         if peering.has(scheme) {
+            self.older_release(sender);
             return ok(&MethodResponse::Accepted.to_vec());
         }
         let reason = if peering.depeering.is_some() {
@@ -293,66 +84,34 @@ impl PeerNode {
         } else if self.dropping.contains_key(&(sender, scheme)) {
             // Our drop of it is still on its way: asked again after it.
             Some(RefusalReason::Concurrent)
-        } else if !hooks.speaks(scheme)
-            || !entry
-                .link
-                .as_ref()
-                .is_some_and(|link| self.methods_with(hooks, link).contains(&scheme))
-        {
-            Some(RefusalReason::UnsupportedScheme)
-        } else if !hooks.wants_method(sender, self.is_downlink(&sender), scheme) {
-            Some(RefusalReason::SchemeRefused)
         } else {
             None
         };
         if let Some(reason) = reason {
             return refused(reason);
         }
-        let downlink = self.is_downlink(&sender);
-        match hooks.accept(self.now_ms, sender, downlink, scheme, data) {
-            Ok(agreed) => {
-                let method = Method::new(scheme, agreed.state, agreed.credit_out);
-                self.add_method(sender, method, true);
-                ok(&MethodResponse::Accepted.to_vec())
-            }
-            Err(reason) => refused(reason),
+        if self.legacy_method_add(hooks, sender, scheme, data) {
+            ok(&MethodResponse::Accepted.to_vec())
+        } else {
+            refused(RefusalReason::SchemeRefused)
         }
     }
 
     /// A peer dropped a method of our peering (`methodDrop`), after
     /// collecting on it: we drop it at once, and settle nothing more on it
-    /// (spec/decisions/settlement-methods.md). A method we do not have is
-    /// dropped already; if we are asking the peer for one on that scheme,
-    /// the peer took it and dropped it before its acceptance reached us,
-    /// so the acceptance, when it arrives, adds nothing. Our request still
-    /// waits for it, or for its timeout, as the answer is matched to the
-    /// request by its peer alone: one asked for after it could take it for
-    /// its own. A peering it leaves with none ends; one being ended keeps
-    /// its last until it is over.
+    /// (spec/decisions/settlement-methods.md). A peer of the release before
+    /// says so with it; a peer that takes offers sends one too while it
+    /// does not know whether we take them. A method we do not have is
+    /// dropped already. A peering it leaves with none ends; one being ended
+    /// keeps its last until it is over.
     pub(super) fn method_drop_request(&mut self, accepted: &Accepted, scheme: SchemeId) -> Reply {
         let sender = accepted.sender;
-        let Some(peering) = self.peering_of(&sender) else {
+        if self.peering_of(&sender).is_none() {
             self.notice_one_sided(sender);
             return Reply::refuse(409, "not peered");
-        };
-        if !peering.has(scheme) {
-            if self.method_asking(&sender) == Some(scheme)
-                && let Some(attempt) = self.peering.method_attempt.as_mut()
-            {
-                attempt.dropped = true;
-            }
-            return ok(&[]);
         }
-        if peering.methods.len() > 1 && !peering.collecting_on(scheme) {
-            self.remove_method(sender, scheme, false);
-        } else if self
-            .table
-            .get(&sender)
-            .and_then(Entry::active_peering)
-            .is_some()
-        {
-            self.begin_termination(sender, TerminationReason::Unspecified, true);
-        }
+        self.forget_theirs(&sender, scheme);
+        self.peer_dropped(sender, scheme);
         ok(&[])
     }
 
@@ -610,13 +369,20 @@ impl PeerNode {
             return self.begin_termination(peer, reason, true);
         }
         self.remove_method(peer, scheme, true);
-        self.queue_drop(peer, scheme);
+        // Our offer leaves it out from now; a peer that may not take offers
+        // is told with a drop too. Offered again only after a while, so a
+        // drop is never undone at once.
+        self.withdraw_from_offer(peer, scheme);
+        self.exclude(peer, scheme);
+        if self.speaks_offers(&peer) != Some(true) {
+            self.queue_drop(peer, scheme);
+        }
         true
     }
 
     /// Takes the method on `scheme` out of our peering with `node`, which
     /// keeps another.
-    fn remove_method(&mut self, node: NodeId, scheme: SchemeId, by_us: bool) {
+    pub(super) fn remove_method(&mut self, node: NodeId, scheme: SchemeId, by_us: bool) {
         let Some(entry) = self.table.get_mut(&node) else {
             return;
         };

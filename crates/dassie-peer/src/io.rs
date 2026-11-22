@@ -230,18 +230,27 @@ pub enum Event {
         node: NodeId,
         /// Its scheme.
         scheme: SchemeId,
-        /// Whether the peer asked.
+        /// Whether it takes one of our inbound places: we were not asking
+        /// the peer when it was made (spec/decisions/method-offers.md).
         inbound: bool,
     },
-    /// A further settlement method was added to a peering
-    /// (spec/decisions/settlement-methods.md).
+    /// A further settlement method was added to a peering: both offer it,
+    /// and we adopted it (spec/decisions/method-offers.md). The peer's
+    /// packets may take it from now; ours once it is confirmed.
     MethodAdded {
         /// The peer.
         peer: NodeId,
         /// Its scheme.
         scheme: SchemeId,
-        /// Whether the peer asked.
-        inbound: bool,
+    },
+    /// The peer has seen an offer of ours that carried a method we adopted,
+    /// so it holds the method too: our packets may take it from now
+    /// (spec/decisions/method-offers.md).
+    MethodConfirmed {
+        /// The peer.
+        peer: NodeId,
+        /// Its scheme.
+        scheme: SchemeId,
     },
     /// We decided to drop a settlement method, and collect on it first,
     /// telling no one until we have (spec/decisions/settlement-methods.md):
@@ -260,7 +269,8 @@ pub enum Event {
         peer: NodeId,
         /// Its scheme.
         scheme: SchemeId,
-        /// Whether we dropped it; otherwise the peer told us it did.
+        /// Whether we dropped it; otherwise the peer's offer no longer
+        /// carried it, or it told us it dropped it.
         by_us: bool,
     },
     /// The routes changed.
@@ -598,8 +608,16 @@ pub struct Stats {
     pub link_states_dropped: u64,
     /// Peerings begun.
     pub peerings: u64,
-    /// Further settlement methods added to peerings, either side asking.
+    /// Further settlement methods added to peerings: both offer them.
     pub methods_added: u64,
+    /// Offers of ours sent (spec/decisions/method-offers.md).
+    pub offers_sent: u64,
+    /// Peers' offers taken in, each newer than the last.
+    pub offers_taken: u64,
+    /// Peers' offers older than one taken in already, or copies of it.
+    pub offers_stale: u64,
+    /// Methods a peer offered that the node could not adopt.
+    pub adoptions_failed: u64,
     /// Settlement methods dropped from peerings that kept another, either
     /// side dropping.
     pub methods_dropped: u64,
