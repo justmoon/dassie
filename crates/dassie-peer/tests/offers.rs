@@ -597,3 +597,136 @@ fn a_peer_of_the_release_before_is_answered_as_before() {
     assert!(sent(&network, 0, "MethodDrop") >= 1);
     network.node(0).check_invariants();
 }
+
+// A crossing with a node of the release before, which takes no offers: it
+// made the peering on its own request, on the scheme it prefers, and holds
+// ours too once it accepts our request, which was on its way. That
+// acceptance comes after the crossing made our peering; we take its scheme
+// as a further method then, so both hold it, rather than leave the node's
+// Prepares on it refused, as a peering only one side holds would be.
+#[test]
+fn an_acceptance_a_crossing_overtook_adds_its_scheme() {
+    let mut network = pair(214);
+    network.refuse_offers.insert(1);
+    // Node 1 asks on the second scheme, node 0 on the stub.
+    network
+        .schemes
+        .insert(1, vec![scheme(SECOND), scheme(STUB)]);
+    let offers = network.offers(1);
+    network.act(1, |node, now| node.set_offers(now, offers));
+    network
+        .script
+        .push(Scripted::on(0, 1, Kind::PeeringRequest).delayed(4_000));
+    network
+        .script
+        .push(Scripted::on(1, 0, Kind::PeeringRequest).delayed(1_000));
+    wait(&mut network, |network| {
+        methods(network, 0, &id(1)) == two() && methods(network, 1, &id(0)) == two()
+    });
+    let peering = network.node(0).peering_of(&id(1)).unwrap();
+    assert!(!peering.inbound, "node 0 asked too");
+    assert!(two().into_iter().all(|scheme| peering.confirmed(scheme)));
+    // Our Prepares take both, and the node holds both: none is refused.
+    for scheme in two() {
+        assert!(network.prepare(0, id(1), scheme));
+    }
+    settle(&mut network, 5_000);
+    assert_eq!(
+        network.one_sided, 0,
+        "a Prepare found a method one side lacks"
+    );
+    assert_eq!(methods(&network, 0, &id(1)), two());
+    network.node(0).check_invariants();
+}
+
+// A peering left over on one side, its end lost, and asked for again by
+// the other: the request is taken on the peering we hold, and our offer
+// takes a new version, since the requester's new peering takes no version
+// of ours it saw before. Its methods agree, though our offer had not
+// changed.
+#[test]
+fn a_request_on_a_peering_we_hold_takes_a_new_version_of_our_offer() {
+    let mut network = pair(215);
+    wait(&mut network, agreed);
+    network.crash(1);
+    network.forget_stored_peering(1, &id(0));
+    // Nothing of node 0's reaches node 1 but its answers, so node 1 asks
+    // again before it hears of the peering it forgot.
+    network.cut_one_way.insert((0, 1));
+    network.start(1);
+    wait(&mut network, |network| {
+        network.node(1).peering_of(&id(0)).is_some()
+    });
+    wait(&mut network, agreed);
+    network.cut_one_way.clear();
+    settle(&mut network, 10_000);
+    assert!(agreed(&network));
+    for index in 0..2 {
+        network.node(index).check_invariants();
+    }
+}
+
+// Two nodes in a second hub, one of which takes no newcomer there for a
+// while, as one whose pool does not cover one yet: the other offers the
+// scheme all along, keeping a pair for it, and the method comes as soon as
+// the first offers it too. A scheme the peer does not offer yet is no
+// turning down while the core peers' share has room to spare, so it is
+// never left out; and one left out comes back as soon as the peer offers
+// it.
+#[test]
+fn a_scheme_the_peer_takes_later_comes_at_once() {
+    let mut network = pair(216);
+    for index in 0..2 {
+        network.nodes[index].hooks.max_pairs = Some(16);
+    }
+    network.nodes[1].hooks.shut.insert((scheme(SECOND), false));
+    wait(&mut network, |network| {
+        (0..2).all(|index| methods(network, index, &id(1 - index)) == [scheme(STUB)])
+    });
+    // Long enough for a backoff that doubles at each round to grow.
+    settle(&mut network, 300_000);
+    assert!(
+        network
+            .node(0)
+            .peering_of(&id(1))
+            .unwrap()
+            .offered
+            .contains(&scheme(SECOND)),
+        "node 0 left the scheme out"
+    );
+    network.nodes[1].hooks.shut.clear();
+    let at = network.now;
+    wait(&mut network, agreed);
+    assert!(
+        network.now - at <= 5_000,
+        "the method took {} ms once both offered it",
+        network.now - at
+    );
+}
+
+// A drop told to a peer that may not take offers, as one we have not heard
+// from since our restart, is told with `methodDrop` until it hears. The
+// scheme is not offered again meanwhile: were it adopted again first, the
+// drop landing after would leave the method on our side alone.
+#[test]
+fn a_scheme_is_not_offered_again_while_its_drop_is_on_its_way() {
+    let mut network = pair(217);
+    wait(&mut network, agreed);
+    network.crash(1);
+    network.crash(0);
+    network.start(0);
+    // Node 0 stops running the second scheme while node 1 is down, and
+    // runs it again: its drop is still on its way.
+    network.set_running(0, scheme(SECOND), false);
+    settle(&mut network, 30_000);
+    assert_eq!(methods(&network, 0, &id(1)), [scheme(STUB)]);
+    network.set_running(0, scheme(SECOND), true);
+    settle(&mut network, 30_000);
+    network.start(1);
+    wait(&mut network, agreed);
+    settle(&mut network, 120_000);
+    assert!(agreed(&network), "a method only one side holds");
+    for index in 0..2 {
+        network.node(index).check_invariants();
+    }
+}

@@ -110,6 +110,7 @@ impl PeerNode {
             self.notice_one_sided(sender);
             return Reply::refuse(409, "not peered");
         }
+        self.forget_theirs(&sender, scheme);
         self.peer_dropped(sender, scheme);
         ok(&[])
     }

@@ -34,8 +34,9 @@ use crate::wire::{Content, MethodOffer, OfferedMethod, SchemeId};
 /// comes back with the next exchange, or only paces our own sends.
 #[derive(Debug, Default)]
 pub(crate) struct Talk {
-    /// The peer's newest offer we took in, on schemes we run or hold a
-    /// method on, each with its data: `None` until we took one in this run.
+    /// The peer's newest offer we took in, each method with its data, at
+    /// most [`MAX_OFFERS`](crate::wire::MAX_OFFERS): `None` until we took
+    /// one in this run.
     theirs: Option<Vec<(SchemeId, Vec<u8>)>>,
     /// The version of our offer each scheme of it entered with.
     since: Vec<(SchemeId, u64)>,
@@ -50,6 +51,12 @@ pub(crate) struct Talk {
     at_ms: u64,
     /// Whether one is on its way.
     in_flight: bool,
+    /// The version of our offer the one on its way, or the last, carried.
+    sent_version: u64,
+    /// Whether we took a newer offer of the peer's from its answer to ours,
+    /// which the peer does not know we saw: our next offer says so, though
+    /// ours did not change, so it need not wait for us to.
+    owes_ack: bool,
     /// Whether it may go again as soon as the peer answers a request of
     /// ours, before its backoff ends.
     early: bool,
@@ -178,19 +185,26 @@ impl PeerNode {
     }
 
     /// Whether our peering attempt keeps a pair: it asks a node on a scheme
-    /// on whose ledger it has no accounts yet.
+    /// on whose ledger it has no accounts yet, or a crossing overtook it
+    /// and its acceptance may still bring that scheme
+    /// ([`Peering::crossed`](super::peering::Peering::crossed)).
     fn attempt_reserves(
         &self,
         hooks: &dyn PeeringHooks,
         except: Option<(NodeId, SchemeId)>,
     ) -> bool {
-        self.peering.attempt().is_some_and(|node| {
+        let asking = self.peering.attempt().is_some_and(|node| {
             matches!(
                 self.table.get(&node).map(|entry| &entry.peer),
                 Some(PeerState::Requesting { scheme, .. })
                     if except != Some((node, *scheme)) && !hooks.has_accounts(node, *scheme)
             )
-        })
+        });
+        let crossed = self.peering.crossed.as_ref().is_some_and(|crossed| {
+            except != Some((crossed.node, crossed.scheme))
+                && !hooks.has_accounts(crossed.node, crossed.scheme)
+        });
+        asking || crossed
     }
 
     /// Whether one more core peer's pair fits, beside what offers and our
@@ -207,11 +221,14 @@ impl PeerNode {
 
     /// Works out every active peering's offer, takes a new version where
     /// it changed, adopts the schemes both offer, and leaves out those a
-    /// peer turned down, until nothing changes: three rounds at most, since
-    /// a round after the first only adopts what the one before offered, or
-    /// leaves out what it could not.
+    /// peer turned down, until nothing changes. A round after the first
+    /// only adopts what the one before offered, or leaves out what it could
+    /// not adopt or the peer turned down, which frees a pair for a scheme
+    /// the next round may offer: each peering leaves out at most each
+    /// scheme it runs once, so the rounds end before the bound, which only
+    /// guards against a fault.
     pub(super) fn refresh_offers(&mut self, hooks: &mut dyn PeeringHooks) {
-        for _ in 0..3 {
+        for _ in 0..super::MAX_SCHEMES + 2 {
             let plans = self.plan_offers(hooks);
             for plan in plans {
                 self.take_plan(hooks, plan);
@@ -292,7 +309,10 @@ impl PeerNode {
             let downlink = entry.is_downlink();
             for scheme in self.methods_with(hooks, link) {
                 let committed = peering.offered.contains(&scheme);
+                // Not while a drop of it is on its way to a peer that may
+                // not take offers: it would undo the method once it lands.
                 if peering.has(scheme)
+                    || self.dropping.contains_key(&(*id, scheme))
                     || !hooks.speaks(scheme)
                     || talk.is_some_and(|talk| talk.excludes(scheme, self.now_ms))
                     || !(committed
@@ -412,7 +432,9 @@ impl PeerNode {
         let mut both: Vec<(SchemeId, Vec<u8>)> = peering
             .offered
             .iter()
-            .filter(|scheme| !peering.has(**scheme))
+            .filter(|scheme| {
+                !peering.has(**scheme) && !self.dropping.contains_key(&(peer, **scheme))
+            })
             .filter_map(|scheme| talk.theirs_on(*scheme).map(|data| (*scheme, data.to_vec())))
             .collect();
         both.sort_unstable_by_key(|(scheme, _)| *scheme);
@@ -465,10 +487,16 @@ impl PeerNode {
     }
 
     /// Leaves out of our offer to `peer` each scheme that would open its
-    /// accounts and that the peer has turned down: it has seen an offer of
-    /// ours with it, and its own, as new as that, does not carry it. The
-    /// pair it kept goes to others meanwhile. Returns whether any was.
+    /// accounts and that the peer has turned down, while the core peers'
+    /// share has no pair to spare: the peer has seen an offer of ours with
+    /// it, and its own, as new as that, does not carry it. The pair it kept
+    /// goes to others meanwhile. With a pair to spare, a scheme the peer
+    /// does not take yet, as one whose hub it has not joined, stays offered,
+    /// costing nobody anything. Returns whether any was left out.
     fn judge_declines(&mut self, hooks: &dyn PeeringHooks, peer: NodeId) -> bool {
+        if hooks.free_core_pairs() > self.reserved_pairs(hooks, None) {
+            return false;
+        }
         let Some(entry) = self.table.get(&peer) else {
             return false;
         };
@@ -537,6 +565,7 @@ impl PeerNode {
         hooks: &mut dyn PeeringHooks,
         peer: NodeId,
         offer: &MethodOffer<'_>,
+        answer: bool,
     ) -> Result<(), ()> {
         let Some(channel) = self.channels.get(&peer) else {
             return Err(());
@@ -573,7 +602,13 @@ impl PeerNode {
         if acked_before < offer.seen {
             self.dirty.insert(peer);
         }
-        let changed = self.take_content(hooks, peer, offer, newer, &held);
+        let changed = self.take_content(peer, offer, newer, &held);
+        if newer
+            && answer
+            && let Some(talk) = self.talks.get_mut(&peer)
+        {
+            talk.owes_ack = true;
+        }
         self.follow_their_offer(hooks, peer, &held, changed);
         self.refresh_offers(hooks);
         if let Some(peering) = self.peering_of(&peer) {
@@ -589,11 +624,10 @@ impl PeerNode {
     }
 
     /// Takes in what `peer`'s `offer` carries if it is `newer` than what we
-    /// took last, on schemes we run or `held` as methods. Returns the
-    /// methods whose data it changed, with the new data.
+    /// took last. Returns the methods we `held` whose data it changed, with
+    /// the new data.
     fn take_content(
         &mut self,
-        hooks: &dyn PeeringHooks,
         peer: NodeId,
         offer: &MethodOffer<'_>,
         newer: bool,
@@ -605,10 +639,13 @@ impl PeerNode {
             self.stats.offers_stale += 1;
             return Vec::new();
         }
+        // Every method it offers, whether or not we run its scheme now:
+        // what we acknowledge having seen is the whole of it, and a scheme
+        // we take up later is adopted from it (at most `MAX_OFFERS`, as
+        // the wire bounds it).
         let theirs: Vec<(SchemeId, Vec<u8>)> = offer
             .methods
             .iter()
-            .filter(|method| hooks.speaks(method.scheme) || held.contains(&method.scheme))
             .map(|method| (method.scheme, method.data.to_vec()))
             .collect();
         let mut changed = Vec::new();
@@ -616,6 +653,12 @@ impl PeerNode {
             let before = talk.theirs_on(*scheme);
             if held.contains(scheme) && before.is_some() && before != Some(data.as_slice()) {
                 changed.push((*scheme, data.clone()));
+            }
+            // A scheme left out after the peer turned it down, or after
+            // its data could not be adopted, comes back once the peer
+            // offers it anew, or with other data.
+            if before != Some(data.as_slice()) {
+                talk.excluded.retain(|(excluded, _, _)| excluded != scheme);
             }
         }
         talk.theirs = Some(theirs);
@@ -705,7 +748,7 @@ impl PeerNode {
         let state = self.table.get(&sender).map(|entry| &entry.peer);
         match state {
             Some(PeerState::Peered(_)) => {
-                if self.take_offer(hooks, sender, offer).is_err() {
+                if self.take_offer(hooks, sender, offer, false).is_err() {
                     return Reply::refuse(400, "an offer of ours it cannot have seen");
                 }
             }
@@ -756,6 +799,8 @@ impl PeerNode {
                 self.stats.offers_sent += 1;
                 if let Some(talk) = self.talks.get_mut(&peer) {
                     talk.in_flight = true;
+                    talk.sent_version = version;
+                    talk.owes_ack = false;
                 }
             } else {
                 self.offer_failed(peer);
@@ -770,10 +815,11 @@ impl PeerNode {
             .channels
             .get(peer)
             .map_or(0, |channel| channel.offer_out);
+        let owes = self.talks.get(peer).is_some_and(|talk| talk.owes_ack);
         self.table
             .get(peer)
             .and_then(Entry::active_peering)
-            .is_some_and(|peering| peering.offer_acked < out)
+            .is_some_and(|peering| peering.offer_acked < out || owes)
     }
 
     /// When an offer of ours is next due, or a scheme left out may come
@@ -826,7 +872,15 @@ impl PeerNode {
                         talk.failures = 0;
                         talk.early = false;
                     }
-                    if self.take_offer(hooks, peer, &offer).is_err() {
+                    let sent = self.talks.get(&peer).map_or(0, |talk| talk.sent_version);
+                    // An answer that did not take ours, as one from a node
+                    // ending the peering, is tried again after a backoff,
+                    // not at once.
+                    if self.take_offer(hooks, peer, &offer, true).is_err()
+                        || self
+                            .peering_of(&peer)
+                            .is_some_and(|peering| peering.offer_acked < sent)
+                    {
                         self.offer_failed(peer);
                     }
                 }
@@ -924,6 +978,63 @@ impl PeerNode {
         }
     }
 
+    /// Finalizes the scheme of our request that a crossing overtook, which
+    /// the node accepted, as a further method: confirmed by the acceptance,
+    /// as a peering's first is, and offered from now, at a new version.
+    /// Returns whether it is a method now.
+    pub(super) fn finalize_crossed(
+        &mut self,
+        hooks: &mut dyn PeeringHooks,
+        crossed: &super::peering::Crossed,
+    ) -> bool {
+        let (node, scheme) = (crossed.node, crossed.scheme);
+        if !hooks.speaks(scheme) {
+            return false;
+        }
+        let Ok(agreed) = hooks.finalize(self.now_ms, node, scheme, &crossed.info) else {
+            return false;
+        };
+        if let Some(peering) = self.table.get_mut(&node).and_then(Entry::peering_mut)
+            && !peering.offered.contains(&scheme)
+        {
+            peering.offered.push(scheme);
+        }
+        self.add_method(node, Method::new(scheme, agreed.state, agreed.credit_out));
+        if let Some(talk) = self.talks.get_mut(&node) {
+            talk.excluded.retain(|(excluded, _, _)| *excluded != scheme);
+        }
+        self.offer_again(node);
+        true
+    }
+
+    /// Takes a new version of our offer to `peer`, as it stands, and sends
+    /// it: one the peer may hold no newer than a version it took before, as
+    /// a requester whose new peering takes no version of ours it saw.
+    pub(super) fn offer_again(&mut self, peer: NodeId) {
+        let Some(channel) = self.channels.get_mut(&peer) else {
+            return;
+        };
+        channel.offer_out = channel.offer_out.saturating_add(1);
+        self.channels_dirty.insert(peer);
+        let now = self.now_ms;
+        let talk = self.talk_mut(peer);
+        if !talk.in_flight {
+            talk.at_ms = now;
+        }
+    }
+
+    /// Forgets that `peer` offers `scheme`, which it told us it dropped: no
+    /// round adopts it again before its next offer says so.
+    pub(super) fn forget_theirs(&mut self, peer: &NodeId, scheme: SchemeId) {
+        if let Some(theirs) = self
+            .talks
+            .get_mut(peer)
+            .and_then(|talk| talk.theirs.as_mut())
+        {
+            theirs.retain(|(offered, _)| *offered != scheme);
+        }
+    }
+
     /// Forgets what the node kept of its offers with `peer`, whose peering
     /// is over: its channel keeps the versions.
     pub(super) fn forget_talk(&mut self, peer: &NodeId) {
@@ -966,19 +1077,22 @@ impl PeerNode {
         scheme: SchemeId,
         data: &[u8],
     ) -> bool {
-        if self
+        let has = self
             .peering_of(&sender)
-            .is_some_and(|peering| peering.has(scheme))
-        {
-            return true;
-        }
+            .is_some_and(|peering| peering.has(scheme));
         if self
             .table
             .get(&sender)
             .and_then(Entry::active_peering)
             .is_none()
         {
-            return false;
+            return has;
+        }
+        // The requester takes a new peering, whose floor is the newest
+        // version of ours it saw: every offer of ours is newer from now.
+        if has {
+            self.offer_again(sender);
+            return true;
         }
         self.refresh_offers(hooks);
         let offered = self
@@ -987,6 +1101,7 @@ impl PeerNode {
         if !offered || !self.adopt_one(hooks, sender, scheme, data) {
             return false;
         }
+        self.offer_again(sender);
         if let Some(talk) = self.talks.get_mut(&sender)
             && let Some(theirs) = talk.theirs.as_mut()
             && !theirs.iter().any(|(offered, _)| *offered == scheme)

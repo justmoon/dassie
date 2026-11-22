@@ -29,6 +29,23 @@ pub(crate) struct Peering {
     bridge_at_ms: u64,
     /// The node we are asking, if any: one attempt at a time.
     attempt: Option<NodeId>,
+    /// Our request that a crossing overtook: the node's own request made
+    /// the peering while ours was on its way, on the scheme we asked on,
+    /// with the peering info it gave. Its acceptance, when it comes, says
+    /// the node holds that scheme too, so it is finalized as a further
+    /// method then (spec/decisions/method-offers.md). Its pair stays kept
+    /// meanwhile. One at a time, as attempts are.
+    pub(crate) crossed: Option<Crossed>,
+}
+
+/// Our peering request overtaken by a crossing ([`Peering::crossed`]).
+pub(crate) struct Crossed {
+    /// The node asked.
+    pub node: NodeId,
+    /// The scheme we asked on.
+    pub scheme: SchemeId,
+    /// The node's peering info on it, which finalizing takes.
+    pub info: Vec<u8>,
 }
 
 impl Peering {
@@ -37,6 +54,7 @@ impl Peering {
             check_at_ms: now_ms,
             bridge_at_ms: now_ms,
             attempt: None,
+            crossed: None,
         }
     }
 
@@ -444,7 +462,7 @@ impl PeerNode {
         result: Result<Vec<u8>, Problem>,
     ) {
         let Some(scheme) = self.requesting(&node) else {
-            return;
+            return self.on_crossed_response(hooks, node, &result);
         };
         let Ok(body) = result else {
             return self.fail_attempt(node, "no answer");
@@ -475,6 +493,47 @@ impl PeerNode {
             }
             Ok(PeeringResponse::Refused(reason)) => self.refused(node, reason),
             _ => self.fail_attempt(node, "an invalid answer"),
+        }
+    }
+
+    /// The answer to our request that a crossing overtook
+    /// ([`Peering::crossed`]): accepted, the node holds the scheme we asked
+    /// on, so we finalize it as a further method, confirmed by the
+    /// acceptance as a peering's first is, unless the peering has it
+    /// already. A node of the release before, which takes no offers, would
+    /// otherwise keep a method we never hear of, and the first Prepare on
+    /// it would end the peering. One we cannot take is left out of our
+    /// offer, and such a node is told with a drop.
+    fn on_crossed_response(
+        &mut self,
+        hooks: &mut dyn PeeringHooks,
+        node: NodeId,
+        result: &Result<Vec<u8>, Problem>,
+    ) {
+        let Some(crossed) = self.peering.crossed.take_if(|crossed| crossed.node == node) else {
+            return;
+        };
+        let accepted = result.as_ref().is_ok_and(|body| {
+            matches!(
+                PeeringResponse::decode_exact(body),
+                Ok(PeeringResponse::Accepted)
+            )
+        });
+        let lacks = self
+            .table
+            .get(&node)
+            .and_then(Entry::active_peering)
+            .is_some_and(|peering| {
+                !peering.has(crossed.scheme) && peering.methods.len() < crate::MAX_METHODS
+            });
+        if !accepted || !lacks {
+            return;
+        }
+        if !self.finalize_crossed(hooks, &crossed) {
+            self.exclude(node, crossed.scheme);
+            if self.speaks_offers(&node) != Some(true) {
+                self.queue_drop(node, crossed.scheme);
+            }
         }
     }
 
@@ -540,6 +599,21 @@ impl PeerNode {
     ) -> bool {
         let now = self.now_ms;
         let inbound = theirs && !self.peering.is_asking(&node);
+        // Our own request, if it went out, is overtaken: its acceptance is
+        // still to come ([`Peering::crossed`]).
+        let overtaken = match self.table.get(&node).map(|entry| &entry.peer) {
+            Some(PeerState::Requesting {
+                scheme: ours,
+                info: Some(info),
+            }) if theirs && self.peering.attempt == Some(node) && *ours != scheme => {
+                Some(Crossed {
+                    node,
+                    scheme: *ours,
+                    info: info.clone(),
+                })
+            }
+            _ => None,
+        };
         if self.peering.attempt == Some(node) {
             self.peering.attempt = None;
         }
@@ -569,6 +643,9 @@ impl PeerNode {
         entry.peering_failures = 0;
         self.dirty.insert(node);
         self.offers_begin(node, scheme, theirs);
+        if overtaken.is_some() {
+            self.peering.crossed = overtaken;
+        }
         // Listed once the peer has seen its first method: at once when it
         // accepted ours, after its first offer when we accepted its.
         let listed = self

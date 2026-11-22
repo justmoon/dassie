@@ -930,6 +930,16 @@ impl Network {
         }
     }
 
+    /// Makes node `index`, while down, forget its peering with `peer`, as
+    /// one whose end it was told of and the peer was not would.
+    pub fn forget_stored_peering(&mut self, index: usize, peer: &NodeId) {
+        assert!(self.nodes[index].node.is_none(), "the node is down");
+        if let Some(stored) = self.nodes[index].stored_nodes.get_mut(peer) {
+            stored.peering = None;
+            stored.termination = None;
+        }
+    }
+
     /// Crashes node `index`: what it did not persist is lost.
     pub fn crash(&mut self, index: usize) {
         self.nodes[index].node = None;

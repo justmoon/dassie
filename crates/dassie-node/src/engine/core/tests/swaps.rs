@@ -42,10 +42,13 @@ pub(super) fn pair_with(seed: u64, commitments: usize) -> Sim {
     let ready = |sim: &Sim| {
         [(0, 1), (1, 0)].into_iter().all(|(a, b)| {
             let other = key(b).node_id();
+            // Both methods, each confirmed, so our packets take either
+            // (spec/decisions/method-offers.md).
             let methods = sim
                 .core(a)
                 .peer
                 .peering_of(&other)
+                .filter(|peering| peering.methods.iter().all(|m| peering.confirms(m)))
                 .map_or(0, |peering| peering.methods.len());
             let held = ["stub", STUB_TWO].iter().all(|scheme| {
                 let name = dassie_ledger::Name::new(scheme).unwrap();
@@ -135,7 +138,7 @@ fn a_swap_below_its_minimum_is_rejected() {
     // A seed whose run has both holds funded when the swap goes: in others
     // a leg finds its method short of funds (T04), which this test is not
     // about.
-    let mut sim = pair(85);
+    let mut sim = pair(86);
     let before = (holds(&sim, 0), holds(&sim, 1));
     let outcome = swap(&mut sim, 1_000_000, u64::MAX);
     assert_eq!(
