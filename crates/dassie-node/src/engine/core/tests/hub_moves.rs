@@ -45,6 +45,16 @@ struct Hub {
 impl Hub {
     /// The hub `scheme` joins: its rules' network and asset name it.
     fn new(scheme: &str, network: u32, asset: Asset) -> Self {
+        Self::with_terms(scheme, network, asset, |_| {})
+    }
+
+    /// [`new`](Self::new), its terms changed by `change` first.
+    fn with_terms(
+        scheme: &str,
+        network: u32,
+        asset: Asset,
+        change: impl FnOnce(&mut dassie_hub::rules::Terms),
+    ) -> Self {
         use dassie_hub::escrow::{ValidatorKeys, escrow_master};
         use dassie_hub::rules::LEAST_TOKEN_GAS_DROPS;
 
@@ -58,6 +68,7 @@ impl Hub {
             rules.terms.fees.gas = LEAST_TOKEN_GAS_DROPS;
             rules.terms.fees.ledger = 0;
         }
+        change(&mut rules.terms);
         let terms = rules.terms.clone();
         let mut keys = Vec::new();
         for (index, acceptance) in rules.validators.iter_mut().enumerate() {
@@ -280,6 +291,57 @@ impl Hub {
     }
 
     /// The stamp of the block at the current height.
+    /// The hub executes `withdrawal` of the node's for no fee, giving it
+    /// escrow sequence 1, in a new final block in which the node's account
+    /// 5 holds `balance`, its counters at `(deposited, withdrawn)`.
+    fn withdrew(
+        &mut self,
+        core: &mut Core,
+        withdrawal: dassie_hub::operation::SignedMemberOperation,
+        balance: u64,
+        (deposited, withdrawn): (u64, u64),
+    ) {
+        use dassie_hub::client::{AccountView, Statement};
+        use dassie_hub::ledger::{Detail, Outcome};
+        use dassie_hub::operation::{AccountNumber, Operation};
+
+        self.height += 1;
+        let view = AccountView {
+            key: self.member,
+            balance,
+            reserve: self.rules.terms.fees.account_reserve,
+            sequence: 2,
+            disbursal: true,
+            closing: false,
+            deposited,
+            withdrawn,
+            returned: 0,
+        };
+        let stamp = self.stamp();
+        let statements = [
+            Statement::Executed {
+                height: self.height,
+                timestamp: stamp,
+                index: 0,
+                operation: Operation::Member(withdrawal),
+                outcome: Outcome::Applied {
+                    fee: 0,
+                    detail: Detail::Withdrawal(1),
+                },
+            },
+            Statement::Account {
+                height: self.height,
+                key: self.member,
+                account: Some((AccountNumber(5), view)),
+            },
+            Statement::Final {
+                height: self.height,
+                timestamp: stamp,
+            },
+        ];
+        self.say(core, &statements);
+    }
+
     const fn stamp(&self) -> Millis {
         NOW + self.height
     }
@@ -1121,6 +1183,136 @@ fn a_hub_move_on_its_way_moves_no_price() {
         u128::from((balance + drops) * UNITS_PER_DROP)
     );
     assert_eq!(prices(&core), as_built(&core));
+}
+
+/// The operations `core` submitted to the hub in `outputs`.
+fn submitted(
+    outputs: &[super::super::Output],
+) -> Vec<dassie_hub::operation::SignedMemberOperation> {
+    use dassie_hub::client::Request;
+    use dassie_hub::operation::Operation;
+    use dassie_hub::service::wire::Message;
+
+    let mut seen = Vec::new();
+    for output in outputs {
+        let super::super::Output::HubSend { message, .. } = output else {
+            continue;
+        };
+        if let Ok(Message::Request(Request::Submit(Operation::Member(signed)))) =
+            Message::decode_exact(message)
+            && !seen.contains(&signed)
+        {
+            seen.push(signed);
+        }
+    }
+    seen
+}
+
+/// What the node's curve says a unit of the XRP hub's ledger is worth in
+/// dollars, as its own swaps value what they get
+/// (spec/decisions/peer-swaps.md#decision), at the holdings the books
+/// show now.
+fn xrp_worth(core: &Core) -> u64 {
+    let table = core.price_table();
+    let holdings = table.live_holdings(&core.ledger);
+    table
+        .value_rate(
+            LedgerId::HubXrplTestnetXrp,
+            LedgerId::StubUsd,
+            0,
+            0,
+            &holdings,
+            None,
+        )
+        .unwrap()
+}
+
+// spec/decisions/passive-rebalancing.md: once the hub executed the owner's
+// withdrawal, what it pays out is gone from the hub's ledger and not yet on
+// the owner book's, until the XRPL account books it arriving. It counts
+// toward the asset meanwhile, so the prices, and what the node's own swaps
+// value XRP at, are what they were before it and are once it landed: the
+// node neither pays the bonus for XRP it does not lack nor swaps toward a
+// shortage that is only its own withdrawal on its way. A hub without a
+// ledger fee, which executes it for no fee, so that the move takes nothing
+// from the asset.
+#[test]
+fn a_withdrawal_landing_moves_no_price() {
+    use dassie_hub::operation::MemberOperation;
+
+    let (mut ledger, own) = super::funded_ledger();
+    let mut hub = Hub::with_terms(SCHEME_ID, TESTNET.id, Asset::Xrp, |terms| {
+        terms.fees.ledger = 0;
+    });
+    let balance = 50_000_000;
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = xrp_hub_and_dollars(store, &mut ledger, &mut hub, balance);
+    let before = (prices(&core), xrp_worth(&core));
+
+    // The owner withdraws: held in the hub until it executes.
+    let drops = 20_000_000;
+    core.begin_step(core.now_ms() + 1_000);
+    core.hub_withdraw_from(SCHEME_ID, drops * UNITS_PER_DROP)
+        .unwrap();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let sent = submitted(&outputs);
+    let withdrawal = sent
+        .iter()
+        .find(|signed| matches!(signed.operation, MemberOperation::Withdraw { .. }))
+        .unwrap()
+        .clone();
+    assert_eq!((prices(&core), xrp_worth(&core)), before, "held");
+
+    // The hub executes it, and the account shows it gone: landing.
+    hub.withdrew(&mut core, withdrawal, balance - drops, (balance, drops));
+    core.finish_step(&mut Vec::new());
+    let in_hub = core.price_table().ledger(LedgerId::HubXrplTestnetXrp);
+    assert_eq!(
+        in_hub.unwrap().holding.posted,
+        u128::from((balance - drops) * UNITS_PER_DROP),
+        "gone from the hub"
+    );
+    assert_eq!(
+        (prices(&core), xrp_worth(&core)),
+        before,
+        "the asset reads whole"
+    );
+    assert_eq!(core.moves_on_their_way().len(), 1, "landing");
+
+    // The XRPL account books it arriving: on the book, nothing landing.
+    ledger.deposit(own, drops);
+    super::close_xrpl(&mut core, &mut ledger);
+    assert!(core.moves_on_their_way().is_empty(), "landed");
+    assert_eq!((prices(&core), xrp_worth(&core)), before, "landed");
+}
+
+// Found by peer_swaps.rs, which failed now and then: the swap service
+// values what it gets at the curve from what the books hold now, with the
+// moves on their way the table counted when it was built. A deposit the hub
+// credited in the step, booked in the hub since, counted twice until the
+// table was built again at the step's end, and the node swapped away XRP it
+// read as a surplus. Before it values anything, the service has the table
+// count the moves as they are now.
+#[test]
+fn a_move_that_landed_in_the_step_counts_once_for_swaps() {
+    let (mut ledger, _) = super::funded_ledger();
+    let mut hub = Hub::new(SCHEME_ID, TESTNET.id, Asset::Xrp);
+    let balance = 5_000_000;
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = xrp_hub_and_dollars(store, &mut ledger, &mut hub, balance);
+    let drops = 100_000_000;
+    deposit_applied(&mut core, &mut ledger, drops);
+    let whole = xrp_worth(&core);
+
+    core.begin_step(core.now_ms() + 1_000);
+    hub.account(&mut core, balance + drops, balance + drops);
+    assert!(core.moves_on_their_way().is_empty(), "booked in the hub");
+    assert_ne!(xrp_worth(&core), whole, "the table counts it still");
+    core.price_if_moved();
+    assert_eq!(xrp_worth(&core), whole, "once");
+    core.finish_step(&mut Vec::new());
+    assert_eq!(xrp_worth(&core), whole);
 }
 
 // Found in review: the node counts a deposit as gone from its book only

@@ -422,6 +422,34 @@ pub enum GasNext {
     },
 }
 
+/// A withdrawal the hub executed, on its way to the owner book's account:
+/// gone from the hub's ledger, and not yet on the book's, which books it
+/// once its account sees the escrow's payment arrive, a ledger or two
+/// after it applied (spec/decisions/passive-rebalancing.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Landing {
+    /// What arrives, in the hub asset's smallest unit.
+    pub drops: u64,
+    /// When the hub executed it.
+    pub since_ms: u64,
+    /// The account's `returned` counter then: once it grows, a withdrawal
+    /// the escrow could not pay came back to the hub, as this one may have.
+    pub returned: u64,
+}
+
+impl Landing {
+    /// Whether it still counts toward its asset at `now_ms`, with the
+    /// account's `returned` counter now at `returned`: until it is late
+    /// (`CREDIT_WAIT_MS`), and while no withdrawal came back, which the
+    /// node cannot tell from this one. What it cannot tell, it counts on
+    /// neither ledger.
+    #[must_use]
+    pub fn counts(&self, now_ms: u64, returned: Option<u64>) -> bool {
+        now_ms < self.since_ms.saturating_add(CREDIT_WAIT_MS)
+            && returned.is_some_and(|returned| returned <= self.returned)
+    }
+}
+
 /// The node's moves between its XRPL account and its hub account.
 #[derive(Debug)]
 pub struct Funding {
@@ -450,6 +478,13 @@ pub struct Funding {
     /// What a failed top-up holds back: the next check of the gas, and no
     /// other move.
     gas_backoff: Backoff,
+    /// The withdrawal the hub executed last, until the owner book's
+    /// account books it arriving. Kept in memory only: after a restart,
+    /// what is still on its way counts on neither ledger.
+    pub landing: Option<Landing>,
+    /// The payment of the withdrawal on its way whose arrival the owner
+    /// book booked before the hub's execution of it reached the node.
+    landed_early: Option<Name>,
 }
 
 impl Funding {
@@ -467,7 +502,63 @@ impl Funding {
             interval_ms,
             gas: Gas::Unchecked,
             gas_backoff: Backoff::new(),
+            landing: None,
+            landed_early: None,
         }
+    }
+
+    /// The hub executed the owner's payment `id` at `now_ms`, its account's
+    /// `returned` counter then at `returned`: if it is the withdrawal on
+    /// its way, it is landing now, unless the owner book booked it arriving
+    /// already. Returns whether the landing changed.
+    pub fn executed(&mut self, now_ms: u64, id: Name, returned: u64) -> bool {
+        let Some(moving) = self
+            .moving
+            .filter(|moving| moving.direction == Direction::Withdraw && moving.payment == id)
+        else {
+            return false;
+        };
+        if self.landed_early.take() == Some(id) {
+            return false;
+        }
+        self.landing = Some(Landing {
+            drops: moving.drops,
+            since_ms: now_ms,
+            returned,
+        });
+        true
+    }
+
+    /// The owner book booked `drops` arriving: the landing withdrawal of
+    /// that much has landed; or, while a withdrawal of that much is on its
+    /// way and not executed as far as the node heard, it landed early.
+    /// Returns whether the landing changed.
+    pub fn arrived(&mut self, drops: u64) -> bool {
+        if self.landing.is_some_and(|landing| landing.drops == drops) {
+            self.landing = None;
+            return true;
+        }
+        if let Some(moving) = self
+            .moving
+            .filter(|moving| moving.direction == Direction::Withdraw && moving.drops == drops)
+            && self.landing.is_none()
+        {
+            self.landed_early = Some(moving.payment);
+        }
+        false
+    }
+
+    /// Forgets the landing withdrawal once it no longer counts
+    /// ([`Landing::counts`]). Returns whether it did.
+    pub fn landing_over(&mut self, now_ms: u64, returned: Option<u64>) -> bool {
+        if self
+            .landing
+            .is_some_and(|landing| !landing.counts(now_ms, returned))
+        {
+            self.landing = None;
+            return true;
+        }
+        false
     }
 
     /// What a failure of a move `direction` holds back.
@@ -501,6 +592,11 @@ impl Funding {
         assert!(
             self.interval_ms > 0 && self.at_ms <= now_ms.saturating_add(self.interval_ms),
             "the next check is at most an interval away"
+        );
+        assert!(
+            self.landing
+                .is_none_or(|landing| landing.since_ms <= now_ms),
+            "a withdrawal lands after the hub executed it"
         );
     }
 
@@ -1270,6 +1366,52 @@ mod tests {
         assert_eq!(funding.due(1, &none).unwrap().drops, 3_000_000, "all of it");
         none.xrpl = Some(2_100_999);
         assert_eq!(funding.due(1, &none), None, "too little to open it");
+    }
+
+    // spec/decisions/passive-rebalancing.md: a withdrawal the hub executed
+    // is landing until the owner book books it arriving, a while passed,
+    // or a withdrawal came back to the hub; one the book booked before the
+    // execution reached the node never lands again; and a deposit is never
+    // landing.
+    #[test]
+    fn an_executed_withdrawal_lands_until_the_book_books_it() {
+        let other = Name::new("other").unwrap();
+        let mut funding = Funding::new(0, 4_000);
+        funding.start(1, Planned::withdraw(700, 100, 0, true), payment());
+        assert!(!funding.executed(2, other, 0), "another payment");
+        assert!(!funding.arrived(699), "another amount");
+        assert!(funding.executed(2, payment(), 3));
+        let landing = funding.landing.unwrap();
+        assert_eq!((landing.drops, landing.since_ms), (700, 2));
+        assert!(landing.counts(2 + CREDIT_WAIT_MS - 1, Some(3)));
+        assert!(!landing.counts(2 + CREDIT_WAIT_MS, Some(3)), "late");
+        assert!(!landing.counts(3, Some(4)), "a withdrawal came back");
+        assert!(!landing.counts(3, None), "cannot tell");
+        assert!(!funding.landing_over(3, Some(3)));
+        assert!(funding.arrived(700), "landed");
+        assert_eq!(funding.landing, None);
+        assert!(!funding.arrived(700), "once");
+
+        // Booked before the node heard the hub execute it.
+        let mut funding = Funding::new(0, 4_000);
+        funding.start(1, Planned::withdraw(700, 100, 0, true), payment());
+        assert!(!funding.arrived(700));
+        assert!(!funding.executed(2, payment(), 3), "landed already");
+        assert_eq!(funding.landing, None);
+
+        // Past its while, forgotten.
+        let mut funding = Funding::new(0, 4_000);
+        funding.start(1, Planned::withdraw(700, 100, 0, true), payment());
+        assert!(funding.executed(2, payment(), 3));
+        assert!(funding.landing_over(2 + CREDIT_WAIT_MS, Some(3)));
+        assert_eq!(funding.landing, None);
+
+        // A deposit's payment applying lands nothing.
+        let mut funding = Funding::new(0, 4_000);
+        funding.start(1, Planned::deposit(700, 0, true), payment());
+        assert!(!funding.executed(2, payment(), 0));
+        assert!(!funding.arrived(700));
+        assert_eq!(funding.landing, None);
     }
 
     // One at a time, done only once the counter reaches its target,

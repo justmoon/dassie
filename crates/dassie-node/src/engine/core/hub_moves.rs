@@ -18,7 +18,8 @@ use dassie_hub::member::{HubAccount, UNITS_PER_DROP};
 use dassie_ledger::{LedgerId, Name};
 use dassie_peer::MAX_OWN_HUBS;
 use dassie_settlement::{
-    ExternalAsset, LedgerStatus, OwnerMemo, OwnerPayment, OwnerPaymentState, SchemeError, policy,
+    Effect, ExternalAsset, LedgerStatus, OwnerMemo, OwnerPayment, OwnerPaymentState, SchemeError,
+    policy,
 };
 use dassie_xrpl::XrplAccount;
 
@@ -421,10 +422,28 @@ impl Core {
     /// took a state of the account, or while the hub scheme has failed, it
     /// counts as on neither ledger: the asset reads short of the move,
     /// never above what the owner holds. A withdrawal's payment applies
-    /// when the hub pays it out, which ends the move.
+    /// when the hub executes it; from then on it is landing, gone from the
+    /// hub's ledger until the owner book's account books it arriving
+    /// ([`Landing`](super::hub_funding::Landing)), or a while passed, or a
+    /// withdrawal came back to the hub, which the node cannot tell from it.
     pub(super) fn moves_on_their_way(&self) -> Vec<(LedgerId, OnItsWay)> {
         let mut moves = Vec::new();
         for (&scheme, funding) in &self.funding {
+            if let Some(landing) = funding.landing
+                && landing.counts(self.now_ms, self.hub_returned(scheme))
+                && let Some(active) = self
+                    .schemes
+                    .get(&scheme)
+                    .filter(|active| active.failed.is_none())
+            {
+                moves.push((
+                    active.scheme.ledger(),
+                    OnItsWay {
+                        held: 0,
+                        gone: u128::from(landing.drops) * u128::from(UNITS_PER_DROP),
+                    },
+                ));
+            }
             let Some(moving) = funding.moving else {
                 continue;
             };
@@ -463,6 +482,62 @@ impl Core {
             moves.push((ledger, on_its_way));
         }
         moves
+    }
+
+    /// The `returned` counter of the node's account in the hub of
+    /// `scheme`, while the account is in step with the hub: what
+    /// withdrawals the escrow could not pay brought back.
+    fn hub_returned(&self, scheme: Name) -> Option<u64> {
+        self.hub_account(scheme)
+            .filter(|account| account.is_synced())
+            .and_then(HubAccount::view)
+            .map(|(_, view)| view.returned)
+    }
+
+    /// Follows the withdrawal of each hub that is landing on its owner
+    /// book (spec/decisions/passive-rebalancing.md) by what `scheme`, on
+    /// `ledger`, booked: the hub executed the owner's payment on its way,
+    /// or the owner book booked a deposit, which may be that withdrawal
+    /// arriving ([`Funding::executed`], [`Funding::arrived`]). The prices
+    /// count it, so they are built again when it changes.
+    pub(super) fn follow_landings(&mut self, scheme: Name, ledger: LedgerId, effects: &[Effect]) {
+        let now = self.now_ms;
+        let mut changed = false;
+        if let Some(returned) = self
+            .funding
+            .contains_key(&scheme)
+            .then(|| self.hub_returned(scheme).unwrap_or(0))
+        {
+            for effect in effects {
+                if let Effect::OwnerPaid { id, applied: true } = effect
+                    && let Some(funding) = self.funding.get_mut(&scheme)
+                {
+                    changed |= funding.executed(now, *id, returned);
+                }
+            }
+        }
+        let funded: Vec<Name> = self
+            .funding
+            .keys()
+            .copied()
+            .filter(|hub| self.owner_book(*hub) == Some((scheme, ledger)))
+            .collect();
+        for effect in effects {
+            let Effect::Deposit { amount } = effect else {
+                continue;
+            };
+            if amount % UNITS_PER_DROP != 0 {
+                continue;
+            }
+            for hub in &funded {
+                if let Some(funding) = self.funding.get_mut(hub) {
+                    changed |= funding.arrived(amount / UNITS_PER_DROP);
+                }
+            }
+        }
+        if changed {
+            self.prices.due = true;
+        }
     }
 
     /// Whether a move between the hub of `scheme` and its owner book is on
@@ -1011,6 +1086,14 @@ impl Core {
         let before = funding.moving;
         if funding.follow(now, &standing) {
             self.keep_funding(scheme);
+        }
+        let returned = self.hub_returned(scheme);
+        if self
+            .funding
+            .get_mut(&scheme)
+            .is_some_and(|funding| funding.landing_over(now, returned))
+        {
+            self.prices.due = true;
         }
         self.tap_followed(scheme, before, &standing);
         let due = self

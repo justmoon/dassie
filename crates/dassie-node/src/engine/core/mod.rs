@@ -506,6 +506,9 @@ struct Prices {
     table: PriceTable,
     /// Whether what the table is built from changed since.
     due: bool,
+    /// The node's own moves on their way the table counts, by the ledger
+    /// each leaves ([`Core::moves_on_their_way`]).
+    moves: Vec<(dassie_ledger::LedgerId, dassie_connector::OnItsWay)>,
 }
 
 /// When the invariants are swept (spec/decisions/tigerstyle.md).
@@ -959,10 +962,25 @@ impl Core {
         // And while the node's own move between a hub and that book is on
         // its way, what it carries counts toward the asset, so that the
         // asset reads as it would without the move.
-        for (ledger, moving) in self.moves_on_their_way() {
+        let moves = self.moves_on_their_way();
+        for &(ledger, moving) in &moves {
             table.count_on_its_way(ledger, moving);
         }
         self.prices.table = table;
+        self.prices.moves = moves;
+    }
+
+    /// Builds the prices again now if the node's own moves on their way
+    /// are no longer what the table counts. Whoever values the owner's
+    /// funds at the table's curve from what the books hold now, as the
+    /// swap service does, adds the table's moves on their way to them: a
+    /// move that landed since the table was built, booked on the ledger it
+    /// went to, would count twice (spec/decisions/passive-rebalancing.md).
+    pub(super) fn price_if_moved(&mut self) {
+        if self.moves_on_their_way() != self.prices.moves {
+            self.prices.due = true;
+            self.price_if_due();
+        }
     }
 
     /// Checks the invariants, when a sweep is due: at every commit where
