@@ -272,13 +272,30 @@ pub enum News {
         /// Why we submitted it, if it is one of ours.
         ours: Option<Purpose>,
     },
-    /// A reduction of a hold took effect: `amount` went back to its payer.
-    /// A hold reduced to nothing closed.
+    /// A reduction of a hold took effect, before the block at `height`:
+    /// `amount` went back to its payer. A hold reduced to nothing
+    /// `closed`, and its reserve went back too.
     Reduced {
         /// The hold.
         hold: HoldNumber,
         /// What went back.
         amount: Amount,
+        /// The block it took effect at.
+        height: u64,
+        /// Whether it closed the hold.
+        closed: bool,
+    },
+    /// The payee released a hold, in the block at `height`: what was left
+    /// in it, `amount`, went back to its payer with its reserve. Told
+    /// before the operation that released it, while the hold is still
+    /// known by its parties.
+    Released {
+        /// The hold.
+        hold: HoldNumber,
+        /// What went back, besides the reserve.
+        amount: Amount,
+        /// The block it was released in.
+        height: u64,
     },
     /// What claims took and waited in a hold was paid to its payee
     /// (spec/decisions/signed-rejects.md): `sequences` above the last
@@ -1818,11 +1835,17 @@ impl HubAccount {
             let Some(amount) = mirror.apply_due(timestamp) else {
                 continue;
             };
-            if mirror.amount == 0 {
+            let closed = mirror.amount == 0;
+            if closed {
                 self.drop_hold(hold);
             }
             self.state_floor = self.state_floor.max(height);
-            self.push_news(News::Reduced { hold, amount });
+            self.push_news(News::Reduced {
+                hold,
+                amount,
+                height,
+                closed,
+            });
         }
     }
 
@@ -1839,7 +1862,7 @@ impl HubAccount {
         self.apply_due(height, timestamp);
         let ours = self.settle_ours(height, &operation, outcome);
         if matches!(outcome, Outcome::Applied { .. }) {
-            self.mirror(&operation, outcome, timestamp);
+            self.mirror(height, &operation, outcome, timestamp);
         }
         self.state_floor = self.state_floor.max(height);
         if ours.is_some() || !matches!(outcome, Outcome::Refused(_)) {
@@ -1926,7 +1949,13 @@ impl HubAccount {
     }
 
     /// Follows an applied operation on the holds it touches.
-    fn mirror(&mut self, operation: &SignedMemberOperation, outcome: Outcome, timestamp: Millis) {
+    fn mirror(
+        &mut self,
+        height: u64,
+        operation: &SignedMemberOperation,
+        outcome: Outcome,
+        timestamp: Millis,
+    ) {
         let Outcome::Applied { detail, .. } = outcome else {
             return;
         };
@@ -1962,7 +1991,7 @@ impl HubAccount {
                     }
                 }
             }
-            MemberOperation::HoldRelease { hold } => self.drop_hold(*hold),
+            MemberOperation::HoldRelease { hold } => self.released(height, *hold),
             MemberOperation::Redeem(claim) => {
                 if let Some(mirror) = self.holds.get_mut(&claim.value.hold) {
                     mirror.redeem(&claim.value, paid);
@@ -2030,6 +2059,21 @@ impl HubAccount {
     }
 
     /// Forgets hold `number`: it closed.
+    /// The payee released hold `number` in the block at `height`: what
+    /// was left in it went back to its payer, which the scheme is told
+    /// while the hold is still known by its parties.
+    fn released(&mut self, height: u64, number: HoldNumber) {
+        if let Some(mirror) = self.holds.get(&number) {
+            let amount = mirror.amount;
+            self.push_news(News::Released {
+                hold: number,
+                amount,
+                height,
+            });
+        }
+        self.drop_hold(number);
+    }
+
     fn drop_hold(&mut self, number: HoldNumber) {
         self.holds.remove(&number);
         self.strangers.remove(&number);

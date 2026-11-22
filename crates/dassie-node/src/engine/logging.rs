@@ -471,6 +471,14 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, %peer, amount, ?cause, "a peering over a hub cost more than its hold: booked as a loss");
         }
+        SettlementEvent::HoldReturned {
+            scheme,
+            peer,
+            amount,
+            incoming,
+        } => {
+            emit!(severity, target: target::SETTLEMENT, %scheme, %peer, amount, incoming, "a hold over a hub went back to its payer: its settlement undone");
+        }
         SettlementEvent::DepositFromStranger { peer, amount } => {
             emit!(severity, target: target::SETTLEMENT, %peer, amount, "a settlement from a node without accounts: booked as a deposit");
         }
@@ -577,6 +585,7 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::BalanceBooked { .. }
         | SettlementEvent::Reconciled { .. }
         | SettlementEvent::PeerLoss { .. }
+        | SettlementEvent::HoldReturned { .. }
         | SettlementEvent::DepositFromStranger { .. }
         | SettlementEvent::OtherRealm { .. }
         | SettlementEvent::Unusable { .. }

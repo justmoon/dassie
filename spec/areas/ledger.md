@@ -86,3 +86,4 @@ Asserted after every step (`ledger/invariants.rs`): every ledger balances, poste
 - [tigerstyle](../decisions/tigerstyle.md): sans-IO, bounded, asserted.
 - [own-books](../decisions/own-books.md): each node keeps its own books.
 - [own-fulfills](../decisions/own-fulfills.md): Fulfills booked as final.
+- [hold-returns](../decisions/hold-returns.md): what goes back to a hold's payer over a hub is a settlement undone, posted within the peer's limit, the rest through suspense.

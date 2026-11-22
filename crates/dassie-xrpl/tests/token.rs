@@ -112,6 +112,7 @@ impl Books {
                 panic!("an owner book settles nothing")
             }
             Effect::PeerLoss { .. } => panic!("an XRPL scheme books no peer losses"),
+            Effect::HoldReturned { .. } => panic!("an XRPL scheme has no holds"),
         }
     }
 

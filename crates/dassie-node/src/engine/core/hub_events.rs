@@ -360,7 +360,7 @@ pub fn of_news(news: &News, number: Option<u32>) -> Option<HubEventKind> {
             closing: view.closing,
         }),
         News::Unfunded => HubEventKind::Unfunded,
-        News::Reduced { hold, amount } => HubEventKind::Reduced {
+        News::Reduced { hold, amount, .. } => HubEventKind::Reduced {
             hold: hold.0,
             amount: *amount,
         },
@@ -387,7 +387,8 @@ pub fn of_news(news: &News, number: Option<u32>) -> Option<HubEventKind> {
             unread: unread.as_ref().map(|(purpose, _)| *purpose),
         },
         News::Dropped { purpose } => HubEventKind::Dropped(*purpose),
-        News::Member { .. } => return None,
+        // The operation that released it is the event.
+        News::Member { .. } | News::Released { .. } => return None,
     })
 }
 

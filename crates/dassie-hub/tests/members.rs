@@ -587,6 +587,21 @@ impl Books {
                     ReconcileCause::Unexplained => self.suspense += amount,
                 }
             }
+            Effect::HoldReturned {
+                peer,
+                amount,
+                incoming,
+                id,
+            } => {
+                assert!(self.ids.insert(id), "a return booked once");
+                let amount = if incoming {
+                    i128::from(amount)
+                } else {
+                    -i128::from(amount)
+                };
+                self.settlement += amount;
+                *self.peers.entry(peer).or_default() += amount;
+            }
             Effect::PeerLoss {
                 peer,
                 amount,
@@ -1780,6 +1795,80 @@ fn a_hold_opened_again_starts_its_records_anew() {
     assert_eq!(hold.total, 3 * P / 1_000, "only what was owed on it");
     assert_eq!(hold.amount, 2 * XRP - 3 * P / 1_000);
     assert!(world.members[a].books.losses.is_empty());
+}
+
+/// spec/areas/hubs.md#the-members-side: a payer's reduction, once it takes
+/// effect, undoes that much of the settlement that funded the hold, on
+/// both sides; one that takes the hold to nothing closes it, and its
+/// reserve comes back to the payer as the reserve's. Nothing goes through
+/// suspense, and the payee loses nothing it had taken.
+#[test]
+fn a_reduction_comes_back_as_the_settlement_it_undoes() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    let hold = world.hold(a, b).unwrap();
+    world.prepare((a, b), 1, P, 10_000).unwrap();
+    world.fulfill((a, b), 1, true, true);
+    world.run(1_000);
+    let (name_a, name_b) = (world.members[a].name, world.members[b].name);
+    let notice = world.validators.ledger.terms().timers.hold_notice;
+    // Half of it back: half the settlement undone.
+    world.raw(
+        a,
+        MemberOperation::HoldReduce {
+            hold,
+            amount: XRP / 2,
+        },
+    );
+    world.run(notice + 5_000);
+    let settled = i128::from(units(2 * XRP - XRP / 2));
+    assert_eq!(world.members[a].books.peers[&name_b], -settled);
+    assert_eq!(world.members[b].books.peers[&name_a], settled);
+    assert_eq!(world.members[b].books.suspense, 0);
+    // All of it back: only the packet stays paid.
+    world.raw(
+        a,
+        MemberOperation::HoldReduce {
+            hold,
+            amount: 2 * XRP,
+        },
+    );
+    world.run(notice + 5_000);
+    assert!(world.validators.ledger.hold(hold).is_none(), "closed");
+    let paid = i128::from(units(P / 1_000));
+    assert_eq!(world.members[a].books.peers[&name_b], -paid);
+    assert_eq!(world.members[b].books.peers[&name_a], paid);
+    assert_eq!(world.members[a].books.reserve, 0, "its reserve came back");
+    for i in [a, b] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+        assert_eq!(world.members[i].books.suspense, 0, "everything explained");
+        assert!(world.members[i].books.losses.is_empty());
+    }
+}
+
+/// spec/areas/hubs.md#the-members-side: a payee's release gives what was
+/// left in the hold back to its payer at once, with its reserve: booked as
+/// the settlement it undoes on both sides, the reserve as the reserve's.
+#[test]
+fn a_release_comes_back_as_the_settlement_it_undoes() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    let hold = world.hold(a, b).unwrap();
+    world.prepare((a, b), 1, P, 10_000).unwrap();
+    world.fulfill((a, b), 1, true, true);
+    world.run(1_000);
+    let redeemed = world.validators.ledger.hold(hold).unwrap();
+    let left = redeemed.amount;
+    world.raw(b, MemberOperation::HoldRelease { hold });
+    world.run(1_000);
+    assert!(world.validators.ledger.hold(hold).is_none(), "released");
+    let (name_a, name_b) = (world.members[a].name, world.members[b].name);
+    let paid = i128::from(units(2 * XRP - left));
+    assert_eq!(world.members[a].books.peers[&name_b], -paid);
+    assert_eq!(world.members[b].books.peers[&name_a], paid);
+    assert_eq!(world.members[a].books.reserve, 0, "its reserve came back");
+    for i in [a, b] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+        assert_eq!(world.members[i].books.suspense, 0, "everything explained");
+    }
 }
 
 /// A peer that comes back with another key for its account, or another

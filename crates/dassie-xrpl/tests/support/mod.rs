@@ -76,6 +76,7 @@ impl From<dassie_settlement::Effect> for Effect {
                 cause,
             },
             E::PeerLoss { .. } => panic!("an XRPL scheme books no peer losses"),
+            E::HoldReturned { .. } => panic!("an XRPL scheme has no holds"),
         }
     }
 }

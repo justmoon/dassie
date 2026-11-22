@@ -1,12 +1,14 @@
 //! Settlement schemes and the ledgers they serve.
 
+use std::collections::BTreeMap;
+
 use dassie_connector::EndpointId;
 use dassie_ledger::{
     AccountId, AccountName, AccountPath, LedgerId, Name, Realm, Reference, TransferSpec,
 };
 use dassie_settlement::{
-    Activation, AssetId, Detach, Effect, LedgerStatus, LossCause, SchemeError, SettlementScheme,
-    activation,
+    Activation, AssetId, Detach, Effect, LedgerStatus, LossCause, ReconcileCause, SchemeError,
+    SettlementScheme, activation,
 };
 
 use super::Core;
@@ -858,6 +860,7 @@ impl Core {
         ledger: LedgerId,
         effects: &[Effect],
     ) -> Result<(), EngineError> {
+        let effects = &self.guard_returns(ledger, effects);
         self.open_for_settlements(scheme, effects);
         let bookings = match self.check_effects(scheme, ledger, effects) {
             Ok(bookings) => bookings,
@@ -908,6 +911,7 @@ impl Core {
                         self.end_for_cheating(*peer);
                     }
                 }
+                Effect::HoldReturned { .. } => self.book_return(scheme, effect, booking),
                 Effect::Finalize { settlement: id } => self.settlement_done(scheme, *id),
                 Effect::OwnerPaid { id, applied } => self.owner_paid(scheme, *id, *applied),
                 Effect::Cancel { settlement: id } => self.settlement_cancelled(scheme, *id),
@@ -1018,11 +1022,129 @@ impl Core {
                 cause,
                 id,
             } => self.loss_transfer(scheme, ledger, settlement, *peer, *cause, *amount, *id)?,
+            // That much of the settlements that funded the hold, undone,
+            // under the scheme's ID for it: back to us from the peer, or
+            // back to the peer, within the room `guard_returns` left
+            // (spec/decisions/hold-returns.md).
+            Effect::HoldReturned {
+                peer,
+                amount,
+                incoming,
+                id,
+            } => {
+                let interledger = self.account(ledger, AccountName::AssetsInterledger(*peer))?;
+                let reference = Reference::Settlement { scheme, id: *id };
+                if *incoming {
+                    (settlement, interledger, *amount, reference)
+                } else {
+                    (interledger, settlement, *amount, reference)
+                }
+            }
             Effect::Finalize { .. } | Effect::Cancel { .. } | Effect::OwnerPaid { .. } => {
                 return Ok(None);
             }
         };
         Ok(Some(transfer))
+    }
+
+    /// Books what went back to a hold's payer over a hub, and reports it.
+    fn book_return(&mut self, scheme: Name, effect: &Effect, booking: Option<TransferSpec>) {
+        if let Effect::HoldReturned {
+            peer,
+            amount,
+            incoming,
+            ..
+        } = *effect
+        {
+            self.report(SettlementEvent::HoldReturned {
+                scheme,
+                peer,
+                amount,
+                incoming,
+            });
+            self.book(booking);
+        }
+    }
+
+    /// A scheme's effects, with each hold given back to its payer kept to
+    /// what the books can take as the settlement it undoes
+    /// (spec/decisions/hold-returns.md). Back to a peer, it debits the
+    /// peer's account, which takes no more than its credits leave room
+    /// for, as the effects before it in the batch leave them: what the
+    /// books lack room for goes out through suspense instead, as a
+    /// difference they cannot explain, so the scheme carries on and the
+    /// owner is warned. One with a peer that has no accounts on the ledger
+    /// goes through suspense whole, either way.
+    fn guard_returns(&self, ledger: LedgerId, effects: &[Effect]) -> Vec<Effect> {
+        let mut guarded = Vec::with_capacity(effects.len());
+        // What the batch so far moved each peer's account by: credits up,
+        // debits down.
+        let mut moved: BTreeMap<Name, i128> = BTreeMap::new();
+        for effect in effects {
+            match *effect {
+                Effect::HoldReturned {
+                    peer,
+                    amount,
+                    incoming,
+                    id,
+                } => {
+                    let room = self.return_room(ledger, peer, moved.get(&peer).copied());
+                    let fits = match room {
+                        None => 0,
+                        Some(_) if incoming => amount,
+                        Some(room) => amount.min(room),
+                    };
+                    if fits > 0 {
+                        guarded.push(Effect::HoldReturned {
+                            peer,
+                            amount: fits,
+                            incoming,
+                            id,
+                        });
+                        let by = if incoming {
+                            i128::from(fits)
+                        } else {
+                            -i128::from(fits)
+                        };
+                        *moved.entry(peer).or_default() += by;
+                    }
+                    if amount > fits {
+                        guarded.push(Effect::Reconcile {
+                            amount: amount - fits,
+                            gain: incoming,
+                            cause: ReconcileCause::Unexplained,
+                        });
+                    }
+                }
+                Effect::IncomingSettlement { peer, amount, .. } => {
+                    *moved.entry(peer).or_default() += i128::from(amount);
+                    guarded.push(effect.clone());
+                }
+                Effect::PeerLoss {
+                    peer,
+                    amount,
+                    cause,
+                    ..
+                } if !cause.is_fee() => {
+                    *moved.entry(peer).or_default() += i128::from(amount);
+                    guarded.push(effect.clone());
+                }
+                _ => guarded.push(effect.clone()),
+            }
+        }
+        guarded
+    }
+
+    /// How much more `peer`'s account on `ledger` can be debited, after
+    /// the batch so far `moved` it: what its posted credits leave above
+    /// its debits, posted and pending. `None` if it has no accounts there.
+    fn return_room(&self, ledger: LedgerId, peer: Name, moved: Option<i128>) -> Option<u64> {
+        let path = AccountPath::new(ledger, AccountName::AssetsInterledger(peer));
+        let balance = *self.ledger.account(self.ledger.find(&path)?)?.balance();
+        let room = i128::try_from(balance.credits_posted).unwrap_or(i128::MAX)
+            - i128::try_from(balance.debits_posted + balance.debits_pending).unwrap_or(i128::MAX)
+            + moved.unwrap_or(0);
+        Some(u64::try_from(room.max(0)).unwrap_or(u64::MAX))
     }
 
     /// What a peering over a hub cost beyond its hold: Dr `expenses/losses`,
