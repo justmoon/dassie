@@ -1,6 +1,6 @@
 # What goes back to a hold's payer is booked as the settlement it undoes, under the settlement reference
 
-**Areas:** [Settlement hubs](../areas/hubs.md#the-members-side), [Ledger](../areas/ledger.md#what-the-ledger-refuses-and-what-it-records)
+**Areas:** [Settlement hubs](../areas/hubs.md#the-members-side), [Settlement](../areas/settlement.md#the-scheme-interface), [Ledger](../areas/ledger.md#what-the-ledger-refuses-and-what-it-records)
 
 ## Facts
 
