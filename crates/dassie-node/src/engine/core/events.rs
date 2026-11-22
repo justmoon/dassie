@@ -233,6 +233,19 @@ pub enum SettlementEvent {
         /// Why.
         cause: dassie_settlement::LossCause,
     },
+    /// Over a settlement hub, what was left in a hold went back to its
+    /// payer, a reduction taking effect or the payee releasing it: booked
+    /// as that much of the settlement that funded it, undone.
+    HoldReturned {
+        /// The scheme.
+        scheme: Name,
+        /// The peer the hold was with.
+        peer: Name,
+        /// How much.
+        amount: u64,
+        /// Whether it was our hold, and came back to us.
+        incoming: bool,
+    },
     /// A node without accounts here settled with us: booked as a deposit.
     DepositFromStranger {
         /// The node.
@@ -605,6 +618,8 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::PeerSettled { .. }
         | SettlementEvent::HubEnded { .. }
         | SettlementEvent::HubLeft { .. }
+        // A peer's choice the hub carries out: expected.
+        | SettlementEvent::HoldReturned { .. }
         // The books follow what is above the reserve: a change of it is
         // expected.
         | SettlementEvent::Reconciled {

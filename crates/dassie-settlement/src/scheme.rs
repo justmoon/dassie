@@ -96,6 +96,27 @@ pub enum Effect {
         /// operation that took it: the journal books it once.
         id: Name,
     },
+    /// Over a settlement hub, what was left in a hold went back to its
+    /// payer: the payer's reduction took effect, or the payee released
+    /// the hold. It undoes that much of the settlements that funded the
+    /// hold, on both sides (spec/areas/hubs.md#the-members-side): when it
+    /// was our hold, `incoming`, it came back to us, Dr
+    /// `assets/settlement`, Cr `assets/interledger/<peer>`; when it was
+    /// the peer's hold toward us, it went back to the peer, Dr
+    /// `assets/interledger/<peer>`, Cr `assets/settlement`. The hold's
+    /// reserve, back to its payer with it, is the reserve's
+    /// reconciliation.
+    HoldReturned {
+        /// The peer the hold was with.
+        peer: Name,
+        /// How much, in internal units.
+        amount: u64,
+        /// Whether it was our hold, and came back to us.
+        incoming: bool,
+        /// What on the underlying ledger it comes from: the journal books
+        /// it once.
+        id: Name,
+    },
 }
 
 /// Why a peering over a settlement hub cost us money its hold did not

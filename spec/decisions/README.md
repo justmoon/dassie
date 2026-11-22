@@ -36,6 +36,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [hashed-signatures-in-simulations](hashed-signatures-in-simulations.md) | Simulations sign the hubs' votes, statements and key proofs with a hash, injected where they are signed and checked | testing, hubs, identity |
 | [headless-setup](headless-setup.md) | An owner who keeps the passphrase on the node's host sets the node up with `dassie setup`, through the node's own setup route | node, http, identity, overview |
 | [hold-allotment](hold-allotment.md) | A node shares what it can hold in a hub among its peers, core peers first and by what they earned it | settlement, hubs, network |
+| [hold-returns](hold-returns.md) | What goes back to a hold's payer is booked as the settlement it undoes, under the settlement reference | hubs, ledger |
 | [hub-founding](hub-founding.md) | The sponsor founds a hub over a stream of its own, and a quorum's signatures of the genesis found it | hubs, peer-protocol, designs/settlement-hubs |
 | [hub-keys-by-network](hub-keys-by-network.md) | A hub's keys name its network, and a validator validates on its owner's network | hubs, identity, node |
 | [hub-move-races](hub-move-races.md) | A withdrawal is sized as the hub scheme pays it, and a failed move backs off only its own way | hubs |

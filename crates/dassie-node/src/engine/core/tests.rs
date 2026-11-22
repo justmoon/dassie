@@ -7258,6 +7258,10 @@ mod move_races;
 // them.
 mod hold_allotment;
 
+// What went back to a hold's payer over a hub, booked as the settlement it
+// undoes.
+mod hold_returns;
+
 // What an uplink reads of a downlink's funds in its hubs, for its
 // promotion.
 mod promotion;

@@ -346,6 +346,20 @@ fn ledger_fee_id(operation: &Digest) -> Name {
     Name::new(&text).unwrap_or(hex)
 }
 
+/// The ID of what went back to its payer from `hold` in the block at
+/// `height`: a reduction taking effect, or a release, which may be in the
+/// same block, so each is booked once.
+fn returned_id(hold: HoldNumber, height: u64, released: bool) -> Name {
+    use sha2::{Digest as _, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"dassie-hub/returned");
+    hash.update(hold.0.to_be_bytes());
+    hash.update(height.to_be_bytes());
+    hash.update([u8::from(released)]);
+    let bytes: [u8; 32] = hash.finalize().into();
+    Name::hex(&bytes, false)
+}
+
 /// The ID of the owner's withdrawal `number`.
 fn withdrawal_name(number: u64) -> Name {
     Name::hex(&number.to_be_bytes(), false)
@@ -524,7 +538,7 @@ impl HubScheme {
             // and run, to be paid in by a peer
             // (spec/designs/settlement-hubs.md#5-joining).
             News::Unfunded => self.synced = true,
-            News::Reduced { .. } => {}
+            News::Reduced { .. } | News::Released { .. } => self.hold_returned(news, effects),
             News::ClaimsPaid {
                 hold,
                 sequences,
@@ -1000,6 +1014,64 @@ impl HubScheme {
                 cause: ReconcileCause::Reserve,
             });
             self.booked = self.booked.saturating_sub(reserve);
+        }
+    }
+
+    /// What was left in a hold went back to its payer: a reduction took
+    /// effect, which may have closed it, or the payee released it. It
+    /// undoes that much of the settlements that funded it: ours, back to
+    /// us, with the hold's reserve once it closed, which was never booked;
+    /// or the peer's, back to it. A hold of no peering's, a stranger's,
+    /// was never booked, and books nothing
+    /// (spec/areas/hubs.md#the-members-side).
+    fn hold_returned(&mut self, news: &News, effects: &mut Vec<Effect>) {
+        let (hold, amount, closed, id) = match *news {
+            News::Reduced {
+                hold,
+                amount,
+                height,
+                closed,
+            } => (hold, amount, closed, returned_id(hold, height, false)),
+            News::Released {
+                hold,
+                amount,
+                height,
+            } => (hold, amount, true, returned_id(hold, height, true)),
+            _ => return,
+        };
+        let amount = units(amount);
+        if let Some(peer) = self.payee_of(hold) {
+            if amount > 0 {
+                effects.push(Effect::HoldReturned {
+                    peer,
+                    amount,
+                    incoming: true,
+                    id,
+                });
+                self.booked = self.booked.saturating_add(amount);
+            }
+            if closed {
+                let reserve = units(self.terms.fees.hold_reserve);
+                effects.push(Effect::Reconcile {
+                    amount: reserve,
+                    gain: true,
+                    cause: ReconcileCause::Reserve,
+                });
+                self.booked = self.booked.saturating_add(reserve);
+            }
+        } else if let Some(peer) = self.payer_of(hold) {
+            // The books hold the peer's hold toward us: never less, but
+            // what they lack the account's state reconciles.
+            let amount = amount.min(self.booked);
+            if amount > 0 {
+                effects.push(Effect::HoldReturned {
+                    peer,
+                    amount,
+                    incoming: false,
+                    id,
+                });
+                self.booked -= amount;
+            }
         }
     }
 
