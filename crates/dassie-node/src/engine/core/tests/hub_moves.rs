@@ -293,13 +293,14 @@ impl Hub {
     /// The stamp of the block at the current height.
     /// The hub executes `withdrawal` of the node's for no fee, giving it
     /// escrow sequence 1, in a new final block in which the node's account
-    /// 5 holds `balance`, its counters at `(deposited, withdrawn)`.
+    /// 5 holds `balance`, its counters at `(deposited, withdrawn,
+    /// returned)`.
     fn withdrew(
         &mut self,
         core: &mut Core,
         withdrawal: dassie_hub::operation::SignedMemberOperation,
         balance: u64,
-        (deposited, withdrawn): (u64, u64),
+        (deposited, withdrawn, returned): (u64, u64, u64),
     ) {
         use dassie_hub::client::{AccountView, Statement};
         use dassie_hub::ledger::{Detail, Outcome};
@@ -315,7 +316,7 @@ impl Hub {
             closing: false,
             deposited,
             withdrawn,
-            returned: 0,
+            returned,
         };
         let stamp = self.stamp();
         let statements = [
@@ -1238,34 +1239,13 @@ fn xrp_worth(core: &Core) -> u64 {
 // from the asset.
 #[test]
 fn a_withdrawal_landing_moves_no_price() {
-    use dassie_hub::operation::MemberOperation;
-
-    let (mut ledger, own) = super::funded_ledger();
-    let mut hub = Hub::with_terms(SCHEME_ID, TESTNET.id, Asset::Xrp, |terms| {
-        terms.fees.ledger = 0;
-    });
-    let balance = 50_000_000;
-    let store = Arc::new(Store::open_in_memory().unwrap());
-    let mut core = xrp_hub_and_dollars(store, &mut ledger, &mut hub, balance);
-    let before = (prices(&core), xrp_worth(&core));
-
     // The owner withdraws: held in the hub until it executes.
-    let drops = 20_000_000;
-    core.begin_step(core.now_ms() + 1_000);
-    core.hub_withdraw_from(SCHEME_ID, drops * UNITS_PER_DROP)
-        .unwrap();
-    let mut outputs = Vec::new();
-    core.finish_step(&mut outputs);
-    let sent = submitted(&outputs);
-    let withdrawal = sent
-        .iter()
-        .find(|signed| matches!(signed.operation, MemberOperation::Withdraw { .. }))
-        .unwrap()
-        .clone();
+    let (balance, drops) = (50_000_000, 20_000_000);
+    let (mut core, mut hub, own, mut ledger, withdrawal, before) = withdrawing(balance, drops);
     assert_eq!((prices(&core), xrp_worth(&core)), before, "held");
 
     // The hub executes it, and the account shows it gone: landing.
-    hub.withdrew(&mut core, withdrawal, balance - drops, (balance, drops));
+    hub.withdrew(&mut core, withdrawal, balance - drops, (balance, drops, 0));
     core.finish_step(&mut Vec::new());
     let in_hub = core.price_table().ledger(LedgerId::HubXrplTestnetXrp);
     assert_eq!(
@@ -1285,6 +1265,59 @@ fn a_withdrawal_landing_moves_no_price() {
     super::close_xrpl(&mut core, &mut ledger);
     assert!(core.moves_on_their_way().is_empty(), "landed");
     assert_eq!((prices(&core), xrp_worth(&core)), before, "landed");
+}
+
+/// [`xrp_hub_and_dollars`] with no ledger fee, so that a move takes
+/// nothing from the asset, and the owner's withdrawal of `drops` from its
+/// `balance` sent to the hub: the core, the hub, the XRPL account the hub
+/// pays out to, its ledger, the withdrawal, and the prices and what the
+/// node's swaps value XRP at before it.
+fn withdrawing(
+    balance: u64,
+    drops: u64,
+) -> (
+    Core,
+    Hub,
+    dassie_xrpl::AccountId,
+    FakeLedger,
+    dassie_hub::operation::SignedMemberOperation,
+    (Vec<dassie_connector::Price>, u64),
+) {
+    use dassie_hub::operation::MemberOperation;
+
+    let (mut ledger, own) = super::funded_ledger();
+    let mut hub = Hub::with_terms(SCHEME_ID, TESTNET.id, Asset::Xrp, |terms| {
+        terms.fees.ledger = 0;
+    });
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = xrp_hub_and_dollars(store, &mut ledger, &mut hub, balance);
+    let before = (prices(&core), xrp_worth(&core));
+    core.begin_step(core.now_ms() + 1_000);
+    core.hub_withdraw_from(SCHEME_ID, drops * UNITS_PER_DROP)
+        .unwrap();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let withdrawal = submitted(&outputs)
+        .into_iter()
+        .find(|signed| matches!(signed.operation, MemberOperation::Withdraw { .. }))
+        .unwrap();
+    (core, hub, own, ledger, withdrawal, before)
+}
+
+// Found in review: a node that catches up on its hub reads the execution of
+// its withdrawal together with a newer state of its account, in which the
+// escrow could not pay it out and it came back, `returned` grown by it. The
+// landing counts a return from the account's `returned` when the move
+// started, before the hub can have executed it: it never counts what came
+// back, so the asset never reads above what the owner holds.
+#[test]
+fn a_withdrawal_read_with_its_return_never_lands() {
+    let (balance, drops) = (50_000_000, 20_000_000);
+    let (mut core, mut hub, _, _, withdrawal, before) = withdrawing(balance, drops);
+    hub.withdrew(&mut core, withdrawal, balance, (balance, drops, drops));
+    core.finish_step(&mut Vec::new());
+    assert!(core.moves_on_their_way().is_empty(), "back in the hub");
+    assert_eq!((prices(&core), xrp_worth(&core)), before, "counted once");
 }
 
 // Found by peer_swaps.rs, which failed now and then: the swap service

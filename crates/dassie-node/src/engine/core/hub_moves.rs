@@ -503,17 +503,11 @@ impl Core {
     pub(super) fn follow_landings(&mut self, scheme: Name, ledger: LedgerId, effects: &[Effect]) {
         let now = self.now_ms;
         let mut changed = false;
-        if let Some(returned) = self
-            .funding
-            .contains_key(&scheme)
-            .then(|| self.hub_returned(scheme).unwrap_or(0))
-        {
-            for effect in effects {
-                if let Effect::OwnerPaid { id, applied: true } = effect
-                    && let Some(funding) = self.funding.get_mut(&scheme)
-                {
-                    changed |= funding.executed(now, *id, returned);
-                }
+        for effect in effects {
+            if let Effect::OwnerPaid { id, applied: true } = effect
+                && let Some(funding) = self.funding.get_mut(&scheme)
+            {
+                changed |= funding.executed(now, *id);
             }
         }
         let funded: Vec<Name> = self
@@ -1379,10 +1373,14 @@ impl Core {
         let id = self.pay_owner(pays, &payment)?;
         self.hold_owner_payment(pays, id, payment.amount, fee);
         let now = self.now_ms;
+        // A withdrawal's landing counts a return from here, before the hub
+        // can have executed it; moves start only while the account is in
+        // step, so the counter is known.
+        let returned = self.hub_returned(scheme);
         let funding = self.funding.get_mut(&scheme);
         assert!(funding.is_some(), "the hub's funding outlives its payment");
         if let Some(funding) = funding {
-            funding.start(now, planned, id);
+            funding.start(now, planned, id, returned);
         }
         self.keep_funding(scheme);
         if let Some(moving) = self.funding.get(&scheme).and_then(|funding| funding.moving) {
@@ -2119,7 +2117,7 @@ mod tests {
         let mut funding = Funding::new(0, 4_000);
         funding.automatic = false;
         let planned = Planned::deposit(5_000, 7, true);
-        funding.start(10, planned, Name::new("pay-1").unwrap());
+        funding.start(10, planned, Name::new("pay-1").unwrap(), None);
         funding.given_up = Some((Direction::Withdraw, 9));
         let kept = row(&funding);
         let back = restored(20, 4_000, (false, Some(7_000)), &kept).unwrap();
@@ -2190,7 +2188,7 @@ mod tests {
         fundings
             .get_mut(&xrp)
             .unwrap()
-            .start(1, planned, Name::new("pay-1").unwrap());
+            .start(1, planned, Name::new("pay-1").unwrap(), None);
         assert_eq!(fundings[&xrp].due(2, &low), None, "one on its way");
         assert!(fundings[&dsusd].due(2, &low).is_some(), "the other's own");
         fundings
@@ -2203,7 +2201,7 @@ mod tests {
         fundings
             .get_mut(&dsusd)
             .unwrap()
-            .start(4, owner, Name::new("out-1").unwrap());
+            .start(4, owner, Name::new("out-1").unwrap(), None);
         assert!(fundings[&dsusd].paused_until_ms > 4);
         assert_eq!(fundings[&xrp].paused_until_ms, 0, "a pause is per hub");
     }
