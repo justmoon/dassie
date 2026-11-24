@@ -2439,9 +2439,9 @@ rec {
       };
       "cookie" = rec {
         crateName = "cookie";
-        version = "0.18.2";
+        version = "0.18.3";
         edition = "2018";
-        sha256 = "11rg5wdxnqy4hfa771zyd1hiw59mb7pg1llnlkg3q73908v3wdqs";
+        sha256 = "12jzc4ihcd1dabk7xfga55b8kcdbsjal7gcqdxf7vv7f61n2spym";
         authors = [
           "Sergio Benitez <sb@sergio.bz>"
           "Alex Crichton <alex@alexcrichton.com>"
